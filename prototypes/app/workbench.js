@@ -128,6 +128,11 @@
       line.append(mark(), element('span', '', reply.text));
       turn.append(line);
     }
+    // 插问解释或依据时，当前请求仍可继续；把仍有效的选项放到最新回复下方。
+    if (reply.choices?.length || !thread.state?.waitingUntil) {
+      thread.choices?.remove();
+      thread.choices = null;
+    }
     if (reply.choices?.length) {
       const choices = element('div', 'choices');
       for (const label of reply.choices) {
@@ -136,18 +141,15 @@
         button.addEventListener('click', () => submitMessage(label));
         choices.append(button);
       }
-      turn.append(choices);
       thread.choices = choices;
     }
+    if (thread.choices) turn.append(thread.choices);
     thread.flow.append(turn);
   }
 
   function addTurn(thread, text) {
     const {state, reply} = QueryDemo.next(thread.state, text);
     thread.flow.querySelector('.empty')?.remove();
-    // 旧追问保留原文。选项只针对当前这一步，避免点击旧答案污染当前意图。
-    thread.choices?.remove();
-    thread.choices = null;
     thread.flow.append(element('div', 'bubble', text));
     thread.state = state;
     appendReply(thread, reply);

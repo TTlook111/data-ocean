@@ -8,4 +8,12 @@
 
 截图存于 `output/playwright/workbench-interactive/`。全页比较见 `visual-comparison.jpg`，可核对 `desktop.png`、`expanded.png`、`clarification.png` 和 `mobile-details.png` 的交互状态。
 
-final result: passed
+## 店长追问复测
+
+在 ego-lite 新建问数，用“扣掉是什么意思？”追问口径后，两个选择仍可点选。点“按售出盒数算”和直接输入“按卖出去的算，按天列”均得到上周售出 1,200 盒。
+
+回复“扣掉退货，只看周末两天”得到 382 盒，展开可核对周六 196 盒、周日 186 盒。接着把上周改成本周，仍看周末时为 277 盒。换题查库存后，再展开旧回答仍显示当次查询的日期和数值。390 × 844 窄屏下，两行明细和输入框均在视口内。
+
+“今天的酸奶库存”得到 96 盒，接问“那它上周的净销量呢？”会说明缺少酸奶销量记录。指定酸奶和豆奶得到两行库存，合计 168 盒。
+
+修复前的操作记录在 `output/playwright/workbench-manager-audit/`，复测截图在 `output/playwright/workbench-manager-fix/`。对话规则可运行 `node --test prototypes/app/tests/dialogue.test.cjs` 复查。

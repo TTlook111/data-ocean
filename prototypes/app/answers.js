@@ -67,16 +67,17 @@
     }
     const body = table.createTBody();
     const isSales = result.type === 'sales';
-    const peak = isSales ? Math.max(0, ...result.rows.map(row => row.net)) : 0;
+    const metricColumn = isSales ? ['date', 'sold', 'returned', 'net'].indexOf(salesFields[result.metric]) : -1;
+    const peak = isSales ? Math.max(0, ...rows.map(row => row[metricColumn])) : 0;
     for (const row of rows) {
       const tr = body.insertRow();
-      if (isSales && peak > 0 && row[3] === peak) tr.className = 'qa-peak';
+      if (isSales && peak > 0 && row[metricColumn] === peak) tr.className = 'qa-peak';
       const heading = isSales ? dateHeading(row[0]) : element('th', '', row[0]);
       heading.scope = 'row';
       tr.append(heading);
       for (let i = 1; i < row.length; i += 1) {
         const cell = tr.insertCell();
-        if (isSales && i === 3) {
+        if (i === metricColumn) {
           const content = element('span', 'qa-bar-value');
           const track = element('span', 'qa-track');
           track.setAttribute('aria-hidden', 'true');

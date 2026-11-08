@@ -12,6 +12,8 @@
     { name: '盒装酸奶', stock: 96 },
     { name: '盒装豆奶', stock: 72 }
   ];
+  const stockNames = stock.map(item => item.name);
+  const metricChoices = ['扣掉退货', '按售出盒数算'];
   const periods = {
     '上周': ['2026-10-26', '2026-11-01'],
     '本周': ['2026-11-02', TODAY],
@@ -30,28 +32,83 @@
     net
   }));
 
-  function choosePeriod(text, previousPeriod) {
+  function namedWeekdays(text) {
+    const days = new Set();
+    if (text.includes('周末')) { days.add(6); days.add(0); }
+    if (text.includes('工作日')) for (let day = 1; day <= 5; day++) days.add(day);
+    for (const [list] of text.matchAll(/周[一二三四五六日天](?:\s*[、和与及跟至到]\s*周?[一二三四五六日天])*/g)) {
+      let from;
+      for (const [, separator, name] of list.matchAll(/([、和与及跟至到])?\s*周?([一二三四五六日天])/g)) {
+        const to = '一二三四五六日'.indexOf(name.replace('天', '日')) + 1;
+        const range = separator === '至' || separator === '到';
+        if (range && from > to) return null;
+        for (let day = range ? from : to; day <= to; day++) days.add(day % 7);
+        from = to;
+      }
+    }
+    return days;
+  }
+
+  const excludedWeekdaysPattern = /(?:不(?:用|要)?(?:再)?(?:看|查|算|含|包括)|别(?:再)?(?:看|查)|排除|去掉)\s*(?:([上本这])个?)?((?:周末|工作日|周[一二三四五六日天])(?:\s*[、和与及跟至到]\s*(?:周末|工作日|周?[一二三四五六日天]))*)/g;
+
+  function choosePeriod(input, previous) {
+    // 排除某几个星期几时要从候选日期中减掉它们。单独否定“上周”只是更正周次。
+    const exclusions = [];
+    const excludedWeeks = new Set();
+    const normalized = input.replace(/星期|礼拜/g, '周').replace(
+      excludedWeekdaysPattern,
+      (_, week, dates) => {
+        if (week) excludedWeeks.add(week === '上' ? '上周' : '本周');
+        exclusions.push(dates);
+        return '';
+      });
+    // “把上周改成本周”“改成本周，不看上周了”都只取这次要查的范围。
+    const positive = normalized.replace(/(?:不(?:用|要)?(?:再)?(?:看|查|算)|别(?:再)?(?:看|查)|不是)\s*(?:(?:上上|[上这本下])?个?周(?:末|[一二三四五六日天])?|[前今昨明后]天)/g, '');
+    const changes = positive.split(/(?:改为|换为|改到|换到|改查|改看)\s*(?=(?:[上这本下整全]|工作日|周|星期|礼拜|[前今昨明后]天|\d))/);
+    const text = changes.at(-1);
     // 先识别演示外的范围，避免把“上上周”或“上个月”误当成已有周记录。
     if (/上上周|下周|下星期|上个?月|下个?月|本月|这个月|今年|去年|明年|半年|季度|明天|后天|最近\s*[\d一二三四五六七八九十]+\s*[天周个月]/.test(text)) {
       return { unavailable: true };
     }
     const date = text.match(/(?:(20\d{2})[-/.年])?(\d{1,2})[-/.月](\d{1,2})(?:日|号)?/);
+    if (exclusions.length && (date || /前天|昨天|昨日|今天|今日/.test(text))) {
+      return { message: '这次同时指定了单日和按星期排除的条件。请直接说明要查的日期。' };
+    }
     if (date) {
       const iso = (date[1] || '2026') + '-' + date[2].padStart(2, '0') + '-' + date[3].padStart(2, '0');
       if (text.includes('至') || /到\s*(?:20\d{2}[-/.年])?\d{1,2}[-/.月]/.test(text)) return { unavailable: true };
       return { period: iso };
     }
-    const week = /上(?:个)?(?:周|星期|礼拜)/.test(text) ? '上周'
-      : /(?:本|这)(?:个)?(?:周|星期|礼拜)/.test(text) ? '本周' : null;
-    const weekday = text.match(/(?:周|星期|礼拜)([一二三四五六日天])/);
-    if (weekday) {
-      const previousWasLastWeek = previousPeriod === '上周' || (previousPeriod >= periods['上周'][0] && previousPeriod <= periods['上周'][1]);
-      const base = week || (previousWasLastWeek ? '上周' : '本周');
-      const offset = '一二三四五六日'.indexOf(weekday[1].replace('天', '日'));
-      const start = Date.parse(periods[base][0] + 'T00:00:00Z');
-      return { period: new Date(start + offset * 86400000).toISOString().slice(0, 10) };
+    const lastWeek = /上个?周/.test(text);
+    const thisWeek = /[本这]个?周/.test(text);
+    if (lastWeek && thisWeek) return { message: '当前示例一次可查一周。请分别提问，例如“上周牛奶净销量是多少”和“本周牛奶净销量是多少”。' };
+    const week = lastWeek ? '上周' : thisWeek ? '本周' : null;
+    const days = namedWeekdays(text);
+    const excluded = namedWeekdays(exclusions.join(' '));
+    if (!days || !excluded) return { message: '这段时间跨周了，请分别指定要查的周和日期。' };
+    const wholeWeek = /整(?:个)?周|全周|(?:全部|一周)[七7]天|全部日期/.test(text);
+    if (week || days.size || excluded.size || wholeWeek) {
+      const old = previous?.period;
+      const previousWasLastWeek = old === '上周' || (old >= periods['上周'][0] && old <= periods['上周'][1]);
+      if (excludedWeeks.size > 1 || (week && excludedWeeks.size && !excludedWeeks.has(week))) {
+        return { message: '查询范围和排除的日期跨了两周。请指定同一周内要统计的日期。' };
+      }
+      const base = week || Array.from(excludedWeeks)[0] || (previousWasLastWeek ? '上周' : '本周');
+      const keepDays = !wholeWeek && (excluded.size ? !week && !excludedWeeks.size :
+        /改为|改到|换为|改看|改查|其他.*不变|照旧|^那.{0,4}周呢/.test(input));
+      let selected = days.size ? Array.from(days).sort((a, b) => (a + 6) % 7 - (b + 6) % 7)
+        : keepDays ? previous?.weekdays : null;
+      if (excluded.size) {
+        selected = (selected || [1, 2, 3, 4, 5, 6, 0]).filter(day => !excluded.has(day));
+        if (!selected.length) return { message: '按这些条件筛选后，没有可统计的日期。请重新指定要查的几天。' };
+      }
+      if (selected?.length === 1) {
+        const monday = Date.parse(periods[base][0] + 'T00:00:00Z');
+        const offset = (selected[0] + 6) % 7;
+        return { period: new Date(monday + offset * 86400000).toISOString().slice(0, 10), weekdays: selected };
+      }
+      return { period: base, weekdays: selected || null };
     }
-    if (week) return { period: week };
     if (/前天/.test(text)) return { period: '前天' };
     if (/昨天|昨日/.test(text)) return { period: '昨天' };
     if (/今天|今日|当前|现在/.test(text)) return { period: '今天' };
@@ -60,29 +117,28 @@
 
   function chooseMetric(text) {
     // 否定与纠正优先，例如“不扣退货”必须走售出数量。
-    if (/(?:不(?:要|用|必|再|需)?|别|无需|不需要)\s*(?:再)?(?:扣|减)|不计退货|不考虑退货|售出盒数|毛销量|原始销量/.test(text)) return 'gross';
+    if (/(?:不(?:要|用|必|再|需)?|别|无需|不需要)\s*(?:再)?(?:扣|减)|不计退货|不考虑退货/.test(text)) return 'gross';
     if (/净销量|净售出|净销售量|扣(?:除|减|掉|退货)|减(?:掉|去)退货|不含退货|^扣[。，！!\s]*$/.test(text)) return 'net';
     if (/退货(?:量|数量|盒数|明细)|退了多少|退回.*多少|只看退货/.test(text)) return 'returns';
+    if (/售出盒数|毛销量|原始销量|(?:按|就算|只算|只看)(?:实际)?(?:卖出|售出)|(?:卖出(?:去)?|售出)的(?:都算|全算)/.test(text)) return 'gross';
     return null;
   }
 
-  function unsupportedSubject(text) {
-    // 只在常见销售/库存句式中抽取商品名。无法匹配的商品不套用牛奶样例。
+  function unknownProduct(text) {
+    // 检查商品所在的位置，避免把“酸奶和燕麦奶”缩成有示例的那一项。
     const afterUnit = text.match(/(?:多少|几)盒(?:的)?([\u4e00-\u9fff]+?)(?:[，。？！,?!\s]|$)/);
-    if (afterUnit) {
-      const name = afterUnit[1].replace(/[呢呀啊吗吧啦了]+$/, '');
-      if (name && !stock.some(item => item.name === name || item.name.slice(2) === name)) return true;
-    }
-    const head = text.match(/^(.*?)(?:卖了|卖出|售出|(?:毛|净)?销量|销售数量|销售量|库存)/);
-    if (!head) return false;
-    const subject = head[1]
-      .replace(/^(?:不|不用|是的|对)[，,]\s*|另问(?:一题)?|换个问题|我想问(?:一下)?|你好|您好|可以|能否|它的|它|这种/g, '')
+    const head = text.match(/^(.*?)(?:卖了|卖出|售出|(?:毛|净)?销量|销售数量|销售量|总?库存|存货|还剩|还有(?:多少|几)盒)/);
+    const list = /[、和与及跟]/.test(text) && stockNames.some(name => text.includes(name.slice(2)));
+    const mentioned = afterUnit?.[1].replace(/[呢呀啊吗吧啦了]+$/, '') || head?.[1] || (list && !head ? text : '');
+    return mentioned
+      .replace(/星期|礼拜/g, '周').replace(excludedWeekdaysPattern, '')
+      .replace(/^(?:不|不用|是的|对)[，,]\s*|另问(?:一题)?|换个问题|我想问(?:一下)?|你好|您好|可以|能否|它们?|这(?:一|两|几)?[款种]|这些|那几款|同一款|该商品/g, '')
       .replace(/(?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}[日号]?/g, '')
-      .replace(/(?:上|本|这)(?:个)?(?:周|星期|礼拜)[一二三四五六日天]?|[昨今]天|今日|昨日|前天|现在|(?:周|星期|礼拜)[一二三四五六日天]/g, '')
-      .replace(/本店|城南店|我们店|我店|这家店|本门店|店里/g, '')
+      .replace(/(?:上|本|这)?(?:个)?(?:周|星期|礼拜)(?:末|[一二三四五六日天](?:\s*[、和与及跟至到]\s*(?:周|星期|礼拜)?[一二三四五六日天])*)?|[昨今]天|今日|昨日|前天|现在|工作日|两天/g, '')
+      .replace(/其[他余](?:条件)?(?:不变|照旧)|条件不变|本店|城南店|我们店|我店|这家店|本门店|店里|全店|所有|全部|总库存/g, '')
       .replace(/请问|能不能|麻烦|帮我|给我|我想|想要|知道|统计|查询|怎么|改为|按天|按日|顺便|算了|一下|每日|每天|看看|查看|了解|还有多少|有多少|还剩|一共|到底|合计|只看|盒装牛奶|牛奶|盒装酸奶|酸奶|盒装豆奶|豆奶/g, '')
-      .replace(/[，,。！？!\s的把先再看查那呢换成改为扣掉按毛净算请]/g, '');
-    return subject.length > 0;
+      .replace(/实际|商品|退货|以及|还有|分别|一共|两款|几款|两种|这两天|列出|列/g, '')
+      .replace(/[，,。！？?!、\s的把先再看查那呢换成改为扣掉按毛净算请和与及跟]/g, '');
   }
 
   function next(previous, input, now = Date.now()) {
@@ -90,6 +146,19 @@
     const text = String(input || '').trim().replace(/改成|换成/g, '改为');
     const notice = (message, state = previous) => ({ state, reply: { kind: 'notice', text: message } });
     if (!text) return notice('请输入想查的问题。');
+    const expired = previous?.waitingUntil != null && now >= previous.waitingUntil;
+    const pendingMetric = previous?.topic === 'sales' && previous.waitingUntil != null && previous.period && !previous.metric;
+    // 员工可以先了解口径；解释不会替员工选择，也不会延长当前问题的有效期。
+    const asksDefinition = /(?:什么|啥)(?:意思|区别|差别|不同)|怎么(?:理解|算|计算)|有何(?:区别|不同)|区别在哪|有区别吗|解释一下/.test(text);
+    const mentionsMetric = /扣|退货|卖出|售出|销量|口径|算法|这两[种个]/.test(text);
+    if (previous?.topic === 'sales' && asksDefinition && (mentionsMetric || (pendingMetric && /^(?:这|是|有|怎么|什么|啥|解释)/.test(text)))) {
+      const explanation = '例如卖出 10 盒、退回 2 盒，“扣掉退货”算 8 盒，“按售出盒数算”算 10 盒。';
+      if (!pendingMetric) return notice(explanation);
+      const state = expired
+        ? { ...previous, request: previous.request + 1, relatedRequest: previous.request, waitingUntil: now + WAIT_MS }
+        : previous;
+      return { state, reply: { kind: 'clarify', text: explanation + '你想按哪种算？', choices: metricChoices } };
+    }
     if (/谁提供|数据来源|数据.*(?:哪来|哪里来|从哪)|查询依据|怎么算的|怎么计算的/.test(text)) {
       return notice('这里使用城南店经营数据的离线示例。每条回答的“查看依据”可核对统计范围和采用的口径。');
     }
@@ -97,7 +166,7 @@
       return notice('这次问数已结束。', null);
     }
     const namedStores = text.match(/[\u4e00-\u9fffA-Za-z0-9]{1,8}店/g) || [];
-    const otherStore = namedStores.some(store => !/(城南|本|本门|我|我们|我们门|这|这家|现有门|当前门)店$/.test(store));
+    const otherStore = namedStores.some(store => !/(城南|本|本门|我|我们|我们门|这|这家|全|现有门|当前门)店$/.test(store));
     if (otherStore || /全市|所有门店|全部门店|其他门店|别的店/.test(text)) {
       return notice('当前示例可查城南店的数据。');
     }
@@ -106,43 +175,50 @@
     }
     // 优先理解员工明确改口后的表达，同时保留同一句中另外补充的分组条件。
     const corrected = text.replace(/(?:不是|不要查|别查|不查|不看)[^，,。]+[，,]\s*(?:是|要查|改查|看)?/g, '');
-    const topic = /库存|存货|还剩多少/.test(corrected) ? 'inventory'
-      : /销量|销售数量|销售量|销售情况|卖了|卖出|售出|退货(?:量|数量|盒数|明细)|退了多少/.test(corrected) ? 'sales' : null;
     let metric = chooseMetric(corrected);
     if (!metric && previous?.topic === 'sales' && previous.period && !previous.metric) {
       const firstClause = corrected.split(/[，,。！!\s]/)[0];
       if (/^(?:扣|要扣|要|是|是的|对|要扣除|扣吧)[吧了]*$/.test(firstClause)) metric = 'net';
       if (/^(?:不用|不要|不|不用扣|否|不扣|不必)[了]*$/.test(firstClause)) metric = 'gross';
     }
-    const periodChange = choosePeriod(corrected, previous?.period);
+    const sales = /销量|销售数量|销售量|销售情况|卖了|卖出|售出|退货(?:量|数量|盒数|明细)|退了多少/.test(corrected);
+    const topic = /库存|存货/.test(corrected) ? 'inventory'
+      : (sales || metric) ? 'sales'
+      : /还剩|还有(?:多少|几)盒/.test(corrected) ? 'inventory' : null;
+    const periodChange = choosePeriod(text, previous);
+    if (periodChange.message) return notice(periodChange.message);
     if (periodChange.unavailable) return notice('销售示例覆盖 10 月 26 日至 11 月 8 日，库存示例为 11 月 8 日快照。');
     const daily = /按天|每天|每日|逐日|分天|按日|分日|趋势/.test(text);
-    const totalOnly = /只(?:看|要|算|查)(?:合计|总数|总量)|不(?:用|要|必)?(?:再)?按[天日]|合计就行/.test(text);
+    const totalOnly = /只(?:看|要|算|查)(?:合计|总数|总量)|的(?:合计|总数|总量)|不(?:用|要|必)?(?:再)?按[天日]|合计就行/.test(text);
     const peak = /(?:哪|几)[天日].*(?:最[多少高低])|(?:最[多少高低]).*(?:哪|几)[天日]/.test(text);
-    const product = stock.find(item => corrected.includes(item.name.slice(2)));
-    if (unsupportedSubject(corrected) || /咖啡|面包|饮料|水果|啤酒|鸡蛋|苹果|饼干|矿泉水|巧克力|饺子|大米/.test(text)) {
-      return notice('当前示例包含盒装牛奶的销售数据，以及牛奶、酸奶和豆奶的今日库存。');
-    }
-    const wantedTopic = topic || (metric ? 'sales' : previous?.topic);
-    if (!wantedTopic || !(topic || metric || periodChange.period || daily || totalOnly || peak || product)) {
+    const namedProducts = stock.filter(item => corrected.includes(item.name.slice(2))).map(item => item.name);
+    const unknown = unknownProduct(corrected) || corrected.match(/咖啡|面包|饮料|水果|啤酒|鸡蛋|苹果|饼干|矿泉水|巧克力|饺子|大米/)?.[0];
+    if (unknown) namedProducts.push(unknown);
+    const allProducts = /全店|所有商品|全部商品|所有的商品|所有库存|全部库存|各(?:种|款)?商品|总库存/.test(corrected);
+    const wantedTopic = topic || previous?.topic;
+    if (!wantedTopic || !(topic || periodChange.period || daily || totalOnly || peak || namedProducts.length || allProducts)) {
       return notice('可以试试“本店上周牛奶卖了多少盒？”或“今天库存还有多少？”');
-    }
-    if (wantedTopic === 'sales' && product && product.name !== '盒装牛奶') {
-      return notice('销售示例仅覆盖城南店盒装牛奶；今天的库存也包含酸奶和豆奶。');
     }
 
     const switched = wantedTopic !== previous?.topic;
-    const expired = previous?.waitingUntil != null && now >= previous.waitingUntil;
-    const explicitRestart = /另问|换个问题|重新查|算了[，, ]*先/.test(text);
-    const independent = switched || expired || explicitRestart || previous.waitingUntil == null;
+    const explicitRestart = /另问|换个问题|重新查|算了[，, ]*(?:先|改|换|看|查)/.test(text);
+    const independent = switched || expired || explicitRestart || previous?.waitingUntil == null;
     const linked = !switched && !explicitRestart;
+    // 换指标时“它”仍指上轮的商品；明确另起一题时，仅带入这句话点名的范围。
+    const refersBack = /它|这(?:一|几|两)?[款种]|这些|那几款|同一款|该商品/.test(corrected);
+    const followsUp = /^(?:那|改看|改查|换看|换查)/.test(corrected);
+    const inheritedProducts = (linked || refersBack || (followsUp && !explicitRestart)) && previous?.products;
+    const products = namedProducts.length ? namedProducts
+      : allProducts ? stockNames
+      : inheritedProducts || (wantedTopic === 'inventory' ? stockNames : ['盒装牛奶']);
     const state = {
       request: independent ? (previous?.request || 0) + 1 : previous.request,
       topic: wantedTopic,
       period: periodChange.period || (linked ? previous?.period : null) || (wantedTopic === 'inventory' ? '今天' : null),
+      weekdays: periodChange.period ? periodChange.weekdays : (linked ? previous?.weekdays : null),
       metric: wantedTopic === 'inventory' ? 'stock' : metric || (linked ? previous?.metric : null),
       group: daily && !totalOnly ? 'day' : totalOnly ? 'total' : (linked ? previous?.group : null) || 'total',
-      product: wantedTopic === 'sales' ? '盒装牛奶' : product?.name || ((linked || /它|这种/.test(corrected)) ? previous?.product : null),
+      products,
       waitingUntil: null
     };
     // 过期答复可带入本次仍明确适用的业务条件，但使用新的请求编号。
@@ -154,23 +230,37 @@
     };
 
     if (wantedTopic === 'inventory') {
+      const missingStock = state.products.filter(name => !stockNames.includes(name));
+      if (missingStock.length) return notice('当前示例没有' + missingStock.join('、') + '的库存记录。今天可查牛奶、酸奶和豆奶。', state);
       if (!['今天', TODAY].includes(state.period)) return notice('当前库存示例只有 11 月 8 日的快照。可以直接说“改看今天”。', state);
       if (daily && !totalOnly) return notice('当前示例只提供今天的库存快照，无法按日列出库存趋势。', state);
-      const rows = stock.filter(item => !state.product || item.name === state.product).map(item => ({ ...item }));
+      const rows = stock.filter(item => state.products.includes(item.name)).map(item => ({ ...item }));
       const value = rows.reduce((sum, row) => sum + row.stock, 0);
-      const scope = STORE + ' · ' + (state.product || '示例商品');
-      return { state, reply: { kind: 'answer', text: '统计城南店当前可见的示例商品，按盒计量。', result: {
+      const wholeStore = rows.length === stock.length;
+      const names = rows.map(item => item.name.slice(2));
+      const subject = wholeStore ? '示例商品' : names.join('和');
+      const scope = STORE + ' · ' + (wholeStore ? '示例商品' : state.products.join('、'));
+      return { state, reply: { kind: 'answer', text: '按 11 月 8 日城南店的库存快照统计。', result: {
         type: 'inventory', metric: 'stock', value, unit: '盒', rows, scope, period: '2026.11.08',
-        group: 'total', title: '今天库存共 ' + numbers.format(value) + ' 盒。',
+        group: 'total', title: '今天' + subject + '库存' + (rows.length > 1 ? '共 ' : ' ') + numbers.format(value) + ' 盒。',
         basis: '按 11 月 8 日的示例库存快照汇总各商品实物数量。', stamp: '11/08 09:42'
       } } };
     }
 
+    const missingSales = state.products.filter(name => name !== '盒装牛奶');
+    if (missingSales.length) {
+      if (missingSales.some(name => !stockNames.includes(name))) {
+        return notice('当前示例没有' + missingSales.join('、') + '的销量记录。可以改查牛奶销量。', state);
+      }
+      const reference = state.products.length === 1 ? '它' : '这些商品';
+      return notice('当前示例没有' + missingSales.join('、') + '的销量记录。可以查' + reference + '今天的库存，或改查牛奶销量。', state);
+    }
     if (!state.period) return clarify('你想查哪段时间的牛奶销量？', ['上周', '本周', '今天']);
-    const [start, end] = periods[state.period] || [state.period, state.period];
-    const rows = ledger.filter(row => row.date >= start && row.date <= end).map(row => ({ ...row }));
+    const [rangeStart, rangeEnd] = periods[state.period] || [state.period, state.period];
+    const rows = ledger.filter(row => row.date >= rangeStart && row.date <= rangeEnd &&
+      (!state.weekdays || state.weekdays.includes(new Date(row.date + 'T00:00:00Z').getUTCDay()))).map(row => ({ ...row }));
     if (!rows.length) return notice('这段时间超出了当前示例范围。可以改查上周或本周。', state);
-    if (!state.metric) return clarify('退货的要扣掉吗？', ['扣掉退货', '按售出盒数算']);
+    if (!state.metric) return clarify('退货的要扣掉吗？', metricChoices);
 
     const columns = { net: 'net', gross: 'sold', returns: 'returned' };
     const labels = { net: '净售出', gross: '售出', returns: '退货' };
@@ -178,8 +268,16 @@
     const returned = rows.reduce((sum, row) => sum + row.returned, 0);
     const key = columns[state.metric];
     const value = rows.reduce((sum, row) => sum + row[key], 0);
-    const period = start === end ? start.replaceAll('-', '.') : start.replaceAll('-', '.') + ' — ' + end.slice(5).replace('-', '.');
-    const periodLabel = state.period.includes('-') ? start.slice(5).replace('-', '/') : state.period;
+    const start = rows[0].date;
+    const end = rows.at(-1).date;
+    const consecutive = (Date.parse(end) - Date.parse(start)) / 86400000 + 1 === rows.length;
+    const period = consecutive && rows.length > 1 ? start.replaceAll('-', '.') + ' — ' + end.slice(5).replace('-', '.')
+      : rows.map((row, i) => (i ? row.date.slice(5) : row.date).replaceAll('-', '.')).join('、');
+    let periodLabel = state.period.includes('-') ? start.slice(5).replace('-', '/') : state.period;
+    if (state.weekdays?.length > 1) {
+      const names = state.weekdays.join(',');
+      periodLabel += names === '6,0' ? '末' : names === '1,2,3,4,5' ? '工作日' : '的' + state.weekdays.map(day => '周' + weekdays[day]).join('、');
+    }
     const basis = {
       net: '按业务日统计售出盒数，扣除同期间退货盒数。',
       gross: '按业务日统计售出盒数，未扣除退货。',
