@@ -179,19 +179,4 @@ class PromptPolicyPersistenceTest {
         dto.setSource("MANAGED");
         assertThatThrownBy(() -> invocations.record(dto)).isInstanceOf(BusinessException.class);
     }
-
-    @Test void migrationAddsOnlyUnapprovedDraftsAndPreservesExistingApprovedContent() throws Exception {
-        jdbc.execute("DROP TABLE prompt_invocation");
-        try (var connection = jdbc.getDataSource().getConnection()) {
-            org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(connection,
-                new org.springframework.core.io.ClassPathResource("db/migration/V72__prompt_scene_invocations.sql"));
-        }
-        var added = service.getTemplate("schema_linking");
-        assertThat(added.getActiveVersion()).isZero();
-        assertThat(added.getCurrentVersion()).isEqualTo(1);
-        assertThat(added.getStatus()).isEqualTo("DRAFT");
-        assertThat(added.getEnabled()).isFalse();
-        assertThat(service.validatePolicy("schema_linking", added.getContent()).userPreview()).contains("合成测试变量");
-        assertThat(service.getActiveContent("field_semantic")).isEqualTo("旧策略 {{input}}");
-    }
 }

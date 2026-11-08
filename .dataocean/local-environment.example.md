@@ -13,7 +13,7 @@
 
 - Java 17: `<path-or-command>`
 - Maven: `<absolute-path-to-mvn-or-mvn.cmd>`
-- Node.js: `<version-and-command>`; follow the [current runtime requirements](../docs/development/本地开发与验证.md#工具与配置).
+- Node.js: `<version-and-command>`
 - npm: `<path-or-command>`
 - Python 3.13 / uv: `<path-or-command>`
 

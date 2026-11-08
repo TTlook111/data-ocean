@@ -1,71 +1,17 @@
-# 查询审计与数据血缘
+# 011 查询审计与数据血缘
 
-> 状态：现行模块与代码导航；核对日期：2026-11-01。行为边界与定位在此维护，运行结论见[项目现状](../项目现状.md)及[验收索引](../acceptance/README.md)。
->
-> 返回[功能导航](README.md)。本页不授权执行配置写入、供应商测试或数据变更。
+审计记录回答一次查询使用了哪些数据、产生多少行受保护结果。血缘模块分别管理查询实际使用的表和列，以及目录中维护的实体关系。
 
-## 查询审计
+## 查询追溯
 
-| 修改意图 | 文件与定位符号 | 关联影响 |
+| 环节 | 现有行为 | 源码入口 |
 | --- | --- | --- |
-| 审计写入、查询、慢查询与统计 | [AuditLogServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/AuditLogServiceImpl.java)：`recordCommittedAudit`、`listAuditLogsInDatasources`、`getAuditLogDetail`、`listSlowQueriesInDatasources`、`getStatsInDatasources` | 负责源裁剪、分页与真实统计口径。 |
+| 提交后生成追溯记录 | 任务结果先落库。监听器在事务提交后触发投影，定时扫描补处理仍为 `PENDING` 的任务。投影持任务行锁，复核同一任务的受保护尝试、SQL 哈希、权限修订、元数据快照及来源明细。写审计、写血缘和更新投影标记在一个独立事务内完成，失败时回滚后重试。 | [投影与事务](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionService.java) · [监听与恢复](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionWorker.java) |
+| 查询审计 | 行数取自受保护结果数组。管理员可在有权的数据源范围查询执行记录、精确详情、慢查询和汇总统计。 | [审计接口](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/controller/AuditLogController.java) · [写入、查询与统计](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/AuditLogServiceImpl.java) · [查询分析页](../../frontend/src/views/admin/audit/QueryAnalysisView.vue) |
+| 表列使用与影响分析 | 将表使用、列使用和输出列来源写入查询血缘索引。影响分析按数据源、表及可选列统计已留存追溯的任务，按任务去重，并返回近期明细、覆盖起点和该源的待投影数。 | [读取接口](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/controller/LineageController.java) · [索引写入与影响分析](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageServiceImpl.java) · [查询来源明细](../../frontend/src/views/admin/audit/QueryLineageEvidence.vue) |
 
-查询结果处理与审计接口分别接入 AuditLogServiceImpl；修改统计前核对 S1 与历史任务的实际口径。模型返回成功不代表 SQL、业务结果或人工验收成功。后台操作日志另见[平台模块](010-platform-operations.md#通知与操作日志)。
+## 目录实体关系
 
-提交审计的 row_count 由同任务已保护结果数组计算，空数组记录 0；缺失、格式错误或非数组不记作成功空集，投影事务失败后保留待恢复状态。旧行数缺失记录不自动回填为已验证证据。系统联调另核对 API 数量/实际数组、PROTECTED 数量/数组与审计数量一致。
+目录血缘支持按表或字段查看关系图，新增、批量新增和删除关系。增强图按起点、深度、类型和可见数据源展开。查询使用索引独立保存，因此表在一次 SQL 中一起出现不会自动生成一条加工关系。[关系管理接口](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/controller/LineageEdgeController.java) · [写入与图遍历](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageEdgeServiceImpl.java) · [血缘图页面](../../frontend/src/views/admin/audit/DataLineage.vue)
 
-## 实体血缘与图谱
-
-| 修改意图 | 文件与定位符号 | 关联影响 |
-| --- | --- | --- |
-| 新增、删除、批量与增强图谱 | [LineageEdgeServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageEdgeServiceImpl.java)：`createLineage`、`deleteLineage`、`batchCreateLineage`、`getEnrichedLineage` | 实体归属、关系类型、级联与范围。 |
-| 图谱加载、节点与深链 | [DataLineage.vue](../../frontend/src/views/admin/audit/DataLineage.vue)：`loadGraph`、`loadEntityLineage`、`syncFocusToUrl`、`requestDelete`、`confirmDelete`、`handleAnalyzeImpact` | datasourceId + entityId、范围切换与请求结果。 |
-| 表/列查询血缘与影响分析 | [LineageServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageServiceImpl.java)：`saveProtectedLineage`、`queryTableLineage`、`queryColumnLineage`、`analyzeImpact` | 按受保护尝试写查询使用与输出来源索引，不桥接物理数据流。 |
-
-DataLineage.vue 组合实体增强血缘与相关查询接口；LineageEdgeController 管理关系写入，LineageController 提供查询血缘读取/影响分析。先按关系来源选链路，不能把两套存储入口当作同一流程。
-
-S1 的[QueryTraceProjectionService](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionService.java)持任务行锁，在提交后独立事务中写审计、使用/输出来源索引及完成标记。[QueryTraceProjectionWorker](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionWorker.java)监听提交后通知并有限批次恢复未完成任务；旧 columnDerivations/FROM→JOIN 桥接入口已移除。来源、任务/尝试/hash、幂等及事务边界见[查询来源与投影合同](011-audit-lineage.md#提交后投影与恢复)。
-
-影响分析按可见数据源和表/列名统计已完成追溯的成功受保护 S1 任务，独立 COUNT(DISTINCT task) 不受 100 行明细上限影响，近期任务去重。响应包含最早记录、当前数据源待处理数量和覆盖提示；没有快照/时间过滤，未补证旧记录不计入，零记录不表示没有影响。主图和实体展开统一接管请求及 loading，旧增强结果与失败不覆盖当前范围；兼容的一跳响应不冒充所请求的增强深度；影响读取也隔离旧响应。实际页面及业务覆盖见[验收索引](../acceptance/README.md)。
-
-## 提交后投影与恢复
-
-- 完成回调只接纳同任务、同 attemptId/hash 的 PROTECTED 尝试，使用其受保护字段、数据和来源。仅成功的 PROCESSING→COMPLETED 转换通知投影；零行 CAS、重复回调和主事务回滚不产生成功投影。
-- 权威来源与 PENDING 标记同结果一起提交。投影独立事务持任务行锁，审计、使用/输出来源索引及 COMPLETED 标记一起提交，任一步失败全回滚并保留待处理。完成与尝试操作保持任务→尝试的锁序。
-- 提交后通知丢失或进程中断由有界批次扫描补偿；坏任务不阻断其他任务，不重新执行 SQL。幂等与待处理恢复不等于任意基础设施故障下物理恰好一次投递。
-- COUNT(*) 保留真实表依赖及无列来源标记，常量输出也不伪造字段。过滤、连接、分组、排序等使用来源与结果列派生分别记录，不向参与 JOIN 的物理表凭空制造数据流边。
-
-## 已确认血缘的知识来源
-
-表级 LINEAGE 与字段级 DERIVED_FROM 按真实端点、类型、来源快照及完整依赖校验。正文与 source_fingerprint 由同一份当前关系记录生成；相同 ID 的端点、内容、确认或绑定变化使旧引用失效。任务冻结 lineage_refs_json，在构建、派发、授权、执行、保护与完成阶段重验，不补造旧证明或切换在途 build。
-
-实体图中的 ETL 类型录入不表示自动接入外部 ETL 引擎；跨源图追溯不授权跨库问数。已确认血缘事实的真实模型召回、真实业务口径和未覆盖故障仍按验收范围独立核对。
-
-## 测试与验证入口
-
-- [AuditLogServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/audit/service/impl/AuditLogServiceImplTest.java)：查询审计。
-- [LineageEdgeServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/audit/service/impl/LineageEdgeServiceImplTest.java)：实体关系写入与图谱。
-- [DataLineage.test.ts](../../frontend/src/views/admin/audit/DataLineage.test.ts)：血缘界面。
-
-修改后分别验证源范围、实体 ID/字段 ID 区别、关系删除、空图与失败提示。[QueryTraceProjectionIntegrationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionIntegrationTest.java)另覆盖真实 H2/Spring 事务代理下的提交、回滚、并发幂等、恢复和超过 100 个任务的统计。实际 MySQL、模型、权限变更及浏览器闭环仍分别验收。
-
-运行方法统一见[本地开发与验证](../development/本地开发与验证.md)。
-
-
-## 前端工作面与边界（2026-10-29）
-
-| 正式入口／组件 | 工作面 |
-| --- | --- |
-| `/admin/assets/lineage`／`DataLineage.vue`、`useD3LineageGraph.ts`、`lineageContext.ts` | 精确对象图、字段关系和查询使用；根实体真实源须核验，错误不回落首表。 |
-| `AddLineageDialog.vue`、`lineageWriteTracker.ts` | 两端manage、完整列映射、写前精确确认和未知目标锁；QUERY标记不等于某次SQL JOIN。 |
-| `QueryLineageEvidence.vue` | 精确源/表/可选字段、影响总数、独立明细和覆盖；没有快照/时间过滤，执行成功不等于投影完成或业务正确。 |
-| `/query`／`QueryAnswer.vue` | 每条回答按需展示真实attempt/hash/快照/build白名单；不展示原始trace或编造投影状态，SQL/CSV/历史继续受保护重读。 |
-| `/admin/operations/queries`／`QueryAnalysisView.vue`及审计抽屉 | 当前活跃Tab的统计、筛选/分页和精确记录；慢查询只支持有权源合并分页，原SQL按需再次读审计详情。 |
-
-操作日志是独立全局operation-log:view，不与查询audit:view合并；当前页行内详情、服务端总数、按需历史参数与未知耗时等合同见[平台模块](010-platform-operations.md#操作审计前端)。没有新增默认SQL暴露、独立日志详情/导出或全量聚合接口。
-
-血缘页分关系图谱与查询使用/输出来源。图谱明确结构FOREIGN_KEY、加工LINEAGE来源标记及字段DERIVED_FROM；字段查询明细没有aliasName时是使用记录，有aliasName时才是输出来源，表级类型为USAGE。源级覆盖时间/待投影数不是对象级统计。不存在的精确实体或无效URL不回退首表/偏好源；有精确实体时可只凭lineage:view直接读取并核验根源，metadata:view仅用于目录/搜索/录入辅助。
-
-删除先显示级联选择确认，确认后只发一次DELETE，不把有副作用的删除接口当预检查。平行边按唯一关系ID操作；创建检查当前两表列归属、不丢不完整映射。切身份/IAM/源及A→B→A按代次隔离；未知写只以内存目标锁防重复，不能代替后端幂等与列归属校验。问数依据只展示真实DTO的attempt/hash/快照/build白名单，不把缺少的投影状态编造成已完成。页面验证见[血缘与审计V2](../archive/2026-10-29-统一跨页终验V2.md#v2-d6)。
-
-查询分析只挂载当前Tab。审计源选项来自S1的audit负责源摘要；显式非法/无权源不退全部，普通关键词筛选不解除错误源。统计只按源+近30天，与列表筛选分开；旧审计行也在其口径内。慢查询接口只支持当前有权源合并分页，不能假装传单源过滤。SQL默认收起，在审计/慢查询对应的精确记录详情中按需再次读取，维持audit:view的实际源服务端校验，不误加普通问数SQL功能码。普通问数SQL/CSV/历史的任务归属与当前权限校验不变；数字queryTaskId不拼公开taskId。详情失败按冻结审计id重试，关闭/筛选/身份变化及旧回包隔离。
+已确认的表级 `LINEAGE` 和字段级 `DERIVED_FROM` 可作为知识事实。知识服务用当前关系生成正文、完整依赖和来源指纹，后续校验可识别快照或端点变化导致的失效引用。[血缘事实与来源校验](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/LineageFactService.java)

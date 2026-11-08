@@ -1,5 +1,5 @@
 # 仅启动本地开发基础设施；Java、Python（uv）和 Vue 在宿主机运行。
-# 先复制 .env.example 为 .env 并填写三个密码，详见 README.md。
+# 从 .env.example 填写本机密码和可选的应用库名。
 name: ${COMPOSE_PROJECT_NAME:-dataocean}
 
 services:
@@ -8,7 +8,8 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在根目录 .env 中设置 MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: dataocean
+      # 仅在首次初始化空数据卷且显式指定库名时创建应用库。
+      MYSQL_DATABASE: ${DB_NAME:-}
       MYSQL_USER: dataocean
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
       TZ: Asia/Shanghai
@@ -22,7 +23,7 @@ services:
         - CMD-SHELL
         - >-
           MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=tcp
-          -h 127.0.0.1 -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}" -Nse 'SELECT 1'
+          -h 127.0.0.1 -u "$${MYSQL_USER}" $${MYSQL_DATABASE:+--database="$${MYSQL_DATABASE}"} -Nse 'SELECT 1'
       interval: 10s
       timeout: 5s
       retries: 20

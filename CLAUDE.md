@@ -1,3 +1,3 @@
-# CLAUDE.md
+# DataOcean
 
-先完整读取根目录 [AGENTS.md](AGENTS.md)，再按其任务导航进入[现行文档](docs/README.md)。修改前端时同时读取 [frontend/CLAUDE.md](frontend/CLAUDE.md)。共享规则、状态与验证要求只在对应入口维护。
+本项目处于开发期整体重构阶段。先读 [AGENTS.md](AGENTS.md) 确认当前阶段与约束，再按需查看[现有模块实现说明](docs/modules)。新方案经评审并完成 HTML 原型后才确定技术栈和新表结构。重构各模块时可直接删除旧实现，无需兼容旧接口或数据。

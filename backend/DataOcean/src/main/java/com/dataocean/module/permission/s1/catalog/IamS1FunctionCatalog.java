@@ -120,9 +120,7 @@ public final class IamS1FunctionCatalog {
             "lineage:view", "lineage:manage");
 
     /**
-     * B0 标为「源/全」的混合码：同一功能在“术语关联了数据源”时按源校验、
-     * 未关联时按全局校验。**语义已于批次 5 定稿**（见
-     * `docs/modules/007-iam-s1.md`「固定功能目录」）：
+     * 术语功能按对象与数据源的关联情况确定授权范围。
      *
      * <ul>
      *   <li>术语/术语表**未关联任何数据源**时只校验功能，不推导任何数据源权限；</li>
@@ -143,7 +141,7 @@ public final class IamS1FunctionCatalog {
         GLOBAL,
         /** 必须解析资源归属并在同一绑定上校验“功能 + 负责源”。 */
         RESOURCE,
-        /** “源/全”未定语义，注解框架拒绝使用。 */
+        /** 按术语关联的数据源确定具体范围。 */
         MIXED
     }
 
