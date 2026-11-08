@@ -80,7 +80,7 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-detail-wrap > .ap-detail { border: 1px solid var(--ap-line); border-radius: 10px; overflow: clip; }
 
 .ap-detail, .ap-empty { min-width: 0; background: #fff; overflow-wrap: anywhere; }
-.ap-detail { margin: 0 auto; max-width: 860px; }
+.ap-detail { display: block; padding: 0; margin: 0 auto; max-width: 860px; text-align: start; }
 .ap-sheet-head { padding: 28px var(--ap-gutter) 17px; }
 
 .ap-detail-id { display: flex; align-items: center; gap: 10px; min-height: 24px; }
@@ -152,6 +152,14 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-error:empty { display: none; }
 .ap-review .ap-error { margin-inline: 0; }
 .ap-grant { margin-block: 13px; }
+.ap-outcome .ap-grant {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 19px 28px; margin-top: 18px;
+}
+.ap-grant > .ap-field-pair { display: block; }
+.ap-grant > .ap-field-pair:first-child { grid-column: 1 / -1; }
+.ap-grant dt { margin-bottom: 5px; }
+.ap-grant dd { font-size: 15px; line-height: 1.6; }
 .ap-result-text { margin: 8px 0 0; color: var(--ap-text); font-size: 15px; line-height: 1.75; }
 .ap-log { padding: 5px var(--ap-gutter); border-top: 1px solid var(--ap-line); background: #fff; }
 .ap-log summary {
@@ -159,12 +167,17 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   max-width: 100%; list-style: none; color: var(--ap-muted); font-size: 13px; cursor: pointer;
 }
 .ap-log[open] summary svg { transform: rotate(90deg); }
-.ap-log ol { margin: 0 0 15px; padding-left: 22px; color: var(--ap-text); font-size: 13px; }
-.ap-log li + li { margin-top: 7px; }
-.ap-log time, .ap-log-actor { margin-inline-end: 8px; }
+.ap-log ol { margin: 3px 0 19px; padding: 0; list-style: none; color: var(--ap-text); font-size: 14px; }
+.ap-log li { padding: 3px 0 3px 15px; border-inline-start: 2px solid #e4e9f1; }
+.ap-log li + li { margin-top: 17px; }
+.ap-log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; font-size: 12px; }
 .ap-log time { color: var(--ap-muted); font-variant-numeric: tabular-nums; }
 .ap-log-actor { font-weight: 550; }
+.ap-log-text { margin: 4px 0 0; line-height: 1.7; }
 .ap-request-context .ap-facts { padding: 5px 0 17px; }
+.ap-request-context .ap-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; }
+.ap-request-context .ap-field-pair { display: block; }
+.ap-request-context .ap-field-pair dd { margin-top: 5px; }
 .ap-detail-wrap { width: 100%; max-width: 780px; margin-inline: auto; }
 .ap-back { display: inline-flex; margin: -6px 0 7px -9px; padding-inline: 9px; color: var(--ap-muted); font-size: 13px; font-weight: 450; }
 .ap-back svg { transform: rotate(180deg); }
@@ -238,6 +251,8 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   .ap-term select, .ap-reason textarea { font-size: 16px; }
   .ap-actions { margin-top: 16px; }
   .ap-log summary { min-height: 44px; }
+  .ap-outcome .ap-grant, .ap-request-context .ap-info-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .ap-log-meta { row-gap: 3px; }
   .ap-back { margin-block: -5px 8px; }
 }
 @media (prefers-reduced-motion: no-preference) {

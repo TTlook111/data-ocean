@@ -10,7 +10,11 @@
     const designs = ['#1', '#2', '#3'];
     const entry = flowViews.includes(location.hash) ? '项目运行图.html'
       : designs.includes(location.hash) ? 'visual-directions/index.html' : 'app/index.html';
-    location.replace(entry + location.search + location.hash);
+    const target = new URL(entry, location.href);
+    target.search = location.search;
+    if (entry === 'app/index.html') target.searchParams.set('prototype', 'admin-review-20261108');
+    target.hash = location.hash;
+    location.replace(target.href);
   </script>
 </head>
 <body><a href="app/index.html">问数工作台</a> · <a href="后台管理/index.html">后台管理</a> · <a href="visual-directions/index.html">视觉选稿</a> · <a href="项目运行图.html">项目运行图</a></body>

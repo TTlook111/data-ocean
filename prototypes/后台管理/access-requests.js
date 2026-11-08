@@ -73,13 +73,15 @@
     const list = el('ol');
     for (const event of item.events) {
       const row = el('li');
+      const meta = el('div', 'ap-log-meta');
       if (event.at) {
         const time = el('time', '', dateFormat.format(event.at));
         time.dateTime = new Date(event.at).toISOString();
-        row.append(time);
+        meta.append(time);
       }
-      if (event.actor) row.append(el('span', 'ap-log-actor', event.actor));
-      row.append(el('span', '', event.text));
+      if (event.actor) meta.append(el('span', 'ap-log-actor', event.actor));
+      if (meta.childElementCount) row.append(meta);
+      row.append(el('p', 'ap-log-text', event.text));
       list.append(row);
     }
     history.append(list);
