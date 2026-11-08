@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>问数工作台 · DataOcean</title>
+  <link rel="icon" href="assets/dataocean-mark.png">
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="answers.css">
+  <script defer src="icons.js"></script>
+  <script defer src="dialogue.js"></script>
+  <script defer src="answers.js"></script>
+  <script defer src="workbench.js"></script>
+</head>
+<body>
+  <div class="screen">
+    <aside class="side" id="sidebar" aria-label="问数会话">
+      <div class="brand">
+        <img src="assets/dataocean-mark.png" alt=""><span lang="en">DataOcean</span>
+        <button type="button" class="sidebar-close" aria-label="关闭会话导航"><i data-icon="x"></i></button>
+      </div>
+      <button type="button" class="new" id="new-chat"><i data-icon="square-pen"></i>新建问数 <span class="key" aria-hidden="true">＋</span></button>
+      <button type="button" class="finder" id="find-chat" aria-expanded="false" aria-controls="history-filter"><i data-icon="search"></i>搜索对话</button>
+      <input class="search-box" id="history-filter" type="search" placeholder="按标题查找" aria-label="按标题搜索对话" hidden>
+      <nav class="history-list" id="history" aria-label="最近的对话"></nav>
+      <div class="profile">
+        <span class="face">周</span><div><strong>周店长</strong><small>城南店</small></div>
+        <details class="profile-more">
+          <summary aria-label="更多原型入口"><i data-icon="ellipsis"></i></summary>
+          <div><a href="../项目运行图.html">项目运行图</a><a href="../visual-directions/index.html">视觉选稿</a></div>
+        </details>
+      </div>
+    </aside>
+    <button class="scrim" type="button" aria-label="收起会话导航" tabindex="-1" hidden></button>
+    <main class="main" id="workspace">
+      <header class="bar">
+        <div class="crumb">
+          <button class="menu-toggle" type="button" aria-label="打开会话导航" aria-expanded="false" aria-controls="sidebar"><i data-icon="menu"></i></button>
+          <span>问数工作台</span><i data-icon="chevron-right"></i><b id="thread-title">牛奶净销量</b>
+        </div>
+        <div class="source" aria-label="当前数据源为经营数据，门店为城南店"><i data-icon="database"></i>经营数据<span class="line"></span>城南店</div>
+      </header>
+      <section class="transcript" id="transcript" aria-label="当前对话记录" tabindex="0"></section>
+      <footer class="composer-area">
+        <form class="composer" id="composer">
+          <textarea id="message" rows="1" aria-label="提问、补充或修改条件" placeholder="继续提问，也可以补充或修改条件…"></textarea>
+          <div class="compose-tools"><span class="scope-pill"><i data-icon="database"></i>经营数据</span><button type="submit" class="send" aria-label="发送消息" title="发送消息（Enter）" disabled><i data-icon="arrow-up"></i></button></div>
+        </form>
+        <p class="sample">示例数据 · 城南店牛奶销售与库存</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

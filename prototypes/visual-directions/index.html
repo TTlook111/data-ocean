@@ -64,10 +64,14 @@
       .caption { margin-top: 18px; }
       .context { font-size: 12px; }
     }
+    @media (max-width: 460px) {
+      header { gap: 10px; padding-inline: 12px; }
+      header .context { display: none; }
+    }
   </style>
 </head>
 <body>
-  <header><span class="brand" lang="en">DataOcean</span><span class="context">原型评审</span><a class="flow" href="../项目运行图.html">项目运行图</a></header>
+  <header><span class="brand" lang="en">DataOcean</span><span class="context">原型评审</span><a class="flow" href="../app/index.html">试用问数工作台</a><a href="../项目运行图.html">项目运行图</a></header>
   <main>
     <aside>
       <h1>问数工作台</h1>
