@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DataOcean 原型</title>
   <script>
-    // 统一入口跟随当前已交付的运行图，并保留指定的专题位置。
-    location.replace('项目运行图.html' + location.search + location.hash);
+    // 已有流程深链继续打开对应专题，其余入口进入当前视觉选稿。
+    const flowViews = ['#overview', '#knowledge', '#query', '#access'];
+    const entry = flowViews.includes(location.hash) ? '项目运行图.html' : 'visual-directions/index.html';
+    location.replace(entry + location.search + location.hash);
   </script>
-  <noscript><meta http-equiv="refresh" content="0; url=项目运行图.html"></noscript>
 </head>
-<body><a href="项目运行图.html">打开项目运行图</a></body>
+<body><a href="visual-directions/index.html">问数工作台视觉选稿</a> · <a href="项目运行图.html">项目运行图</a></body>
 </html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>问数工作台 · 视觉选稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      color: #202b37;
+      background: #f5f6f7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    a { color: inherit; }
+    header {
+      display: flex; align-items: center; gap: 14px;
+      height: 57px; padding: 0 clamp(16px, 3vw, 50px);
+      background: #fff; border-bottom: 1px solid #dfe4e7;
+    }
+    .brand { font-weight: 680; font-size: 19px; letter-spacing: -.055em; }
+    .context { color: #5a6370; font-size: 13px; padding-left: 14px; border-left: 1px solid #d7dce0; }
+    .flow { margin-left: auto; font-size: 13px; }
+    header a, .full { text-underline-offset: 4px; }
+    main {
+      max-width: 1750px; margin: auto;
+      padding: clamp(18px, 2.6vw, 45px) clamp(16px, 3vw, 50px);
+      display: grid; grid-template-columns: minmax(185px, 220px) minmax(0, 1fr);
+      align-items: start; gap: clamp(18px, 2.8vw, 48px);
+    }
+    h1 { font-size: clamp(21px, 1.8vw, 28px); letter-spacing: -.055em; margin: 0; }
+    .intro { font-size: 13px; color: #626c77; line-height: 1.7; margin: 6px 0 20px; }
+    nav { display: grid; gap: 12px; }
+    .choice {
+      display: block; padding: 7px; text-decoration: none;
+      background: transparent; border: 1px solid transparent; border-radius: 10px;
+    }
+    .choice:hover { background: #eef0f2; }
+    .choice[aria-current="true"] { background: white; border-color: #6089b4; }
+    .choice img {
+      width: 100%; aspect-ratio: 8/5; display: block;
+      border: 1px solid #e0e4e7; border-radius: 4px;
+    }
+    .choice span { display: block; font-size: 13px; margin: 7px 3px 2px; }
+    .choice[aria-current="true"] span { color: #195581; font-weight: 650; }
+    .caption { display: flex; gap: 12px; align-items: baseline; margin: 5px 0 14px; }
+    h2 { font-size: 18px; letter-spacing: -.035em; margin: 0; }
+    .full { margin-left: auto; white-space: nowrap; font-size: 13px; color: #41556b; }
+    figure { margin: 0; }
+    .image-link { display: block; cursor: zoom-in; }
+    #artboard {
+      display: block; width: 100%; height: auto; aspect-ratio: 8/5;
+      border: 1px solid #d7dde2; box-shadow: 0 5px 24px #2436470b;
+    }
+    figcaption { color: #485866; font-size: 14px; line-height: 1.7; margin-top: 13px; }
+    a:focus-visible { outline: 3px solid #256aaa; outline-offset: 3px; }
+    @media (max-width: 800px) {
+      main { display: block; padding: 15px; }
+      nav { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .intro { margin: 4px 0 8px; }
+      .choice { padding: 4px; }
+      .choice span { margin: 4px 1px 2px; font-size: 12px; }
+      .caption { margin-top: 18px; }
+      .context { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header><span class="brand" lang="en">DataOcean</span><span class="context">原型评审</span><a class="flow" href="../项目运行图.html">项目运行图</a></header>
+  <main>
+    <aside>
+      <h1>问数工作台</h1>
+      <p class="intro">三份静态视觉稿，使用同一组示例数据。</p>
+      <nav aria-label="选择视觉方向">
+        <a class="choice" href="direction-1.png" data-id="1" data-note="对话从上到下连续阅读，趋势图直接出现在回答里，底部输入框用于继续追问。" aria-current="true"><img src="direction-1.png" alt=""><span>1 · 对话优先</span></a>
+        <a class="choice" href="direction-2.png" data-id="2" data-note="已完成的问答收进一页分析手记，销量、扣减口径和一周走势一起阅读。" ><img src="direction-2.png" alt=""><span>2 · 分析手记</span></a>
+        <a class="choice" href="direction-3.png" data-id="3" data-note="左侧保留对话和输入框，右侧逐日列出售出、退货和净售出，适合边追问边核数。"><img src="direction-3.png" alt=""><span>3 · 对话核账</span></a>
+      </nav>
+    </aside>
+    <section aria-label="当前视觉稿">
+      <div class="caption"><h2 id="heading">1 · 对话优先</h2><a class="full" href="direction-1.png" target="_blank" rel="noopener">查看原图 ↗</a></div>
+      <figure>
+        <a class="image-link" href="direction-1.png" target="_blank" rel="noopener">
+          <img id="artboard" src="direction-1.png" width="2160" height="1350" alt="对话优先视觉稿原图">
+        </a>
+        <figcaption id="note" aria-live="polite">对话从上到下连续阅读，趋势图直接出现在回答里，底部输入框用于继续追问。</figcaption>
+      </figure>
+    </section>
+  </main>
+  <script>
+    const choices = Array.from(document.querySelectorAll('.choice'));
+    const heading = document.getElementById('heading');
+    const artboard = document.getElementById('artboard');
+    const note = document.getElementById('note');
+
+    // 编号与图片一一对应，浏览器前进、后退和带编号的链接都能回到同一稿。
+    function showDirection() {
+      const selected = choices.find(item => '#' + item.dataset.id === location.hash) || choices[0];
+      const name = selected.querySelector('span').textContent;
+      const file = selected.getAttribute('href');
+      for (const choice of choices) {
+        if (choice === selected) choice.setAttribute('aria-current', 'true');
+        else choice.removeAttribute('aria-current');
+      }
+      heading.textContent = name;
+      note.textContent = selected.dataset.note;
+      artboard.src = file;
+      artboard.alt = name + '，查看原尺寸静态稿';
+      for (const link of document.querySelectorAll('.full, .image-link')) link.href = file;
+      document.title = name + ' · 问数工作台视觉选稿';
+    }
+    for (const choice of choices) {
+      choice.addEventListener('click', event => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        location.hash = choice.dataset.id;
+      });
+    }
+    window.addEventListener('hashchange', showDirection);
+    showDirection();
+  </script>
+</body>
+</html>
