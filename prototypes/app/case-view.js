@@ -1,11 +1,9 @@
-/* 每张事项卡跟随原问题。店长的操作和原型用的负责人演示各有入口。 */
+/* 每张事项卡跟随原问题。访问申请交由审批页办理，口径事项保留本地演示入口。 */
 (() => {
   'use strict';
 
   let sequence = 0;
   const simulation = {
-    pending: [['approve', '匹配范围并通过审批'], ['reject', '驳回申请']],
-    approved: [['activate', '执行授权并生效'], ['activate-fail', '执行校验失败']],
     processing: [['publish', '候选回归通过并发布'], ['explain', '无需修改，回告核查结论']],
     published: [['verify', '复验通过并回告'], ['fail', '复验未过，退回处理']]
   };
@@ -126,7 +124,11 @@
     const details = disclosure('case-records', '查看处理记录', previous);
     if (item.purpose) {
       const description = el('dl', 'case-description');
-      for (const [label, value] of [['业务用途', item.purpose], ['申请范围', item.scope], ['期望使用期限', item.term]]) {
+      const fields = [['业务用途', item.purpose], ['申请范围', item.scope], ['期望使用期限', item.term]];
+      if (item.decision?.resource) {
+        fields.push(['批准范围', QueryCases.resources[item.decision.resource]], ['批准期限', item.decision.term]);
+      }
+      for (const [label, value] of fields) {
         description.append(el('dt', '', label), el('dd', '', value));
       }
       details.append(description);
@@ -193,7 +195,13 @@
     if (!draft && (item.purpose || item.notes?.length || item.events?.length)) {
       card.append(records(item, previous));
     }
-    const transitions = simulation[item.status];
+    if (isAccess && ['pending', 'approved'].includes(item.status)) {
+      const link = el('a', 'case-switch', '切换到负责人视角');
+      link.href = '#approvals/' + encodeURIComponent(item.id);
+      link.append(WorkbenchIcon('chevron-right', 14));
+      card.append(link);
+    }
+    const transitions = !isAccess && simulation[item.status];
     if (transitions) {
       const sim = disclosure('case-sim', '模拟负责人处理', previous);
       const buttons = el('div', 'case-sim-buttons');

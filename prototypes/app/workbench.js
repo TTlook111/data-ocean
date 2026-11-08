@@ -15,6 +15,8 @@
   const mobile = matchMedia('(max-width: 720px)');
   const receiptDialog = document.getElementById('receipts');
   const receiptButton = document.getElementById('open-receipts');
+  const managerPage = document.getElementById('manager-page');
+  const approvalsPage = document.getElementById('approvals-page');
   // 仅保存当前标签页的离线演示，刷新时恢复快照，不重放提问、审批或发布。
   const storageKey = 'dataocean.workbench.cases.v1';
   let saved;
@@ -25,6 +27,8 @@
   let active;
   let serial = saved?.serial || 0;
   let expiryTimer;
+  let returnAction;
+  const profitExample = '本店上周的毛利额是多少？';
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -123,7 +127,7 @@
     for (const [name, text] of [
       ['milk', '本店上周牛奶卖了多少盒？'],
       ['warehouse', '今天还有多少牛奶库存？'],
-      ['store', '本店上周的毛利额是多少？'],
+      ['store', profitExample],
       ['layers', '本店上周牛奶的退货率是多少？'],
     ]) {
       const prompt = element('button', 'prompt');
@@ -138,7 +142,7 @@
 
   function hideRestricted(turn) {
     turn.querySelector('.qa-answer')?.remove();
-    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '当前权限已失效。请重新提问并申请所需访问权限。'));
+    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '当前权限不足以查看这条历史回答。可重新提问，按现有权限查询。'));
   }
 
   function refreshAccess(thread) {
@@ -192,6 +196,63 @@
     }
   }
 
+  function decideAccess(id, action, fields) {
+    if (approvalsPage.hidden) return { ok: false, message: '请切换到负责人视角处理申请。' };
+    const result = desk.decide(id, action, fields);
+    if (result.ok) {
+      syncCase(id);
+      refreshAccess(active);
+      drawReceipts();
+      save();
+    }
+    status.textContent = result.ok ? result.record.statusLabel : result.message;
+    return result;
+  }
+
+  // 两个视角共用一份申请和回告。切换与刷新只还原页面，审批和重查必须由本人点击。
+  function showPerspective() {
+    const [view, selectedId] = location.hash.slice(1).split('/');
+    const reviewing = view === 'approvals';
+    const changed = managerPage.hidden !== reviewing;
+    if (changed) {
+      setMenu(false);
+      if (receiptDialog.open) receiptDialog.close();
+    }
+    managerPage.hidden = reviewing;
+    approvalsPage.hidden = !reviewing;
+    if (reviewing) {
+      document.title = '访问申请审批 · DataOcean';
+      // 负责人的队列只取已经提交的访问申请，店长草稿和口径治理事项有各自的入口。
+      ApprovalPage.render(approvalsPage, {
+        desk: { list: () => desk.list().filter(item => item.type === 'access' && item.status !== 'draft') },
+        selectedId: selectedId || null,
+        onSelect: id => { location.hash = id ? 'approvals/' + encodeURIComponent(id) : 'approvals'; },
+        onReturn: (openReceipts = false) => {
+          returnAction = openReceipts ? 'receipts' : null;
+          location.hash = 'workbench';
+        },
+        onStartExample: () => {
+          returnAction = 'profit';
+          location.hash = 'workbench';
+        },
+        onDecision: decideAccess
+      });
+      if (changed) approvalsPage.focus({ preventScroll: true });
+    } else if (changed) {
+      approvalsPage.replaceChildren();
+      refreshAccess(active);
+      drawReceipts();
+      document.title = active.title + ' · DataOcean 问数工作台';
+      receiptButton.focus({ preventScroll: true });
+      if (returnAction === 'receipts') receiptDialog.showModal();
+      if (returnAction === 'profit') {
+        newChat();
+        submitMessage(profitExample);
+      }
+      returnAction = null;
+    }
+  }
+
   function drawReceipts() {
     // 同一事项的一次完成只通知店长一次，记录内的每个原问都可以单独回看。
     const items = desk.list();
@@ -200,7 +261,11 @@
     const expiries = items.filter(item => item.status === 'effective').map(item => item.expiresAt);
     if (expiries.length) {
       const delay = Math.min(...expiries) - Date.now();
-      expiryTimer = setTimeout(() => { refreshAccess(active); drawReceipts(); }, Math.min(2147483647, Math.max(1, delay)));
+      expiryTimer = setTimeout(() => {
+        refreshAccess(active);
+        drawReceipts();
+        if (!approvalsPage.hidden) showPerspective();
+      }, Math.min(2147483647, Math.max(1, delay)));
     }
     const unread = records.filter(item => !readReceipts.has(item.receipt.key)).length;
     const count = document.getElementById('receipt-count');
@@ -346,7 +411,7 @@
       composer.requestSubmit();
     }
   });
-  document.getElementById('new-chat').addEventListener('click', () => {
+  function newChat() {
     filter.value = '';
     filter.hidden = true;
     findButton.setAttribute('aria-expanded', 'false');
@@ -357,7 +422,8 @@
     }
     selectThread(thread, true);
     save();
-  });
+  }
+  document.getElementById('new-chat').addEventListener('click', newChat);
   findButton.addEventListener('click', () => {
     filter.hidden = !filter.hidden;
     findButton.setAttribute('aria-expanded', String(!filter.hidden));
@@ -402,5 +468,7 @@
     selectThread(first);
   }
   drawReceipts();
+  showPerspective();
+  window.addEventListener('hashchange', showPerspective);
   window.addEventListener('pagehide', save);
 })();

@@ -100,6 +100,12 @@
 }
 .case-disclosure::-webkit-details-marker { display: none; }
 .case-disclosure svg { flex: none; }
+.case-switch {
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 42px; padding: 8px 18px; border-top: 1px solid #e3e9f1;
+  font-size: 13px; color: var(--blue); text-decoration: none;
+}
+.case-switch:hover { background: #f2f6fc; }
 .case-card details[open] > summary svg { transform: rotate(90deg); }
 .case-disclosure:hover { color: #224e95; background: #eff4fa; }
 .case-card summary:focus-visible { outline-offset: -3px; }
@@ -127,7 +133,7 @@
   .case-heading { gap: 7px; }
   .case-title { font-size: 15px; }
   .case-field :is(textarea, input, select) { font-size: 16px; }
-  .case-action, .case-disclosure { min-height: 44px; }
+  .case-action, .case-disclosure, .case-switch { min-height: 44px; }
   .case-disclosure { padding-inline: 13px; }
   .case-sim-buttons { padding-inline: 13px; }
 }

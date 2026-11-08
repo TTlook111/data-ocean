@@ -175,7 +175,8 @@
     }
     const details = element('details', 'qa-details');
     const summary = element('summary', 'qa-summary');
-    const detailName = sales ? '每日明细' : result.type === 'business' ? '计算明细' : '库存明细';
+    let detailName = sales ? '每日明细' : '库存明细';
+    if (result.type === 'business') detailName = result.resource === 'profit' ? '门店汇总' : '计算明细';
     summary.append(window.WorkbenchIcon('chevron-down', 14),
       element('span', 'qa-when-closed', '展开' + detailName),
       element('span', 'qa-when-open', '收起' + detailName));

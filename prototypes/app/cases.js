@@ -3,7 +3,9 @@
   'use strict';
 
   const scope = '城南店经营复盘';
-  const terms = ['7 天', '14 天', '30 天'];
+  const terms = Object.freeze(['7 天', '14 天', '30 天']);
+  const resources = Object.freeze({ profit: '仅毛利额', profitWithBasis: '毛利额及计算依据' });
+  const reviewer = '经营业务负责人';
   const period = '2026.10.26 — 11.01';
   const numbers = new Intl.NumberFormat('zh-CN');
   const publicStatus = {
@@ -45,16 +47,20 @@
     return sold ? (100 * returned / sold).toFixed(2) + '%' : '—';
   }
 
-  function answer(type, now) {
+  function answer(type, now, resource) {
     const result = { type: 'business', period, stamp: dateTime(now), group: 'total' };
     if (type === 'access') {
-      // 示例授权仅覆盖门店汇总。明细按已授予的汇总粒度列出。
+      // 两个范围均为门店汇总；只有获准计算依据的结果才含销售净额和成本。
       const sales = 18460;
       const cost = 13840;
       const value = sales - cost;
       Object.assign(result, {
-        metric: 'grossProfit', label: '毛利额', value, unit: '元', scope: '城南店 · 经营汇总',
+        resource, metric: 'grossProfit', label: '毛利额', value, unit: '元', scope: '城南店 · 经营汇总',
         title: '上周城南店毛利额为 ' + numbers.format(value) + ' 元。',
+        basis: '采用经营报表的业务周及门店汇总口径。',
+        headings: ['门店', '毛利额（元）'], rows: [['城南店', value]], totals: ['合计', value]
+      });
+      if (resource === 'profitWithBasis') Object.assign(result, {
         basis: '按业务周汇总城南店的毛利额，采用经营报表的销售净额减销售成本口径。',
         headings: ['门店', '销售净额（元）', '销售成本（元）', '毛利额（元）'], rows: [['城南店', sales, cost, value]],
         totals: ['合计', sales, cost, value]
@@ -84,10 +90,25 @@
       return item.status === 'effective' && now() >= item.expiresAt ? 'expired' : item.status;
     }
 
+    function decisionFor(item) {
+      if (item.decision) return item.decision;
+      // 旧演示固定按原申请期限批准毛利和计算依据，保留已作出的决定和原回告。
+      if (['approved', 'effective', 'executionFailed'].includes(item.status)) {
+        return { resource: 'profitWithBasis', term: item.term, actor: reviewer, at: null };
+      }
+      if (item.status === 'rejected') return { reason: publicStatus.rejected[1], actor: reviewer, at: null };
+      return null;
+    }
+
     function read(item) {
       const state = status(item);
       const [statusLabel, summary] = publicStatus[state];
       const view = { ...structuredClone(item), status: state, statusLabel, summary };
+      if (item.type === 'access') {
+        view.applicant = item.applicant || '周店长';
+        view.decision = structuredClone(decisionFor(item));
+        if (state === 'rejected') view.summary = view.decision.reason;
+      }
       if (state === 'approved') view.owner = '授权执行人';
       if (state === 'processing' && item.events.at(-1)?.action === 'fail') view.summary = item.events.at(-1).text;
       // 期限届满只改变当前可用性，已办结回告仍是同一份历史记录。
@@ -98,8 +119,18 @@
     const find = id => records.find(item => item.id === id);
     const fail = message => ({ ok: false, message });
     const success = item => ({ ok: true, record: read(item) });
-    const available = type => records.some(item => item.type === type &&
-      status(item) === (type === 'access' ? 'effective' : 'resolved'));
+    const rateReady = () => records.some(item => item.type === 'knowledge' && status(item) === 'resolved');
+
+    function profitAccess() {
+      let resource = null;
+      for (const item of records) {
+        if (item.type !== 'access' || status(item) !== 'effective') continue;
+        const grant = decisionFor(item).resource;
+        if (grant === 'profitWithBasis') return grant;
+        if (grant === 'profit') resource = grant;
+      }
+      return resource;
+    }
 
     function ask(input, { threadId, turnId }) {
       const text = String(input || '').trim();
@@ -113,7 +144,10 @@
       // 重绘原消息仍展示它当时的阻断记录；新的提问需使用新的 turnId 并重核。
       const old = records.find(item => item.links.some(link => link.threadId === threadId && link.turnId === turnId));
       if (old) return { kind: 'case', caseId: old.id };
-      if (available(match.type)) return answer(match.type, now());
+      if (match.type === 'access') {
+        const grant = profitAccess();
+        if (grant) return answer(match.type, now(), grant);
+      } else if (rateReady()) return answer(match.type, now());
 
       let item = records.find(record => record.type === match.type && (match.type === 'knowledge'
         || ['draft', 'pending', 'approved'].includes(status(record))));
@@ -138,8 +172,8 @@
       const purpose = String(fields.purpose || '').trim();
       if (!purpose) return fail('请填写要完成的业务工作。');
       if (fields.scope !== scope || !terms.includes(fields.term)) return fail('请选择公开业务范围和使用期限。');
-      Object.assign(item, { status: 'pending', purpose, scope, term: fields.term });
-      item.events.push({ text: '已按业务用途提交申请，等待业务负责人匹配授权范围。' });
+      Object.assign(item, { status: 'pending', applicant: '周店长', submittedAt: now(), purpose, scope, term: fields.term });
+      item.events.push({ actor: item.applicant, at: item.submittedAt, text: '已按业务用途提交申请，等待业务负责人匹配授权范围。' });
       return success(item);
     }
 
@@ -152,15 +186,7 @@
       return success(item);
     }
 
-    const transitions = {
-      pending: {
-        approve: ['approved', '业务负责人已按用途匹配城南店毛利汇总及其计算依据，申请已批准，等待执行授权。'],
-        reject: ['rejected', '业务负责人已驳回申请。']
-      },
-      approved: {
-        activate: ['effective', '执行时复核通过，批准的范围已实际生效。'],
-        'activate-fail': ['executionFailed', '执行时未通过授权范围复核，申请未生效。']
-      },
+    const knowledgeTransitions = {
       processing: {
         publish: ['published', '业务负责人已确认退货率口径，候选回归通过后已发布，等待生效后复验。'],
         explain: ['explained', '已核对当前经营报表的适用指标，按核查结论结案。']
@@ -176,38 +202,75 @@
       resolved: '退货率口径已通过复验', explained: '退货率核查已结案'
     };
 
-    function simulate(id, action) {
-      const item = find(id);
-      const transition = item && transitions[status(item)]?.[action];
-      if (!Array.isArray(transition)) return fail('办理进度已变化，请查看当前状态。');
-      const [next, event] = transition;
+    function advance(item, action, next, event, at, message = publicStatus[next][1]) {
       item.status = next;
-      item.events.push({ action, text: event });
-      let message = publicStatus[next][1];
-      if (next === 'effective') {
-        item.expiresAt = now() + Number.parseInt(item.term, 10) * 86400000;
-        message = '城南店毛利汇总及其计算依据的查询权限已生效，有效至 ' + dateTime(item.expiresAt) + '。可重新提问查看结果。';
-      } else if (next === 'resolved') {
-        message = '已确认城南店牛奶退货率按退货发生日归入当周，用当周退货盒数除以同期售出盒数。生效版本已通过复验，可重新提问查看结果。';
-      }
+      item.events.push({ action, at, actor: item.type === 'access' ? reviewer : item.owner, text: event });
       if (receipts[next]) item.receipt = {
-        key: id + ':' + next, completedAt: now(), title: receipts[next], text: message, canRetry: next === 'effective' || next === 'resolved'
+        key: item.id + ':' + next, completedAt: at, title: receipts[next], text: message, canRetry: next === 'effective' || next === 'resolved'
       };
       return success(item);
     }
 
-    function canView(result) {
-      if (result?.type !== 'business') return true;
-      return (result.metric === 'grossProfit' && available('access'))
-        || (result.metric === 'returnRate' && available('knowledge'));
+    function validGrant(item, grant) {
+      return item.scope === scope && grant != null && Object.hasOwn(resources, grant.resource) &&
+        terms.includes(item.term) && terms.includes(grant.term) && Number.parseInt(grant.term, 10) <= Number.parseInt(item.term, 10);
     }
 
-    return { ask, apply, supplement, simulate, canView,
+    // 本例企业将本店这两种资源的审批和执行均分配给经营业务负责人。
+    function decide(id, action, fields = {}) {
+      const item = find(id);
+      if (item?.type !== 'access') return fail('请选择需要办理的访问申请。');
+      const at = now();
+      if (item.status === 'pending' && action === 'reject') {
+        const reason = typeof fields?.reason === 'string' ? fields.reason.trim() : '';
+        if (!reason || reason.length > 500) return fail('请填写不超过 500 字的公开驳回原因。');
+        item.decision = { reason, actor: reviewer, at };
+        return advance(item, action, 'rejected', '已驳回申请。' + reason, at,
+          '申请已驳回。' + reason);
+      }
+      if (item.status === 'pending' && action === 'approve') {
+        if (!validGrant(item, fields)) return fail('请选择本店可授予的资源，授权期限须在申请期限内。');
+        item.decision = { resource: fields.resource, term: fields.term, actor: reviewer, at };
+        return advance(item, action, 'approved', '业务负责人已批准申请，等待执行授权。', at);
+      }
+      if (item.status === 'approved' && ['activate', 'activate-fail'].includes(action)) {
+        const grant = decisionFor(item);
+        // 执行只兑现批准的范围和期限，重新核对授予上限，不能用执行参数扩大授权。
+        if (action === 'activate-fail' || !validGrant(item, grant)) {
+          return advance(item, action, 'executionFailed', '执行时未通过授权范围复核，申请未生效。', at);
+        }
+        item.expiresAt = at + Number.parseInt(grant.term, 10) * 86400000;
+        const granted = grant.resource === 'profit' ? '城南店毛利额汇总' : '城南店毛利汇总及其计算依据';
+        return advance(item, action, 'effective', '执行时复核通过，批准的范围已生效。', at,
+          granted + '的查询权限已生效，有效至 ' + dateTime(item.expiresAt) + '。可重新查询原问题。');
+      }
+      return fail('当前申请状态不能执行此操作，请查看最新进度。');
+    }
+
+    function simulate(id, action) {
+      const item = find(id);
+      const transition = item?.type === 'knowledge' && knowledgeTransitions[status(item)]?.[action];
+      if (!Array.isArray(transition)) return fail('当前状态无法模拟该操作。');
+      const [next, event] = transition;
+      const message = next === 'resolved' ? '已确认城南店牛奶退货率按退货发生日归入当周，用当周退货盒数除以同期售出盒数。生效版本已通过复验，可重新提问查看结果。' : publicStatus[next][1];
+      return advance(item, action, next, event, now(), message);
+    }
+
+    function canView(result) {
+      if (result?.type !== 'business') return true;
+      if (result.metric === 'returnRate') return rateReady();
+      if (result.metric !== 'grossProfit') return false;
+      const grant = profitAccess();
+      // 缺少范围标记的旧答案含计算依据，查看和导出均需完整授权。
+      return grant === 'profitWithBasis' || (grant === 'profit' && result.resource === 'profit');
+    }
+
+    return { ask, apply, supplement, simulate, decide, canView,
       get: id => find(id) ? read(find(id)) : null,
       list: () => records.map(read),
       snapshot: () => ({ version: 1, records: structuredClone(records) })
     };
   }
 
-  window.QueryCases = { create };
+  window.QueryCases = { create, resources, terms };
 })();
