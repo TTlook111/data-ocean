@@ -8,14 +8,21 @@
   --ap-gutter: clamp(24px, 2.5vw, 40px);
   --ap-bar-height: 64px;
   --ap-sidebar-width: 204px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: var(--ap-bar-height) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   color: var(--ap-text);
   background: #fff;
   font-size: 14px;
 }
+.ap-page:not([hidden]) ~ .sr-only { position: fixed; top: 0; left: 0; }
 .ap-top {
-  position: sticky; top: 0; z-index: 4; display: flex; align-items: center;
+  position: relative; z-index: 4; display: flex; align-items: center;
   gap: 14px; height: var(--ap-bar-height); padding: 8px 25px;
   border-bottom: 1px solid var(--ap-line); background: #fff;
 }
@@ -24,8 +31,8 @@
 .ap-brand img { width: 25px; height: 29px; object-fit: contain; }
 .ap-brand strong { font: 700 21px/1.2 "Segoe UI", sans-serif; letter-spacing: -.045em; }
 .ap-area { margin-left: 8px; padding-left: 16px; border-left: 1px solid var(--ap-line); font-size: 13px; color: var(--ap-muted); }
-.ap-admin-layout { display: grid; grid-template-columns: var(--ap-sidebar-width) minmax(0,1fr); min-height: calc(100dvh - var(--ap-bar-height)); align-items: start; }
-.ap-sidebar { position: sticky; top: var(--ap-bar-height); height: calc(100dvh - var(--ap-bar-height)); min-width: 0; overflow-y: auto; padding: 28px 12px; border-right: 1px solid var(--ap-line); background: #f8f9fb; }
+.ap-admin-layout { display: grid; grid-template-columns: var(--ap-sidebar-width) minmax(0,1fr); height: 100%; min-height: 0; overflow: hidden; }
+.ap-sidebar { min-width: 0; min-height: 0; overflow-y: auto; padding: 28px 12px; border-right: 1px solid var(--ap-line); background: #f8f9fb; }
 .ap-admin-nav { display: grid; align-content: start; gap: 5px; }
 .ap-nav-group { margin: 0 12px 12px; font-size: 12px; font-weight: 550; color: #626e7f; letter-spacing: .04em; }
 .ap-admin-link { gap: 10px; min-height: 44px; padding: 9px 12px; border-radius: 6px; color: #536071; text-decoration: none; line-height: 1.5; font-size: 14px; }
@@ -49,11 +56,12 @@
 .ap-drawer-head :is(h2,strong) { margin: 0; font-size: 16px; }
 .ap-menu-drawer .ap-admin-nav { padding: 24px 12px; }
 body:has(.ap-menu-drawer[open]) { overflow: hidden; }
-.ap-body { min-width: 0; width: 100%; padding: 27px 30px 40px; }
-.ap-queue { min-width: 0; }
+.ap-body { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; width: 100%; padding: 27px 30px 40px; }
+.ap-queue { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.ap-pagebar, .ap-queue > .rl-filters, .ap-queue > .rl-pager { flex: none; }
 .ap-pagebar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 22px; }
 .ap-queue-title { margin: 0; color: var(--ap-ink); font-size: 24px; font-weight: 630; line-height: 1.4; letter-spacing: -.02em; }
-.ap-inbox { display: grid; grid-template-columns: 250px minmax(0,1fr); min-height: calc(100dvh - 200px); border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }
+.ap-inbox { display: grid; grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(0, 1fr); flex: 0 1 auto; min-height: 0; overflow: hidden; border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }
 .ap-mailbox { min-width: 0; border-right: 1px solid var(--ap-line); background: #fbfcfd; border-radius: 10px 0 0 10px; }
 .ap-filters { display: flex; gap: 3px; padding: 11px 12px; margin: 0; border-bottom: 1px solid var(--ap-line); }
 .ap-filter { flex: 1; min-width: 0; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ap-muted); font-size: 13px; }
@@ -75,14 +83,17 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-preview { min-width: 0; padding: 0; }
 .ap-selection-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 20px; border-bottom: 1px solid var(--ap-line); background: #fafbfc; color: var(--ap-muted); font-size: 13px; }
 .ap-selection-note .ap-btn { min-height: 32px; padding: 4px 8px; font-size: 12px; }
-.ap-queue:has(.rl-filters) .ap-inbox { height: max(480px, calc(100dvh - 360px)); min-height: 0; }
-.ap-queue:has(.rl-filters) .ap-mailbox { display: flex; flex-direction: column; min-height: 0; }
-.ap-queue:has(.rl-filters) .ap-items { min-height: 0; flex: 1; overflow-y: auto; }
-.ap-queue:has(.rl-filters) .ap-preview { overflow-y: auto; }
+.ap-queue:has(.rl-filters) .ap-mailbox { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ap-queue:has(.rl-filters) .ap-items { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.ap-queue:has(.rl-filters) .ap-preview { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ap-inbox.ap-no-results { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; flex: none; }
+.ap-no-results .ap-mailbox { border-right: 0; border-radius: inherit; }
+.ap-no-results .ap-filters { max-width: 250px; }
+.ap-no-results .ap-items { display: none; }
+.ap-queue:has(.rl-filters) .ap-no-results .ap-preview { overflow: visible; }
 .ap-preview > .ap-detail, .ap-preview .ap-detail-wrap > .ap-detail { border: 0; border-radius: 0; box-shadow: none; }
 .ap-preview > .ap-detail-wrap { width: 100%; max-width: 860px; }
 .ap-preview .ap-back { display: none; }
-.ap-preview > .ap-empty { min-height: 580px; }
 .ap-detail-wrap > .ap-detail { border: 1px solid var(--ap-line); border-radius: 10px; overflow: clip; }
 
 .ap-detail, .ap-empty { min-width: 0; background: #fff; overflow-wrap: anywhere; }
@@ -187,7 +198,7 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-detail-wrap { width: 100%; max-width: 780px; margin-inline: auto; }
 .ap-back { display: inline-flex; margin: -6px 0 7px -9px; padding-inline: 9px; color: var(--ap-muted); font-size: 13px; font-weight: 450; }
 .ap-back svg { transform: rotate(180deg); }
-.ap-empty { display: grid; justify-items: center; align-content: center; padding: 48px 24px; text-align: center; }
+.ap-empty { display: grid; justify-items: center; align-content: center; min-height: 0; padding: 34px 24px; text-align: center; }
 .ap-empty-icon { display: grid; place-items: center; width: 46px; height: 46px; color: #8191a6; }
 .ap-empty-icon svg { width: 28px; height: 28px; }
 .ap-empty h2 { margin: 13px 0 6px; color: var(--ap-ink); font-size: 18px; font-weight: 570; }
@@ -213,9 +224,17 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   .ap-detail-title { font-size: 25px; }
   .ap-mail-meta { flex-wrap: wrap; }
 }
+/* 极矮桌面窗口采用内容区单一滚动，避免查询栏和分页挤掉记录区域。 */
+@media (min-width: 761px) and (max-height: 640px) {
+  .ap-body { overflow-y: auto; }
+  .ap-queue { display: block; }
+  .ap-inbox { flex: none; overflow: visible; grid-template-rows: auto; }
+  .ap-queue:has(.rl-filters) .ap-items, .ap-queue:has(.rl-filters) .ap-preview { overflow: visible; }
+  .ap-queue:has(.rl-filters) .ap-mailbox { overflow: visible; }
+}
 @media (max-width: 760px) {
-  .ap-page { --ap-gutter: 21px; --ap-bar-height: 58px; }
-  .ap-top { gap: 4px; padding: 4px 9px; }
+  .ap-page { --ap-gutter: 21px; --ap-bar-height: 58px; position: static; display: block; height: auto; min-height: 100dvh; overflow: visible; }
+  .ap-top { position: sticky; top: 0; gap: 4px; padding: 4px 9px; }
   .ap-menu-toggle { display: inline-flex; }
   .ap-brand { gap: 6px; }
   .ap-brand img { width: 22px; height: 26px; }
@@ -224,14 +243,15 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   .ap-identity summary { padding-inline: 2px; }
   .ap-identity-current { display: none; }
   .ap-identity-panel p { display: block; }
-  .ap-admin-layout { display: block; }
+  .ap-admin-layout { display: block; height: auto; overflow: visible; }
   .ap-sidebar { display: none; }
-  .ap-body { padding: 20px 14px 28px; }
+  .ap-body { display: block; overflow: visible; padding: 20px 14px 28px; }
+  .ap-queue { display: block; }
   .ap-pagebar { margin-bottom: 17px; }
   .ap-queue-title { font-size: 23px; }
-  .ap-inbox { display: block; min-height: 0; border-radius: 8px; }
-  .ap-queue:has(.rl-filters) .ap-inbox { height: auto; }
-  .ap-queue:has(.rl-filters) .ap-items { max-height: min(65dvh, 600px); overflow-y: auto; }
+  .ap-inbox { display: block; height: auto; min-height: 0; overflow: visible; border-radius: 8px; }
+  .ap-queue:has(.rl-filters) .ap-mailbox { overflow: visible; }
+  .ap-queue:has(.rl-filters) .ap-items { max-height: none; overflow: visible; }
   .ap-queue:has(.rl-filters) .ap-preview { overflow: visible; }
   .ap-mailbox { border-right: 0; border-radius: inherit; }
   .ap-filters { padding: 9px 10px; }
@@ -243,9 +263,9 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   .ap-mail-time { font-size: 12px; }
   .ap-inbox:not(.ap-has-selection) .ap-preview { display: none; }
   .ap-inbox.ap-has-selection .ap-mailbox { display: none; }
+  .ap-inbox.ap-no-results .ap-preview { display: block; }
   .ap-inbox.ap-has-selection .ap-preview .ap-back { display: inline-flex; margin: 6px 10px 0; }
   .ap-preview .ap-detail { border-radius: 8px; }
-  .ap-preview > .ap-empty { min-height: 300px; }
   .ap-sheet-head { padding-top: 19px; padding-bottom: 14px; }
   .ap-detail-title { margin-top: 13px; font-size: 25px; line-height: 1.4; }
   .ap-facts { padding-bottom: 19px; }

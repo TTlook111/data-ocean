@@ -308,6 +308,7 @@
     mailbox.append(filters);
     const items = result.items;
     const current = selected || items[0];
+    inbox.classList.toggle('ap-no-results', !current);
     const list = el('div', 'ap-items');
     for (const item of items) {
       const link = el('a', 'ap-mail-item');
@@ -323,7 +324,7 @@
       link.title = item.id;
       list.append(link);
     }
-    if (!items.length) list.append(el('p', 'ap-mail-empty', '没有符合当前条件的申请'));
+    if (!items.length && current) list.append(el('p', 'ap-mail-empty', '没有符合当前条件的申请'));
     mailbox.append(list);
     const preview = el('div', 'ap-preview');
     if (current) {

@@ -1,10 +1,11 @@
-.gh-page { width: min(100%, 1180px); margin: 0; color: var(--ap-text); container: grant-list / inline-size; }
+.gh-page { display: flex; flex-direction: column; min-height: 0; height: 100%; width: min(100%, 1180px); margin: 0; color: var(--ap-text); container: grant-list / inline-size; }
 .gh-title { margin: 0 0 24px; color: var(--ap-ink); font-size: 24px; font-weight: 630; line-height: 1.4; letter-spacing: -.02em; }
+.gh-title, .gh-controls, .gh-page > .rl-pager { flex: none; }
 .gh-controls { margin-bottom: 18px; }
-.gh-panel { border-top: 1px solid var(--ap-line); border-bottom: 1px solid var(--ap-line); background: #fff; }
+.gh-panel { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; border-top: 1px solid var(--ap-line); border-bottom: 1px solid var(--ap-line); background: #fff; }
 .gh-labels, .gh-fields { display: grid; grid-template-columns: minmax(160px, 1.6fr) minmax(72px, .7fr) minmax(144px, 1.1fr) minmax(64px, .6fr) minmax(90px, .7fr); align-items: center; gap: 18px; padding-inline: 16px; }
-.gh-labels { min-height: 44px; background: #fafbfc; border-bottom: 1px solid var(--ap-line); font-size: 12px; color: var(--ap-muted); }
-.gh-grants { margin: 0; padding: 0; list-style: none; }
+.gh-labels { flex: none; min-height: 44px; background: #fafbfc; border-bottom: 1px solid var(--ap-line); font-size: 12px; color: var(--ap-muted); }
+.gh-grants { flex: 0 1 auto; min-height: 0; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; }
 .gh-row + .gh-row { border-top: 1px solid var(--ap-line); }
 .gh-fields { min-height: 89px; margin: 0; padding-block: 14px; }
 .gh-cell { min-width: 0; overflow-wrap: anywhere; }
@@ -15,7 +16,7 @@
 .gh-cell time { font-size: 13px; font-variant-numeric: tabular-nums; }
 .gh-source { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 0; border: 0; border-radius: 3px; background: transparent; color: var(--ap-blue); font-size: 13px; }
 .gh-source:hover { text-decoration: underline; }
-.gh-empty { min-height: 360px; padding: 65px 24px 45px; background: transparent; border: 0; border-top: 1px solid var(--ap-line); border-radius: 0; box-shadow: none; }
+.gh-empty { min-height: 0; padding: 40px 24px; background: transparent; border: 0; border-top: 1px solid var(--ap-line); border-radius: 0; box-shadow: none; }
 .gh-empty .ap-empty-icon { width: 46px; height: 46px; color: #8b9bb0; background: transparent; border-radius: 0; }
 .gh-empty .ap-empty-icon svg { width: 29px; height: 29px; }
 .gh-empty h2 { margin-top: 12px; font-size: 18px; font-weight: 560; }
@@ -32,8 +33,16 @@
   .gh-cell dt { position: static; width: auto; height: auto; margin-bottom: 4px; clip-path: none; font-size: 12px; color: var(--ap-muted); }
   .gh-source { margin-top: -7px; }
 }
+@media (min-width: 761px) and (max-height: 640px) {
+  .gh-page { height: auto; display: block; }
+  .gh-panel { display: block; overflow: visible; }
+  .gh-grants { overflow: visible; }
+}
 @media (max-width: 760px) {
+  .gh-page { display: block; height: auto; max-height: none; }
+  .gh-panel { display: block; overflow: visible; }
+  .gh-grants { overflow: visible; }
   .gh-title { margin-bottom: 20px; font-size: 23px; }
   .gh-controls { margin-bottom: 15px; }
-  .gh-empty { min-height: 320px; padding: 40px 14px; }
+  .gh-empty { min-height: 0; padding: 32px 14px; }
 }
