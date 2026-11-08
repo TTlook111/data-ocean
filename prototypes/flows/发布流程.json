@@ -1,0 +1,350 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "知识如何发布",
+    "locale": "zh-CN",
+    "output": "发布流程.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "draft",
+        "label": "形成候选",
+        "focus": [
+          "collect",
+          "suggest",
+          "confirm",
+          "compose",
+          "freeze"
+        ]
+      },
+      {
+        "id": "goLive",
+        "label": "测试与发布",
+        "focus": [
+          "freeze",
+          "build",
+          "test",
+          "preflight",
+          "activate",
+          "hold"
+        ]
+      },
+      {
+        "id": "rollback",
+        "label": "暂停与回退",
+        "focus": [
+          "activate",
+          "suspend",
+          "assess",
+          "restore",
+          "refused"
+        ]
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "authority",
+      "label": "目录与治理"
+    },
+    {
+      "id": "gate",
+      "label": "发布候选"
+    },
+    {
+      "id": "verify",
+      "label": "逐题验证"
+    },
+    {
+      "id": "operations",
+      "label": "生效与回退"
+    },
+    {
+      "id": "recovery",
+      "label": "风险处置",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "collect",
+    "suggest",
+    "confirm",
+    "compose",
+    "freeze",
+    "build",
+    "test",
+    "preflight",
+    "activate"
+  ],
+  "nodes": [
+    {
+      "id": "collect",
+      "lane": "authority",
+      "col": 0,
+      "type": "database",
+      "label": "只读采集目录",
+      "sublabel": "记录表、字段和关系",
+      "icon": "database"
+    },
+    {
+      "id": "suggest",
+      "lane": "authority",
+      "col": 1,
+      "type": "backend",
+      "label": "AI 辅助整理",
+      "sublabel": "解释字段和指标口径",
+      "icon": "backend"
+    },
+    {
+      "id": "confirm",
+      "lane": "authority",
+      "col": 2,
+      "type": "frontend",
+      "label": "人工逐项审核",
+      "sublabel": "确认定义、条件与依据",
+      "icon": "person"
+    },
+    {
+      "id": "compose",
+      "lane": "authority",
+      "col": 3,
+      "type": "frontend",
+      "label": "确认知识文档",
+      "sublabel": "从已确认条目生成草稿",
+      "icon": "briefcase"
+    },
+    {
+      "id": "freeze",
+      "lane": "gate",
+      "col": 3,
+      "type": "database",
+      "label": "固定候选清单",
+      "sublabel": "锁定范围、依赖和修订",
+      "icon": "flag"
+    },
+    {
+      "id": "build",
+      "lane": "gate",
+      "col": 4,
+      "type": "backend",
+      "label": "构建隔离索引",
+      "sublabel": "候选与生产分开",
+      "icon": "backend"
+    },
+    {
+      "id": "test",
+      "lane": "verify",
+      "col": 4,
+      "type": "security",
+      "label": "逐题验证",
+      "sublabel": "绑定测试身份与授权范围",
+      "icon": "decision"
+    },
+    {
+      "id": "preflight",
+      "lane": "verify",
+      "col": 5,
+      "type": "security",
+      "label": "切换前复核",
+      "sublabel": "复核权限、依赖与版本",
+      "icon": "decision"
+    },
+    {
+      "id": "activate",
+      "lane": "operations",
+      "col": 5,
+      "type": "database",
+      "label": "本次范围生效",
+      "sublabel": "整批切换知识与索引",
+      "icon": "success"
+    },
+    {
+      "id": "suspend",
+      "lane": "recovery",
+      "col": 5,
+      "type": "security",
+      "label": "暂停受影响知识",
+      "sublabel": "禁用已删除或不兼容对象",
+      "icon": "stop"
+    },
+    {
+      "id": "assess",
+      "lane": "operations",
+      "col": 4,
+      "type": "security",
+      "label": "回退前整批预检",
+      "sublabel": "仅检查直接上一版",
+      "icon": "decision"
+    },
+    {
+      "id": "hold",
+      "lane": "gate",
+      "col": 5,
+      "type": "security",
+      "label": "阻止发布",
+      "sublabel": "仍有效旧版继续服务",
+      "icon": "stop"
+    },
+    {
+      "id": "refused",
+      "lane": "recovery",
+      "col": 4,
+      "type": "security",
+      "label": "维持当前版本",
+      "sublabel": "上一版缺失或检查失败",
+      "icon": "stop"
+    },
+    {
+      "id": "restore",
+      "lane": "operations",
+      "col": 3,
+      "type": "database",
+      "label": "退回直接上一版",
+      "sublabel": "全部通过后整批切换",
+      "icon": "success"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-collect-suggest",
+      "from": "collect",
+      "to": "suggest",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-suggest-confirm",
+      "from": "suggest",
+      "to": "confirm",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-confirm-compose",
+      "from": "confirm",
+      "to": "compose",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-compose-freeze",
+      "from": "compose",
+      "to": "freeze",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-freeze-build",
+      "from": "freeze",
+      "to": "build",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-build-test",
+      "from": "build",
+      "to": "test",
+      "role": "main",
+      "variant": "default"
+    },
+    {
+      "id": "e-test-preflight",
+      "from": "test",
+      "to": "preflight",
+      "role": "main",
+      "variant": "emphasis",
+      "label": "题目全通过"
+    },
+    {
+      "id": "e-preflight-activate",
+      "from": "preflight",
+      "to": "activate",
+      "role": "main",
+      "variant": "emphasis",
+      "label": "复核通过"
+    },
+    {
+      "id": "e-build-hold",
+      "from": "build",
+      "to": "hold",
+      "label": "构建失败",
+      "role": "error",
+      "variant": "security"
+    },
+    {
+      "id": "e-test-hold",
+      "from": "test",
+      "to": "hold",
+      "label": "无题或未通过",
+      "role": "error",
+      "variant": "security"
+    },
+    {
+      "id": "e-preflight-hold",
+      "from": "preflight",
+      "to": "hold",
+      "label": "依据变化",
+      "role": "error",
+      "variant": "security"
+    },
+    {
+      "id": "e-activate-suspend",
+      "from": "activate",
+      "to": "suspend",
+      "label": "结构失效",
+      "role": "branch",
+      "variant": "security"
+    },
+    {
+      "id": "e-activate-assess",
+      "from": "activate",
+      "to": "assess",
+      "label": "有权申请",
+      "role": "branch",
+      "variant": "default"
+    },
+    {
+      "id": "e-assess-restore",
+      "from": "assess",
+      "to": "restore",
+      "label": "全部通过",
+      "role": "branch",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-assess-refused",
+      "from": "assess",
+      "to": "refused",
+      "label": "预检受阻",
+      "role": "error",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "测试跟随题目的身份",
+      "items": [
+        "题目绑定受控身份、门店范围和授权版本。执行时条件失效，须重新核验。",
+        "无题先补题；未裁定、取消或失败须处理并重测。报告按查看人的当前权限展示。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "治理缺口与使用限制",
+      "items": [
+        "员工问到可定位的知识缺口时，系统自动建立或关联治理事项，提问人可补充。",
+        "仅怀疑含义有误时转待复核。已暂停或禁止的对象，须验证并由有权人员显式解除。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "正式范围与回退",
+      "items": [
+        "发布只替换本次完整范围。在途问数可沿用仍有效的版本，授权和禁用状态实时复核。",
+        "回退权限和范围由企业授予。重试同一回退请求返回原结果，不能越版或只退部分知识。"
+      ]
+    }
+  ]
+}

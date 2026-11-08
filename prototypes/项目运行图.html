@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>项目运行图 · DataOcean</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bar: #f9fafb;
+      --line: #d2dce1;
+      --text: #233a45;
+      --muted: #48616e;
+      --active: #005b77;
+      --wash: #e5f1f5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bar: #10161f;
+        --line: #31414d;
+        --text: #e1e9ee;
+        --muted: #b4c4cf;
+        --active: #88ddf0;
+        --wash: #1c3342;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; display: grid; grid-template-rows: auto minmax(0, 1fr);
+      background: var(--bar); color: var(--text);
+      font: 14px/1.45 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    }
+    header {
+      display: flex; align-items: center; gap: 24px;
+      padding: 6px clamp(12px, 2.5vw, 42px); min-height: 52px;
+      border-bottom: 1px solid var(--line); background: var(--bar);
+    }
+    .brand { font-size: 17px; font-weight: 680; letter-spacing: -.04em; }
+    nav { display: flex; align-items: center; gap: 3px; }
+    a { color: var(--muted); text-decoration: none; }
+    nav a, .open { padding: 8px 12px; border-radius: 6px; white-space: nowrap; }
+    nav a:hover, .open:hover { background: var(--wash); color: var(--text); }
+    nav a[aria-current="page"] { background: var(--wash); color: var(--active); font-weight: 650; }
+    a:focus-visible, iframe:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+    .open { margin-left: auto; font-size: 13px; }
+    main, iframe { width: 100%; height: 100%; min-height: 0; }
+    iframe { display: block; border: 0; }
+    noscript { display: block; padding: 12px; }
+    noscript a { text-decoration: underline; }
+    @media (max-width: 640px) {
+      header { flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; padding: 5px 10px 7px; }
+      .brand { font-size: 15px; }
+      .open { margin: 0; padding: 4px 8px; }
+      nav { order: 2; width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
+      nav a { text-align: center; padding: 7px 2px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="brand" lang="en">DataOcean</span>
+    <nav aria-label="运行图视图">
+      <a href="#overview" data-file="flows/运行总览.html" aria-current="page">运行总览</a>
+      <a href="#knowledge" data-file="flows/发布流程.html">知识发布</a>
+      <a href="#query" data-file="flows/问数流程.html">员工问数</a>
+      <a href="#access" data-file="flows/权限流程.html">访问申请</a>
+    </nav>
+    <a class="open" id="open" href="flows/运行总览.html" target="_blank" rel="noopener">单独打开<span aria-hidden="true"> ↗</span></a>
+  </header>
+  <main>
+    <noscript>直接查看 <a href="flows/运行总览.html">运行总览</a>、<a href="flows/发布流程.html">知识发布</a>、<a href="flows/问数流程.html">员工问数</a> 或 <a href="flows/权限流程.html">访问申请</a>。</noscript>
+    <iframe id="diagram" src="flows/运行总览.html" title="DataOcean 运行总览" allowfullscreen></iframe>
+  </main>
+  <script>
+    const views = Array.from(document.querySelectorAll('nav a'));
+    const diagram = document.getElementById('diagram');
+    const openLink = document.getElementById('open');
+
+    // 由地址选择视图，使本地文件直开、复制章节地址和浏览器前进后退保持一致。
+    function showView() {
+      const selected = views.find(link => link.hash === location.hash) || views[0];
+      for (const link of views) {
+        if (link === selected) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      }
+      const file = selected.dataset.file;
+      if (diagram.getAttribute('src') !== file) diagram.setAttribute('src', file);
+      diagram.title = 'DataOcean ' + selected.textContent;
+      openLink.setAttribute('href', file);
+      openLink.setAttribute('aria-label', '在新窗口单独打开' + selected.textContent);
+      document.title = selected.textContent + ' · DataOcean 项目运行图';
+    }
+    window.addEventListener('hashchange', showView);
+    showView();
+  </script>
+</body>
+</html>
