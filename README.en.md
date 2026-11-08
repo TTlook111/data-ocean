@@ -1,5 +1,5 @@
 # DataOcean
 
-DataOcean is being rebuilt on `codex/full-rebuild`. The [module index](README.md) links to the eleven descriptions of the existing implementation. The revised product plan is being drafted.
+The [product plan](docs/产品方案.docx) defines the workflows, permissions, and acceptance scenarios for the rebuild. The [module index](README.md) describes the eleven modules of the previous implementation.
 
 [Project instructions](AGENTS.md) · [MIT license](LICENSE)
