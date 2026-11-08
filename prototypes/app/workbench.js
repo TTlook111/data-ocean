@@ -23,6 +23,11 @@
   try { saved = JSON.parse(sessionStorage.getItem(storageKey)); } catch { /* 浏览器可禁用本地存储。 */ }
   const desk = QueryCases.create(saved?.cases);
   const readReceipts = new Set(saved?.readReceipts);
+  const defaultQuery = { keyword: '', status: 'all', fromDate: '', toDate: '', page: 1, pageSize: 10 };
+  const adminViews = {
+    requests: { ...defaultQuery, group: 'todo', ...saved?.adminViews?.requests },
+    grants: { ...defaultQuery, ...saved?.adminViews?.grants }
+  };
   const threads = [];
   let active;
   let serial = saved?.serial || 0;
@@ -60,7 +65,7 @@
 
   function save() {
     const snapshot = {
-      serial, activeId: active?.id, readReceipts: [...readReceipts], cases: desk.snapshot(),
+      serial, activeId: active?.id, readReceipts: [...readReceipts], cases: desk.snapshot(), adminViews,
       threads: threads.map(({ id, title, group, turns, draft }) => ({ id, title, group, turns, draft }))
     };
     try { sessionStorage.setItem(storageKey, JSON.stringify(snapshot)); } catch { /* 当前页仍可完整试走。 */ }
@@ -203,6 +208,10 @@
     }
     const result = desk.decide(id, action, fields);
     if (result.ok) {
+      const nextGroup = ['pending', 'approved'].includes(result.record.status) ? 'todo' : 'done';
+      if (nextGroup !== adminViews.requests.group) {
+        Object.assign(adminViews.requests, { group: nextGroup, status: 'all', page: 1 });
+      }
       syncCase(id);
       refreshAccess(active);
       drawReceipts();
@@ -210,6 +219,17 @@
     }
     status.textContent = result.ok ? result.record.statusLabel : result.message;
     return result;
+  }
+
+  function updateAdminQuery(key, next, focusKey = 'keyword') {
+    Object.assign(adminViews[key], next);
+    const hash = '#admin/' + (key === 'requests' ? 'access-requests' : 'grants');
+    // 查询和翻页返回当前列表，详情链接仍使用独立申请编号。
+    if (location.hash !== hash) window.history.replaceState(null, '', hash);
+    showPerspective();
+    const control = approvalsPage.querySelector('[data-list-focus="' + focusKey + '"]');
+    if (control && !control.disabled) control.focus({ preventScroll: true });
+    save();
   }
 
   // 员工申请与后台待办使用同一份记录，切换演示身份只改变入口，不代任何一方执行操作。
@@ -235,6 +255,10 @@
       ApprovalPage.render(approvalsPage, {
         desk: { list: () => desk.list().filter(item => item.type === 'access' && item.status !== 'draft') },
         section,
+        views: {
+          requests: { query: adminViews.requests, onQuery: (query, focus) => updateAdminQuery('requests', query, focus) },
+          grants: { query: adminViews.grants, onQuery: (query, focus) => updateAdminQuery('grants', query, focus) }
+        },
         selectedId: selectedId || null,
         onSelect: id => { location.hash = id ? adminAccessRoute + '/' + encodeURIComponent(id) : adminAccessRoute; },
         onReturn: () => { location.hash = 'workbench'; },

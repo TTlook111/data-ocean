@@ -265,32 +265,48 @@
     return dialog;
   }
 
-  function requestInbox(root, context, records, group, selected) {
+  function requestInbox(root, context, records, selected) {
+    const { query, onQuery } = context.views.requests;
+    const group = query.group || 'todo';
+    const result = AdminQuery.run(records, query, 'requests');
+    query.page = result.page;
+    query.pageSize = result.pageSize;
     const queue = el('section', 'ap-queue');
     queue.setAttribute('aria-label', '访问申请');
+    queue.dataset.resultTotal = result.total;
     const pagebar = el('header', 'ap-pagebar');
     pagebar.append(el('h1', 'ap-queue-title', '访问申请'));
     queue.append(pagebar);
+    const clearQuery = () => onQuery({ ...query, keyword: '', status: 'all', fromDate: '', toDate: '', page: 1 }, 'keyword');
+    const statuses = group === 'todo'
+      ? [{ value: 'pending', label: '待审批' }, { value: 'approved', label: '待执行' }]
+      : [{ value: 'effective', label: '已生效' }, { value: 'rejected', label: '已驳回' },
+        { value: 'executionFailed', label: '执行未生效' }, { value: 'expired', label: '已到期' }];
+    queue.append(RecordControls.filters({
+      value: query, statuses: [{ value: 'all', label: '全部状态' }, ...statuses],
+      keywordLabel: '关键词', keywordPlaceholder: '编号、申请人、用途或业务范围',
+      dateLabel: '提交日期',
+      onApply: value => onQuery({ ...value, page: 1 }, 'keyword'),
+      onReset: clearQuery
+    }));
     const inbox = el('div', 'ap-inbox');
     inbox.classList.toggle('ap-has-selection', Boolean(selected));
     const mailbox = el('section', 'ap-mailbox');
     mailbox.setAttribute('aria-label', '申请列表');
     const filters = el('div', 'ap-filters');
     function setGroup(key) {
-      root.dataset.apGroup = key;
-      if (context.selectedId) context.onSelect(null);
-      else render(root, context);
-      requestAnimationFrame(() => root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true }));
+      onQuery({ ...query, group: key, status: 'all', page: 1 }, 'keyword');
     }
     for (const [key, title] of [['todo', '待处理'], ['done', '已办']]) {
       const button = action(title, 'filter-' + key, 'ap-filter');
-      button.append(el('span', 'ap-counter', records.filter(item => groupFor(item) === key).length));
+      const total = AdminQuery.run(records, { ...query, group: key, status: 'all', page: 1 }, 'requests').total;
+      button.append(el('span', 'ap-counter', total));
       button.setAttribute('aria-pressed', String(key === group));
       button.addEventListener('click', () => { if (key !== group) setGroup(key); });
       filters.append(button);
     }
     mailbox.append(filters);
-    const items = records.filter(item => groupFor(item) === group);
+    const items = result.items;
     const current = selected || items[0];
     const list = el('div', 'ap-items');
     for (const item of items) {
@@ -307,19 +323,31 @@
       link.title = item.id;
       list.append(link);
     }
-    if (!items.length) list.append(el('p', 'ap-mail-empty', group === 'todo' ? '没有待处理的申请' : '还没有已办申请'));
+    if (!items.length) list.append(el('p', 'ap-mail-empty', '没有符合当前条件的申请'));
     mailbox.append(list);
     const preview = el('div', 'ap-preview');
     if (current) {
+      if (selected && !items.some(item => item.id === selected.id)) {
+        const note = el('div', 'ap-selection-note', '当前查看的申请不在本页查询结果中。');
+        const backToResults = action('返回查询结果', 'back-to-results', 'ap-btn ap-secondary');
+        backToResults.addEventListener('click', () => context.onSelect(null));
+        note.append(backToResults);
+        preview.append(note);
+      }
       preview.append(requestDetail(root, context, current));
     } else {
       const empty = el('div', 'ap-empty');
       const symbol = el('div', 'ap-empty-icon');
       symbol.append(WorkbenchIcon('inbox', 30));
-      const title = group === 'todo' ? (records.length ? '待办已处理完' : '暂无访问申请') : '还没有已办申请';
+      const hasFilters = Boolean(query.keyword || query.status !== 'all' || query.fromDate || query.toDate);
+      const title = hasFilters ? '没有符合条件的申请' : group === 'todo' ? (records.length ? '待办已处理完' : '暂无访问申请') : '还没有已办申请';
       empty.append(symbol, el('h2', '', title),
-        el('p', '', group === 'todo' ? '员工提交访问申请后，可以在这里办理。' : '申请处理后，可以在这里回看办理结论。'));
-      if (records.length) {
+        el('p', '', hasFilters ? '可以修改关键词或日期，重新查询。' : group === 'todo' ? '员工提交访问申请后，可以在这里办理。' : '申请处理后，可以在这里回看办理结论。'));
+      if (hasFilters) {
+        const reset = action('清空筛选', 'clear-filters', 'ap-btn ap-secondary');
+        reset.addEventListener('click', clearQuery);
+        empty.append(reset);
+      } else if (records.length) {
         const other = group === 'todo' ? 'done' : 'todo';
         const jump = action(other === 'done' ? '查看已办申请' : '查看待处理申请', 'other-group', 'ap-btn ap-secondary');
         jump.addEventListener('click', () => setGroup(other));
@@ -329,6 +357,9 @@
     }
     inbox.append(mailbox, preview);
     queue.append(inbox);
+    queue.append(RecordControls.pager(result,
+      page => onQuery({ ...query, page }, 'page'),
+      pageSize => onQuery({ ...query, pageSize, page: 1 }, 'pageSize')));
     return queue;
   }
 
@@ -358,9 +389,9 @@
     function decide(key, fields) {
       const response = onDecision(current.id, key, fields);
       if (!response.ok) { error.textContent = response.message; return; }
-      root.dataset.apGroup = groupFor(response.record);
       // 从待办转到已办时继续展示刚处理的申请，让负责人能核对实际结果。
-      render(root, context);
+      if (context.selectedId !== current.id) onSelect(current.id);
+      else render(root, context);
       requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
     }
     detail.append(sheetHead);
@@ -381,7 +412,7 @@
   }
 
   function render(root, context) {
-    const { desk, section, selectedId, onSelect, onReturn } = context;
+    const { desk, section, selectedId, onSelect, onReturn, views } = context;
     const records = desk.list().sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || b.id.localeCompare(a.id));
     const selected = records.find(item => item.id === selectedId);
     root.querySelector('dialog[open]')?.close();
@@ -400,11 +431,12 @@
     sidebar.append(navigation(section));
     const body = el('div', 'ap-body');
     if (section === 'grants') {
-      body.append(GrantHistory.render(records, onSelect));
+      body.append(GrantHistory.render(records, onSelect, views.grants));
     } else {
-      const group = selected ? groupFor(selected) : root.dataset.apGroup || 'todo';
-      root.dataset.apGroup = group;
-      body.append(requestInbox(root, context, records, group, selected));
+      if (selected && groupFor(selected) !== views.requests.query.group) {
+        Object.assign(views.requests.query, { group: groupFor(selected), status: 'all', page: 1 });
+      }
+      body.append(requestInbox(root, context, records, selected));
     }
     layout.append(sidebar, body);
     root.classList.add('ap-page');

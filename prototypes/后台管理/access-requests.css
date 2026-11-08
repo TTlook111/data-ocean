@@ -73,6 +73,12 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-mailbox > .ap-empty h2 { font-size: 16px; }
 .ap-mailbox > .ap-empty p { font-size: 13px; }
 .ap-preview { min-width: 0; padding: 0; }
+.ap-selection-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 20px; border-bottom: 1px solid var(--ap-line); background: #fafbfc; color: var(--ap-muted); font-size: 13px; }
+.ap-selection-note .ap-btn { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.ap-queue:has(.rl-filters) .ap-inbox { height: max(480px, calc(100dvh - 360px)); min-height: 0; }
+.ap-queue:has(.rl-filters) .ap-mailbox { display: flex; flex-direction: column; min-height: 0; }
+.ap-queue:has(.rl-filters) .ap-items { min-height: 0; flex: 1; overflow-y: auto; }
+.ap-queue:has(.rl-filters) .ap-preview { overflow-y: auto; }
 .ap-preview > .ap-detail, .ap-preview .ap-detail-wrap > .ap-detail { border: 0; border-radius: 0; box-shadow: none; }
 .ap-preview > .ap-detail-wrap { width: 100%; max-width: 860px; }
 .ap-preview .ap-back { display: none; }
@@ -224,6 +230,9 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
   .ap-pagebar { margin-bottom: 17px; }
   .ap-queue-title { font-size: 23px; }
   .ap-inbox { display: block; min-height: 0; border-radius: 8px; }
+  .ap-queue:has(.rl-filters) .ap-inbox { height: auto; }
+  .ap-queue:has(.rl-filters) .ap-items { max-height: min(65dvh, 600px); overflow-y: auto; }
+  .ap-queue:has(.rl-filters) .ap-preview { overflow: visible; }
   .ap-mailbox { border-right: 0; border-radius: inherit; }
   .ap-filters { padding: 9px 10px; }
   .ap-filter, .ap-term select, .ap-btn, .ap-back { min-height: 44px; }

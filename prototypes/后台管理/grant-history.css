@@ -1,5 +1,6 @@
 .gh-page { width: min(100%, 1180px); margin: 0; color: var(--ap-text); container: grant-list / inline-size; }
 .gh-title { margin: 0 0 24px; color: var(--ap-ink); font-size: 24px; font-weight: 630; line-height: 1.4; letter-spacing: -.02em; }
+.gh-controls { margin-bottom: 18px; }
 .gh-panel { border-top: 1px solid var(--ap-line); border-bottom: 1px solid var(--ap-line); background: #fff; }
 .gh-labels, .gh-fields { display: grid; grid-template-columns: minmax(160px, 1.6fr) minmax(72px, .7fr) minmax(144px, 1.1fr) minmax(64px, .6fr) minmax(90px, .7fr); align-items: center; gap: 18px; padding-inline: 16px; }
 .gh-labels { min-height: 44px; background: #fafbfc; border-bottom: 1px solid var(--ap-line); font-size: 12px; color: var(--ap-muted); }
@@ -19,7 +20,7 @@
 .gh-empty .ap-empty-icon svg { width: 29px; height: 29px; }
 .gh-empty h2 { margin-top: 12px; font-size: 18px; font-weight: 560; }
 .gh-empty p { max-width: 28em; font-size: 14px; }
-.gh-empty-link { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; margin-top: 12px; color: var(--ap-blue); font-size: 13px; text-decoration: none; }
+.gh-empty-link { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; margin-top: 12px; padding: 0; border: 0; background: transparent; color: var(--ap-blue); font-size: 13px; text-decoration: none; }
 .gh-empty-link:hover { text-decoration: underline; }
 @container grant-list (max-width: 760px) {
   .gh-panel { border: 0; background: transparent; }
@@ -33,5 +34,6 @@
 }
 @media (max-width: 760px) {
   .gh-title { margin-bottom: 20px; font-size: 23px; }
+  .gh-controls { margin-bottom: 15px; }
   .gh-empty { min-height: 320px; padding: 40px 14px; }
 }

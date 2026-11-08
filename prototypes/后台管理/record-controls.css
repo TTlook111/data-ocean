@@ -1,0 +1,48 @@
+.rl-filters {
+  display: flex; flex-wrap: wrap; align-items: end; gap: 14px 16px;
+  margin: 0 0 20px; padding: 18px 20px; border: 1px solid var(--ap-line);
+  border-radius: 8px; background: #fafbfc;
+}
+.rl-field { display: grid; gap: 6px; min-width: 120px; font-size: 12px; color: var(--ap-muted); }
+.rl-keyword { flex: 1 1 240px; }
+.rl-dates { min-width: 0; margin: 0; padding: 0; border: 0; }
+.rl-dates legend { margin-bottom: 6px; font-size: 12px; color: var(--ap-muted); }
+.rl-date-range { display: flex; align-items: center; gap: 8px; }
+.rl-date-range > span { color: var(--ap-muted); font-size: 12px; }
+.rl-filters :is(input, select), .rl-pager :is(input, select) {
+  min-width: 0; min-height: 38px; padding: 7px 10px; border: 1px solid #cfd7e2;
+  border-radius: 5px; background: white; color: var(--ap-ink); font: inherit; font-size: 13px;
+}
+.rl-date-range input { width: 142px; }
+.rl-filter-actions, .rl-page-actions { display: flex; align-items: center; gap: 8px; }
+.rl-button {
+  min-height: 38px; padding: 7px 13px; border: 1px solid #cfd7e2; border-radius: 5px;
+  background: white; color: var(--ap-text); font-size: 13px;
+}
+.rl-button:hover:enabled { border-color: #8da7ce; background: #f4f7fc; }
+.rl-button:disabled { color: #9aa3b0; cursor: default; background: #f8f9fb; }
+.rl-button.rl-primary { border-color: var(--ap-blue); background: var(--ap-blue); color: white; }
+.rl-button.rl-primary:hover:enabled { border-color: #244eaa; background: #244eaa; color: white; }
+.rl-error { width: 100%; margin: 0; color: #9b3b32; font-size: 13px; }
+.rl-error:empty { display: none; }
+.rl-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 0; font-size: 12px; color: var(--ap-muted); }
+.rl-result-count { margin-right: auto; }
+.rl-page-number { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rl-pager .rl-page-number input { width: 56px; padding-inline: 5px; text-align: center; }
+.rl-pager select { min-width: 106px; }
+@media (max-width: 760px) {
+  .rl-filters { padding: 14px; gap: 12px; }
+  .rl-keyword, .rl-dates { flex: 1 1 100%; }
+  .rl-field:not(.rl-keyword) { flex: 1; }
+  .rl-date-range input { flex: 1; width: 0; }
+  .rl-filter-actions { flex: 1; align-self: end; }
+  .rl-filters :is(input, select), .rl-pager :is(input, select), .rl-button { min-height: 44px; }
+  .rl-filters input { font-size: 16px; }
+  .rl-pager { gap: 10px; }
+  .rl-result-count { flex-basis: 100%; }
+  .rl-page-actions { margin-left: auto; gap: 6px; }
+  .rl-page-actions .rl-button { padding-inline: 9px; }
+}
+@media (max-width: 380px) {
+  .rl-page-actions { width: 100%; justify-content: space-between; }
+}
