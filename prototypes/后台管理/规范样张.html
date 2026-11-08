@@ -19,11 +19,14 @@
       --header-height: 64px;
       --sidebar-width: 216px;
       --control-height: 40px;
-      --touch-height: 44px;
       --table-header-height: 48px;
       --table-row-height: 64px;
       --table-footer-height: 64px;
-      --table-subject-width: 44%;
+      --table-person-width: 128px;
+      --table-date-width: 176px;
+      --table-status-width: 112px;
+      --table-action-width: 192px;
+      --table-min-width: 728px;
       --icon-size: 16px;
       --logo-width: 25px;
       --logo-height: 29px;
@@ -67,7 +70,6 @@
       --query-status-min: 160px;
       --query-status-max: 200px;
       --empty-symbol-size: 32px;
-      --mobile-breakpoint: 767px;
       font-family: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
       font-size: var(--font-body);
       line-height: var(--line-body);
@@ -133,26 +135,39 @@
     .button:disabled { color: #8b95a4; background: var(--color-table-head); }
     .button svg { width: var(--icon-size); height: var(--icon-size); }
     .results { display: flex; flex-direction: column; flex: 1; min-height: var(--space-0); overflow: hidden; position: relative; }
-    .table-zone { display: flex; flex-direction: column; flex: 1; min-height: var(--space-0); }
-    .table-scroll { flex: 1; min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; }
+    .table-zone { display: flex; flex-direction: column; flex: 1; min-height: var(--space-0); container: records / inline-size; }
+    .table-scroll { flex: 1; min-height: var(--space-0); overflow: auto; overscroll-behavior: contain; }
     .table-scroll:has(table[hidden]) { display: flex; flex-direction: column; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table { width: 100%; min-width: var(--table-min-width); border-collapse: collapse; table-layout: fixed; }
     caption { position: absolute; width: var(--border-width); height: var(--border-width); overflow: hidden; clip-path: inset(50%); }
-    col.subject { width: var(--table-subject-width); }
-    th, td { padding: var(--space-3) var(--space-4); text-align: left; line-height: var(--line-cell); vertical-align: middle; overflow-wrap: anywhere; }
+    col.person { width: var(--table-person-width); }
+    col.date { width: var(--table-date-width); }
+    col.state { width: var(--table-status-width); }
+    col.command { width: var(--table-action-width); }
+    th, td { min-width: var(--space-0); padding: var(--space-3) var(--space-4); text-align: left; line-height: var(--line-cell); vertical-align: middle; overflow: hidden; }
     th:first-child, td:first-child { padding-inline-start: var(--space-6); }
     th:last-child, td:last-child { padding-inline-end: var(--space-6); }
     thead { position: sticky; top: var(--space-0); z-index: 1; background: var(--color-table-head); }
-    th { height: var(--table-header-height); font-weight: var(--weight-medium); color: var(--color-muted); border-bottom: var(--border-width) solid var(--color-border); }
+    th { height: var(--table-header-height); font-weight: var(--weight-medium); color: var(--color-muted); border-bottom: var(--border-width) solid var(--color-border); white-space: nowrap; text-overflow: ellipsis; }
     td { height: var(--table-row-height); border-bottom: var(--border-width) solid var(--color-border); }
     tbody tr:last-child td { border-bottom: var(--space-0); }
     tbody tr:hover { background: var(--color-table-head); }
-    td strong { display: block; font-weight: var(--weight-medium); }
-    td small { display: block; font-size: var(--font-small); line-height: var(--space-4); color: var(--color-muted); }
+    .cell-text { display: block; min-width: var(--space-0); max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    td strong { font-weight: var(--weight-medium); }
+    td small { font-size: var(--font-small); line-height: var(--space-4); color: var(--color-muted); }
     .status { display: inline-block; padding: var(--space-0) var(--space-2); border-radius: var(--space-1); background: var(--color-pending-bg); color: var(--color-pending); font-size: var(--font-small); line-height: var(--line-cell); font-weight: var(--weight-medium); white-space: nowrap; }
     .status.success { color: var(--color-success); background: var(--color-success-bg); }
-    .text-action { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-0); border: var(--space-0); background: transparent; color: var(--color-primary); cursor: pointer; }
+    .text-action { display: block; max-width: 100%; min-height: var(--control-height); padding: var(--space-0); border: var(--space-0); background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .text-action svg { width: var(--icon-size); height: var(--icon-size); }
+    .row-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: var(--space-0); }
+    .row-actions .text-action { flex: none; }
+    .row-actions .more-actions { display: inline-flex; align-items: center; gap: var(--space-1); }
+    .row-menu { position: fixed; inset: auto; width: min(224px, calc(100vw - var(--space-8))); max-height: calc(100dvh - var(--space-8)); margin: var(--space-0); padding: var(--space-1); overflow-y: auto; border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-panel); color: var(--color-text); box-shadow: 0 4px 16px #1f29371a; }
+    .row-menu:popover-open { display: grid; gap: var(--space-1); }
+    .row-menu button { width: 100%; min-height: var(--control-height); padding: var(--space-2) var(--space-3); border: var(--space-0); border-radius: var(--space-1); background: transparent; text-align: left; }
+    .row-menu button:hover { background: var(--color-canvas); }
+    .row-menu button:focus-visible { outline-offset: calc(var(--focus-width) * -1); }
+    .action-feedback { position: fixed; inset: auto var(--space-6) var(--space-6) auto; max-width: calc(100vw - var(--space-8)); margin: var(--space-0); padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-panel); color: var(--color-text); box-shadow: 0 4px 16px #1f29371a; }
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); flex: 1; padding: var(--space-6); text-align: center; }
     .empty svg { width: var(--empty-symbol-size); height: var(--empty-symbol-size); margin-bottom: var(--space-2); color: var(--color-muted); }
     .empty h3 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
@@ -161,7 +176,6 @@
     .result-footer > span { color: var(--color-muted); }
     .pagination { display: flex; align-items: center; gap: var(--space-2); }
     .page-index { padding-inline: var(--space-2); font-variant-numeric: tabular-nums; }
-    .mobile-toggle { display: none; padding-inline: var(--space-2); }
     .spec-note { margin: var(--space-0); font-size: var(--font-small); line-height: var(--line-small); color: var(--color-muted); }
     [data-measure]::before { display: none; }
     .measures [data-measure] { outline: var(--border-width) dashed var(--color-measure); outline-offset: calc(var(--border-width) * -1); }
@@ -169,50 +183,18 @@
     .measures .workspace::before { top: var(--space-1); left: var(--space-1); }
     .measures .result-footer::before { top: calc(var(--space-3) * -1); }
     .measures .results[data-measure]::before { top: var(--space-1); left: var(--space-6); }
-    .drawer { position: fixed; inset: var(--space-0) auto var(--space-0) var(--space-0); width: var(--sidebar-width); max-width: calc(100% - var(--space-12)); height: var(--app-height); max-height: var(--app-height); margin: var(--space-0); padding: var(--space-4); border: var(--space-0); border-inline-end: var(--border-width) solid var(--color-border); background: var(--color-panel); color: var(--color-text); }
-    .drawer::backdrop { background: #1f293754; }
-    .drawer-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-6); }
-    .drawer .sample-controls { margin-top: var(--space-6); }
-    @media (max-width: 1100px) {
-      .pagination select { display: none; }
-    }
-    /* 767px 与 --mobile-breakpoint 同值，媒体查询采用 CSS 原生常量。 */
-    @media (max-width: 767px) {
-      .specimen { display: block; height: auto; min-height: var(--app-height); overflow: visible; }
-      .topbar { position: sticky; top: var(--space-0); z-index: 4; min-height: var(--header-height); padding-inline: var(--space-4); gap: var(--space-2); }
-      .brand img { width: var(--line-body); height: var(--logo-height); }
-      .brand strong { font-size: var(--font-key); letter-spacing: -.03em; }
-      .spec-caption { padding-inline-start: var(--space-2); font-size: var(--font-small); }
-      .spec-caption .desktop-context { display: none; }
-      .mobile-toggle { display: inline-flex; }
-      .shell { display: block; }
-      .sidebar { display: none; }
-      .workspace { display: flex; min-height: calc(var(--app-height) - var(--header-height)); gap: var(--space-4); padding: var(--space-4); overflow: visible; }
-      .query-grid { display: grid; grid-template-columns: minmax(var(--space-0), 1fr); }
-      .query-grid > .field:first-child, .query-grid > .field:nth-child(2) { min-width: var(--space-0); }
-      .query-grid .actions { grid-column: auto; }
-      input, select, .button, .nav button { min-height: var(--touch-height); height: auto; }
-      .query-grid input { font-size: var(--font-key); }
-      .top-actions .button { padding-inline: var(--space-2); }
-      .results { min-height: var(--space-0); overflow: visible; flex: none; }
-      .table-scroll { overflow: visible; }
-      .result-footer { padding-block: var(--space-3); height: auto; min-height: var(--table-footer-height); flex-wrap: wrap; }
-      .pagination { margin-inline-start: auto; }
-      .pagination .button { padding-inline: var(--space-2); }
-      .page-index { padding-inline: var(--space-0); }
-      .table-scroll table { table-layout: auto; }
-      .table-scroll colgroup, thead { display: none; }
-      tbody { display: grid; }
-      tbody tr { display: grid; grid-template-columns: minmax(var(--space-0), 1fr) auto; gap: var(--space-2) var(--space-4); padding: var(--space-4); border-bottom: var(--border-width) solid var(--color-border); }
-      tbody tr:last-child { border-bottom: var(--space-0); }
-      td, td:first-child, td:last-child { height: auto; padding: var(--space-0); border: var(--space-0); }
-      td[data-label]::before { display: block; content: attr(data-label); margin-bottom: var(--space-1); color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
-      td:first-child { grid-column: 1 / -1; }
-      td[data-field="submitted"] { font-size: var(--font-small); color: var(--color-muted); }
-      td[data-field="status"], td[data-field="action"] { justify-self: end; }
-      .empty { padding-block: var(--space-12); }
-      .measures [data-measure]::before { font-size: var(--font-small); }
-    }
+    .record-dialog { width: min(720px, calc(100% - var(--space-8))); max-height: calc(100dvh - var(--space-12)); padding: var(--space-0); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-panel); color: var(--color-text); background: var(--color-panel); }
+    .record-dialog[open] { display: flex; flex-direction: column; }
+    .record-dialog::backdrop { background: #1f293754; }
+    .record-dialog header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) var(--space-6); border-bottom: var(--border-width) solid var(--color-border); }
+    .record-dialog h2 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
+    .record-dialog .close-record { width: var(--control-height); padding-inline: var(--space-0); }
+    .record-body { min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-6); }
+    .record-body dl, .record-body dd { margin: var(--space-0); }
+    .record-field + .record-field { margin-top: var(--space-4); }
+    .record-field dt { margin-bottom: var(--space-2); color: var(--color-muted); }
+    .record-field dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+    body:has(.record-dialog[open]) { overflow: hidden; }
     @media (forced-colors: active) {
       .nav button[aria-current="page"], .button[aria-pressed="true"] { outline: var(--border-width) solid Highlight; }
     }
@@ -221,7 +203,6 @@
 <body>
   <div class="specimen">
     <header class="topbar">
-      <button class="button mobile-toggle" id="open-menu" type="button" aria-label="打开样张菜单" aria-haspopup="dialog" aria-controls="mobile-menu"><span data-icon="menu"></span></button>
       <div class="brand"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong><span class="spec-caption"><span class="desktop-context">静态</span>规范样张</span></div>
       <div class="top-actions"><button id="measure" type="button" class="button" aria-pressed="false">间距标注</button></div>
     </header>
@@ -232,7 +213,7 @@
           <button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button>
           <button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button>
         </nav>
-        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option><option value="long">超长内容 · 全列检查</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
       </aside>
       <main class="workspace" data-measure="工作区四边 24px · 区块间距 24px">
         <div class="page-heading"><h1 id="page-title">访问申请</h1></div>
@@ -246,7 +227,7 @@
         <section class="panel results" id="results-panel" aria-label="访问申请查询结果" data-measure="同一结果面板 · 表头、内容与分页">
           <div class="table-zone">
             <div class="table-scroll">
-              <table><caption>静态规范样张的示例数据</caption><colgroup><col class="subject"><col><col><col><col></colgroup><thead><tr id="headings"></tr></thead><tbody id="rows"></tbody></table>
+              <table><caption>静态规范样张的示例数据</caption><colgroup><col class="subject"><col class="person"><col class="date"><col class="state"><col class="command"></colgroup><thead><tr id="headings"></tr></thead><tbody id="rows"></tbody></table>
               <div class="empty" id="empty" hidden><span data-icon="inbox"></span><h3 id="empty-title">暂无访问申请</h3><p id="empty-copy">示例数据为空。</p></div>
             </div>
           </div>
@@ -255,11 +236,15 @@
       </main>
     </div>
   </div>
-  <dialog id="mobile-menu" class="drawer" aria-label="规范样张菜单">
-    <div class="drawer-header"><strong>规范样张</strong><button class="button" id="close-menu" type="button" aria-label="关闭样张菜单"><span data-icon="x"></span></button></div>
-    <nav class="nav" aria-label="手机样张菜单"><h2 class="nav-heading">权限管理</h2><button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button><button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button></nav>
-    <div class="sample-controls"><label for="mobile-sample-count">示例数据状态</label><select id="mobile-sample-count" aria-label="手机示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+  <dialog id="record-dialog" class="record-dialog" aria-labelledby="record-dialog-title">
+    <header><h2 id="record-dialog-title">记录完整内容</h2><button id="close-record" class="button close-record" type="button" aria-label="关闭记录详情"><span data-icon="x"></span></button></header>
+    <div class="record-body"><dl id="record-fields"></dl></div>
   </dialog>
+  <div id="record-actions" class="row-menu" popover="auto" aria-label="更多记录操作">
+    <button id="copy-description" type="button">复制用途</button>
+    <button id="copy-person" type="button">复制申请人</button>
+  </div>
+  <div id="action-feedback" class="action-feedback" popover="manual" role="status" aria-live="polite"></div>
   <script>
     (() => {
       'use strict';
@@ -275,14 +260,40 @@
         { id: 'SQ-009', person: '吴店长', purpose: '核验上周毛利额', submitted: '11/07 15:30', status: 'pending' },
         { id: 'SQ-010', person: '徐店长', purpose: '准备经营例会数据', submitted: '11/07 15:15', status: 'approved' }
       ];
+      const longExamples = [
+        {
+          id: 'SQ-20261108-' + 'DATAOCEAN-REVIEW-'.repeat(8) + '编号末尾',
+          title: '城南片区直营门店上周经营复盘及跨周退货归属核对的毛利汇总访问申请',
+          person: '城南片区直营事业部经营分析组负责人周店长',
+          purpose: ('用于核对上周各门店经营周报、跨周退货以及销售成本归属，形成经营例会所需的毛利说明。\n').repeat(8) + '原因完整末尾',
+          scope: '华东零售事业部城南片区直营门店经营汇总及获准计算依据的适用业务范围',
+          resource: '门店毛利汇总与经营分析所需销售净额和成本依据的只读权限',
+          submitted: '2026/11/08 09:30', status: 'pending'
+        },
+        {
+          id: 'SQ-' + 'LONGUNBROKENIDENTIFIER'.repeat(7) + '-END',
+          title: 'MONTHLYBUSINESSPERFORMANCEREVIEW'.repeat(8) + 'TITLE-END',
+          person: 'RegionalBusinessOperationsAnalysisManager'.repeat(3) + '-PERSON-END',
+          purpose: '连续英文与符号样例 [A+B] <记录>\n' + 'COSTANDRETURNSANALYSISEVIDENCE'.repeat(16) + 'PURPOSE-END',
+          scope: 'AUTHORIZEDBUSINESSRESOURCESCOPE'.repeat(7) + '-SCOPE-END',
+          resource: 'GROSSPROFITANDCALCULATIONBASIS'.repeat(5) + '-RESOURCE-END',
+          submitted: '2026/11/08 09:15', status: 'approved'
+        }
+      ];
       let view = 'requests';
-      let count = 10;
+      let sampleMode = '10';
       let applied = { keyword: '', status: 'all' };
-      const menu = document.getElementById('mobile-menu');
       const keyword = document.getElementById('keyword');
       const status = document.getElementById('status');
       const rows = document.getElementById('rows');
       const empty = document.getElementById('empty');
+      const recordDialog = document.getElementById('record-dialog');
+      const recordFields = document.getElementById('record-fields');
+      const actionMenu = document.getElementById('record-actions');
+      const feedback = document.getElementById('action-feedback');
+      let activeOperation;
+      let menuTrigger;
+      let feedbackTimer;
       for (const slot of document.querySelectorAll('[data-icon]')) slot.replaceWith(WorkbenchIcon(slot.dataset.icon));
 
       function text(tag, content, className) {
@@ -292,7 +303,114 @@
         return node;
       }
 
+      function valuesFor(item, isRequests) {
+        return {
+          subject: isRequests ? item.title || '城南店毛利汇总访问申请' : item.resource || '仅毛利额',
+          description: isRequests ? item.purpose : (item.scope || '城南店经营汇总') + ' · 14 天',
+          person: item.person,
+          date: isRequests ? item.submitted : '2026/11/22 09:30',
+          status: isRequests ? (item.status === 'pending' ? '待审批' : '待执行') : '已生效',
+          id: item.id
+        };
+      }
+
+      function clippedText(tag, value, className = '') {
+        const node = text(tag, value, 'cell-text ' + className);
+        node.title = value;
+        return node;
+      }
+
+      function showRecord(item, isRequests) {
+        closeActions();
+        const value = valuesFor(item, isRequests);
+        const fields = [
+          [isRequests ? '申请事项' : '获准范围', value.subject],
+          [isRequests ? '业务用途' : '适用范围', value.description],
+          ['申请人', value.person],
+          [isRequests ? '提交时间' : '有效至', value.date],
+          ['状态', value.status],
+          [isRequests ? '申请编号' : '来源申请', value.id]
+        ];
+        recordFields.replaceChildren();
+        for (const [label, content] of fields) {
+          const field = text('div', '', 'record-field');
+          field.append(text('dt', label), text('dd', content));
+          recordFields.append(field);
+        }
+        recordDialog.showModal();
+      }
+
+      function notify(message) {
+        clearTimeout(feedbackTimer);
+        feedback.textContent = message;
+        if (!feedback.matches(':popover-open')) feedback.showPopover();
+        feedbackTimer = setTimeout(() => feedback.hidePopover(), 3500);
+      }
+
+      function closeActions() {
+        if (actionMenu.matches(':popover-open')) actionMenu.hidePopover();
+      }
+
+      async function copyValue(value, label, item, isRequests) {
+        closeActions();
+        try {
+          await navigator.clipboard.writeText(value);
+          notify('已复制' + label);
+        } catch {
+          showRecord(item, isRequests);
+          notify('复制未完成，可在详情中选择文字复制。');
+        }
+      }
+
+      function openActions(trigger, item, isRequests) {
+        if (actionMenu.matches(':popover-open') && menuTrigger === trigger) {
+          closeActions();
+          return;
+        }
+        closeActions();
+        menuTrigger = trigger;
+        activeOperation = { item, isRequests };
+        document.getElementById('copy-description').textContent = isRequests ? '复制用途' : '复制适用范围';
+        actionMenu.showPopover();
+        const target = trigger.getBoundingClientRect();
+        const width = actionMenu.offsetWidth;
+        const height = actionMenu.offsetHeight;
+        const gap = 8;
+        const edge = 16;
+        const left = Math.max(edge, Math.min(target.right - width, innerWidth - width - edge));
+        const below = target.bottom + gap;
+        const top = below + height <= innerHeight - edge ? below : Math.max(edge, target.top - height - gap);
+        actionMenu.style.left = left + 'px';
+        actionMenu.style.top = top + 'px';
+        trigger.setAttribute('aria-expanded', 'true');
+        actionMenu.querySelector('button').focus({ preventScroll: true });
+      }
+
+      function rowActions(item, isRequests) {
+        const controls = text('div', '', 'row-actions');
+        const viewButton = text('button', '查看', 'text-action');
+        viewButton.type = 'button';
+        viewButton.dataset.rowAction = 'view';
+        viewButton.setAttribute('aria-label', '查看记录全文 ' + item.id);
+        viewButton.addEventListener('click', () => showRecord(item, isRequests));
+        const copyButton = text('button', '复制编号', 'text-action');
+        copyButton.type = 'button';
+        copyButton.dataset.rowAction = 'copy-id';
+        copyButton.addEventListener('click', () => copyValue(item.id, '编号', item, isRequests));
+        const moreButton = text('button', '更多', 'text-action more-actions');
+        moreButton.type = 'button';
+        moreButton.dataset.rowAction = 'more';
+        moreButton.setAttribute('aria-label', '更多记录操作 ' + item.id);
+        moreButton.setAttribute('aria-controls', actionMenu.id);
+        moreButton.setAttribute('aria-expanded', 'false');
+        moreButton.append(WorkbenchIcon('chevron-down', 14));
+        moreButton.addEventListener('click', () => openActions(moreButton, item, isRequests));
+        controls.append(viewButton, copyButton, moreButton);
+        return controls;
+      }
+
       function render() {
+        closeActions();
         const isRequests = view === 'requests';
         const title = isRequests ? '访问申请' : '授权记录';
         document.getElementById('page-title').textContent = title;
@@ -301,34 +419,39 @@
           if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
           else button.removeAttribute('aria-current');
         });
-        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['获准范围', '申请人', '有效至', '状态', '来源申请'];
+        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['获准范围', '申请人', '有效至', '状态', '操作'];
         const head = document.getElementById('headings');
         head.replaceChildren(...headings.map(label => {
-          const th = text('th', label); th.scope = 'col'; return th;
+          const th = text('th', label); th.scope = 'col'; th.title = label; return th;
         }));
-        const matches = examples.slice(0, count).filter(item => {
-          const words = [item.id, item.person, item.purpose].join(' ').toLowerCase();
+        const source = sampleMode === 'long' ? longExamples : examples.slice(0, Number(sampleMode));
+        const matches = source.filter(item => {
+          const value = valuesFor(item, isRequests);
+          const words = Object.values(value).join(' ').toLowerCase();
           return words.includes(applied.keyword.toLowerCase()) &&
             (applied.status === 'all' || (!isRequests && applied.status === 'effective') || item.status === applied.status);
         });
         rows.replaceChildren();
         for (const item of matches) {
+          const value = valuesFor(item, isRequests);
           const row = document.createElement('tr');
           const subject = document.createElement('td');
-          subject.append(text('strong', isRequests ? '城南店毛利汇总访问申请' : '仅毛利额'), text('small', isRequests ? item.purpose : '城南店经营汇总 · 14 天'));
-          const person = text('td', item.person);
+          subject.append(clippedText('strong', value.subject, 'cell-title'), clippedText('small', value.description, 'cell-description'));
+          const person = document.createElement('td');
+          person.append(clippedText('span', value.person));
           person.dataset.label = '申请人';
-          const submitted = text('td', isRequests ? item.submitted : '11/22 09:30');
+          const submitted = document.createElement('td');
+          submitted.append(clippedText('span', value.date, 'cell-date'));
           submitted.dataset.field = 'submitted';
           submitted.dataset.label = isRequests ? '提交时间' : '有效至';
           const state = document.createElement('td');
           state.dataset.field = 'status';
           state.dataset.label = '状态';
-          state.append(text('span', isRequests ? (item.status === 'pending' ? '待审批' : '待执行') : '已生效', 'status' + (!isRequests ? ' success' : '')));
+          state.append(text('span', value.status, 'status' + (!isRequests ? ' success' : '')));
           const command = document.createElement('td');
           command.dataset.field = 'action';
-          command.dataset.label = isRequests ? '申请编号' : '来源申请';
-          command.append(text('span', item.id, 'text-action'));
+          command.dataset.label = '操作';
+          command.append(rowActions(item, isRequests));
           row.append(subject, person, submitted, state, command);
           rows.append(row);
         }
@@ -349,16 +472,11 @@
           ? [new Option('待审批', 'pending'), new Option('待执行', 'approved')]
           : [new Option('已生效', 'effective')]));
         render();
-        if (menu.open) menu.close();
       }));
-      for (const id of ['sample-count', 'mobile-sample-count']) {
-        document.getElementById(id).addEventListener('change', event => {
-          count = Number(event.target.value);
-          document.getElementById('sample-count').value = String(count);
-          document.getElementById('mobile-sample-count').value = String(count);
-          render();
-        });
-      }
+      document.getElementById('sample-count').addEventListener('change', event => {
+        sampleMode = event.target.value;
+        render();
+      });
       document.getElementById('query').addEventListener('submit', event => {
         event.preventDefault();
         applied = { keyword: keyword.value.trim(), status: status.value };
@@ -371,8 +489,33 @@
         const shown = document.body.classList.toggle('measures');
         event.currentTarget.setAttribute('aria-pressed', String(shown));
       });
-      document.getElementById('open-menu').addEventListener('click', () => menu.showModal());
-      document.getElementById('close-menu').addEventListener('click', () => menu.close());
+      document.getElementById('close-record').addEventListener('click', () => recordDialog.close());
+      document.getElementById('copy-description').addEventListener('click', () => {
+        if (!activeOperation) return;
+        const { item, isRequests } = activeOperation;
+        const value = valuesFor(item, isRequests);
+        copyValue(value.description, isRequests ? '用途' : '适用范围', item, isRequests);
+      });
+      document.getElementById('copy-person').addEventListener('click', () => {
+        if (!activeOperation) return;
+        const { item, isRequests } = activeOperation;
+        copyValue(item.person, '申请人', item, isRequests);
+      });
+      actionMenu.addEventListener('toggle', () => {
+        if (!menuTrigger) return;
+        const open = actionMenu.matches(':popover-open');
+        menuTrigger.setAttribute('aria-expanded', String(open));
+        if (!open && actionMenu.contains(document.activeElement)) menuTrigger.focus({ preventScroll: true });
+      });
+      actionMenu.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeActions();
+          menuTrigger?.focus({ preventScroll: true });
+        }
+      });
+      document.querySelector('.table-scroll').addEventListener('scroll', closeActions);
+      window.addEventListener('resize', closeActions);
       render();
     })();
   </script>
