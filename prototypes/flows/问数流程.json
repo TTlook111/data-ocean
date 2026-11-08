@@ -6,56 +6,38 @@
     "locale": "zh-CN",
     "quality_profile": "showcase",
     "output": "问数流程.html",
-    "legend": {
-      "entries": {
-        "frontend": {
-          "label": "用户操作"
-        },
-        "backend": {
-          "label": "平台处理"
-        },
-        "database": {
-          "label": "只读数据源"
-        },
-        "security": {
-          "label": "权限与校验"
-        },
-        "messagebus": {
-          "label": "事项流转"
-        }
-      }
-    },
     "views": [
       {
-        "id": "query",
-        "label": "怎样得到回答",
+        "id": "ask",
+        "label": "从提问到回答",
         "focus": [
           "ask",
-          "intent",
-          "facts",
-          "sql",
-          "execute",
-          "deliver"
+          "understand",
+          "generate",
+          "check",
+          "source",
+          "answer"
         ],
-        "note": "一次问数只使用一个数据源。每次执行前都要检查当前权限。"
+        "note": "已发布知识提供业务口径；通过校验的 SQL 在本次选中的业务数据库上只读执行。"
       },
       {
-        "id": "stops",
-        "label": "为什么会停下",
+        "id": "retry",
+        "label": "重写还是追问",
         "focus": [
-          "intent",
+          "understand",
+          "generate",
+          "check",
           "clarify",
-          "facts",
-          "gap",
-          "sql",
-          "denied"
+          "stop",
+          "gap"
         ],
-        "note": "问题含糊时向本人追问；已定位的知识缺口交治理；无权时停止。"
+        "note": "SQL 表达可修复且预算尚足时，带原因重新生成并完整校验；缺用户条件就追问，缺正式口径则转治理。"
       },
       {
-        "id": "follow",
-        "label": "点踩后谁处理",
+        "id": "feedback",
+        "label": "问题如何回告",
         "focus": [
+          "gap",
           "rate",
           "queue",
           "business",
@@ -63,111 +45,109 @@
           "verify",
           "notify"
         ],
-        "note": "每次有效点踩都入队；对应负责人修复并验证后回告原提问人。"
+        "note": "业务修订须生效、技术修复须交付，再用原问题复验。核实无需变更的事项直接回告依据。"
       }
-    ]
+    ],
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "人员操作"
+        },
+        "backend": {
+          "label": "平台处理"
+        },
+        "database": {
+          "label": "所选业务库"
+        },
+        "security": {
+          "label": "校验与阻断"
+        },
+        "messagebus": {
+          "label": "事项流转"
+        }
+      }
+    }
   },
   "lanes": [
     {
       "id": "stops",
-      "label": "追问与阻断",
+      "label": "追问或停止",
       "variant": "exception"
     },
     {
-      "id": "askflow",
-      "label": "单源问数"
+      "id": "question",
+      "label": "员工问一次数"
     },
     {
-      "id": "follow",
-      "label": "评价与处理"
+      "id": "issue",
+      "label": "问题核实与分派"
     },
     {
-      "id": "technicalLane",
-      "label": "技术修复"
-    }
-  ],
-  "phases": [
-    {
-      "id": "scope",
-      "label": "选源与理解",
-      "fromCol": 0,
-      "toCol": 1
-    },
-    {
-      "id": "evidence",
-      "label": "依据与校验",
-      "fromCol": 2,
-      "toCol": 3,
-      "variant": "emphasis"
-    },
-    {
-      "id": "answer",
-      "label": "执行与交付",
-      "fromCol": 4,
-      "toCol": 5
+      "id": "fix",
+      "label": "处理与回告"
     }
   ],
   "mainPath": [
     "ask",
-    "intent",
-    "facts",
-    "sql",
-    "execute",
-    "deliver"
+    "understand",
+    "generate",
+    "check",
+    "source",
+    "answer"
   ],
   "nodes": [
     {
       "id": "ask",
-      "lane": "askflow",
+      "lane": "question",
       "col": 0,
       "type": "frontend",
-      "label": "选源提问",
-      "sublabel": "选择一个有权数据源",
+      "label": "员工选源提问",
+      "sublabel": "选定一个已授权业务源",
       "icon": "person"
     },
     {
-      "id": "intent",
-      "lane": "askflow",
+      "id": "understand",
+      "lane": "question",
       "col": 1,
       "type": "backend",
-      "label": "理解业务问题",
-      "sublabel": "结合对话核对口径",
+      "label": "理解并补齐依据",
+      "sublabel": "已发布知识与同版口径",
       "icon": "decision"
     },
     {
-      "id": "facts",
-      "lane": "askflow",
+      "id": "generate",
+      "lane": "question",
       "col": 2,
       "type": "backend",
-      "label": "补齐业务依据",
-      "sublabel": "检索获准片段与同版详情",
+      "label": "生成 SQL",
+      "sublabel": "依照意图、口径与授权",
       "icon": "backend"
     },
     {
-      "id": "sql",
-      "lane": "askflow",
+      "id": "check",
+      "lane": "question",
       "col": 3,
       "type": "security",
-      "label": "生成并校验 SQL",
-      "sublabel": "检查语义、依赖及权限",
-      "icon": "security"
+      "label": "校验 SQL",
+      "sublabel": "先核对语义，再查安全权限",
+      "icon": "decision"
     },
     {
-      "id": "execute",
-      "lane": "askflow",
+      "id": "source",
+      "lane": "question",
       "col": 4,
       "type": "database",
-      "label": "只读执行",
-      "sublabel": "执行前复核范围与状态",
+      "label": "所选业务数据库",
+      "sublabel": "复核权限后只读执行",
       "icon": "database"
     },
     {
-      "id": "deliver",
-      "lane": "askflow",
+      "id": "answer",
+      "lane": "question",
       "col": 5,
       "type": "frontend",
-      "label": "交付回答",
-      "sublabel": "结论、口径和查询时间",
+      "label": "交付本次答案",
+      "sublabel": "数字、表格或图表",
       "icon": "success"
     },
     {
@@ -175,144 +155,169 @@
       "lane": "stops",
       "col": 1,
       "type": "frontend",
-      "label": "等待本人补充",
-      "sublabel": "确认后重新理解",
+      "label": "追问原提问人",
+      "sublabel": "请本人明确时间、口径等条件",
       "icon": "waiting"
     },
     {
-      "id": "gap",
+      "id": "stop",
       "lane": "stops",
-      "col": 2,
-      "type": "messagebus",
-      "label": "关联治理事项",
-      "sublabel": "同一缺口归并，可补充",
-      "icon": "messagebus"
-    },
-    {
-      "id": "denied",
-      "lane": "stops",
-      "col": 3,
+      "col": 4,
       "type": "security",
-      "label": "停止无权查询",
-      "sublabel": "按业务用途申请访问",
+      "label": "停止本次尝试",
+      "sublabel": "无权或自动重试已达上限",
       "icon": "stop"
     },
     {
-      "id": "rate",
-      "lane": "follow",
-      "col": 5,
-      "type": "frontend",
-      "label": "本人评价",
-      "sublabel": "当前可见回答才可评价",
-      "icon": "person"
-    },
-    {
-      "id": "queue",
-      "lane": "follow",
-      "col": 4,
+      "id": "gap",
+      "lane": "issue",
+      "col": 1,
       "type": "messagebus",
-      "label": "点踩入队分派",
-      "sublabel": "核实原因，分类处理",
+      "label": "登记治理事项",
+      "sublabel": "缺口自动归并，用户可补充",
       "icon": "messagebus"
     },
     {
       "id": "business",
-      "lane": "follow",
-      "col": 3,
+      "lane": "issue",
+      "col": 2,
       "type": "backend",
       "label": "修订业务知识",
-      "sublabel": "治理确认、测试与发布",
+      "sublabel": "审核、候选测试、发布",
       "icon": "briefcase"
     },
     {
+      "id": "queue",
+      "lane": "issue",
+      "col": 4,
+      "type": "messagebus",
+      "label": "受理并核实点踩",
+      "sublabel": "记录原因，按实情分派",
+      "icon": "messagebus"
+    },
+    {
+      "id": "rate",
+      "lane": "issue",
+      "col": 5,
+      "type": "frontend",
+      "label": "评价自己的回答",
+      "sublabel": "仅原提问人可评价",
+      "icon": "person"
+    },
+    {
       "id": "verify",
-      "lane": "follow",
+      "lane": "fix",
       "col": 2,
       "type": "backend",
-      "label": "核实处理结果",
-      "sublabel": "验证原问题及相关案例",
+      "label": "生效后复验",
+      "sublabel": "原问题和相关案例均通过",
       "icon": "success"
     },
     {
       "id": "notify",
-      "lane": "follow",
-      "col": 1,
+      "lane": "fix",
+      "col": 3,
       "type": "frontend",
       "label": "回告原提问人",
-      "sublabel": "按其当前权限提示结论",
+      "sublabel": "说明处理结论及其依据",
       "icon": "person"
     },
     {
       "id": "technical",
-      "lane": "technicalLane",
+      "lane": "fix",
       "col": 4,
       "type": "backend",
-      "label": "技术人员修复",
-      "sublabel": "检索、程序或流程问题",
+      "label": "修复技术问题",
+      "sublabel": "验证并交付程序修复",
       "icon": "backend"
     }
   ],
   "edges": [
     {
-      "id": "ask-intent",
+      "id": "ask-understand",
       "from": "ask",
-      "to": "intent"
+      "to": "understand"
     },
     {
-      "id": "intent-facts",
-      "from": "intent",
-      "to": "facts"
+      "id": "understand-generate",
+      "from": "understand",
+      "to": "generate"
     },
     {
-      "id": "facts-sql",
-      "from": "facts",
-      "to": "sql"
+      "id": "generate-check",
+      "from": "generate",
+      "to": "check"
     },
     {
-      "id": "sql-execute",
-      "from": "sql",
-      "to": "execute"
+      "id": "check-source",
+      "from": "check",
+      "to": "source",
+      "label": "均通过",
+      "variant": "emphasis"
     },
     {
-      "id": "execute-deliver",
-      "from": "execute",
-      "to": "deliver"
+      "id": "source-answer",
+      "from": "source",
+      "to": "answer",
+      "label": "实际结果"
     },
     {
-      "id": "intent-clarify",
-      "from": "intent",
+      "id": "check-generate",
+      "from": "check",
+      "to": "generate",
+      "label": "可修复",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "understand-clarify",
+      "from": "understand",
       "to": "clarify",
       "label": "有歧义",
-      "role": "branch",
-      "variant": "dashed"
+      "variant": "dashed",
+      "role": "branch"
     },
     {
-      "id": "clarify-intent",
+      "id": "check-clarify",
+      "from": "check",
+      "to": "clarify",
+      "label": "缺用户条件",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "clarify-understand",
       "from": "clarify",
-      "to": "intent",
+      "to": "understand",
       "label": "已补充",
-      "role": "return",
-      "variant": "dashed"
+      "variant": "emphasis",
+      "role": "return"
     },
     {
-      "id": "facts-gap",
-      "from": "facts",
+      "id": "check-stop",
+      "from": "check",
+      "to": "stop",
+      "label": "无权或超限",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "understand-gap",
+      "from": "understand",
       "to": "gap",
-      "label": "已定位缺口",
-      "role": "branch",
-      "variant": "dashed"
+      "label": "知识缺口",
+      "variant": "dashed",
+      "role": "branch"
     },
     {
-      "id": "sql-denied",
-      "from": "sql",
-      "to": "denied",
-      "label": "无权限",
-      "role": "error",
-      "variant": "security"
+      "id": "gap-business",
+      "from": "gap",
+      "to": "business",
+      "label": "核实需修订"
     },
     {
-      "id": "deliver-rate",
-      "from": "deliver",
+      "id": "answer-rate",
+      "from": "answer",
       "to": "rate",
       "label": "可选",
       "role": "branch"
@@ -321,61 +326,70 @@
       "id": "rate-queue",
       "from": "rate",
       "to": "queue",
-      "label": "点踩",
-      "role": "branch",
-      "variant": "emphasis"
+      "label": "有效点踩",
+      "variant": "emphasis",
+      "role": "branch"
     },
     {
       "id": "queue-business",
       "from": "queue",
       "to": "business",
-      "variant": "default"
+      "label": "口径有误"
     },
     {
       "id": "queue-technical",
       "from": "queue",
       "to": "technical",
-      "variant": "default"
+      "label": "技术问题"
     },
     {
       "id": "business-verify",
       "from": "business",
-      "to": "verify"
+      "to": "verify",
+      "label": "发布后"
     },
     {
       "id": "technical-verify",
       "from": "technical",
-      "to": "verify"
+      "to": "verify",
+      "label": "交付后"
     },
     {
       "id": "verify-notify",
       "from": "verify",
-      "to": "notify"
+      "to": "notify",
+      "label": "通过"
+    },
+    {
+      "id": "queue-notify",
+      "from": "queue",
+      "to": "notify",
+      "label": "无需修改"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "回答如何交付",
+      "title": "重写 SQL 的上限",
       "items": [
-        "表格或数值已实际交付，只有模型解释失败时，仍记为已交付，并标记“解释未完成”。",
-        "已完成的查询不会因补写解释而再次执行。用户回看或导出时仍要复核当前权限。"
+        "语义偏差、语法或方言错误可以修复时，以同一意图和授权范围带原因重写。新 SQL 须重新校验。",
+        "默认每次请求最多生成 3 个 SQL 候选；连续重复同一失败时提前停止。用户补充条件不重置预算。"
       ]
     },
     {
       "dot": "amber",
-      "title": "不能回答的原因",
+      "title": "条件缺失时问谁",
       "items": [
-        "需要跨数据源汇总时，以“超出问数范围”结束。有权负责人可把访问申请的业务用途映射到具体资源。",
-        "能够定位的知识缺口自动建单或关联原事项；一次检索未命中不能直接判为缺口。"
+        "存在多个合理口径，或生成和校验时发现关键时间、指标未明确，向本人追问。收到答复后重解意图、重新匹配同版依据。",
+        "若平台确认缺少已审核的业务知识，本次问数以知识不足结束，自动关联治理事项。仅未检索到候选时先核对证据。"
       ]
     },
     {
       "dot": "violet",
-      "title": "评价之后",
+      "title": "数据与结果归属",
       "items": [
-        "仅原提问人可评价本人的回答。点赞进入统计，点踩须写原因并进入处理队列。",
-        "处理完成后依实际结果回告；同类反馈先归组，达到已生效规则门槛后才提醒重点检查。"
+        "所选业务库提供查询数值。跨源分析以超出问数范围结束；失权时停止，可按业务用途申请访问。",
+        "已交付数值或表格时，解释失败单独标记。点赞进入统计，点踩由有权人员核实，处理结果按原提问人当前权限回告。"
       ]
     }
   ]

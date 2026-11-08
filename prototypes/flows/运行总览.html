@@ -5202,7 +5202,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 809 652" data-reader-fit="width-first" data-layout-contract="readable-v2" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="classic" data-quality-profile="showcase" data-node-ui="">
+      <svg viewBox="0 0 1036 722" data-reader-fit="width-first" data-layout-contract="readable-v2" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="classic" data-quality-profile="showcase" data-node-ui="">
         <title id="archify-diagram-title">DataOcean 项目运行总图</title>
         <desc id="archify-diagram-description">由 Archify 生成的工作流图。</desc>
         <!-- Definitions -->
@@ -5249,17 +5249,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="753" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="74" class="t-muted" font-size="10" font-weight="600">01 / 配置与运营</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="974" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-muted" font-size="10" font-weight="600">01 / 企业准备可复用的知识</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="753" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="198" class="t-muted" font-size="10" font-weight="600">02 / 治理与发布</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="974" height="228" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="198" class="t-muted" font-size="10" font-weight="600">02 / 员工问一次数</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="753" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="322" class="t-muted" font-size="10" font-weight="600">03 / 员工问数</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="424" width="753" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="446" class="t-muted" font-size="10" font-weight="600">04 / 反馈与改进</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="424" width="974" height="174" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="446" class="t-muted" font-size="10" font-weight="600">03 / 发现问题、处理与回告</text>
 
         <!-- Phase headers -->
 
@@ -5268,285 +5265,312 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
         <!-- Edge paths -->
-        <path data-edge-from="answer" data-edge-to="monitor" data-edge-label="运行记录" data-edge-key="0" data-edge-id="answer-monitor" data-composition-routing="workflow-v2-auto" data-edge-role="async" data-composition-points="734.8,341;734.8,145" d="M 734.8 341 L 734.8 145" class="a-dashed" data-animate="edge" style="--step:7" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="answer" data-edge-to="rate" data-edge-label="可选" data-edge-key="1" data-edge-id="answer-rate" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="734.8,393;734.8,465" d="M 734.8 393 L 734.8 465" class="a-default" data-animate="edge" style="--step:8" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ask" data-edge-to="retrieve" data-edge-key="2" data-edge-id="ask-retrieve" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="402.8,367;434.8,367" d="M 402.8 367 L 434.8 367" class="a-default" data-animate="edge" style="--step:9" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="build" data-edge-to="publish" data-edge-key="3" data-edge-id="build-publish" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="402.8,243;434.8,243" d="M 402.8 243 L 434.8 243" class="a-default" data-animate="edge" style="--step:2" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="catalog" data-edge-to="confirm" data-edge-key="4" data-edge-id="catalog-confirm" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="140,243;172,243" d="M 140 243 L 172 243" class="a-default" data-animate="edge" style="--step:0" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="configure" data-edge-to="catalog" data-edge-label="维护范围" data-edge-key="5" data-edge-id="configure-catalog" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="94,145;94,166;32,166;32,243;48,243" d="M 94 145 L 94 158 Q 94 166 86 166 L 40 166 Q 32 166 32 174 L 32 235 Q 32 243 40 243 L 48 243" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="confirm" data-edge-to="build" data-edge-key="6" data-edge-id="confirm-build" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="264,243;310.8,243" d="M 264 243 L 310.8 243" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="execute" data-edge-to="answer" data-edge-key="7" data-edge-id="execute-answer" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="650.8,367;688.8,367" d="M 650.8 367 L 688.8 367" class="a-default" data-animate="edge" style="--step:5" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="intake" data-edge-to="issue" data-edge-key="8" data-edge-id="intake-issue" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="558.8,491;526.8,491" d="M 558.8 491 L 526.8 491" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="issue" data-edge-to="confirm" data-edge-label="口径修订" data-edge-key="9" data-edge-id="issue-confirm" data-composition-routing="workflow-v2-auto" data-edge-role="return" data-composition-points="480.8,517;480.8,544;156,544;156,253;172,253" d="M 480.8 517 L 480.8 536 Q 480.8 544 472.8 544 L 164 544 Q 156 544 156 536 L 156 261 Q 156 253 164 253 L 172 253" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="issue" data-edge-to="verify" data-edge-key="10" data-edge-id="issue-verify" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="434.8,491;402.8,491" d="M 434.8 491 L 402.8 491" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="models" data-edge-to="confirm" data-edge-label="辅助治理" data-edge-key="11" data-edge-id="models-confirm" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="218,145;218,217" d="M 218 145 L 218 217" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="publish" data-edge-to="monitor" data-edge-label="发布状态" data-edge-key="12" data-edge-id="publish-monitor" data-composition-routing="workflow-v2-auto" data-edge-role="async" data-composition-points="480.8,217;480.8,119;688.8,119" d="M 480.8 217 L 480.8 127 Q 480.8 119 488.8 119 L 688.8 119" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="publish" data-edge-to="retrieve" data-edge-label="已生效" data-edge-key="13" data-edge-id="publish-retrieve" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="480.8,269;480.8,341" d="M 480.8 269 L 480.8 341" class="a-emphasis" data-animate="edge" style="--step:3" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="rate" data-edge-to="intake" data-edge-label="点踩" data-edge-key="14" data-edge-id="rate-intake" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="688.8,491;650.8,491" d="M 688.8 491 L 650.8 491" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="retrieve" data-edge-to="execute" data-edge-key="15" data-edge-id="retrieve-execute" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="526.8,367;558.8,367" d="M 526.8 367 L 558.8 367" class="a-emphasis" data-animate="edge" style="--step:4" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="retrieve" data-edge-to="issue" data-edge-label="已定位缺口" data-edge-key="16" data-edge-id="retrieve-issue" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="480.8,393;480.8,465" d="M 480.8 393 L 480.8 465" class="a-security" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="verify" data-edge-to="tell" data-edge-label="有结论" data-edge-key="17" data-edge-id="verify-tell" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="310.8,491;264,491" d="M 310.8 491 L 264 491" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="answer" data-edge-to="rating" data-edge-label="可选点踩" data-edge-key="0" data-edge-id="answer-rating" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="943.6,353;943.6,474" d="M 943.6 353 L 943.6 474" class="a-dashed" data-animate="edge" style="--step:6" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="ask" data-edge-to="resolve" data-edge-key="1" data-edge-id="ask-resolve" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="148,327;180,327" d="M 148 327 L 180 327" class="a-default" data-animate="edge" style="--step:0" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="businessDb" data-edge-to="answer" data-edge-label="取回结果" data-edge-key="2" data-edge-id="businessDb-answer" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="825.2,327;881.6,327" d="M 825.2 327 L 881.6 327" class="a-default" data-animate="edge" style="--step:4" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="catalog" data-edge-to="confirm" data-edge-key="3" data-edge-id="catalog-confirm" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="144,119;180,119" d="M 144 119 L 180 119" class="a-default" data-animate="edge" style="--step:9" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="check" data-edge-to="businessDb" data-edge-label="通过" data-edge-key="4" data-edge-id="check-businessDb" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="695.2,327;733.2,327" d="M 695.2 327 L 733.2 327" class="a-default" data-animate="edge" style="--step:3" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="check" data-edge-to="clarify" data-edge-label="仍缺条件" data-edge-key="5" data-edge-id="check-clarify" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="627.2,301;627.2,236;282,236" d="M 627.2 301 L 627.2 244 Q 627.2 236 619.2 236 L 282 236" class="a-security" data-animate="edge" style="--step:11" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="check" data-edge-to="generate" data-edge-label="可修复，限次重写" data-edge-key="6" data-edge-id="check-generate" data-composition-routing="workflow-v2-auto" data-edge-role="return" data-composition-points="559.2,327;464.4,327" d="M 559.2 327 L 464.4 327" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="clarify" data-edge-to="resolve" data-edge-label="本人补充" data-edge-key="7" data-edge-id="clarify-resolve" data-composition-routing="workflow-v2-auto" data-edge-role="return" data-composition-points="232,262;232,301" d="M 232 262 L 232 301" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="confirm" data-edge-to="publish" data-edge-key="8" data-edge-id="confirm-publish" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="284,119;372.4,119" d="M 284 119 L 372.4 119" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="fix" data-edge-to="verify" data-edge-key="9" data-edge-id="fix-verify" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="486.4,568;565.2,568" d="M 486.4 568 L 565.2 568" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="gap" data-edge-to="triage" data-edge-key="10" data-edge-id="gap-triage" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="174,500;148,500;148,568;170,568" d="M 174 500 L 156 500 Q 148 500 148 508 L 148 560 Q 148 568 156 568 L 170 568" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="generate" data-edge-to="check" data-edge-key="11" data-edge-id="generate-check" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="418.4,353;418.4,369;627.2,369;627.2,353" d="M 418.4 353 L 418.4 361 Q 418.4 369 426.4 369 L 619.2 369 Q 627.2 369 627.2 361 L 627.2 353" class="a-default" data-animate="edge" style="--step:2" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="knowledge" data-edge-to="resolve" data-edge-label="读取口径" data-edge-key="12" data-edge-id="knowledge-resolve" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="627.2,145;627.2,161;20,161;20,369;208,369;208,353" d="M 627.2 145 L 627.2 153 Q 627.2 161 619.2 161 L 28 161 Q 20 161 20 169 L 20 361 Q 20 369 28 369 L 200 369 Q 208 369 208 361 L 208 353" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="publish" data-edge-to="knowledge" data-edge-key="13" data-edge-id="publish-knowledge" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="464.4,119;573.2,119" d="M 464.4 119 L 573.2 119" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="rating" data-edge-to="triage" data-edge-key="14" data-edge-id="rating-triage" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="1003.6,500;1019.6,500;1019.6,630;208,630;208,594" d="M 1003.6 500 L 1011.6 500 Q 1019.6 500 1019.6 508 L 1019.6 622 Q 1019.6 630 1011.6 630 L 216 630 Q 208 630 208 622 L 208 594" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="resolve" data-edge-to="clarify" data-edge-label="条件不清" data-edge-key="15" data-edge-id="resolve-clarify" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="180,319;157,319;157,236;182,236" d="M 180 319 L 165 319 Q 157 319 157 311 L 157 244 Q 157 236 165 236 L 182 236" class="a-security" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="resolve" data-edge-to="gap" data-edge-label="已定位知识缺口" data-edge-key="16" data-edge-id="resolve-gap" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="232,353;232,474" d="M 232 353 L 232 474" class="a-security" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="resolve" data-edge-to="generate" data-edge-label="依据齐全" data-edge-key="17" data-edge-id="resolve-generate" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="284,327;372.4,327" d="M 284 327 L 372.4 327" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="triage" data-edge-to="fix" data-edge-label="需要修正" data-edge-key="18" data-edge-id="triage-fix" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="294,568;350.4,568" d="M 294 568 L 350.4 568" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="triage" data-edge-to="tell" data-edge-label="无需修改，有据结案" data-edge-key="19" data-edge-id="triage-tell" data-composition-routing="workflow-v2-auto" data-edge-role="branch" data-composition-points="232,594;232,614;943.6,614;943.6,594" d="M 232 594 L 232 606 Q 232 614 240 614 L 935.6 614 Q 943.6 614 943.6 606 L 943.6 594" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="verify" data-edge-to="fix" data-edge-label="复验未过" data-edge-key="20" data-edge-id="verify-fix" data-composition-routing="workflow-v2-auto" data-edge-role="return" data-composition-points="627.2,542;627.2,526;418.4,526;418.4,542" d="M 627.2 542 L 627.2 534 Q 627.2 526 619.2 526 L 426.4 526 Q 418.4 526 418.4 534 L 418.4 542" class="a-dashed" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="verify" data-edge-to="tell" data-edge-label="复验通过" data-edge-key="21" data-edge-id="verify-tell" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="689.2,568;893.6,568" d="M 689.2 568 L 893.6 568" class="a-default" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead)"/>
 
         <!-- Nodes -->
-        <g id="node-configure" data-node-id="configure" data-node-label="企业配置权限" tabindex="0" role="button" aria-label="聚焦企业配置权限，角色、操作与数据范围, 配置与运营" aria-pressed="false" data-node-kind="security" data-node-sublabel="角色、操作与数据范围" data-node-context="配置与运营">
-          <title>企业配置权限 · 角色、操作与数据范围 · 配置与运营</title>
-          <rect x="48" y="93" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="48" y="93" width="92" height="52" rx="8" class="c-security" data-animate="node" style="--step:7" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-security" transform="translate(54 99) scale(0.6875)">
-            <circle cx="8" cy="4.5" r="2.5"/><path d="M3 14v-2a5 5 0 0 1 10 0v2"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="94" y="125.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">企业配置权限</text>
-          <text data-detail="context" x="94" y="138.9" class="t-muted" font-size="7" text-anchor="middle">角色、操作与数据范围</text>
-        </g>
-
-        <g id="node-models" data-node-id="models" data-node-label="配置模型用途" tabindex="0" role="button" aria-label="聚焦配置模型用途，治理、问数、检索, 配置与运营" aria-pressed="false" data-node-kind="backend" data-node-sublabel="治理、问数、检索" data-node-context="配置与运营">
-          <title>配置模型用途 · 治理、问数、检索 · 配置与运营</title>
-          <rect x="172" y="93" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="172" y="93" width="92" height="52" rx="8" class="c-backend" data-animate="node" style="--step:8" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="neutral" class="semantic-sigil s-backend" transform="translate(178 99) scale(0.6875)">
-            <rect x="3" y="3" width="10" height="10" rx="2"/>
-            <circle cx="8" cy="8" r="1.2" class="sigil-fill"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="218" y="125.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">配置模型用途</text>
-          <text data-detail="context" x="218" y="140.1" class="t-muted" font-size="8" text-anchor="middle">治理、问数、检索</text>
-        </g>
-
-        <g id="node-monitor" data-node-id="monitor" data-node-label="运营看板" tabindex="0" role="button" aria-label="聚焦运营看板，按权限查看质量和成本, 配置与运营" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="按权限查看质量和成本" data-node-context="配置与运营">
-          <title>运营看板 · 按权限查看质量和成本 · 配置与运营</title>
-          <rect x="688.8" y="93" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="688.8" y="93" width="92" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:9" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(694.8 99) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="734.8" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">运营看板</text>
-          <text data-detail="context" x="734.8" y="131" class="t-muted" font-size="7" text-anchor="middle">按权限查看质量和成本</text>
-        </g>
-
-        <g id="node-catalog" data-node-id="catalog" data-node-label="接入企业数据源" tabindex="0" role="button" aria-label="聚焦接入企业数据源，只读连接，采集表字段, 治理与发布" aria-pressed="false" data-node-kind="database" data-node-sublabel="只读连接，采集表字段" data-node-context="治理与发布">
-          <title>接入企业数据源 · 只读连接，采集表字段 · 治理与发布</title>
-          <rect x="48" y="217" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="48" y="217" width="92" height="52" rx="8" class="c-database" data-animate="node" style="--step:0" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(54 223) scale(0.6875)">
+        <g id="node-catalog" data-node-id="catalog" data-node-label="只读采集元数据" tabindex="0" role="button" aria-label="聚焦只读采集元数据，表、字段和关系, 企业准备可复用的知识" aria-pressed="false" data-node-kind="database" data-node-sublabel="表、字段和关系" data-node-context="企业准备可复用的知识">
+          <title>只读采集元数据 · 表、字段和关系 · 企业准备可复用的知识</title>
+          <rect x="52" y="93" width="92" height="52" rx="8" class="c-mask"/>
+          <rect x="52" y="93" width="92" height="52" rx="8" class="c-database" data-animate="node" style="--step:6" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(58 99) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="94" y="248" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">接入企业数据源</text>
-          <text data-detail="context" x="94" y="261.4" class="t-muted" font-size="7" text-anchor="middle">只读连接，采集表字段</text>
+          <text data-node-label="" data-detail-anchor="" x="98" y="124" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">只读采集元数据</text>
+          <text data-detail="context" x="98" y="138.6" class="t-muted" font-size="8" text-anchor="middle">表、字段和关系</text>
         </g>
 
-        <g id="node-confirm" data-node-id="confirm" data-node-label="确认业务口径" tabindex="0" role="button" aria-label="聚焦确认业务口径，AI 建议，业务人员审核, 治理与发布" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="AI 建议，业务人员审核" data-node-context="治理与发布">
-          <title>确认业务口径 · AI 建议，业务人员审核 · 治理与发布</title>
-          <rect x="172" y="217" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="172" y="217" width="92" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:1" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(178 223) scale(0.6875)">
+        <g id="node-confirm" data-node-id="confirm" data-node-label="人工确认业务口径" tabindex="0" role="button" aria-label="聚焦人工确认业务口径，AI 辅助整理，逐项审核, 企业准备可复用的知识" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="AI 辅助整理，逐项审核" data-node-context="企业准备可复用的知识">
+          <title>人工确认业务口径 · AI 辅助整理，逐项审核 · 企业准备可复用的知识</title>
+          <rect x="180" y="93" width="104" height="52" rx="8" class="c-mask"/>
+          <rect x="180" y="93" width="104" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:7" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(186 99) scale(0.6875)">
             <circle cx="8" cy="4.5" r="2.5"/><path d="M3 14v-2a5 5 0 0 1 10 0v2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="218" y="249.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">确认业务口径</text>
-          <text data-detail="context" x="218" y="262.5" class="t-muted" font-size="6.6" text-anchor="middle">AI 建议，业务人员审核</text>
+          <text data-node-label="" data-detail-anchor="" x="232" y="124" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">人工确认业务口径</text>
+          <text data-detail="context" x="232" y="138.2" class="t-muted" font-size="7.6" text-anchor="middle">AI 辅助整理，逐项审核</text>
         </g>
 
-        <g id="node-build" data-node-id="build" data-node-label="构建发布候选" tabindex="0" role="button" aria-label="聚焦构建发布候选，知识文档与隔离索引, 治理与发布" aria-pressed="false" data-node-kind="database" data-node-sublabel="知识文档与隔离索引" data-node-context="治理与发布">
-          <title>构建发布候选 · 知识文档与隔离索引 · 治理与发布</title>
-          <rect x="310.8" y="217" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="310.8" y="217" width="92" height="52" rx="8" class="c-database" data-animate="node" style="--step:2" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(316.8 223) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="356.8" y="249.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">构建发布候选</text>
-          <text data-detail="context" x="356.8" y="263.8" class="t-muted" font-size="7.7" text-anchor="middle">知识文档与隔离索引</text>
-        </g>
-
-        <g id="node-publish" data-node-id="publish" data-node-label="测试后正式发布" tabindex="0" role="button" aria-label="聚焦测试后正式发布，相关题全过，整批切换, 治理与发布" aria-pressed="false" data-node-kind="security" data-node-sublabel="相关题全过，整批切换" data-node-context="治理与发布">
-          <title>测试后正式发布 · 相关题全过，整批切换 · 治理与发布</title>
-          <rect x="434.8" y="217" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="434.8" y="217" width="92" height="52" rx="8" class="c-security" data-animate="node" style="--step:3" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="decision" class="semantic-sigil s-security" transform="translate(440.8 223) scale(0.6875)">
+        <g id="node-publish" data-node-id="publish" data-node-label="验证并发布候选" tabindex="0" role="button" aria-label="聚焦验证并发布候选，按题目身份测试通过, 企业准备可复用的知识" aria-pressed="false" data-node-kind="security" data-node-sublabel="按题目身份测试通过" data-node-context="企业准备可复用的知识">
+          <title>验证并发布候选 · 按题目身份测试通过 · 企业准备可复用的知识</title>
+          <rect x="372.4" y="93" width="92" height="52" rx="8" class="c-mask"/>
+          <rect x="372.4" y="93" width="92" height="52" rx="8" class="c-security" data-animate="node" style="--step:8" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="decision" class="semantic-sigil s-security" transform="translate(378.4 99) scale(0.6875)">
             <path d="M8 2.2 13.8 8 8 13.8 2.2 8Z"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="480.8" y="248" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">测试后正式发布</text>
-          <text data-detail="context" x="480.8" y="261.4" class="t-muted" font-size="7" text-anchor="middle">相关题全过，整批切换</text>
+          <text data-node-label="" data-detail-anchor="" x="418.4" y="124" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">验证并发布候选</text>
+          <text data-detail="context" x="418.4" y="138.3" class="t-muted" font-size="7.7" text-anchor="middle">按题目身份测试通过</text>
         </g>
 
-        <g id="node-ask" data-node-id="ask" data-node-label="选数据源提问" tabindex="0" role="button" aria-label="聚焦选数据源提问，一个问题限定一个源, 员工问数" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="一个问题限定一个源" data-node-context="员工问数">
-          <title>选数据源提问 · 一个问题限定一个源 · 员工问数</title>
-          <rect x="310.8" y="341" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="310.8" y="341" width="92" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(316.8 347) scale(0.6875)">
+        <g id="node-knowledge" data-node-id="knowledge" data-node-label="已发布的业务知识" tabindex="0" role="button" aria-label="聚焦已发布的业务知识，有效定义、关系与计算规则, 企业准备可复用的知识" aria-pressed="false" data-node-kind="database" data-node-sublabel="有效定义、关系与计算规则" data-node-context="企业准备可复用的知识">
+          <title>已发布的业务知识 · 有效定义、关系与计算规则 · 企业准备可复用的知识</title>
+          <rect x="573.2" y="93" width="108" height="52" rx="8" class="c-mask"/>
+          <rect x="573.2" y="93" width="108" height="52" rx="8" class="c-database" data-animate="node" style="--step:9" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(579.2 99) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="627.2" y="124.5" class="t-primary" font-size="10.4" font-weight="600" text-anchor="middle">已发布的业务知识</text>
+          <text data-detail="context" x="627.2" y="137.9" class="t-muted" font-size="6.9" text-anchor="middle">有效定义、关系与计算规则</text>
+        </g>
+
+        <g id="node-ask" data-node-id="ask" data-node-label="员工选源并提问" tabindex="0" role="button" aria-label="聚焦员工选源并提问，例如：本店上周净销量？, 员工问一次数" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="例如：本店上周净销量？" data-node-context="员工问一次数">
+          <title>员工选源并提问 · 例如：本店上周净销量？ · 员工问一次数</title>
+          <rect x="48" y="301" width="100" height="52" rx="8" class="c-mask"/>
+          <rect x="48" y="301" width="100" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:0" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(54 307) scale(0.6875)">
             <circle cx="8" cy="4.5" r="2.5"/><path d="M3 14v-2a5 5 0 0 1 10 0v2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="356.8" y="373.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">选数据源提问</text>
-          <text data-detail="context" x="356.8" y="387.8" class="t-muted" font-size="7.7" text-anchor="middle">一个问题限定一个源</text>
+          <text data-node-label="" data-detail-anchor="" x="98" y="333.1" class="t-primary" font-size="10.9" font-weight="600" text-anchor="middle">员工选源并提问</text>
+          <text data-detail="context" x="98" y="346.7" class="t-muted" font-size="6.9" text-anchor="middle">例如：本店上周净销量？</text>
         </g>
 
-        <g id="node-retrieve" data-node-id="retrieve" data-node-label="理解问题并检索" tabindex="0" role="button" aria-label="聚焦理解问题并检索，补取同版已授权依据, 员工问数" aria-pressed="false" data-node-kind="backend" data-node-sublabel="补取同版已授权依据" data-node-context="员工问数">
-          <title>理解问题并检索 · 补取同版已授权依据 · 员工问数</title>
-          <rect x="434.8" y="341" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="434.8" y="341" width="92" height="52" rx="8" class="c-backend" data-animate="node" style="--step:4" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(440.8 347) scale(0.6875)">
+        <g id="node-clarify" data-node-id="clarify" data-node-label="追问原提问人" tabindex="0" role="button" aria-label="聚焦追问原提问人，保留已知条件，等待补充, 员工问一次数" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="保留已知条件，等待补充" data-node-context="员工问一次数">
+          <title>追问原提问人 · 保留已知条件，等待补充 · 员工问一次数</title>
+          <rect x="182" y="210" width="100" height="52" rx="8" class="c-mask"/>
+          <rect x="182" y="210" width="100" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:11" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="waiting" class="semantic-sigil s-frontend" transform="translate(188 216) scale(0.6875)">
+            <path d="M4 2.5h8M4 13.5h8M5 3c0 2.8 2 3.2 3 5-1 1.8-3 2.2-3 5M11 3c0 2.8-2 3.2-3 5 1 1.8 3 2.2 3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="232" y="242.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">追问原提问人</text>
+          <text data-detail="context" x="232" y="255.8" class="t-muted" font-size="6.9" text-anchor="middle">保留已知条件，等待补充</text>
+        </g>
+
+        <g id="node-resolve" data-node-id="resolve" data-node-label="理解问题并取口径" tabindex="0" role="button" aria-label="聚焦理解问题并取口径，读取获准的同版详细依据, 员工问一次数" aria-pressed="false" data-node-kind="backend" data-node-sublabel="读取获准的同版详细依据" data-node-context="员工问一次数">
+          <title>理解问题并取口径 · 读取获准的同版详细依据 · 员工问一次数</title>
+          <rect x="180" y="301" width="104" height="52" rx="8" class="c-mask"/>
+          <rect x="180" y="301" width="104" height="52" rx="8" class="c-backend" data-animate="node" style="--step:1" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(186 307) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="480.8" y="372" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">理解问题并检索</text>
-          <text data-detail="context" x="480.8" y="386.3" class="t-muted" font-size="7.7" text-anchor="middle">补取同版已授权依据</text>
+          <text data-node-label="" data-detail-anchor="" x="232" y="332" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">理解问题并取口径</text>
+          <text data-detail="context" x="232" y="345.7" class="t-muted" font-size="7.2" text-anchor="middle">读取获准的同版详细依据</text>
         </g>
 
-        <g id="node-execute" data-node-id="execute" data-node-label="生成并校验 SQL" tabindex="0" role="button" aria-label="聚焦生成并校验 SQL，复核语义、依赖和权限, 员工问数" aria-pressed="false" data-node-kind="security" data-node-sublabel="复核语义、依赖和权限" data-node-context="员工问数">
-          <title>生成并校验 SQL · 复核语义、依赖和权限 · 员工问数</title>
-          <rect x="558.8" y="341" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="558.8" y="341" width="92" height="52" rx="8" class="c-security" data-animate="node" style="--step:5" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(564.8 347) scale(0.6875)">
-            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
-            <path d="m5.8 8 1.5 1.5 3-3"/>
+        <g id="node-generate" data-node-id="generate" data-node-label="生成 SQL" tabindex="0" role="button" aria-label="聚焦生成 SQL，依据意图、口径和方言, 员工问一次数" aria-pressed="false" data-node-kind="backend" data-node-sublabel="依据意图、口径和方言" data-node-context="员工问一次数">
+          <title>生成 SQL · 依据意图、口径和方言 · 员工问一次数</title>
+          <rect x="372.4" y="301" width="92" height="52" rx="8" class="c-mask"/>
+          <rect x="372.4" y="301" width="92" height="52" rx="8" class="c-backend" data-animate="node" style="--step:2" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(378.4 307) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="604.8" y="372" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">生成并校验 SQL</text>
-          <text data-detail="context" x="604.8" y="385.4" class="t-muted" font-size="7" text-anchor="middle">复核语义、依赖和权限</text>
+          <text data-node-label="" data-detail-anchor="" x="418.4" y="322" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">生成 SQL</text>
+          <text data-detail="context" x="418.4" y="339" class="t-muted" font-size="7" text-anchor="middle">依据意图、口径和方言</text>
         </g>
 
-        <g id="node-answer" data-node-id="answer" data-node-label="只读执行与交付" tabindex="0" role="button" aria-label="聚焦只读执行与交付，数字、表格或图表, 员工问数" aria-pressed="false" data-node-kind="database" data-node-sublabel="数字、表格或图表" data-node-context="员工问数">
-          <title>只读执行与交付 · 数字、表格或图表 · 员工问数</title>
-          <rect x="688.8" y="341" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="688.8" y="341" width="92" height="52" rx="8" class="c-database" data-animate="node" style="--step:6" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="success" class="semantic-sigil s-database" transform="translate(694.8 347) scale(0.6875)">
+        <g id="node-check" data-node-id="check" data-node-label="校验 SQL" tabindex="0" role="button" aria-label="聚焦校验 SQL，先核需求语义，再查安全权限, 员工问一次数" aria-pressed="false" data-node-kind="security" data-node-sublabel="先核需求语义，再查安全权限" data-node-context="员工问一次数">
+          <title>校验 SQL · 先核需求语义，再查安全权限 · 员工问一次数</title>
+          <rect x="559.2" y="301" width="136" height="52" rx="8" class="c-mask"/>
+          <rect x="559.2" y="301" width="136" height="52" rx="8" class="c-security" data-animate="node" style="--step:3" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="decision" class="semantic-sigil s-security" transform="translate(565.2 307) scale(0.6875)">
+            <path d="M8 2.2 13.8 8 8 13.8 2.2 8Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="627.2" y="322" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">校验 SQL</text>
+          <text data-detail="context" x="627.2" y="339" class="t-muted" font-size="8" text-anchor="middle">先核需求语义，再查安全权限</text>
+        </g>
+
+        <g id="node-businessDb" data-node-id="businessDb" data-node-label="所选企业业务库" tabindex="0" role="button" aria-label="聚焦所选企业业务库，在获准行列内只读执行, 员工问一次数" aria-pressed="false" data-node-kind="database" data-node-sublabel="在获准行列内只读执行" data-node-context="员工问一次数">
+          <title>所选企业业务库 · 在获准行列内只读执行 · 员工问一次数</title>
+          <rect x="733.2" y="301" width="92" height="52" rx="8" class="c-mask"/>
+          <rect x="733.2" y="301" width="92" height="52" rx="8" class="c-database" data-animate="node" style="--step:4" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(739.2 307) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="779.2" y="332" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">所选企业业务库</text>
+          <text data-detail="context" x="779.2" y="345.4" class="t-muted" font-size="7" text-anchor="middle">在获准行列内只读执行</text>
+        </g>
+
+        <g id="node-answer" data-node-id="answer" data-node-label="交付本次答案" tabindex="0" role="button" aria-label="聚焦交付本次答案，实际数值、口径及查询时间, 员工问一次数" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="实际数值、口径及查询时间" data-node-context="员工问一次数">
+          <title>交付本次答案 · 实际数值、口径及查询时间 · 员工问一次数</title>
+          <rect x="881.6" y="301" width="124" height="52" rx="8" class="c-mask"/>
+          <rect x="881.6" y="301" width="124" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:5" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="success" class="semantic-sigil s-frontend" transform="translate(887.6 307) scale(0.6875)">
             <circle cx="8" cy="8" r="5.3"/>
             <path d="m5.2 8 1.8 1.8 3.8-4"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="734.8" y="372" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">只读执行与交付</text>
-          <text data-detail="context" x="734.8" y="386.6" class="t-muted" font-size="8" text-anchor="middle">数字、表格或图表</text>
+          <text data-node-label="" data-detail-anchor="" x="943.6" y="322" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">交付本次答案</text>
+          <text data-detail="context" x="943.6" y="339" class="t-muted" font-size="8" text-anchor="middle">实际数值、口径及查询时间</text>
         </g>
 
-        <g id="node-tell" data-node-id="tell" data-node-label="回告原提问人" tabindex="0" role="button" aria-label="聚焦回告原提问人，按当前权限通知处理结论, 反馈与改进" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="按当前权限通知处理结论" data-node-context="反馈与改进">
-          <title>回告原提问人 · 按当前权限通知处理结论 · 反馈与改进</title>
-          <rect x="172" y="465" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="172" y="465" width="92" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="flag" class="semantic-sigil s-frontend" transform="translate(178 471) scale(0.6875)">
-            <path d="M3 14V2h10l-2 3 2 3H3"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="218" y="497.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">回告原提问人</text>
-          <text data-detail="context" x="218" y="510.1" class="t-muted" font-size="6.3" text-anchor="middle">按当前权限通知处理结论</text>
-        </g>
-
-        <g id="node-verify" data-node-id="verify" data-node-label="修复后复验" tabindex="0" role="button" aria-label="聚焦修复后复验，验证原问题及相关案例, 反馈与改进" aria-pressed="false" data-node-kind="backend" data-node-sublabel="验证原问题及相关案例" data-node-context="反馈与改进">
-          <title>修复后复验 · 验证原问题及相关案例 · 反馈与改进</title>
-          <rect x="310.8" y="465" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="310.8" y="465" width="92" height="52" rx="8" class="c-backend" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="active" class="semantic-sigil s-backend" transform="translate(316.8 471) scale(0.6875)">
-            <path d="M2 8h3l1.5-3.5L9 12l1.6-4H14"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="362.8" y="486" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">修复后复验</text>
-          <text data-detail="context" x="356.8" y="503" class="t-muted" font-size="7" text-anchor="middle">验证原问题及相关案例</text>
-        </g>
-
-        <g id="node-issue" data-node-id="issue" data-node-label="关联处理事项" tabindex="0" role="button" aria-label="聚焦关联处理事项，知识缺口自动建单或归并, 反馈与改进" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="知识缺口自动建单或归并" data-node-context="反馈与改进">
-          <title>关联处理事项 · 知识缺口自动建单或归并 · 反馈与改进</title>
-          <rect x="434.8" y="465" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="434.8" y="465" width="92" height="52" rx="8" class="c-messagebus" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="briefcase" class="semantic-sigil s-messagebus" transform="translate(440.8 471) scale(0.6875)">
+        <g id="node-gap" data-node-id="gap" data-node-label="自动关联治理事项" tabindex="0" role="button" aria-label="聚焦自动关联治理事项，本次知识不足，同一缺口归并, 发现问题、处理与回告" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="本次知识不足，同一缺口归并" data-node-context="发现问题、处理与回告">
+          <title>自动关联治理事项 · 本次知识不足，同一缺口归并 · 发现问题、处理与回告</title>
+          <rect x="174" y="474" width="116" height="52" rx="8" class="c-mask"/>
+          <rect x="174" y="474" width="116" height="52" rx="8" class="c-messagebus" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="briefcase" class="semantic-sigil s-messagebus" transform="translate(180 480) scale(0.6875)">
             <rect x="2" y="5" width="12" height="9" rx="2"/><path d="M5 5V2h6v3M2 9h12M7 9v2h2V9"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="480.8" y="497.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">关联处理事项</text>
-          <text data-detail="context" x="480.8" y="510.1" class="t-muted" font-size="6.3" text-anchor="middle">知识缺口自动建单或归并</text>
+          <text data-node-label="" data-detail-anchor="" x="232" y="506.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">自动关联治理事项</text>
+          <text data-detail="context" x="232" y="519.8" class="t-muted" font-size="6.9" text-anchor="middle">本次知识不足，同一缺口归并</text>
         </g>
 
-        <g id="node-intake" data-node-id="intake" data-node-label="受理有效点踩" tabindex="0" role="button" aria-label="聚焦受理有效点踩，按职责分派，核实原因, 反馈与改进" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="按职责分派，核实原因" data-node-context="反馈与改进">
-          <title>受理有效点踩 · 按职责分派，核实原因 · 反馈与改进</title>
-          <rect x="558.8" y="465" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="558.8" y="465" width="92" height="52" rx="8" class="c-messagebus" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(564.8 471) scale(0.6875)">
+        <g id="node-triage" data-node-id="triage" data-node-label="分派并核实原因" tabindex="0" role="button" aria-label="聚焦分派并核实原因，查原问题、实际依据与影响, 发现问题、处理与回告" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="查原问题、实际依据与影响" data-node-context="发现问题、处理与回告">
+          <title>分派并核实原因 · 查原问题、实际依据与影响 · 发现问题、处理与回告</title>
+          <rect x="170" y="542" width="124" height="52" rx="8" class="c-mask"/>
+          <rect x="170" y="542" width="124" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(176 548) scale(0.6875)">
+            <circle cx="8" cy="4.5" r="2.5"/><path d="M3 14v-2a5 5 0 0 1 10 0v2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="235.2" y="563" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">分派并核实原因</text>
+          <text data-detail="context" x="232" y="580" class="t-muted" font-size="8" text-anchor="middle">查原问题、实际依据与影响</text>
+        </g>
+
+        <g id="node-fix" data-node-id="fix" data-node-label="完成修正并生效" tabindex="0" role="button" aria-label="聚焦完成修正并生效，知识重审发布或技术修复交付, 发现问题、处理与回告" aria-pressed="false" data-node-kind="backend" data-node-sublabel="知识重审发布或技术修复交付" data-node-context="发现问题、处理与回告">
+          <title>完成修正并生效 · 知识重审发布或技术修复交付 · 发现问题、处理与回告</title>
+          <rect x="350.4" y="542" width="136" height="52" rx="8" class="c-mask"/>
+          <rect x="350.4" y="542" width="136" height="52" rx="8" class="c-backend" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="active" class="semantic-sigil s-backend" transform="translate(356.4 548) scale(0.6875)">
+            <path d="M2 8h3l1.5-3.5L9 12l1.6-4H14"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="418.4" y="563" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">完成修正并生效</text>
+          <text data-detail="context" x="418.4" y="580" class="t-muted" font-size="8" text-anchor="middle">知识重审发布或技术修复交付</text>
+        </g>
+
+        <g id="node-verify" data-node-id="verify" data-node-label="按原问题复验" tabindex="0" role="button" aria-label="聚焦按原问题复验，核对已生效版本与相关用例, 发现问题、处理与回告" aria-pressed="false" data-node-kind="security" data-node-sublabel="核对已生效版本与相关用例" data-node-context="发现问题、处理与回告">
+          <title>按原问题复验 · 核对已生效版本与相关用例 · 发现问题、处理与回告</title>
+          <rect x="565.2" y="542" width="124" height="52" rx="8" class="c-mask"/>
+          <rect x="565.2" y="542" width="124" height="52" rx="8" class="c-security" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="decision" class="semantic-sigil s-security" transform="translate(571.2 548) scale(0.6875)">
+            <path d="M8 2.2 13.8 8 8 13.8 2.2 8Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="627.2" y="563" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">按原问题复验</text>
+          <text data-detail="context" x="627.2" y="580" class="t-muted" font-size="8" text-anchor="middle">核对已生效版本与相关用例</text>
+        </g>
+
+        <g id="node-rating" data-node-id="rating" data-node-label="本人点踩并说明原因" tabindex="0" role="button" aria-label="聚焦本人点踩并说明原因，已交付回答的反馈进入队列, 发现问题、处理与回告" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="已交付回答的反馈进入队列" data-node-context="发现问题、处理与回告">
+          <title>本人点踩并说明原因 · 已交付回答的反馈进入队列 · 发现问题、处理与回告</title>
+          <rect x="883.6" y="474" width="120" height="52" rx="8" class="c-mask"/>
+          <rect x="883.6" y="474" width="120" height="52" rx="8" class="c-messagebus" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(889.6 480) scale(0.6875)">
             <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
             <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
             <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="604.8" y="497.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">受理有效点踩</text>
-          <text data-detail="context" x="604.8" y="510.9" class="t-muted" font-size="7" text-anchor="middle">按职责分派，核实原因</text>
+          <text data-node-label="" data-detail-anchor="" x="943.6" y="505.4" class="t-primary" font-size="10.3" font-weight="600" text-anchor="middle">本人点踩并说明原因</text>
+          <text data-detail="context" x="943.6" y="519.8" class="t-muted" font-size="7.7" text-anchor="middle">已交付回答的反馈进入队列</text>
         </g>
 
-        <g id="node-rate" data-node-id="rate" data-node-label="评价本人回答" tabindex="0" role="button" aria-label="聚焦评价本人回答，点赞或点踩说明原因, 反馈与改进" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="点赞或点踩说明原因" data-node-context="反馈与改进">
-          <title>评价本人回答 · 点赞或点踩说明原因 · 反馈与改进</title>
-          <rect x="688.8" y="465" width="92" height="52" rx="8" class="c-mask"/>
-          <rect x="688.8" y="465" width="92" height="52" rx="8" class="c-frontend" data-animate="node" style="--step:12" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="person" class="semantic-sigil s-frontend" transform="translate(694.8 471) scale(0.6875)">
-            <circle cx="8" cy="4.5" r="2.5"/><path d="M3 14v-2a5 5 0 0 1 10 0v2"/>
+        <g id="node-tell" data-node-id="tell" data-node-label="回告原提问人" tabindex="0" role="button" aria-label="聚焦回告原提问人，按本人当前权限说明结论, 发现问题、处理与回告" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="按本人当前权限说明结论" data-node-context="发现问题、处理与回告">
+          <title>回告原提问人 · 按本人当前权限说明结论 · 发现问题、处理与回告</title>
+          <rect x="893.6" y="542" width="100" height="52" rx="8" class="c-mask"/>
+          <rect x="893.6" y="542" width="100" height="52" rx="8" class="c-messagebus" data-animate="node" style="--step:12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="flag" class="semantic-sigil s-messagebus" transform="translate(899.6 548) scale(0.6875)">
+            <path d="M3 14V2h10l-2 3 2 3H3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="734.8" y="497.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">评价本人回答</text>
-          <text data-detail="context" x="734.8" y="511.8" class="t-muted" font-size="7.7" text-anchor="middle">点赞或点踩说明原因</text>
+          <text data-node-label="" data-detail-anchor="" x="943.6" y="574.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">回告原提问人</text>
+          <text data-detail="context" x="943.6" y="587.8" class="t-muted" font-size="6.9" text-anchor="middle">按本人当前权限说明结论</text>
         </g>
 
         <!-- Edge labels -->
-        <g data-detail="context" data-edge-from="answer" data-edge-to="monitor" data-edge-label="运行记录" data-edge-key="0" data-edge-id="answer-monitor">
-          <rect x="710.5999999999999" y="233" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="734.8" y="243" class="t-edge-dashed" font-size="8" text-anchor="middle">运行记录</text>
+        <g data-detail="context" data-edge-from="answer" data-edge-to="rating" data-edge-label="可选点踩" data-edge-key="0" data-edge-id="answer-rating">
+          <rect x="919.4" y="403.5" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="943.6" y="413.5" class="t-edge-dashed" font-size="8" text-anchor="middle">可选点踩</text>
         </g>
-        <g data-detail="context" data-edge-from="answer" data-edge-to="rate" data-edge-label="可选" data-edge-key="1" data-edge-id="answer-rate">
-          <rect x="719.8" y="419" width="30" height="14" rx="3" class="c-mask"/>
-          <text x="734.8" y="429" class="t-muted" font-size="8" text-anchor="middle">可选</text>
+
+        <g data-detail="context" data-edge-from="businessDb" data-edge-to="answer" data-edge-label="取回结果" data-edge-key="2" data-edge-id="businessDb-answer">
+          <rect x="829.2" y="307" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="853.4000000000001" y="317" class="t-muted" font-size="8" text-anchor="middle">取回结果</text>
+        </g>
+
+        <g data-detail="context" data-edge-from="check" data-edge-to="businessDb" data-edge-label="通过" data-edge-key="4" data-edge-id="check-businessDb">
+          <rect x="699.2" y="307" width="30" height="14" rx="3" class="c-mask"/>
+          <text x="714.2" y="317" class="t-muted" font-size="8" text-anchor="middle">通过</text>
+        </g>
+        <g data-detail="context" data-edge-from="check" data-edge-to="clarify" data-edge-label="仍缺条件" data-edge-key="5" data-edge-id="check-clarify">
+          <rect x="430.40000000000003" y="216" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="454.6" y="226" class="t-edge-security" font-size="8" text-anchor="middle">仍缺条件</text>
+        </g>
+        <g data-detail="context" data-edge-from="check" data-edge-to="generate" data-edge-label="可修复，限次重写" data-edge-key="6" data-edge-id="check-generate">
+          <rect x="468.40000000000003" y="307" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="511.8" y="317" class="t-edge-dashed" font-size="8" text-anchor="middle">可修复，限次重写</text>
+        </g>
+        <g data-detail="context" data-edge-from="clarify" data-edge-to="resolve" data-edge-label="本人补充" data-edge-key="7" data-edge-id="clarify-resolve">
+          <rect x="207.8" y="271.5" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="232" y="281.5" class="t-edge-dashed" font-size="8" text-anchor="middle">本人补充</text>
         </g>
 
 
 
-        <g data-detail="context" data-edge-from="configure" data-edge-to="catalog" data-edge-label="维护范围" data-edge-key="5" data-edge-id="configure-catalog">
-          <rect x="38.8" y="146" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="63" y="156" class="t-muted" font-size="8" text-anchor="middle">维护范围</text>
+
+        <g data-detail="context" data-edge-from="knowledge" data-edge-to="resolve" data-edge-label="读取口径" data-edge-key="12" data-edge-id="knowledge-resolve">
+          <rect x="299.40000000000003" y="141" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="323.6" y="151" class="t-edge-dashed" font-size="8" text-anchor="middle">读取口径</text>
         </g>
 
 
-
-        <g data-detail="context" data-edge-from="issue" data-edge-to="confirm" data-edge-label="口径修订" data-edge-key="9" data-edge-id="issue-confirm">
-          <rect x="294.2" y="524" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="318.4" y="534" class="t-edge-dashed" font-size="8" text-anchor="middle">口径修订</text>
+        <g data-detail="context" data-edge-from="resolve" data-edge-to="clarify" data-edge-label="条件不清" data-edge-key="15" data-edge-id="resolve-clarify">
+          <rect x="132.8" y="267.5" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="157" y="277.5" class="t-edge-security" font-size="8" text-anchor="middle">条件不清</text>
         </g>
-
-        <g data-detail="context" data-edge-from="models" data-edge-to="confirm" data-edge-label="辅助治理" data-edge-key="11" data-edge-id="models-confirm">
-          <rect x="193.8" y="171" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="218" y="181" class="t-muted" font-size="8" text-anchor="middle">辅助治理</text>
+        <g data-detail="context" data-edge-from="resolve" data-edge-to="gap" data-edge-label="已定位知识缺口" data-edge-key="16" data-edge-id="resolve-gap">
+          <rect x="193.4" y="403.5" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="232" y="413.5" class="t-edge-security" font-size="8" text-anchor="middle">已定位知识缺口</text>
         </g>
-        <g data-detail="context" data-edge-from="publish" data-edge-to="monitor" data-edge-label="发布状态" data-edge-key="12" data-edge-id="publish-monitor">
-          <rect x="560.5999999999999" y="99" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="584.8" y="109" class="t-edge-dashed" font-size="8" text-anchor="middle">发布状态</text>
+        <g data-detail="context" data-edge-from="resolve" data-edge-to="generate" data-edge-label="依据齐全" data-edge-key="17" data-edge-id="resolve-generate">
+          <rect x="304" y="307" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="328.2" y="317" class="t-muted" font-size="8" text-anchor="middle">依据齐全</text>
         </g>
-        <g data-detail="context" data-edge-from="publish" data-edge-to="retrieve" data-edge-label="已生效" data-edge-key="13" data-edge-id="publish-retrieve">
-          <rect x="461.40000000000003" y="295" width="38.8" height="14" rx="3" class="c-mask"/>
-          <text x="480.8" y="305" class="t-edge-emphasis" font-size="8" text-anchor="middle">已生效</text>
+        <g data-detail="context" data-edge-from="triage" data-edge-to="fix" data-edge-label="需要修正" data-edge-key="18" data-edge-id="triage-fix">
+          <rect x="298" y="548" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="322.2" y="558" class="t-muted" font-size="8" text-anchor="middle">需要修正</text>
         </g>
-        <g data-detail="context" data-edge-from="rate" data-edge-to="intake" data-edge-label="点踩" data-edge-key="14" data-edge-id="rate-intake">
-          <rect x="654.8" y="471" width="30" height="14" rx="3" class="c-mask"/>
-          <text x="669.8" y="481" class="t-muted" font-size="8" text-anchor="middle">点踩</text>
+        <g data-detail="context" data-edge-from="triage" data-edge-to="tell" data-edge-label="无需修改，有据结案" data-edge-key="19" data-edge-id="triage-tell">
+          <rect x="539.5999999999999" y="594" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="587.8" y="604" class="t-edge-dashed" font-size="8" text-anchor="middle">无需修改，有据结案</text>
         </g>
-
-        <g data-detail="context" data-edge-from="retrieve" data-edge-to="issue" data-edge-label="已定位缺口" data-edge-key="16" data-edge-id="retrieve-issue">
-          <rect x="451.8" y="419" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="480.8" y="429" class="t-edge-security" font-size="8" text-anchor="middle">已定位缺口</text>
+        <g data-detail="context" data-edge-from="verify" data-edge-to="fix" data-edge-label="复验未过" data-edge-key="20" data-edge-id="verify-fix">
+          <rect x="498.59999999999997" y="506" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="522.8" y="516" class="t-edge-dashed" font-size="8" text-anchor="middle">复验未过</text>
         </g>
-        <g data-detail="context" data-edge-from="verify" data-edge-to="tell" data-edge-label="有结论" data-edge-key="17" data-edge-id="verify-tell">
-          <rect x="268" y="471" width="38.8" height="14" rx="3" class="c-mask"/>
-          <text x="287.4" y="481" class="t-muted" font-size="8" text-anchor="middle">有结论</text>
+        <g data-detail="context" data-edge-from="verify" data-edge-to="tell" data-edge-label="复验通过" data-edge-key="21" data-edge-id="verify-tell">
+          <rect x="767.2" y="548" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="791.4000000000001" y="558" class="t-muted" font-size="8" text-anchor="middle">复验通过</text>
         </g>
 
         <!-- Legend -->
         <g data-legend="" data-legend-bridge="">
-          <text x="20" y="552" class="t-primary" font-size="12" font-weight="650">图例</text>
-          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="人员操作" data-legend-x="20" data-legend-baseline="572" data-legend-width="81">
-            <rect x="20" y="564" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
-            <text x="42" y="572" class="t-muted" font-size="7.5" font-weight="500">人员操作</text>
+          <text x="20" y="622" class="t-primary" font-size="12" font-weight="650">图例</text>
+          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="人员操作" data-legend-x="20" data-legend-baseline="642" data-legend-width="81">
+            <rect x="20" y="634" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+            <text x="42" y="642" class="t-muted" font-size="7.5" font-weight="500">人员操作</text>
           </g>
-          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="系统处理" data-legend-x="108" data-legend-baseline="572" data-legend-width="81">
-            <rect x="108" y="564" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
-            <text x="130" y="572" class="t-muted" font-size="7.5" font-weight="500">系统处理</text>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="系统处理" data-legend-x="108" data-legend-baseline="642" data-legend-width="81">
+            <rect x="108" y="634" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="130" y="642" class="t-muted" font-size="7.5" font-weight="500">系统处理</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="授权与校验" data-legend-x="196" data-legend-baseline="572" data-legend-width="90">
-            <rect x="196" y="564" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
-            <text x="218" y="572" class="t-muted" font-size="7.5" font-weight="500">授权与校验</text>
+          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="校验" data-legend-x="196" data-legend-baseline="642" data-legend-width="62">
+            <rect x="196" y="634" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="218" y="642" class="t-muted" font-size="7.5" font-weight="500">校验</text>
           </g>
-          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="事项与通知" data-legend-x="293" data-legend-baseline="572" data-legend-width="90">
-            <rect x="293" y="564" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
-            <text x="315" y="572" class="t-muted" font-size="7.5" font-weight="500">事项与通知</text>
+          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="事项与回告" data-legend-x="265" data-legend-baseline="642" data-legend-width="90">
+            <rect x="265" y="634" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+            <text x="287" y="642" class="t-muted" font-size="7.5" font-weight="500">事项与回告</text>
           </g>
-          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="数据与知识" data-legend-x="390" data-legend-baseline="572" data-legend-width="90">
-            <rect x="390" y="564" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
-            <text x="412" y="572" class="t-muted" font-size="7.5" font-weight="500">数据与知识</text>
+          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="数据与知识" data-legend-x="362" data-legend-baseline="642" data-legend-width="90">
+            <rect x="362" y="634" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+            <text x="384" y="642" class="t-muted" font-size="7.5" font-weight="500">数据与知识</text>
           </g>
         </g>
       </svg>
@@ -5729,44 +5753,44 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>谁能看到什么</h3>
+          <h3>口径和数字各从哪里来</h3>
         </div>
         <ul>
-          <li>企业可以给任一角色配置操作和数据范围。查看、审核、发布和回退分别授权。</li>
-          <li>员工按业务用途申请额外访问；由负责人匹配实际资源，授予生效后才能查询。</li>
+          <li>店长问本店上周净销量时，已发布知识提供销售减退货的算法、时间字段和计量单位。</li>
+          <li>SQL 在本次选定的经营业务库内只读执行，答案使用这次返回的数值。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>查询未通过时如何继续</h3>
+        </div>
+        <ul>
+          <li>可修复的 SQL 携带失败原因回到生成节点，每次重写都重走校验。默认最多生成 3 个候选，同错无进展或超预算就停止。</li>
+          <li>需要员工确认日期、门店或业务场景时暂停；答复后重新理解并检查依据。无权限、对象已禁用或断连时停止执行。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>用超市问题走一遍</h3>
+          <h3>知识不足与点踩分开处理</h3>
         </div>
         <ul>
-          <li>店长选择经营数据源，问“本店上周净卖出多少盒牛奶？”</li>
-          <li>有多个销量口径时先追问。缺少已确认的退货口径时，关联治理事项，用户可补充。</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot violet"></div>
-          <h3>如何判断一次交付</h3>
-        </div>
-        <ul>
-          <li>仅原提问人能评价自己的回答。点赞进入统计；点踩进入处理队列。</li>
-          <li>已交付的表格即使解释失败也保留，注明“解释未完成”。看板分别呈现交付率与业务正确率。</li>
+          <li>必要口径确实缺失时，原问数以知识不足结束，自动建立或关联事项；用户无需先点踩即可补充。</li>
+          <li>只有原提问人可评价自己的回答。修复后验证完成再回告；核查后无需修改，则说明理由。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot slate"></div>
-          <h3>运营看板观察什么</h3>
+          <h3>贯穿三条流程的配置与观察</h3>
         </div>
         <ul>
-          <li>按当前权限汇总可用知识、问数终态、反馈事项、评测与模型用量，支持查看对应明细。</li>
-          <li>有效点踩立即入队；同类反馈达到已启用的提醒门槛后，才提示重点检查。</li>
+          <li>企业配置角色、数据范围和模型用途；在读取知识、执行、交付与历史回看时核验当前权限。</li>
+          <li>运营看板按可见范围汇总发布状态、各类问数终态、反馈事项、评测质量和模型用量。</li>
         </ul>
       </div>
     </div>
