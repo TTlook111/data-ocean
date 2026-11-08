@@ -30,7 +30,7 @@
           "check",
           "businessDb"
         ],
-        "note": "可修复的 SQL 带原因返回生成。缺用户条件时暂停追问，答复后重新理解、取依据、生成并校验。"
+        "note": "生成或校验时缺条件可直接追问。校验或业务库确认 SQL 错误可修复时，带原因限次重写，每个新候选都重新校验。"
       },
       {
         "id": "knowledgePrep",
@@ -52,10 +52,11 @@
           "rating",
           "triage",
           "fix",
+          "sourceFix",
           "verify",
           "tell"
         ],
-        "note": "知识不足与本人点踩分别进入事项处理。修正生效后复验；无需改动时，记录依据并向本人回告。"
+        "note": "核实后分别处理口径、程序或源数据问题。等待外部修正时保留事项，复验失败退回处理中，通过才按已解决回告。"
       }
     ],
     "legend": {
@@ -75,6 +76,9 @@
         },
         "messagebus": {
           "label": "事项与回告"
+        },
+        "external": {
+          "label": "源系统负责人"
         }
       }
     }
@@ -186,17 +190,17 @@
       "col": 5,
       "type": "frontend",
       "label": "交付本次答案",
-      "sublabel": "实际数值、口径及查询时间",
+      "sublabel": "复核权限后展示本次结果",
       "icon": "success",
       "yOffset": 22
     },
     {
       "id": "clarify",
       "lane": "query",
-      "col": 1,
+      "col": 2,
       "type": "frontend",
       "label": "追问原提问人",
-      "sublabel": "保留已知条件，等待补充",
+      "sublabel": "保留已知条件，默认等 30 分钟",
       "icon": "waiting",
       "yOffset": -69
     },
@@ -208,7 +212,7 @@
       "label": "自动关联治理事项",
       "sublabel": "本次知识不足，同一缺口归并",
       "icon": "briefcase",
-      "yOffset": -26
+      "yOffset": -28
     },
     {
       "id": "rating",
@@ -223,12 +227,12 @@
     {
       "id": "triage",
       "lane": "handle",
-      "col": 1,
+      "col": 2,
       "type": "frontend",
-      "label": "分派并核实原因",
+      "label": "处理中：核实与分派",
       "sublabel": "查原问题、实际依据与影响",
       "icon": "person",
-      "yOffset": 42
+      "yOffset": -28
     },
     {
       "id": "fix",
@@ -238,7 +242,7 @@
       "label": "完成修正并生效",
       "sublabel": "知识重审发布或技术修复交付",
       "icon": "active",
-      "yOffset": 42
+      "yOffset": 55
     },
     {
       "id": "verify",
@@ -248,7 +252,7 @@
       "label": "按原问题复验",
       "sublabel": "核对已生效版本与相关用例",
       "icon": "decision",
-      "yOffset": 42
+      "yOffset": 55
     },
     {
       "id": "tell",
@@ -258,7 +262,17 @@
       "label": "回告原提问人",
       "sublabel": "按本人当前权限说明结论",
       "icon": "flag",
-      "yOffset": 42
+      "yOffset": 55
+    },
+    {
+      "id": "sourceFix",
+      "lane": "handle",
+      "col": 1,
+      "yOffset": 55,
+      "type": "external",
+      "icon": "person",
+      "label": "源系统负责人修正",
+      "sublabel": "跟踪补录或同步，等待时未结"
     }
   ],
   "mainPath": [
@@ -296,7 +310,15 @@
       "id": "businessDb-answer",
       "from": "businessDb",
       "to": "answer",
-      "label": "取回结果"
+      "label": "成功取数"
+    },
+    {
+      "id": "generate-clarify",
+      "from": "generate",
+      "to": "clarify",
+      "label": "缺用户条件",
+      "role": "branch",
+      "variant": "security"
     },
     {
       "id": "resolve-gap",
@@ -320,10 +342,15 @@
       "to": "triage"
     },
     {
+      "id": "rating-triage",
+      "from": "rating",
+      "to": "triage"
+    },
+    {
       "id": "triage-fix",
       "from": "triage",
       "to": "fix",
-      "label": "需要修正"
+      "label": "知识或程序问题"
     },
     {
       "id": "fix-verify",
@@ -334,21 +361,45 @@
       "id": "verify-tell",
       "from": "verify",
       "to": "tell",
-      "label": "复验通过"
+      "label": "通过，已解决"
+    },
+    {
+      "id": "triage-sourceFix",
+      "from": "triage",
+      "to": "sourceFix",
+      "label": "源数据异常",
+      "role": "branch",
+      "variant": "default"
+    },
+    {
+      "id": "sourceFix-verify",
+      "from": "sourceFix",
+      "to": "verify",
+      "label": "修正完成",
+      "role": "branch",
+      "variant": "default"
+    },
+    {
+      "id": "verify-triage",
+      "from": "verify",
+      "to": "triage",
+      "label": "复验未过",
+      "role": "return",
+      "variant": "dashed"
+    },
+    {
+      "id": "triage-tell",
+      "from": "triage",
+      "to": "tell",
+      "label": "无需修改",
+      "role": "branch",
+      "variant": "dashed"
     },
     {
       "id": "clarify-resolve",
       "from": "clarify",
       "to": "resolve",
-      "label": "本人补充",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "check-generate",
-      "from": "check",
-      "to": "generate",
-      "label": "可修复，限次重写",
+      "label": "未到期补充",
       "role": "return",
       "variant": "dashed"
     },
@@ -367,6 +418,22 @@
       "label": "仍缺条件",
       "role": "branch",
       "variant": "security"
+    },
+    {
+      "id": "check-generate",
+      "from": "check",
+      "to": "generate",
+      "label": "可修复，限次重写",
+      "role": "return",
+      "variant": "dashed"
+    },
+    {
+      "id": "businessDb-generate",
+      "from": "businessDb",
+      "to": "generate",
+      "label": "可修复的库端错误",
+      "role": "return",
+      "variant": "dashed"
     },
     {
       "id": "knowledge-resolve",
@@ -390,27 +457,6 @@
       "id": "publish-knowledge",
       "from": "publish",
       "to": "knowledge"
-    },
-    {
-      "id": "rating-triage",
-      "from": "rating",
-      "to": "triage"
-    },
-    {
-      "id": "triage-tell",
-      "from": "triage",
-      "to": "tell",
-      "label": "无需修改，有据结案",
-      "role": "branch",
-      "variant": "dashed"
-    },
-    {
-      "id": "verify-fix",
-      "from": "verify",
-      "to": "fix",
-      "label": "复验未过",
-      "role": "return",
-      "variant": "dashed"
     }
   ],
   "semanticChecks": {
@@ -466,6 +512,26 @@
       {
         "from": "triage",
         "to": "tell"
+      },
+      {
+        "from": "generate",
+        "to": "clarify"
+      },
+      {
+        "from": "businessDb",
+        "to": "generate"
+      },
+      {
+        "from": "triage",
+        "to": "sourceFix"
+      },
+      {
+        "from": "sourceFix",
+        "to": "verify"
+      },
+      {
+        "from": "verify",
+        "to": "triage"
       }
     ]
   },
@@ -482,16 +548,17 @@
       "dot": "amber",
       "title": "查询未通过时如何继续",
       "items": [
-        "可修复的 SQL 携带失败原因回到生成节点，每次重写都重走校验。默认最多生成 3 个候选，同错无进展或超预算就停止。",
-        "需要员工确认日期、门店或业务场景时暂停；答复后重新理解并检查依据。无权限、对象已禁用或断连时停止执行。"
+        "生成或校验时发现关键日期、门店或指标缺失，直接追问本人。默认空闲期为 30 分钟；期内补充重新理解并核对依据，预算沿用。到期终结原请求，之后的补充另建关联问数并重新核验。",
+        "语义、语法或方言错误可修复时带原因重写。默认每个请求最多生成 3 个 SQL 候选；已确认的可修复执行错误最多重试 1 次，同错无进展或超预算就停止。",
+        "超时或网络中断时，先核查原数据库任务或请求取消；状态未知时禁止重放。已经执行完成且结果可用时，复核当前权限再交付。"
       ]
     },
     {
       "dot": "emerald",
       "title": "知识不足与点踩分开处理",
       "items": [
-        "必要口径确实缺失时，原问数以知识不足结束，自动建立或关联事项；用户无需先点踩即可补充。",
-        "只有原提问人可评价自己的回答。修复后验证完成再回告；核查后无需修改，则说明理由。"
+        "必要口径确实缺失时，问数以知识不足结束，自动建立或归并治理事项；本人可直接补充。有效点踩另记反馈，先核实原因。",
+        "退货漏录等源数据问题由源系统负责人修正，平台跟踪，不写业务库。候选回归通过再发布或交付知识、程序修正。生效后复验，未过退回处理中；无需修改时记录依据后回告。"
       ]
     },
     {
