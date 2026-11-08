@@ -25,12 +25,16 @@
 .rl-button.rl-primary:hover:enabled { border-color: #244eaa; background: #244eaa; color: white; }
 .rl-error { width: 100%; margin: 0; color: #9b3b32; font-size: 13px; }
 .rl-error:empty { display: none; }
+.rl-result-panel { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }
 .rl-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 0; font-size: 12px; color: var(--ap-muted); }
+.rl-result-panel > .rl-pager { flex: none; margin-top: auto; padding: 14px 20px; border-top: 1px solid var(--ap-line); }
 .rl-result-count { margin-right: auto; }
 .rl-page-number { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .rl-pager .rl-page-number input { width: 56px; padding-inline: 5px; text-align: center; }
 .rl-pager select { min-width: 106px; }
 @media (max-width: 760px) {
+  .rl-result-panel { display: block; flex: none; overflow: visible; }
+  .rl-result-panel > .rl-pager { padding-inline: 13px; }
   .rl-filters { padding: 14px; gap: 12px; }
   .rl-keyword, .rl-dates { flex: 1 1 100%; }
   .rl-field:not(.rl-keyword) { flex: 1; }

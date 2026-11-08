@@ -357,10 +357,12 @@
       preview.append(empty);
     }
     inbox.append(mailbox, preview);
-    queue.append(inbox);
-    queue.append(RecordControls.pager(result,
+    const resultsPanel = el('section', 'ap-results rl-result-panel');
+    resultsPanel.setAttribute('aria-label', '访问申请查询结果');
+    resultsPanel.append(inbox, RecordControls.pager(result,
       page => onQuery({ ...query, page }, 'page'),
       pageSize => onQuery({ ...query, pageSize, page: 1 }, 'pageSize')));
+    queue.append(resultsPanel);
     return queue;
   }
 

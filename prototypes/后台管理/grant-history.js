@@ -50,6 +50,9 @@
     query.page = result.page;
     query.pageSize = result.pageSize;
     page.dataset.resultTotal = String(result.total);
+    const resultsPanel = element('section', 'gh-results rl-result-panel');
+    resultsPanel.setAttribute('aria-label', '授权查询结果');
+    page.append(resultsPanel);
     const hasFilters = Boolean(String(query.keyword || '').trim() || (query.status && query.status !== 'all') ||
       query.fromDate || query.toDate);
     if (!result.total) {
@@ -69,8 +72,8 @@
         requests.append(WorkbenchIcon('chevron-right', 14));
         empty.append(requests);
       }
-      page.append(empty);
-      page.append(RecordControls.pager(result,
+      resultsPanel.append(empty);
+      resultsPanel.append(RecordControls.pager(result,
         next => onQuery({ ...query, page: next }, 'page'),
         size => onQuery({ ...query, page: 1, pageSize: size }, 'pageSize')));
       return page;
@@ -109,8 +112,8 @@
     }
     const panel = element('div', 'gh-panel');
     panel.append(header, list);
-    page.append(panel);
-    page.append(RecordControls.pager(result,
+    resultsPanel.append(panel);
+    resultsPanel.append(RecordControls.pager(result,
       next => onQuery({ ...query, page: next }, 'page'),
       size => onQuery({ ...query, page: 1, pageSize: size }, 'pageSize')));
     return page;
