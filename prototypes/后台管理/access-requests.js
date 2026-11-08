@@ -6,6 +6,13 @@
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
     hourCycle: 'h23', timeZone: 'Asia/Shanghai'
   });
+  const decisionTitles = {
+    approved: '审批已通过，等待执行授权',
+    effective: '访问权限已生效',
+    rejected: '这份申请已驳回',
+    executionFailed: '本次授权未生效',
+    expired: '访问权限已到期'
+  };
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -79,10 +86,22 @@
     return history;
   }
 
+  function applicationFacts(item) {
+    const facts = el('section', 'ap-facts');
+    const purpose = el('div', 'ap-purpose-group');
+    purpose.append(el('h3', '', '业务用途'), el('p', 'ap-purpose', item.purpose));
+    const info = el('dl', 'ap-info-grid');
+    field(info, '申请人', item.applicant || '周店长');
+    field(info, '业务范围', item.scope);
+    field(info, '申请期限', item.term);
+    facts.append(purpose, info);
+    return facts;
+  }
+
   function reviewForm(item, decide) {
     const form = el('form', 'ap-review');
     const heading = el('div', 'ap-block-heading');
-    heading.append(el('h3', '', '匹配授权范围'), el('span', 'ap-mode', '城南店 · 只读'));
+    heading.append(el('h3', '', '授权范围'), el('span', 'ap-mode', '城南店 · 只读'));
     const choices = el('fieldset', 'ap-resources');
     choices.append(el('legend', 'sr-only', '可授予的查询范围'));
     for (const [value, name] of Object.entries(QueryCases.resources)) {
@@ -93,7 +112,7 @@
       radio.value = value;
       radio.checked = value === 'profit';
       const words = el('span');
-      const detail = value === 'profit' ? '查看门店毛利汇总值' : '同时可见销售净额和销售成本';
+      const detail = value === 'profit' ? '可查看门店及毛利汇总值' : '额外可见销售净额和销售成本';
       words.append(el('strong', '', name), el('small', '', detail));
       label.append(radio, words);
       choices.append(label);
@@ -168,7 +187,7 @@
 
   function outcome(item, decide) {
     const section = el('section', 'ap-outcome');
-    section.append(el('h3', '', item.status === 'approved' ? '执行授权' : '办理结果'));
+    section.append(el('h3', '', item.status === 'rejected' ? '驳回原因' : '本次授权'));
     if (item.decision?.resource) {
       const info = el('dl', 'ap-info-grid ap-grant');
       field(info, '批准范围', '城南店 · ' + QueryCases.resources[item.decision.resource]);
@@ -178,8 +197,9 @@
       }));
       section.append(info);
     }
-    const resultText = item.status === 'approved' ? '审批已通过，执行授权后生效。' : item.summary;
-    section.append(el('p', 'ap-result-text', resultText));
+    if (item.status === 'rejected' || item.status === 'executionFailed') {
+      section.append(el('p', 'ap-result-text', item.summary));
+    }
     if (item.status === 'approved') {
       const buttons = el('div', 'ap-actions');
       const activate = action('执行授权', 'activate', 'ap-btn ap-primary');
@@ -206,34 +226,37 @@
     logo.src = 'assets/dataocean-mark.png';
     logo.alt = '';
     brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-area', '后台管理'));
-    header.append(brand, identityMenu(onReturn));
     const layout = el('div', 'ap-admin-layout');
     const navigation = el('nav', 'ap-admin-nav');
     navigation.setAttribute('aria-label', '后台管理导航');
     const access = el('a', 'ap-admin-link', '访问申请');
     access.href = '#admin/access-requests';
     access.setAttribute('aria-current', 'page');
-    access.prepend(WorkbenchIcon('layers', 16));
-    navigation.append(el('span', 'ap-nav-group', '权限管理'), access);
+    navigation.append(el('span', 'ap-nav-group', '权限管理'), WorkbenchIcon('chevron-right', 13), access);
+    header.append(brand, navigation, identityMenu(onReturn));
     const body = el('div', 'ap-body');
-    const h1 = el('h1', 'ap-page-title', '访问申请');
+    const h1 = el('h1', 'ap-page-title sr-only', '访问申请');
     h1.tabIndex = -1;
     const split = el('div', 'ap-split');
     split.classList.toggle('ap-has-selection', Boolean(selected));
     split.classList.toggle('ap-empty-layout', !items.length);
     const queue = el('section', 'ap-queue');
     queue.setAttribute('aria-label', '访问申请列表');
+    queue.append(el('h2', 'ap-queue-title', '申请队列'));
     const filters = el('div', 'ap-filters');
+    function openGroup(key) {
+      root.dataset.apGroup = key;
+      if (selectedId) onSelect(null);
+      else render(root, context);
+      requestAnimationFrame(() => root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true }));
+    }
     for (const [key, title] of [['todo', '待处理'], ['done', '已办']]) {
       const button = action(title, 'filter-' + key, 'ap-filter');
       button.append(el('span', 'ap-counter', records.filter(item => groupFor(item) === key).length));
       button.setAttribute('aria-pressed', String(key === group));
       button.addEventListener('click', () => {
         if (key === group) return;
-        root.dataset.apGroup = key;
-        if (selectedId) onSelect(null);
-        else render(root, context);
-        requestAnimationFrame(() => root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true }));
+        openGroup(key);
       });
       filters.append(button);
     }
@@ -246,10 +269,10 @@
       if (item.id === selected?.id) button.setAttribute('aria-current', 'true');
       else if (item.id === current?.id) button.dataset.preview = 'true';
       const meta = el('span', 'ap-item-meta');
-      meta.append(el('span', 'ap-id', item.id), el('span', '', item.statusLabel));
-      const by = item.applicant || '周店长';
+      meta.append(el('span', '', (item.applicant || '周店长') + ' · ' + item.id), el('span', '', item.statusLabel));
       const stamp = item.submittedAt ? ' · ' + dateFormat.format(item.submittedAt) : '';
-      button.append(meta, el('strong', '', item.title), el('small', '', by + stamp));
+      button.append(meta, el('strong', '', item.title), el('small', 'ap-item-purpose', item.purpose));
+      button.title = item.id + stamp;
       button.addEventListener('click', () => {
         onSelect(item.id);
         requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
@@ -260,8 +283,16 @@
     split.append(queue);
     if (!current) {
       const empty = el('section', 'ap-empty');
-      empty.append(WorkbenchIcon('layers', 25), el('h2', '', group === 'todo' ? '暂无待处理申请' : '暂无已办申请'),
-        el('p', '', group === 'todo' ? '店长提交访问申请后，可以在这里审批。' : '已生效、驳回和执行未生效的申请会保存在这里。'));
+      const symbol = el('div', 'ap-empty-icon');
+      symbol.append(WorkbenchIcon('inbox', 32));
+      empty.append(symbol, el('h2', '', group === 'todo' ? '暂无待处理申请' : '暂无已办申请'),
+        el('p', '', group === 'todo' ? '员工提交访问申请后，会出现在这里。' : '处理完成后，可以在这里查阅办理结果。'));
+      if (records.length) {
+        const other = group === 'todo' ? 'done' : 'todo';
+        const switchGroup = action(other === 'done' ? '查看已办申请' : '查看待处理申请', 'other-group', 'ap-btn ap-secondary');
+        switchGroup.addEventListener('click', () => openGroup(other));
+        empty.append(switchGroup);
+      }
       split.append(empty);
     } else {
       const detail = el('article', 'ap-detail');
@@ -274,21 +305,15 @@
         requestAnimationFrame(() => root.querySelector('.ap-item[data-case-id="' + current.id + '"]')?.focus({ preventScroll: true }));
       });
       const idLine = el('div', 'ap-detail-id');
-      idLine.append(el('span', 'ap-id', '申请 ' + current.id), badge(current));
-      const title = el('h2', 'ap-detail-title', current.title);
+      const pending = current.status === 'pending';
+      const question = current.links[0]?.text || current.title;
+      if (pending) idLine.append(badge(current));
+      idLine.append(el('span', 'ap-id', '申请单 ' + current.id));
+      const title = el('h2', 'ap-detail-title', decisionTitles[current.status] || question);
       title.tabIndex = -1;
-      const info = el('dl', 'ap-info-grid');
-      field(info, '申请人', current.applicant || '周店长');
-      field(info, '业务范围', current.scope);
-      field(info, '申请期限', current.term);
-      const facts = el('section', 'ap-facts');
-      facts.append(el('h3', '', '业务用途'), el('p', 'ap-purpose', current.purpose));
-      const question = current.links[0]?.text;
-      if (question) {
-        const original = el('div', 'ap-original');
-        original.append(el('span', '', '原问题'), el('p', '', question));
-        facts.append(original);
-      }
+      const sheetHead = el('header', 'ap-sheet-head');
+      sheetHead.append(idLine, title);
+      if (!pending) sheetHead.append(el('p', 'ap-source-question', question));
       const error = el('p', 'ap-error');
       error.setAttribute('role', 'alert');
       function decide(key, fields) {
@@ -300,14 +325,23 @@
         else render(root, context);
         requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
       }
-      detail.append(back, idLine, title, info, facts,
-        current.status === 'pending' ? reviewForm(current, decide) : outcome(current, decide), error);
+      detail.append(back, sheetHead);
+      const facts = applicationFacts(current);
+      if (pending) {
+        detail.append(facts, reviewForm(current, decide), error);
+      } else {
+        const contextDetails = el('details', 'ap-log ap-request-context');
+        const summary = el('summary', '', '申请资料');
+        summary.prepend(WorkbenchIcon('chevron-right', 14));
+        contextDetails.append(summary, facts);
+        detail.append(outcome(current, decide), error, contextDetails);
+      }
       if (current.events.length) detail.append(historyOf(current));
       split.append(detail);
     }
     body.append(h1, split);
     root.classList.add('ap-page');
-    layout.append(navigation, body);
+    layout.append(body);
     root.replaceChildren(header, layout);
   }
 
