@@ -14,12 +14,12 @@
     return node;
   }
 
-  function cell(label, ...children) {
-    const field = element('div', 'gh-cell');
-    const value = element('dd');
-    value.append(...children);
-    field.append(element('dt', '', label), value);
-    return field;
+  // 列表只做摘要，完整值保留在 title，来源入口回到同一条申请详情。
+  function summary(tag, value) {
+    const text = String(value ?? '');
+    const node = element(tag, 'gh-truncate', text);
+    node.title = text;
+    return node;
   }
 
   function render(records, onOpen, view) {
@@ -41,7 +41,7 @@
       ],
       keywordLabel: '关键词',
       keywordPlaceholder: '申请编号、申请人或授权范围',
-      dateLabel: '授权生效日期',
+      dateLabel: '生效日期',
       onApply: next => onQuery({ ...query, ...next, page: 1 }, 'keyword'),
       onReset: resetQuery
     }));
@@ -55,8 +55,9 @@
     page.append(resultsPanel);
     const hasFilters = Boolean(String(query.keyword || '').trim() || (query.status && query.status !== 'all') ||
       query.fromDate || query.toDate);
+    let empty;
     if (!result.total) {
-      const empty = element('div', 'ap-empty gh-empty');
+      empty = element('div', 'ap-empty gh-empty');
       const icon = element('div', 'ap-empty-icon');
       icon.append(WorkbenchIcon('layers', 28));
       empty.append(icon, element('h2', '', hasFilters ? '没有符合条件的授权记录' : '暂无授权记录'),
@@ -66,53 +67,53 @@
         clear.type = 'button';
         clear.addEventListener('click', resetQuery);
         empty.append(clear);
-      } else {
+      } else if (view.canViewRequests) {
         const requests = element('a', 'gh-empty-link', '查看访问申请');
         requests.href = '#admin/access-requests';
         requests.append(WorkbenchIcon('chevron-right', 14));
         empty.append(requests);
       }
-      resultsPanel.append(empty);
-      resultsPanel.append(RecordControls.pager(result,
-        next => onQuery({ ...query, page: next }, 'page'),
-        size => onQuery({ ...query, page: 1, pageSize: size }, 'pageSize')));
-      return page;
     }
 
-    const list = element('ul', 'gh-grants');
-    const header = element('div', 'gh-labels');
-    header.setAttribute('aria-hidden', 'true');
-    const labels = ['获准范围', '申请人', '有效至', '状态', '来源申请'];
-    for (const label of labels) header.append(element('span', '', label));
-    for (const item of result.items) {
-      const row = element('li', 'gh-row');
-      const fields = element('dl', 'gh-fields');
-      const resource = QueryCases.resources[item.decision?.resource] || '范围未记录';
-      const end = Number.isFinite(item.expiresAt) ? element('time') : element('span', '', '未记录');
-      if (end.tagName === 'TIME') {
-        end.dateTime = new Date(item.expiresAt).toISOString();
-        end.textContent = dateFormat.format(item.expiresAt);
+    const table = RecordTable.render({
+      caption: '授权记录', minWidth: 776,
+      columns: [
+        { key: 'resource', label: '获准范围' },
+        { key: 'applicant', label: '申请人', width: 128 },
+        { key: 'expiresAt', label: '有效至', width: 176 },
+        { key: 'status', label: '状态', width: 112 },
+        { key: 'source', label: '来源申请', width: 160 }
+      ],
+      items: result.items, empty,
+      row(item) {
+        const resource = QueryCases.resources[item.decision?.resource] || '范围未记录';
+        const end = Number.isFinite(item.expiresAt) ? element('time') : element('span', '', '未记录');
+        if (end.tagName === 'TIME') {
+          end.dateTime = new Date(item.expiresAt).toISOString();
+          end.textContent = dateFormat.format(item.expiresAt);
+        }
+        end.classList.add('gh-truncate');
+        end.title = end.textContent;
+        const status = element('span', 'ap-status', item.statusLabel);
+        status.dataset.status = item.status;
+        const source = element(typeof onOpen === 'function' ? 'button' : 'span', typeof onOpen === 'function' ? 'gh-source do-action is-primary' : 'gh-truncate');
+        if (source.tagName === 'BUTTON') source.type = 'button';
+        source.dataset.caseId = item.id;
+        if (source.tagName === 'BUTTON') source.setAttribute('aria-label', '查看来源申请 ' + item.id);
+        source.title = item.id;
+        source.append(summary('span', item.id));
+        if (typeof onOpen === 'function') {
+          source.append(WorkbenchIcon('chevron-right', 13));
+          source.addEventListener('click', () => onOpen(item.id));
+        }
+        return [
+          [summary('strong', resource), summary('small', item.scope)],
+          summary('span', item.applicant || '未记录'),
+          [end, summary('small', item.decision?.term)], status, source
+        ];
       }
-      const status = element('span', 'ap-status', item.statusLabel);
-      status.dataset.status = item.status;
-      const source = element('button', 'gh-source', item.id);
-      source.type = 'button';
-      source.dataset.caseId = item.id;
-      source.setAttribute('aria-label', '查看来源申请 ' + item.id);
-      source.append(WorkbenchIcon('chevron-right', 13));
-      source.addEventListener('click', () => onOpen(item.id));
-      fields.append(
-        cell(labels[0], element('strong', '', resource), element('small', '', item.scope)),
-        cell(labels[1], item.applicant || '未记录'),
-        cell(labels[2], end, element('small', '', item.decision?.term)),
-        cell(labels[3], status), cell(labels[4], source)
-      );
-      row.append(fields);
-      list.append(row);
-    }
-    const panel = element('div', 'gh-panel');
-    panel.append(header, list);
-    resultsPanel.append(panel);
+    });
+    resultsPanel.append(table);
     resultsPanel.append(RecordControls.pager(result,
       next => onQuery({ ...query, page: next }, 'page'),
       size => onQuery({ ...query, page: 1, pageSize: size }, 'pageSize')));

@@ -44,14 +44,17 @@
     list.append(pair);
   }
 
-  function identityMenu(onReturn) {
+  function identityMenu(context) {
     const menu = el('details', 'ap-identity');
-    const toggle = el('summary', '', '演示身份');
-    toggle.append(el('span', 'ap-identity-current', '经营业务负责人'), WorkbenchIcon('chevron-down', 14));
+    const toggle = el('summary');
+    toggle.setAttribute('aria-label', context.account.name + '，用户菜单');
+    toggle.append(WorkbenchIcon('user-round', 16), el('span', 'ap-identity-current', context.account.name), WorkbenchIcon('chevron-down', 14));
     const panel = el('div', 'ap-identity-panel');
-    const switcher = action('以店长身份打开工作台', 'return', 'ap-identity-switch');
-    switcher.addEventListener('click', () => onReturn());
-    panel.append(el('p', '', '当前身份 · 经营业务负责人'), switcher);
+    const personal = el('a', 'ap-identity-switch', '个人管理');
+    personal.href = '#account';
+    const workbench = action('问数工作台', 'return', 'ap-identity-switch');
+    workbench.addEventListener('click', () => context.onReturn());
+    panel.append(personal, workbench);
     menu.append(toggle, panel);
     menu.addEventListener('keydown', event => {
       if (event.key === 'Escape') {
@@ -187,7 +190,7 @@
     return form;
   }
 
-  function outcome(item, decide) {
+  function outcome(item, decide, context) {
     const section = el('section', 'ap-outcome');
     section.append(el('h3', '', item.status === 'rejected' ? '驳回原因' : '本次授权'));
     if (item.decision?.resource) {
@@ -202,67 +205,33 @@
     if (item.status === 'rejected' || item.status === 'executionFailed') {
       section.append(el('p', 'ap-result-text', item.summary));
     }
-    if (item.status === 'approved') {
+    if (item.status === 'approved' && context.canDecide(item, 'activate')) {
       const buttons = el('div', 'ap-actions');
       const activate = action('执行授权', 'activate', 'ap-btn ap-primary');
       activate.addEventListener('click', () => decide('activate'));
-      const fail = action('模拟执行校验失败', 'activate-fail', 'ap-btn ap-quiet');
-      fail.addEventListener('click', () => decide('activate-fail'));
-      buttons.append(activate, fail);
+      buttons.append(activate);
+      if (document.documentElement.dataset.prototypeReview === 'true') {
+        const fail = action('模拟执行校验失败', 'activate-fail', 'ap-btn ap-quiet');
+        fail.addEventListener('click', () => decide('activate-fail'));
+        buttons.append(fail);
+      }
       section.append(buttons);
     }
     return section;
   }
 
-  const menuItems = [
-    { route: 'access-requests', label: '访问申请', icon: 'inbox' },
-    { route: 'grants', label: '授权记录', icon: 'layers' }
-  ];
-
-  function navigation(section) {
+  function navigation(section, entries) {
     const nav = el('nav', 'ap-admin-nav');
     nav.setAttribute('aria-label', '后台管理菜单');
     nav.append(el('h2', 'ap-nav-group', '权限管理'));
-    for (const item of menuItems) {
+    for (const item of entries) {
       const link = el('a', 'ap-admin-link', item.label);
-      link.href = '#admin/' + item.route;
+      link.href = '#admin/' + item.key;
       link.prepend(WorkbenchIcon(item.icon, 17));
-      if (section === item.route) link.setAttribute('aria-current', 'page');
+      if (section === item.key) link.setAttribute('aria-current', 'page');
       nav.append(link);
     }
     return nav;
-  }
-
-  function menuDrawer(section, toggle) {
-    const dialog = el('dialog', 'ap-menu-drawer');
-    dialog.id = 'admin-menu-drawer';
-    dialog.setAttribute('aria-label', '后台菜单');
-    const bar = el('div', 'ap-drawer-head');
-    const close = action('', 'close-menu', 'ap-menu-close');
-    close.setAttribute('aria-label', '关闭后台菜单');
-    close.append(WorkbenchIcon('x', 19));
-    close.addEventListener('click', () => dialog.close());
-    bar.append(el('strong', '', '后台菜单'), close);
-    const nav = navigation(section);
-    nav.addEventListener('click', event => {
-      if (event.target.closest('a')) dialog.close();
-    });
-    dialog.append(bar, nav);
-    dialog.addEventListener('click', event => {
-      if (event.target !== dialog) return;
-      const bounds = dialog.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
-    });
-    toggle.setAttribute('aria-controls', dialog.id);
-    toggle.setAttribute('aria-haspopup', 'dialog');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.addEventListener('click', () => {
-      dialog.showModal();
-      toggle.setAttribute('aria-expanded', 'true');
-      nav.querySelector('[aria-current="page"]').focus();
-    });
-    dialog.addEventListener('close', () => toggle.setAttribute('aria-expanded', 'false'));
-    return dialog;
   }
 
   function requestInbox(root, context, records, selected) {
@@ -400,13 +369,15 @@
     detail.append(sheetHead);
     const facts = applicationFacts(current);
     if (pending) {
-      detail.append(facts, reviewForm(current, decide), error);
+      detail.append(facts);
+      if (context.canDecide(current, 'approve')) detail.append(reviewForm(current, decide));
+      detail.append(error);
     } else {
       const contextDetails = el('details', 'ap-log ap-request-context');
       const summary = el('summary', '', '申请资料');
       summary.prepend(WorkbenchIcon('chevron-right', 14));
       contextDetails.append(summary, facts);
-      detail.append(outcome(current, decide), error, contextDetails);
+      detail.append(outcome(current, decide, context), error, contextDetails);
     }
     if (current.events.length) detail.append(historyOf(current));
     const wrap = el('div', 'ap-detail-wrap');
@@ -420,21 +391,19 @@
     const selected = records.find(item => item.id === selectedId);
     root.querySelector('dialog[open]')?.close();
     const header = el('header', 'ap-top');
-    const toggle = action('', 'open-menu', 'ap-menu-toggle');
-    toggle.setAttribute('aria-label', '打开后台菜单');
-    toggle.append(WorkbenchIcon('menu', 20));
     const brand = el('div', 'ap-brand');
     const logo = el('img');
     logo.src = 'assets/dataocean-mark.png';
     logo.alt = '';
     brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-area', '后台管理'));
-    header.append(toggle, brand, identityMenu(onReturn));
+    header.append(brand, identityMenu(context));
     const layout = el('div', 'ap-admin-layout');
     const sidebar = el('aside', 'ap-sidebar');
-    sidebar.append(navigation(section));
+    sidebar.append(navigation(section, context.entries));
     const body = el('div', 'ap-body');
     if (section === 'grants') {
-      body.append(GrantHistory.render(records, onSelect, views.grants));
+      const mayReadRequests = context.entries.some(item => item.key === 'access-requests');
+      body.append(GrantHistory.render(records, mayReadRequests ? onSelect : null, { ...views.grants, canViewRequests: mayReadRequests }));
     } else {
       if (selected && groupFor(selected) !== views.requests.query.group) {
         Object.assign(views.requests.query, { group: groupFor(selected), status: 'all', page: 1 });
@@ -443,12 +412,8 @@
     }
     layout.append(sidebar, body);
     root.classList.add('ap-page');
-    root.replaceChildren(header, layout, menuDrawer(section, toggle));
+    root.replaceChildren(header, layout);
   }
 
-  const compact = window.matchMedia('(max-width: 760px)');
-  compact.addEventListener('change', event => {
-    if (!event.matches) document.querySelector('.ap-menu-drawer[open]')?.close();
-  });
   window.ApprovalPage = { render };
 })();

@@ -1,0 +1,23 @@
+/* 表头、数据和空态始终共用一个语义表格；上级结果框负责底部分页。 */
+.rt-scroll { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--do-panel, #fff); }
+.rt-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: var(--do-ink, #1f2937); font-size: 14px; line-height: 24px; }
+.rt-caption { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.rt-table thead { position: sticky; top: 0; z-index: 1; background: #fafbfc; }
+.rt-table th, .rt-table td { min-width: 0; padding: 12px 16px; text-align: left; vertical-align: middle; overflow: hidden; }
+.rt-table th:first-child, .rt-table td:first-child { padding-inline-start: 24px; }
+.rt-table th:last-child, .rt-table td:last-child { padding-inline-end: 24px; }
+.rt-table th { height: 48px; border-bottom: 1px solid var(--do-line, #e5e7eb); color: var(--do-muted, #5b6575); font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.rt-table td { height: 64px; border-bottom: 1px solid var(--do-line, #e5e7eb); }
+.rt-table tbody tr:last-child td { border-bottom: 0; }
+.rt-table tbody tr:not(.rt-empty-row):hover { background: #fafbfc; }
+.rt-table strong { font-weight: 500; }
+.rt-table small { font-size: 12px; line-height: 16px; color: var(--do-muted, #5b6575); }
+.rt-table time { font-variant-numeric: tabular-nums; }
+.rt-table .rt-empty-row, .rt-table .rt-empty-cell { height: 0; }
+.rt-table .rt-empty-cell { padding: 0; border: 0; overflow: visible; }
+.rt-empty { position: absolute; inset: 48px 0 0; display: flex; align-items: center; justify-content: center; min-height: 0; line-height: 22px; }
+.rt-empty > * { min-width: 0; max-width: 100%; }
+/* 极矮 PC 窗口由工作区统一纵向滚动，表格按自然记录高度展开。 */
+@media (max-height: 640px) {
+  .rt-scroll { flex: none; min-height: 320px; }
+}

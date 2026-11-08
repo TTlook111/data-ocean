@@ -1,52 +1,26 @@
-.rl-filters {
-  display: flex; flex-wrap: wrap; align-items: end; gap: 14px 16px;
-  margin: 0 0 20px; padding: 18px 20px; border: 1px solid var(--ap-line);
-  border-radius: 8px; background: #fafbfc;
+/* Element Plus 提供控件外观和交互；这里仅管理页面布局与项目主题。 */
+.prototype-ui, .prototype-ui-popper {
+  --el-color-primary: var(--do-primary, #2f63d5);
+  --el-color-primary-light-9: var(--do-selected, #eaf0fc);
+  --el-font-size-base: 14px;
+  --el-font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --el-border-radius-base: 6px;
+  --el-text-color-primary: var(--do-ink, #1f2937);
+  --el-text-color-regular: var(--do-ink, #1f2937);
+  --el-text-color-placeholder: var(--do-muted, #5b6575);
+  font-family: var(--el-font-family);
 }
-.rl-field { display: grid; gap: 6px; min-width: 120px; font-size: 12px; color: var(--ap-muted); }
-.rl-keyword { flex: 1 1 240px; }
-.rl-dates { min-width: 0; margin: 0; padding: 0; border: 0; }
-.rl-dates legend { margin-bottom: 6px; font-size: 12px; color: var(--ap-muted); }
-.rl-date-range { display: flex; align-items: center; gap: 8px; }
-.rl-date-range > span { color: var(--ap-muted); font-size: 12px; }
-.rl-filters :is(input, select), .rl-pager :is(input, select) {
-  min-width: 0; min-height: 38px; padding: 7px 10px; border: 1px solid #cfd7e2;
-  border-radius: 5px; background: white; color: var(--ap-ink); font: inherit; font-size: 13px;
-}
-.rl-date-range input { width: 142px; }
-.rl-filter-actions, .rl-page-actions { display: flex; align-items: center; gap: 8px; }
-.rl-button {
-  min-height: 38px; padding: 7px 13px; border: 1px solid #cfd7e2; border-radius: 5px;
-  background: white; color: var(--ap-text); font-size: 13px;
-}
-.rl-button:hover:enabled { border-color: #8da7ce; background: #f4f7fc; }
-.rl-button:disabled { color: #9aa3b0; cursor: default; background: #f8f9fb; }
-.rl-button.rl-primary { border-color: var(--ap-blue); background: var(--ap-blue); color: white; }
-.rl-button.rl-primary:hover:enabled { border-color: #244eaa; background: #244eaa; color: white; }
-.rl-error { width: 100%; margin: 0; color: #9b3b32; font-size: 13px; }
+.rl-filters { flex: none; min-width: 0; margin: 0; padding: 24px; border: 1px solid var(--do-line, #e5e7eb); border-radius: 8px; background: #fff; }
+.rl-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.rl-keyword { flex: 1 1 280px; min-width: min(100%, 280px); max-width: 400px; }
+.rl-status { flex: none; width: 160px; }
+.rl-dates { flex: none; width: 320px; min-width: 0; }
+.rl-filter-actions { flex: none; }
+.rl-error { flex-basis: 100%; margin: 0; color: #9b3b32; font-size: 14px; line-height: 22px; }
 .rl-error:empty { display: none; }
-.rl-result-panel { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }
-.rl-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 0; font-size: 12px; color: var(--ap-muted); }
-.rl-result-panel > .rl-pager { flex: none; margin-top: auto; padding: 14px 20px; border-top: 1px solid var(--ap-line); }
-.rl-result-count { margin-right: auto; }
-.rl-page-number { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.rl-pager .rl-page-number input { width: 56px; padding-inline: 5px; text-align: center; }
-.rl-pager select { min-width: 106px; }
-@media (max-width: 760px) {
-  .rl-result-panel { display: block; flex: none; overflow: visible; }
-  .rl-result-panel > .rl-pager { padding-inline: 13px; }
-  .rl-filters { padding: 14px; gap: 12px; }
-  .rl-keyword, .rl-dates { flex: 1 1 100%; }
-  .rl-field:not(.rl-keyword) { flex: 1; }
-  .rl-date-range input { flex: 1; width: 0; }
-  .rl-filter-actions { flex: 1; align-self: end; }
-  .rl-filters :is(input, select), .rl-pager :is(input, select), .rl-button { min-height: 44px; }
-  .rl-filters input { font-size: 16px; }
-  .rl-pager { gap: 10px; }
-  .rl-result-count { flex-basis: 100%; }
-  .rl-page-actions { margin-left: auto; gap: 6px; }
-  .rl-page-actions .rl-button { padding-inline: 9px; }
-}
-@media (max-width: 380px) {
-  .rl-page-actions { width: 100%; justify-content: space-between; }
+.rl-result-panel { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--do-line, #e5e7eb); border-radius: 8px; background: #fff; }
+.rl-pager { flex: none; min-height: 64px; margin-top: auto; padding: 12px 24px; box-shadow: inset 0 1px var(--do-line, #e5e7eb); font-variant-numeric: tabular-nums; }
+.rl-pager .el-pagination { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+@media (max-height: 640px) {
+  .rl-result-panel { flex: none; min-height: 384px; overflow: visible; }
 }

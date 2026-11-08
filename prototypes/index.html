@@ -12,7 +12,7 @@
       : designs.includes(location.hash) ? 'visual-directions/index.html' : 'app/index.html';
     const target = new URL(entry, location.href);
     target.search = location.search;
-    if (entry === 'app/index.html') target.searchParams.set('prototype', 'admin-panel-20261108');
+    if (entry === 'app/index.html') target.searchParams.set('prototype', 'element-controls-20261108-r3');
     target.hash = location.hash;
     location.replace(target.href);
   </script>

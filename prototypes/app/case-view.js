@@ -1,4 +1,4 @@
-/* 每张事项卡跟随原问题。访问申请交由审批页办理，口径事项保留本地演示入口。 */
+/* 每张事项卡跟随原问题。访问申请交由审批页办理，口径模拟仅在原型评审模式启用。 */
 (() => {
   'use strict';
 
@@ -196,7 +196,7 @@
       card.append(records(item, previous));
     }
     const transitions = !isAccess && simulation[item.status];
-    if (transitions) {
+    if (transitions && document.documentElement.dataset.prototypeReview === 'true') {
       const sim = disclosure('case-sim', '模拟负责人处理', previous);
       const buttons = el('div', 'case-sim-buttons');
       for (const [key, label] of transitions) {

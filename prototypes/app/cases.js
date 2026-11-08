@@ -83,8 +83,10 @@
       : '上周退货 ' + result.totals[2] + ' 盒，同期售出 ' + result.totals[1] + ' 盒。' };
   }
 
-  function create(saved, now = Date.now) {
+  function create(saved, now = Date.now, identity = null) {
     const records = saved?.version === 1 && Array.isArray(saved.records) ? structuredClone(saved.records) : [];
+    const reviewerName = identity?.name || reviewer;
+    const ownsAccess = item => !identity || (item.applicantId ? item.applicantId === identity.id : (item.applicant || '周店长') === identity.name);
 
     function status(item) {
       return item.status === 'effective' && now() >= item.expiresAt ? 'expired' : item.status;
@@ -125,6 +127,7 @@
       let resource = null;
       for (const item of records) {
         if (item.type !== 'access' || status(item) !== 'effective') continue;
+        if (!ownsAccess(item)) continue;
         const grant = decisionFor(item).resource;
         if (grant === 'profitWithBasis') return grant;
         if (grant === 'profit') resource = grant;
@@ -142,14 +145,14 @@
           : '退货率示例覆盖城南店上周的盒装牛奶。可以问“本店上周牛奶的退货率是多少？”' };
       }
       // 重绘原消息仍展示它当时的阻断记录；新的提问需使用新的 turnId 并重核。
-      const old = records.find(item => item.links.some(link => link.threadId === threadId && link.turnId === turnId));
+      const old = records.find(item => (item.type !== 'access' || ownsAccess(item)) && item.links.some(link => link.threadId === threadId && link.turnId === turnId));
       if (old) return { kind: 'case', caseId: old.id };
       if (match.type === 'access') {
         const grant = profitAccess();
         if (grant) return answer(match.type, now(), grant);
       } else if (rateReady()) return answer(match.type, now());
 
-      let item = records.find(record => record.type === match.type && (match.type === 'knowledge'
+      let item = records.find(record => record.type === match.type && (match.type !== 'access' || ownsAccess(record)) && (match.type === 'knowledge'
         || ['draft', 'pending', 'approved'].includes(status(record))));
       if (!item) {
         const access = match.type === 'access';
@@ -159,6 +162,7 @@
           owner: access ? '经营业务负责人' : '经营口径负责人', purpose: '', scope, term: '14 天',
           links: [], notes: [], events: [], receipt: null
         };
+        if (access && identity) Object.assign(item, { applicantId: identity.id, applicant: identity.name });
         if (!access) item.events.push({ text: '已自动登记经营口径事项，并关联原问题。' });
         records.push(item);
       }
@@ -172,7 +176,9 @@
       const purpose = String(fields.purpose || '').trim();
       if (!purpose) return fail('请填写要完成的业务工作。');
       if (fields.scope !== scope || !terms.includes(fields.term)) return fail('请选择公开业务范围和使用期限。');
-      Object.assign(item, { status: 'pending', applicant: '周店长', submittedAt: now(), purpose, scope, term: fields.term });
+      if (!ownsAccess(item)) return fail('当前账号不能提交其他人的申请。');
+      Object.assign(item, { status: 'pending', applicant: identity?.name || '周店长', submittedAt: now(), purpose, scope, term: fields.term });
+      if (identity) item.applicantId = identity.id;
       item.events.push({ actor: item.applicant, at: item.submittedAt, text: '已按业务用途提交申请，等待业务负责人匹配授权范围。' });
       return success(item);
     }
@@ -204,7 +210,7 @@
 
     function advance(item, action, next, event, at, message = publicStatus[next][1]) {
       item.status = next;
-      item.events.push({ action, at, actor: item.type === 'access' ? reviewer : item.owner, text: event });
+      item.events.push({ action, at, actor: item.type === 'access' ? reviewerName : item.owner, text: event });
       if (receipts[next]) item.receipt = {
         key: item.id + ':' + next, completedAt: at, title: receipts[next], text: message, canRetry: next === 'effective' || next === 'resolved'
       };
@@ -216,7 +222,7 @@
         terms.includes(item.term) && terms.includes(grant.term) && Number.parseInt(grant.term, 10) <= Number.parseInt(item.term, 10);
     }
 
-    // 本例企业将本店这两种资源的审批和执行均分配给经营业务负责人。
+    // 页面层分别校验当前账号的查看、审批与执行权限，模型只维护办理状态。
     function decide(id, action, fields = {}) {
       const item = find(id);
       if (item?.type !== 'access') return fail('请选择需要办理的访问申请。');
@@ -224,13 +230,13 @@
       if (item.status === 'pending' && action === 'reject') {
         const reason = typeof fields?.reason === 'string' ? fields.reason.trim() : '';
         if (!reason || reason.length > 500) return fail('请填写不超过 500 字的公开驳回原因。');
-        item.decision = { reason, actor: reviewer, at };
+        item.decision = { reason, actor: reviewerName, at };
         return advance(item, action, 'rejected', '已驳回申请。' + reason, at,
           '申请已驳回。' + reason);
       }
       if (item.status === 'pending' && action === 'approve') {
         if (!validGrant(item, fields)) return fail('请选择本店可授予的资源，授权期限须在申请期限内。');
-        item.decision = { resource: fields.resource, term: fields.term, actor: reviewer, at };
+        item.decision = { resource: fields.resource, term: fields.term, actor: reviewerName, at };
         return advance(item, action, 'approved', '业务负责人已批准申请，等待执行授权。', at);
       }
       if (item.status === 'approved' && ['activate', 'activate-fail'].includes(action)) {
