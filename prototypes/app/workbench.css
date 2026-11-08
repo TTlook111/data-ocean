@@ -135,18 +135,12 @@ input.search-box, .search-box input {
   color: var(--muted);
   font-size: 13px;
 }
-.switch-view {
-  display: flex; align-items: center; gap: 9px; flex: none; min-height: 44px;
-  margin-top: auto; padding: 8px 12px; border-radius: 7px;
-  color: #475b72; font-size: 13px; text-decoration: none;
-}
-.switch-view:hover { background: #e9edf2; }
 .profile {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  margin-top: 6px;
+  margin-top: auto;
   padding: 17px 6px 1px;
   border-top: 1px solid #dce1e8;
 }
@@ -182,7 +176,8 @@ input.search-box, .search-box input {
   right: 0;
   bottom: calc(100% + 7px);
   display: grid;
-  width: 146px;
+  width: max-content;
+  min-width: 146px;
   padding: 5px;
   border: 1px solid #d8e0e9;
   border-radius: 10px;

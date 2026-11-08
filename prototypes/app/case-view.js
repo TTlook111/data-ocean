@@ -195,12 +195,6 @@
     if (!draft && (item.purpose || item.notes?.length || item.events?.length)) {
       card.append(records(item, previous));
     }
-    if (isAccess && ['pending', 'approved'].includes(item.status)) {
-      const link = el('a', 'case-switch', '切换到负责人视角');
-      link.href = '#approvals/' + encodeURIComponent(item.id);
-      link.append(WorkbenchIcon('chevron-right', 14));
-      card.append(link);
-    }
     const transitions = !isAccess && simulation[item.status];
     if (transitions) {
       const sim = disclosure('case-sim', '模拟负责人处理', previous);

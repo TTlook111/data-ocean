@@ -1,4 +1,4 @@
-/* 审批视角只展示已经提交的访问申请，办理动作与店长的问数共用同一份事项记录。 */
+/* 负责人在后台权限管理中办理已提交的访问申请，申请人在问数工作台接收回告。 */
 (() => {
   'use strict';
 
@@ -37,12 +37,25 @@
     list.append(pair);
   }
 
-  function returnButton(onReturn, showReceipt = false) {
-    const label = showReceipt ? '切回店长查看回告' : '切回店长视角';
-    const button = action(label, 'return', 'ap-btn ap-return');
-    button.prepend(WorkbenchIcon('chevron-right', 15));
-    button.addEventListener('click', () => showReceipt ? onReturn(true) : onReturn());
-    return button;
+  function identityMenu(onReturn) {
+    const menu = el('details', 'ap-identity');
+    const toggle = el('summary', '', '演示身份');
+    toggle.append(el('span', 'ap-identity-current', '经营业务负责人'), WorkbenchIcon('chevron-down', 14));
+    const panel = el('div', 'ap-identity-panel');
+    const switcher = action('以店长身份打开工作台', 'return', 'ap-identity-switch');
+    switcher.addEventListener('click', () => onReturn());
+    panel.append(el('p', '', '当前身份 · 经营业务负责人'), switcher);
+    menu.append(toggle, panel);
+    menu.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        menu.open = false;
+        toggle.focus();
+      }
+    });
+    menu.addEventListener('focusout', event => {
+      if (!menu.contains(event.relatedTarget)) menu.open = false;
+    });
+    return menu;
   }
 
   function historyOf(item) {
@@ -153,16 +166,20 @@
     return form;
   }
 
-  function outcome(item, decide, onReturn) {
+  function outcome(item, decide) {
     const section = el('section', 'ap-outcome');
     section.append(el('h3', '', item.status === 'approved' ? '执行授权' : '办理结果'));
     if (item.decision?.resource) {
       const info = el('dl', 'ap-info-grid ap-grant');
       field(info, '批准范围', '城南店 · ' + QueryCases.resources[item.decision.resource]);
       field(info, '批准期限', item.decision.term);
+      if (item.expiresAt) field(info, '有效至', new Date(item.expiresAt).toLocaleString('zh-CN', {
+        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Shanghai'
+      }));
       section.append(info);
     }
-    section.append(el('p', 'ap-result-text', item.status === 'expired' ? item.summary : item.receipt?.text || item.summary));
+    const resultText = item.status === 'approved' ? '审批已通过，执行授权后生效。' : item.summary;
+    section.append(el('p', 'ap-result-text', resultText));
     if (item.status === 'approved') {
       const buttons = el('div', 'ap-actions');
       const activate = action('执行授权', 'activate', 'ap-btn ap-primary');
@@ -171,8 +188,6 @@
       fail.addEventListener('click', () => decide('activate-fail'));
       buttons.append(activate, fail);
       section.append(buttons);
-    } else {
-      section.append(returnButton(onReturn, true));
     }
     return section;
   }
@@ -190,10 +205,18 @@
     const logo = el('img');
     logo.src = 'assets/dataocean-mark.png';
     logo.alt = '';
-    brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-role', '经营业务负责人'));
-    header.append(brand, returnButton(onReturn));
+    brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-area', '后台管理'));
+    header.append(brand, identityMenu(onReturn));
+    const layout = el('div', 'ap-admin-layout');
+    const navigation = el('nav', 'ap-admin-nav');
+    navigation.setAttribute('aria-label', '后台管理导航');
+    const access = el('a', 'ap-admin-link', '访问申请');
+    access.href = '#admin/access-requests';
+    access.setAttribute('aria-current', 'page');
+    access.prepend(WorkbenchIcon('layers', 16));
+    navigation.append(el('span', 'ap-nav-group', '权限管理'), access);
     const body = el('div', 'ap-body');
-    const h1 = el('h1', 'ap-page-title', '访问申请审批');
+    const h1 = el('h1', 'ap-page-title', '访问申请');
     h1.tabIndex = -1;
     const split = el('div', 'ap-split');
     split.classList.toggle('ap-has-selection', Boolean(selected));
@@ -239,11 +262,6 @@
       const empty = el('section', 'ap-empty');
       empty.append(WorkbenchIcon('layers', 25), el('h2', '', group === 'todo' ? '暂无待处理申请' : '暂无已办申请'),
         el('p', '', group === 'todo' ? '店长提交访问申请后，可以在这里审批。' : '已生效、驳回和执行未生效的申请会保存在这里。'));
-      if (group === 'todo' && !records.length) {
-        const start = action('切到店长，问上周毛利额', 'start-example', 'ap-btn ap-secondary');
-        start.addEventListener('click', () => context.onStartExample());
-        empty.append(start);
-      }
       split.append(empty);
     } else {
       const detail = el('article', 'ap-detail');
@@ -283,13 +301,14 @@
         requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
       }
       detail.append(back, idLine, title, info, facts,
-        current.status === 'pending' ? reviewForm(current, decide) : outcome(current, decide, onReturn), error);
+        current.status === 'pending' ? reviewForm(current, decide) : outcome(current, decide), error);
       if (current.events.length) detail.append(historyOf(current));
       split.append(detail);
     }
     body.append(h1, split);
     root.classList.add('ap-page');
-    root.replaceChildren(header, body);
+    layout.append(navigation, body);
+    root.replaceChildren(header, layout);
   }
 
   window.ApprovalPage = { render };

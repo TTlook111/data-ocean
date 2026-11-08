@@ -27,8 +27,7 @@
   let active;
   let serial = saved?.serial || 0;
   let expiryTimer;
-  let returnAction;
-  const profitExample = '本店上周的毛利额是多少？';
+  const adminAccessRoute = '#admin/access-requests';
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -127,7 +126,7 @@
     for (const [name, text] of [
       ['milk', '本店上周牛奶卖了多少盒？'],
       ['warehouse', '今天还有多少牛奶库存？'],
-      ['store', profitExample],
+      ['store', '本店上周的毛利额是多少？'],
       ['layers', '本店上周牛奶的退货率是多少？'],
     ]) {
       const prompt = element('button', 'prompt');
@@ -197,7 +196,7 @@
   }
 
   function decideAccess(id, action, fields) {
-    if (approvalsPage.hidden) return { ok: false, message: '请切换到负责人视角处理申请。' };
+    if (approvalsPage.hidden) return { ok: false, message: '请在后台管理的访问申请页面办理。' };
     const result = desk.decide(id, action, fields);
     if (result.ok) {
       syncCase(id);
@@ -209,47 +208,41 @@
     return result;
   }
 
-  // 两个视角共用一份申请和回告。切换与刷新只还原页面，审批和重查必须由本人点击。
+  // 员工申请与后台待办使用同一份记录，切换演示身份只改变入口，不代任何一方执行操作。
   function showPerspective() {
-    const [view, selectedId] = location.hash.slice(1).split('/');
-    const reviewing = view === 'approvals';
+    const [view, section, selectedId] = location.hash.slice(1).split('/');
+    if (view === 'approvals' || (view === 'admin' && section !== 'access-requests')) {
+      const oldId = view === 'approvals' && /^SQ-\d+$/.test(section) ? '/' + section : '';
+      location.replace(adminAccessRoute + oldId);
+      return;
+    }
+    const reviewing = view === 'admin' && section === 'access-requests';
     const changed = managerPage.hidden !== reviewing;
     if (changed) {
       setMenu(false);
+      sidebar.querySelector('.profile-more').open = false;
       if (receiptDialog.open) receiptDialog.close();
     }
     managerPage.hidden = reviewing;
     approvalsPage.hidden = !reviewing;
     if (reviewing) {
-      document.title = '访问申请审批 · DataOcean';
+      document.title = '访问申请 · 权限管理 · DataOcean 后台管理';
       // 负责人的队列只取已经提交的访问申请，店长草稿和口径治理事项有各自的入口。
       ApprovalPage.render(approvalsPage, {
         desk: { list: () => desk.list().filter(item => item.type === 'access' && item.status !== 'draft') },
         selectedId: selectedId || null,
-        onSelect: id => { location.hash = id ? 'approvals/' + encodeURIComponent(id) : 'approvals'; },
-        onReturn: (openReceipts = false) => {
-          returnAction = openReceipts ? 'receipts' : null;
-          location.hash = 'workbench';
-        },
-        onStartExample: () => {
-          returnAction = 'profit';
-          location.hash = 'workbench';
-        },
+        onSelect: id => { location.hash = id ? adminAccessRoute + '/' + encodeURIComponent(id) : adminAccessRoute; },
+        onReturn: () => { location.hash = 'workbench'; },
         onDecision: decideAccess
       });
       if (changed) approvalsPage.focus({ preventScroll: true });
     } else if (changed) {
       approvalsPage.replaceChildren();
+      delete approvalsPage.dataset.apGroup;
       refreshAccess(active);
       drawReceipts();
       document.title = active.title + ' · DataOcean 问数工作台';
       receiptButton.focus({ preventScroll: true });
-      if (returnAction === 'receipts') receiptDialog.showModal();
-      if (returnAction === 'profit') {
-        newChat();
-        submitMessage(profitExample);
-      }
-      returnAction = null;
     }
   }
 
