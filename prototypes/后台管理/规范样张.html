@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataOcean 后台界面规范样张</title>
+  <link rel="icon" href="../app/assets/dataocean-mark.png">
+  <script src="../app/icons.js"></script>
+  <style>
+    :root {
+      --space-0: 0;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --header-height: 64px;
+      --sidebar-width: 216px;
+      --control-height: 40px;
+      --touch-height: 44px;
+      --table-header-height: 48px;
+      --table-row-height: 64px;
+      --table-footer-height: 64px;
+      --table-subject-width: 44%;
+      --icon-size: 16px;
+      --logo-width: 25px;
+      --logo-height: 29px;
+      --brand-font-size: 21px;
+      --font-small: 12px;
+      --line-small: 18px;
+      --font-body: 14px;
+      --line-body: 22px;
+      --line-cell: 24px;
+      --font-key: 16px;
+      --line-key: 24px;
+      --font-title: 24px;
+      --line-title: 32px;
+      --font-detail: 28px;
+      --line-detail: 36px;
+      --weight-regular: 400;
+      --weight-medium: 500;
+      --weight-semibold: 600;
+      --color-primary: #2f63d5;
+      --color-primary-hover: #244eaa;
+      --color-canvas: #f5f7fa;
+      --color-panel: #ffffff;
+      --color-border: #e5e7eb;
+      --color-text: #1f2937;
+      --color-muted: #5b6575;
+      --color-selected: #eaf0fc;
+      --color-table-head: #fafbfc;
+      --color-success: #216449;
+      --color-success-bg: #e8f5ee;
+      --color-pending: #805610;
+      --color-pending-bg: #fcf2dd;
+      --color-measure: #b45309;
+      --color-measure-bg: #fff7ed;
+      --radius-control: 6px;
+      --radius-panel: 8px;
+      --border-width: 1px;
+      --focus-width: 2px;
+      --app-height: 100dvh;
+      --query-keyword-min: 320px;
+      --query-keyword-max: 400px;
+      --query-status-min: 160px;
+      --query-status-max: 200px;
+      --empty-symbol-size: 32px;
+      --mobile-breakpoint: 767px;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+      color: var(--color-text);
+      background: var(--color-canvas);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: var(--space-0); }
+    button, input, select { font: inherit; color: inherit; }
+    button, select { cursor: pointer; }
+    button:disabled { cursor: default; }
+    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+      outline: var(--focus-width) solid var(--color-primary);
+      outline-offset: var(--focus-width);
+    }
+    [hidden] { display: none !important; }
+    .specimen {
+      display: grid;
+      grid-template-rows: var(--header-height) minmax(var(--space-0), 1fr);
+      height: var(--app-height);
+      overflow: hidden;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: var(--space-4);
+      padding-inline: var(--space-6);
+      border-bottom: var(--border-width) solid var(--color-border);
+      background: var(--color-panel);
+    }
+    .brand { display: flex; align-items: center; gap: var(--space-2); min-width: var(--space-0); }
+    .brand img { width: var(--logo-width); height: var(--logo-height); object-fit: contain; }
+    .brand strong { font-size: var(--brand-font-size); font-weight: var(--weight-semibold); line-height: var(--line-title); letter-spacing: -.04em; }
+    .spec-caption { color: var(--color-muted); padding-inline-start: var(--space-4); border-inline-start: var(--border-width) solid var(--color-border); }
+    .top-actions { margin-inline-start: auto; }
+    .shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(var(--space-0), 1fr); min-height: var(--space-0); }
+    .sidebar { display: flex; flex-direction: column; gap: var(--space-6); min-height: var(--space-0); padding: var(--space-6) var(--space-4); border-inline-end: var(--border-width) solid var(--color-border); background: var(--color-panel); }
+    .nav { display: grid; gap: var(--space-1); }
+    .nav-heading { margin: var(--space-0) var(--space-3) var(--space-2); font-size: var(--font-small); color: var(--color-muted); font-weight: var(--weight-medium); line-height: var(--line-small); }
+    .nav button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--control-height); padding: var(--space-2) var(--space-3); border: var(--space-0); border-radius: var(--radius-control); background: transparent; text-align: left; }
+    .nav button:hover { background: var(--color-canvas); }
+    .nav button[aria-current="page"] { background: var(--color-selected); }
+    .nav svg { width: var(--icon-size); height: var(--icon-size); flex: none; }
+    .sample-controls { display: grid; gap: var(--space-2); margin-top: auto; padding: var(--space-3); border-top: var(--border-width) solid var(--color-border); }
+    .sample-controls label { color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
+    .workspace { display: flex; flex-direction: column; gap: var(--space-6); min-width: var(--space-0); min-height: var(--space-0); padding: var(--space-6); position: relative; overflow: hidden; }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex: none; }
+    h1 { margin: var(--space-0); font-size: var(--font-title); line-height: var(--line-title); font-weight: var(--weight-semibold); }
+    .panel { min-width: var(--space-0); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-panel); }
+    .query-panel { padding: var(--space-6); flex: none; position: relative; }
+    .query-grid { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); position: relative; }
+    .query-grid > .field:first-child { flex: 0 1 var(--query-keyword-max); min-width: min(100%, var(--query-keyword-min)); }
+    .query-grid > .field:nth-child(2) { flex: 0 1 var(--query-status-max); min-width: var(--query-status-min); }
+    .field { display: grid; gap: var(--space-2); min-width: var(--space-0); position: relative; }
+    .field > span { color: var(--color-muted); }
+    input, select { min-width: var(--space-0); height: var(--control-height); padding: var(--space-2) var(--space-3); border: var(--border-width) solid #cbd3df; border-radius: var(--radius-control); background: var(--color-panel); line-height: var(--line-body); }
+    input::placeholder { color: var(--color-muted); opacity: .85; }
+    .actions { display: flex; gap: var(--space-2); align-items: center; }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-height); padding: var(--space-2) var(--space-4); border: var(--border-width) solid #cbd3df; border-radius: var(--radius-control); background: var(--color-panel); line-height: var(--line-body); white-space: nowrap; }
+    .button:hover:enabled { background: var(--color-canvas); }
+    .button.primary { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-panel); }
+    .button.primary:hover:enabled { border-color: var(--color-primary-hover); background: var(--color-primary-hover); }
+    .button[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-selected); color: var(--color-primary); }
+    .button:disabled { color: #8b95a4; background: var(--color-table-head); }
+    .button svg { width: var(--icon-size); height: var(--icon-size); }
+    .results { display: flex; flex-direction: column; flex: 1; min-height: var(--space-0); overflow: hidden; position: relative; }
+    .result-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-6); border-bottom: var(--border-width) solid var(--color-border); flex: none; }
+    .result-toolbar h2 { margin: var(--space-0); font-size: var(--font-key); font-weight: var(--weight-semibold); line-height: var(--line-key); }
+    .result-count { margin-inline-start: auto; color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
+    .table-zone { display: flex; flex-direction: column; flex: 1; min-height: var(--space-0); }
+    .table-scroll { flex: 1; min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; }
+    .table-scroll:has(table[hidden]) { display: flex; flex-direction: column; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    caption { position: absolute; width: var(--border-width); height: var(--border-width); overflow: hidden; clip-path: inset(50%); }
+    col.subject { width: var(--table-subject-width); }
+    th, td { padding: var(--space-3) var(--space-4); text-align: left; line-height: var(--line-cell); vertical-align: middle; overflow-wrap: anywhere; }
+    th:first-child, td:first-child { padding-inline-start: var(--space-6); }
+    th:last-child, td:last-child { padding-inline-end: var(--space-6); }
+    thead { position: sticky; top: var(--space-0); z-index: 1; background: var(--color-table-head); }
+    th { height: var(--table-header-height); font-weight: var(--weight-medium); color: var(--color-muted); border-bottom: var(--border-width) solid var(--color-border); }
+    td { height: var(--table-row-height); border-bottom: var(--border-width) solid var(--color-border); }
+    tbody tr:last-child td { border-bottom: var(--space-0); }
+    tbody tr:hover { background: var(--color-table-head); }
+    td strong { display: block; font-weight: var(--weight-medium); }
+    td small { display: block; font-size: var(--font-small); line-height: var(--space-4); color: var(--color-muted); }
+    .status { display: inline-block; padding: var(--space-0) var(--space-2); border-radius: var(--space-1); background: var(--color-pending-bg); color: var(--color-pending); font-size: var(--font-small); line-height: var(--line-cell); font-weight: var(--weight-medium); white-space: nowrap; }
+    .status.success { color: var(--color-success); background: var(--color-success-bg); }
+    .text-action { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-0); border: var(--space-0); background: transparent; color: var(--color-primary); cursor: pointer; }
+    .text-action svg { width: var(--icon-size); height: var(--icon-size); }
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); flex: 1; padding: var(--space-6); text-align: center; }
+    .empty svg { width: var(--empty-symbol-size); height: var(--empty-symbol-size); margin-bottom: var(--space-2); color: var(--color-muted); }
+    .empty h3 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
+    .empty p { margin: var(--space-0); color: var(--color-muted); }
+    .result-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); height: var(--table-footer-height); flex: none; padding: var(--space-3) var(--space-6); border-top: var(--space-0); box-shadow: inset var(--space-0) var(--border-width) var(--color-border); position: relative; }
+    .result-footer > span { color: var(--color-muted); }
+    .pagination { display: flex; align-items: center; gap: var(--space-2); }
+    .page-index { padding-inline: var(--space-2); font-variant-numeric: tabular-nums; }
+    .mobile-toggle { display: none; padding-inline: var(--space-2); }
+    .spec-note { margin: var(--space-0); font-size: var(--font-small); line-height: var(--line-small); color: var(--color-muted); }
+    [data-measure]::before { display: none; }
+    .measures [data-measure] { outline: var(--border-width) dashed var(--color-measure); outline-offset: calc(var(--border-width) * -1); }
+    .measures [data-measure]::before { display: block; content: attr(data-measure); position: absolute; top: calc(var(--space-3) * -1); left: var(--space-3); z-index: 3; padding: var(--space-0) var(--space-1); border: var(--border-width) solid #fed7aa; border-radius: var(--space-1); background: var(--color-measure-bg); color: var(--color-measure); font-size: var(--font-small); line-height: var(--line-small); white-space: nowrap; pointer-events: none; }
+    .measures .workspace::before { top: var(--space-1); left: var(--space-1); }
+    .measures .field::before { top: calc(var(--line-body) - var(--space-1)); left: auto; right: var(--space-1); }
+    .measures .result-footer::before { top: calc(var(--space-3) * -1); }
+    .measures .results[data-measure]::before { top: var(--space-1); left: var(--space-6); }
+    .drawer { position: fixed; inset: var(--space-0) auto var(--space-0) var(--space-0); width: var(--sidebar-width); max-width: calc(100% - var(--space-12)); height: var(--app-height); max-height: var(--app-height); margin: var(--space-0); padding: var(--space-4); border: var(--space-0); border-inline-end: var(--border-width) solid var(--color-border); background: var(--color-panel); color: var(--color-text); }
+    .drawer::backdrop { background: #1f293754; }
+    .drawer-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-6); }
+    .drawer .sample-controls { margin-top: var(--space-6); }
+    @media (max-width: 1100px) {
+      .pagination select { display: none; }
+    }
+    /* 767px 与 --mobile-breakpoint 同值，媒体查询采用 CSS 原生常量。 */
+    @media (max-width: 767px) {
+      .specimen { display: block; height: auto; min-height: var(--app-height); overflow: visible; }
+      .topbar { position: sticky; top: var(--space-0); z-index: 4; min-height: var(--header-height); padding-inline: var(--space-4); gap: var(--space-2); }
+      .brand img { width: var(--line-body); height: var(--logo-height); }
+      .brand strong { font-size: var(--font-key); letter-spacing: -.03em; }
+      .spec-caption { padding-inline-start: var(--space-2); font-size: var(--font-small); }
+      .spec-caption .desktop-context { display: none; }
+      .mobile-toggle { display: inline-flex; }
+      .shell { display: block; }
+      .sidebar { display: none; }
+      .workspace { display: flex; min-height: calc(var(--app-height) - var(--header-height)); gap: var(--space-4); padding: var(--space-4); overflow: visible; }
+      .query-grid { display: grid; grid-template-columns: minmax(var(--space-0), 1fr); }
+      .query-grid > .field:first-child, .query-grid > .field:nth-child(2) { min-width: var(--space-0); }
+      .query-grid .actions { grid-column: auto; }
+      input, select, .button, .nav button { min-height: var(--touch-height); height: auto; }
+      .query-grid input { font-size: var(--font-key); }
+      .top-actions .button { padding-inline: var(--space-2); }
+      .results { min-height: var(--space-0); overflow: visible; flex: none; }
+      .table-scroll { overflow: visible; }
+      .result-footer { padding-block: var(--space-3); height: auto; min-height: var(--table-footer-height); flex-wrap: wrap; }
+      .pagination { margin-inline-start: auto; }
+      .pagination .button { padding-inline: var(--space-2); }
+      .page-index { padding-inline: var(--space-0); }
+      .table-scroll table { table-layout: auto; }
+      .table-scroll colgroup, thead { display: none; }
+      tbody { display: grid; }
+      tbody tr { display: grid; grid-template-columns: minmax(var(--space-0), 1fr) auto; gap: var(--space-2) var(--space-4); padding: var(--space-4); border-bottom: var(--border-width) solid var(--color-border); }
+      tbody tr:last-child { border-bottom: var(--space-0); }
+      td, td:first-child, td:last-child { height: auto; padding: var(--space-0); border: var(--space-0); }
+      td[data-label]::before { display: block; content: attr(data-label); margin-bottom: var(--space-1); color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
+      td:first-child { grid-column: 1 / -1; }
+      td[data-field="submitted"] { font-size: var(--font-small); color: var(--color-muted); }
+      td[data-field="status"], td[data-field="action"] { justify-self: end; }
+      .empty { padding-block: var(--space-12); }
+      .measures [data-measure]::before { font-size: var(--font-small); }
+    }
+    @media (forced-colors: active) {
+      .nav button[aria-current="page"], .button[aria-pressed="true"] { outline: var(--border-width) solid Highlight; }
+    }
+  </style>
+</head>
+<body>
+  <div class="specimen">
+    <header class="topbar">
+      <button class="button mobile-toggle" id="open-menu" type="button" aria-label="打开样张菜单" aria-haspopup="dialog" aria-controls="mobile-menu"><span data-icon="menu"></span></button>
+      <div class="brand"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong><span class="spec-caption"><span class="desktop-context">静态</span>规范样张</span></div>
+      <div class="top-actions"><button id="measure" type="button" class="button" aria-pressed="false">间距标注</button></div>
+    </header>
+    <div class="shell">
+      <aside class="sidebar">
+        <nav class="nav" aria-label="规范样张菜单">
+          <h2 class="nav-heading">权限管理</h2>
+          <button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button>
+          <button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button>
+        </nav>
+        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+      </aside>
+      <main class="workspace" data-measure="工作区四边 24px · 区块间距 24px">
+        <div class="page-heading"><h1 id="page-title">访问申请</h1></div>
+        <form class="panel query-panel" id="query" data-measure="面板四边内距 24px">
+          <div class="query-grid" data-measure="字段组间距 16px">
+            <label class="field" data-measure="标签与控件 8px"><span>关键词</span><input id="keyword" type="search" placeholder="申请编号、申请人或业务用途" maxlength="100"></label>
+            <label class="field"><span>状态</span><select id="status"><option value="all">全部状态</option><option value="pending">待审批</option><option value="approved">待执行</option></select></label>
+            <div class="actions"><button class="button primary" type="submit">查询</button><button class="button" id="reset" type="button">重置</button></div>
+          </div>
+        </form>
+        <section class="panel results" aria-labelledby="results-title" data-measure="同一结果面板 · 表头、内容与分页">
+          <div class="result-toolbar"><h2 id="results-title">申请列表</h2><span class="result-count" id="result-count">共 10 条</span></div>
+          <div class="table-zone">
+            <div class="table-scroll">
+              <table><caption>静态规范样张的示例数据</caption><colgroup><col class="subject"><col><col><col><col></colgroup><thead><tr id="headings"></tr></thead><tbody id="rows"></tbody></table>
+              <div class="empty" id="empty" hidden><span data-icon="inbox"></span><h3 id="empty-title">暂无访问申请</h3><p id="empty-copy">示例数据为空。</p></div>
+            </div>
+          </div>
+          <footer class="result-footer" data-measure="分页高 64px · 上下 12px · 左右 24px"><span id="range" role="status">共 10 条，当前 1–10 条</span><div class="pagination"><select id="page-size" aria-label="样张每页条数"><option value="10">10 条 / 页</option><option value="20">20 条 / 页</option><option value="50">50 条 / 页</option></select><button class="button" id="previous" type="button" disabled>上一页</button><span class="page-index" id="page-index">1 / 1</span><button class="button" id="next" type="button" disabled>下一页</button></div></footer>
+        </section>
+      </main>
+    </div>
+  </div>
+  <dialog id="mobile-menu" class="drawer" aria-label="规范样张菜单">
+    <div class="drawer-header"><strong>规范样张</strong><button class="button" id="close-menu" type="button" aria-label="关闭样张菜单"><span data-icon="x"></span></button></div>
+    <nav class="nav" aria-label="手机样张菜单"><h2 class="nav-heading">权限管理</h2><button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button><button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button></nav>
+    <div class="sample-controls"><label for="mobile-sample-count">示例数据状态</label><select id="mobile-sample-count" aria-label="手机示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+  </dialog>
+  <script>
+    (() => {
+      'use strict';
+      const examples = [
+        { id: 'SQ-001', person: '周店长', purpose: '核对上周门店经营周报', submitted: '11/08 09:30', status: 'pending' },
+        { id: 'SQ-002', person: '李店长', purpose: '准备上周毛利分析', submitted: '11/08 09:15', status: 'approved' },
+        { id: 'SQ-003', person: '王店长', purpose: '核对上周销售成本', submitted: '11/08 09:00', status: 'pending' },
+        { id: 'SQ-004', person: '陈店长', purpose: '复核上周经营数据', submitted: '11/07 16:45', status: 'pending' },
+        { id: 'SQ-005', person: '赵店长', purpose: '核对门店经营周报', submitted: '11/07 16:30', status: 'approved' },
+        { id: 'SQ-006', person: '杨店长', purpose: '复盘上周门店毛利', submitted: '11/07 16:15', status: 'pending' },
+        { id: 'SQ-007', person: '刘店长', purpose: '准备月度经营复盘', submitted: '11/07 16:00', status: 'approved' },
+        { id: 'SQ-008', person: '黄店长', purpose: '核对同期成本归属', submitted: '11/07 15:45', status: 'pending' },
+        { id: 'SQ-009', person: '吴店长', purpose: '核验上周毛利额', submitted: '11/07 15:30', status: 'pending' },
+        { id: 'SQ-010', person: '徐店长', purpose: '准备经营例会数据', submitted: '11/07 15:15', status: 'approved' }
+      ];
+      let view = 'requests';
+      let count = 10;
+      let applied = { keyword: '', status: 'all' };
+      const menu = document.getElementById('mobile-menu');
+      const keyword = document.getElementById('keyword');
+      const status = document.getElementById('status');
+      const rows = document.getElementById('rows');
+      const empty = document.getElementById('empty');
+      for (const slot of document.querySelectorAll('[data-icon]')) slot.replaceWith(WorkbenchIcon(slot.dataset.icon));
+
+      function text(tag, content, className) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        node.textContent = content;
+        return node;
+      }
+
+      function render() {
+        const isRequests = view === 'requests';
+        const title = isRequests ? '访问申请' : '授权记录';
+        document.getElementById('page-title').textContent = title;
+        document.getElementById('results-title').textContent = isRequests ? '申请列表' : '已生效授权';
+        document.querySelectorAll('[data-view]').forEach(button => {
+          if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
+          else button.removeAttribute('aria-current');
+        });
+        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['获准范围', '申请人', '有效至', '状态', '来源申请'];
+        const head = document.getElementById('headings');
+        head.replaceChildren(...headings.map(label => {
+          const th = text('th', label); th.scope = 'col'; return th;
+        }));
+        const matches = examples.slice(0, count).filter(item => {
+          const words = [item.id, item.person, item.purpose].join(' ').toLowerCase();
+          return words.includes(applied.keyword.toLowerCase()) &&
+            (applied.status === 'all' || (!isRequests && applied.status === 'effective') || item.status === applied.status);
+        });
+        rows.replaceChildren();
+        for (const item of matches) {
+          const row = document.createElement('tr');
+          const subject = document.createElement('td');
+          subject.append(text('strong', isRequests ? '城南店毛利汇总访问申请' : '仅毛利额'), text('small', isRequests ? item.purpose : '城南店经营汇总 · 14 天'));
+          const person = text('td', item.person);
+          person.dataset.label = '申请人';
+          const submitted = text('td', isRequests ? item.submitted : '11/22 09:30');
+          submitted.dataset.field = 'submitted';
+          submitted.dataset.label = isRequests ? '提交时间' : '有效至';
+          const state = document.createElement('td');
+          state.dataset.field = 'status';
+          state.dataset.label = '状态';
+          state.append(text('span', isRequests ? (item.status === 'pending' ? '待审批' : '待执行') : '已生效', 'status' + (!isRequests ? ' success' : '')));
+          const command = document.createElement('td');
+          command.dataset.field = 'action';
+          command.dataset.label = isRequests ? '申请编号' : '来源申请';
+          command.append(text('span', item.id, 'text-action'));
+          row.append(subject, person, submitted, state, command);
+          rows.append(row);
+        }
+        empty.hidden = matches.length > 0;
+        document.querySelector('table').hidden = matches.length === 0;
+        document.getElementById('empty-title').textContent = applied.keyword || applied.status !== 'all' ? '没有符合条件的示例' : '暂无' + title;
+        document.getElementById('empty-copy').textContent = applied.keyword || applied.status !== 'all' ? '调整条件后可重新查看样例。' : '切换示例数据状态，可查看单条或多条记录。';
+        document.getElementById('result-count').textContent = '共 ' + matches.length + ' 条';
+        document.getElementById('range').textContent = matches.length ? '共 ' + matches.length + ' 条，当前 1–' + matches.length + ' 条' : '共 0 条';
+        document.getElementById('page-index').textContent = matches.length ? '1 / 1' : '0 / 0';
+        document.querySelector('.pagination').hidden = matches.length === 0;
+      }
+
+      document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+        view = button.dataset.view;
+        applied = { keyword: '', status: 'all' };
+        keyword.value = '';
+        status.replaceChildren(new Option('全部状态', 'all'), ...(view === 'requests'
+          ? [new Option('待审批', 'pending'), new Option('待执行', 'approved')]
+          : [new Option('已生效', 'effective')]));
+        render();
+        if (menu.open) menu.close();
+      }));
+      for (const id of ['sample-count', 'mobile-sample-count']) {
+        document.getElementById(id).addEventListener('change', event => {
+          count = Number(event.target.value);
+          document.getElementById('sample-count').value = String(count);
+          document.getElementById('mobile-sample-count').value = String(count);
+          render();
+        });
+      }
+      document.getElementById('query').addEventListener('submit', event => {
+        event.preventDefault();
+        applied = { keyword: keyword.value.trim(), status: status.value };
+        render();
+      });
+      document.getElementById('reset').addEventListener('click', () => {
+        keyword.value = ''; status.value = 'all'; applied = { keyword: '', status: 'all' }; render();
+      });
+      document.getElementById('measure').addEventListener('click', event => {
+        const shown = document.body.classList.toggle('measures');
+        event.currentTarget.setAttribute('aria-pressed', String(shown));
+      });
+      document.getElementById('open-menu').addEventListener('click', () => menu.showModal());
+      document.getElementById('close-menu').addEventListener('click', () => menu.close());
+      render();
+    })();
+  </script>
+</body>
+</html>
