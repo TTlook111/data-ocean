@@ -27,6 +27,7 @@
   let active;
   let serial = saved?.serial || 0;
   let expiryTimer;
+  let receiptVersion;
   const adminAccessRoute = '#admin/access-requests';
 
   function element(tag, className, text) {
@@ -196,7 +197,8 @@
   }
 
   function decideAccess(id, action, fields) {
-    if (approvalsPage.hidden || location.hash !== adminAccessRoute + '/' + encodeURIComponent(id)) {
+    const currentRoute = location.hash === adminAccessRoute || location.hash === adminAccessRoute + '/' + encodeURIComponent(id);
+    if (approvalsPage.hidden || !currentRoute) {
       return { ok: false, message: '请打开对应的访问申请后办理。' };
     }
     const result = desk.decide(id, action, fields);
@@ -274,6 +276,10 @@
     receiptButton.setAttribute('aria-label', unread ? '处理回告，' + unread + ' 条未读' : '处理回告');
 
     const list = document.getElementById('receipt-list');
+    // 页面恢复可见时保留未变化的回告节点，避免用户点击过程中列表被重复替换。
+    const version = JSON.stringify(records.map(item => [item.receipt, item.links, readReceipts.has(item.receipt.key)]));
+    if (version === receiptVersion) return;
+    receiptVersion = version;
     list.replaceChildren();
     if (!records.length) list.append(element('p', 'receipt-empty', '还没有处理回告。申请或口径事项处理完成后，可以在这里查看。'));
     for (const item of records) {

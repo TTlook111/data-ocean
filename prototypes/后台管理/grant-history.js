@@ -34,6 +34,10 @@
       const icon = element('div', 'ap-empty-icon');
       icon.append(WorkbenchIcon('layers', 28));
       empty.append(icon, element('h2', '', '暂无授权记录'), element('p', '', '访问申请执行生效后，可在这里核对授权范围和期限。'));
+      const requests = element('a', 'gh-empty-link', '查看访问申请');
+      requests.href = '#admin/access-requests';
+      requests.append(WorkbenchIcon('chevron-right', 14));
+      empty.append(requests);
       page.append(empty);
       return page;
     }

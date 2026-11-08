@@ -263,11 +263,23 @@
     return dialog;
   }
 
-  function requestList(records, group, setGroup) {
+  function requestInbox(root, context, records, group, selected) {
     const queue = el('section', 'ap-queue');
-    queue.setAttribute('aria-label', '访问申请列表');
-    queue.append(el('h1', 'ap-queue-title', '访问申请'));
+    queue.setAttribute('aria-label', '访问申请');
+    const pagebar = el('header', 'ap-pagebar');
+    pagebar.append(el('h1', 'ap-queue-title', '访问申请'));
+    queue.append(pagebar);
+    const inbox = el('div', 'ap-inbox');
+    inbox.classList.toggle('ap-has-selection', Boolean(selected));
+    const mailbox = el('section', 'ap-mailbox');
+    mailbox.setAttribute('aria-label', '申请列表');
     const filters = el('div', 'ap-filters');
+    function setGroup(key) {
+      root.dataset.apGroup = key;
+      if (context.selectedId) context.onSelect(null);
+      else render(root, context);
+      requestAnimationFrame(() => root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true }));
+    }
     for (const [key, title] of [['todo', '待处理'], ['done', '已办']]) {
       const button = action(title, 'filter-' + key, 'ap-filter');
       button.append(el('span', 'ap-counter', records.filter(item => groupFor(item) === key).length));
@@ -275,42 +287,46 @@
       button.addEventListener('click', () => { if (key !== group) setGroup(key); });
       filters.append(button);
     }
-    queue.append(filters);
+    mailbox.append(filters);
     const items = records.filter(item => groupFor(item) === group);
-    if (!items.length) {
+    const current = selected || items[0];
+    const list = el('div', 'ap-items');
+    for (const item of items) {
+      const link = el('a', 'ap-mail-item');
+      link.href = '#admin/access-requests/' + encodeURIComponent(item.id);
+      link.dataset.caseId = item.id;
+      if (item.id === current?.id) link.dataset.preview = 'true';
+      if (item.id === selected?.id) link.setAttribute('aria-current', 'true');
+      const meta = el('span', 'ap-mail-meta');
+      meta.append(el('span', 'ap-mail-applicant', item.applicant || '周店长'), badge(item));
+      const stamp = el('time', 'ap-mail-time', item.submittedAt ? dateFormat.format(item.submittedAt) : item.id);
+      if (item.submittedAt) stamp.dateTime = new Date(item.submittedAt).toISOString();
+      link.append(meta, el('strong', '', item.title), el('span', 'ap-mail-purpose', item.purpose), stamp);
+      link.title = item.id;
+      list.append(link);
+    }
+    if (!items.length) list.append(el('p', 'ap-mail-empty', group === 'todo' ? '没有待处理的申请' : '还没有已办申请'));
+    mailbox.append(list);
+    const preview = el('div', 'ap-preview');
+    if (current) {
+      preview.append(requestDetail(root, context, current));
+    } else {
       const empty = el('div', 'ap-empty');
       const symbol = el('div', 'ap-empty-icon');
-      symbol.append(WorkbenchIcon('inbox', 32));
-      empty.append(symbol, el('h2', '', group === 'todo' ? '暂无待处理申请' : '暂无已办申请'),
-        el('p', '', group === 'todo' ? '员工提交访问申请后，会出现在这里。' : '处理完成后，可以在这里查阅办理结果。'));
+      symbol.append(WorkbenchIcon('inbox', 30));
+      const title = group === 'todo' ? (records.length ? '待办已处理完' : '暂无访问申请') : '还没有已办申请';
+      empty.append(symbol, el('h2', '', title),
+        el('p', '', group === 'todo' ? '员工提交访问申请后，可以在这里办理。' : '申请处理后，可以在这里回看办理结论。'));
       if (records.length) {
         const other = group === 'todo' ? 'done' : 'todo';
         const jump = action(other === 'done' ? '查看已办申请' : '查看待处理申请', 'other-group', 'ap-btn ap-secondary');
         jump.addEventListener('click', () => setGroup(other));
         empty.append(jump);
       }
-      queue.append(empty);
-      return queue;
+      preview.append(empty);
     }
-    const list = el('div', 'ap-items');
-    const labels = el('div', 'ap-list-labels');
-    labels.setAttribute('aria-hidden', 'true');
-    for (const label of ['申请事项', '申请人', '提交时间', '状态']) labels.append(el('span', '', label));
-    list.append(labels);
-    for (const item of items) {
-      const link = el('a', 'ap-item');
-      link.href = '#admin/access-requests/' + encodeURIComponent(item.id);
-      link.dataset.caseId = item.id;
-      const name = el('span', 'ap-item-main');
-      name.append(el('strong', '', item.title), el('small', 'ap-item-purpose', item.purpose));
-      const applicant = el('span', 'ap-item-by', item.applicant || '周店长');
-      const submitted = el('time', 'ap-item-date', item.submittedAt ? dateFormat.format(item.submittedAt) : '—');
-      if (item.submittedAt) submitted.dateTime = new Date(item.submittedAt).toISOString();
-      link.append(name, applicant, submitted, badge(item), WorkbenchIcon('chevron-right', 15));
-      link.title = item.id;
-      list.append(link);
-    }
-    queue.append(list);
+    inbox.append(mailbox, preview);
+    queue.append(inbox);
     return queue;
   }
 
@@ -323,14 +339,14 @@
     back.prepend(WorkbenchIcon('chevron-right', 14));
     back.addEventListener('click', () => {
       onSelect(null);
-      requestAnimationFrame(() => root.querySelector('.ap-item[data-case-id="' + current.id + '"]')?.focus({ preventScroll: true }));
+      requestAnimationFrame(() => root.querySelector('.ap-mail-item[data-case-id="' + current.id + '"]')?.focus({ preventScroll: true }));
     });
     const idLine = el('div', 'ap-detail-id');
     const pending = current.status === 'pending';
     const question = current.links[0]?.text || current.title;
     if (pending) idLine.append(badge(current));
     idLine.append(el('span', 'ap-id', '申请单 ' + current.id));
-    const title = el('h1', 'ap-detail-title', decisionTitles[current.status] || question);
+    const title = el('h2', 'ap-detail-title', decisionTitles[current.status] || question);
     title.tabIndex = -1;
     const sheetHead = el('header', 'ap-sheet-head');
     sheetHead.append(idLine, title);
@@ -383,15 +399,10 @@
     const body = el('div', 'ap-body');
     if (section === 'grants') {
       body.append(GrantHistory.render(records, onSelect));
-    } else if (selected) {
-      root.dataset.apGroup = groupFor(selected);
-      body.append(requestDetail(root, context, selected));
     } else {
-      body.append(requestList(records, root.dataset.apGroup || 'todo', key => {
-        root.dataset.apGroup = key;
-        render(root, context);
-        root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true });
-      }));
+      const group = selected ? groupFor(selected) : root.dataset.apGroup || 'todo';
+      root.dataset.apGroup = group;
+      body.append(requestInbox(root, context, records, group, selected));
     }
     layout.append(sidebar, body);
     root.classList.add('ap-page');
