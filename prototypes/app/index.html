@@ -8,9 +8,12 @@
   <link rel="icon" href="assets/dataocean-mark.png">
   <link rel="stylesheet" href="workbench.css">
   <link rel="stylesheet" href="answers.css">
+  <link rel="stylesheet" href="case-view.css">
   <script defer src="icons.js"></script>
   <script defer src="dialogue.js"></script>
   <script defer src="answers.js"></script>
+  <script defer src="cases.js"></script>
+  <script defer src="case-view.js"></script>
   <script defer src="workbench.js"></script>
 </head>
 <body>
@@ -28,7 +31,7 @@
         <span class="face">周</span><div><strong>周店长</strong><small>城南店</small></div>
         <details class="profile-more">
           <summary aria-label="更多原型入口"><i data-icon="ellipsis"></i></summary>
-          <div><a href="../项目运行图.html">项目运行图</a><a href="../visual-directions/index.html">视觉选稿</a></div>
+          <div><a href="../项目运行图.html">项目运行图</a><a href="../visual-directions/index.html">视觉选稿</a><button type="button" id="reset-demo">重置本页演示</button></div>
         </details>
       </div>
     </aside>
@@ -39,7 +42,10 @@
           <button class="menu-toggle" type="button" aria-label="打开会话导航" aria-expanded="false" aria-controls="sidebar"><i data-icon="menu"></i></button>
           <span>问数工作台</span><i data-icon="chevron-right"></i><b id="thread-title">牛奶净销量</b>
         </div>
-        <div class="source" aria-label="当前数据源为经营数据，门店为城南店"><i data-icon="database"></i>经营数据<span class="line"></span>城南店</div>
+        <div class="bar-tools">
+          <div class="source" aria-label="当前数据源为经营数据，门店为城南店"><i data-icon="database"></i>经营数据<span class="line"></span>城南店</div>
+          <button type="button" id="open-receipts" class="receipt-trigger" aria-haspopup="dialog" aria-controls="receipts" aria-label="处理回告"><i data-icon="bell"></i><span class="receipt-label">回告</span><span id="receipt-count" hidden></span></button>
+        </div>
       </header>
       <section class="transcript" id="transcript" aria-label="当前对话记录" tabindex="0"></section>
       <footer class="composer-area">
@@ -47,9 +53,13 @@
           <textarea id="message" rows="1" aria-label="提问、补充或修改条件" placeholder="继续提问，也可以补充或修改条件…"></textarea>
           <div class="compose-tools"><span class="scope-pill"><i data-icon="database"></i>经营数据</span><button type="submit" class="send" aria-label="发送消息" title="发送消息（Enter）" disabled><i data-icon="arrow-up"></i></button></div>
         </form>
-        <p class="sample">示例数据 · 城南店牛奶销售与库存</p>
+        <p class="sample">示例数据 · 城南店经营</p>
       </footer>
     </main>
   </div>
+  <dialog id="receipts" class="receipt-dialog" aria-labelledby="receipt-title">
+    <header><h2 id="receipt-title">处理回告</h2><button type="button" class="receipt-close" aria-label="关闭处理回告"><i data-icon="x"></i></button></header>
+    <div id="receipt-list"></div>
+  </dialog>
 </body>
 </html>

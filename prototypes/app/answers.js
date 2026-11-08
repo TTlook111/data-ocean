@@ -28,6 +28,10 @@
     return rows.reduce((total, row) => total + row[key], 0);
   }
 
+  function displayValue(value) {
+    return typeof value === 'number' ? formatter.format(value) : value;
+  }
+
   function shortDate(date) {
     return date.slice(5).replace('-', '/');
   }
@@ -40,6 +44,7 @@
   }
 
   function valuesFor(result) {
+    if (result.type === 'business') return result;
     if (result.type === 'inventory') {
       return {
         headings: ['商品', '库存（' + result.unit + '）'],
@@ -87,7 +92,7 @@
           content.append(track, element('b', '', formatter.format(row[i])));
           cell.append(content);
         } else {
-          cell.textContent = formatter.format(row[i]);
+          cell.textContent = displayValue(row[i]);
         }
       }
     }
@@ -95,7 +100,7 @@
     const totalHeading = element('th', '', totals[0]);
     totalHeading.scope = 'row';
     foot.append(totalHeading);
-    for (const value of totals.slice(1)) foot.insertCell().textContent = formatter.format(value);
+    for (const value of totals.slice(1)) foot.insertCell().textContent = displayValue(value);
     return table;
   }
 
@@ -170,7 +175,7 @@
     }
     const details = element('details', 'qa-details');
     const summary = element('summary', 'qa-summary');
-    const detailName = sales ? '每日明细' : '库存明细';
+    const detailName = sales ? '每日明细' : result.type === 'business' ? '计算明细' : '库存明细';
     summary.append(window.WorkbenchIcon('chevron-down', 14),
       element('span', 'qa-when-closed', '展开' + detailName),
       element('span', 'qa-when-open', '收起' + detailName));
@@ -204,7 +209,7 @@
     const link = element('a');
     link.href = url;
     link.download = result.scope.replace(/[\\/:*?"<>|]/g, '-') +
-      '-' + (result.type === 'inventory' ? '库存' : metricLabels[result.metric]) +
+      '-' + (result.label || (result.type === 'inventory' ? '库存' : metricLabels[result.metric])) +
       '-' + result.period.replace(/[\\/:*?"<>|]/g, '-') + '.csv';
     document.body.append(link);
     link.click();
