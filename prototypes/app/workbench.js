@@ -196,7 +196,9 @@
   }
 
   function decideAccess(id, action, fields) {
-    if (approvalsPage.hidden) return { ok: false, message: '请在后台管理的访问申请页面办理。' };
+    if (approvalsPage.hidden || location.hash !== adminAccessRoute + '/' + encodeURIComponent(id)) {
+      return { ok: false, message: '请打开对应的访问申请后办理。' };
+    }
     const result = desk.decide(id, action, fields);
     if (result.ok) {
       syncCase(id);
@@ -209,14 +211,14 @@
   }
 
   // 员工申请与后台待办使用同一份记录，切换演示身份只改变入口，不代任何一方执行操作。
-  function showPerspective() {
+  function showPerspective(event) {
     const [view, section, selectedId] = location.hash.slice(1).split('/');
-    if (view === 'approvals' || (view === 'admin' && section !== 'access-requests')) {
+    if (view === 'approvals' || (view === 'admin' && !['access-requests', 'grants'].includes(section))) {
       const oldId = view === 'approvals' && /^SQ-\d+$/.test(section) ? '/' + section : '';
       location.replace(adminAccessRoute + oldId);
       return;
     }
-    const reviewing = view === 'admin' && section === 'access-requests';
+    const reviewing = view === 'admin';
     const changed = managerPage.hidden !== reviewing;
     if (changed) {
       setMenu(false);
@@ -226,16 +228,21 @@
     managerPage.hidden = reviewing;
     approvalsPage.hidden = !reviewing;
     if (reviewing) {
-      document.title = '访问申请 · 权限管理 · DataOcean 后台管理';
+      document.title = (section === 'grants' ? '授权记录' : '访问申请') + ' · 权限管理 · DataOcean 后台管理';
       // 负责人的队列只取已经提交的访问申请，店长草稿和口径治理事项有各自的入口。
       ApprovalPage.render(approvalsPage, {
         desk: { list: () => desk.list().filter(item => item.type === 'access' && item.status !== 'draft') },
+        section,
         selectedId: selectedId || null,
         onSelect: id => { location.hash = id ? adminAccessRoute + '/' + encodeURIComponent(id) : adminAccessRoute; },
         onReturn: () => { location.hash = 'workbench'; },
         onDecision: decideAccess
       });
-      if (changed) approvalsPage.focus({ preventScroll: true });
+      if (changed || event?.type === 'hashchange') {
+        const title = approvalsPage.querySelector('.ap-detail-title, .ap-queue-title, .gh-page h1');
+        if (title) { title.tabIndex = -1; title.focus({ preventScroll: true }); }
+        window.scrollTo(0, 0);
+      }
     } else if (changed) {
       approvalsPage.replaceChildren();
       delete approvalsPage.dataset.apGroup;

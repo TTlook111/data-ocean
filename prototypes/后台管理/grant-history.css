@@ -1,0 +1,37 @@
+.gh-page {
+  width: min(100%, 1060px);
+  margin-inline: auto;
+  color: var(--ap-text);
+  container: grant-list / inline-size;
+}
+.gh-title { margin: 0 0 20px; color: var(--ap-ink); font-size: clamp(24px, 2.3vw, 31px); line-height: 1.35; }
+.gh-panel { overflow: hidden; border: 1px solid var(--ap-line); border-radius: 13px; background: #fff; }
+.gh-labels, .gh-fields {
+  display: grid; grid-template-columns: minmax(125px, 1.6fr) minmax(60px, .8fr) minmax(144px, 1.4fr) minmax(58px, .7fr) minmax(83px, .8fr);
+  align-items: center; gap: 14px; padding-inline: clamp(16px, 2.1vw, 28px);
+}
+.gh-labels { min-height: 45px; background: #f7f9fc; border-bottom: 1px solid var(--ap-line); font-size: 13px; color: var(--ap-muted); }
+.gh-grants { margin: 0; padding: 0; list-style: none; }
+.gh-row + .gh-row { border-top: 1px solid var(--ap-line); }
+.gh-fields { min-height: 78px; margin: 0; padding-block: 12px; }
+.gh-cell { min-width: 0; overflow-wrap: anywhere; }
+.gh-cell dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.gh-cell dd { margin: 0; color: var(--ap-ink); font-size: 14px; }
+.gh-cell strong { font-weight: 600; }
+.gh-cell small { display: block; margin-top: 3px; font-size: 13px; color: var(--ap-muted); }
+.gh-cell time { font-variant-numeric: tabular-nums; }
+.gh-source { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 3px 0; border: 0; border-radius: 3px; background: transparent; color: var(--ap-blue); font-size: 14px; }
+.gh-source:hover { text-decoration: underline; }
+.gh-empty { min-height: 250px; }
+
+@container grant-list (max-width: 660px) {
+  .gh-title { margin-bottom: 14px; }
+  .gh-panel { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+  .gh-labels { display: none; }
+  .gh-grants { display: grid; gap: 10px; }
+  .gh-row { border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }
+  .gh-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 12px; padding: 16px; }
+  .gh-cell:first-child { grid-column: span 2; }
+  .gh-cell dt { position: static; width: auto; height: auto; margin-bottom: 3px; clip-path: none; font-size: 12px; color: var(--ap-muted); }
+  .gh-source { margin-top: -7px; }
+}

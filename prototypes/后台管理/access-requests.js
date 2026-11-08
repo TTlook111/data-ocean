@@ -212,138 +212,195 @@
     return section;
   }
 
-  function render(root, context) {
-    const { desk, selectedId, onSelect, onReturn, onDecision } = context;
-    const records = desk.list().sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || b.id.localeCompare(a.id));
-    const selected = records.find(item => item.id === selectedId);
-    const group = selected ? groupFor(selected) : root.dataset.apGroup || 'todo';
-    root.dataset.apGroup = group;
-    const items = records.filter(item => groupFor(item) === group);
-    const current = selected || items[0];
-    const header = el('header', 'ap-top');
-    const brand = el('div', 'ap-brand');
-    const logo = el('img');
-    logo.src = 'assets/dataocean-mark.png';
-    logo.alt = '';
-    brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-area', '后台管理'));
-    const layout = el('div', 'ap-admin-layout');
-    const navigation = el('nav', 'ap-admin-nav');
-    navigation.setAttribute('aria-label', '后台管理导航');
-    const access = el('a', 'ap-admin-link', '访问申请');
-    access.href = '#admin/access-requests';
-    access.setAttribute('aria-current', 'page');
-    navigation.append(el('span', 'ap-nav-group', '权限管理'), WorkbenchIcon('chevron-right', 13), access);
-    header.append(brand, navigation, identityMenu(onReturn));
-    const body = el('div', 'ap-body');
-    const h1 = el('h1', 'ap-page-title sr-only', '访问申请');
-    h1.tabIndex = -1;
-    const split = el('div', 'ap-split');
-    split.classList.toggle('ap-has-selection', Boolean(selected));
-    split.classList.toggle('ap-empty-layout', !items.length);
+  const menuItems = [
+    { route: 'access-requests', label: '访问申请', icon: 'inbox' },
+    { route: 'grants', label: '授权记录', icon: 'layers' }
+  ];
+
+  function navigation(section) {
+    const nav = el('nav', 'ap-admin-nav');
+    nav.setAttribute('aria-label', '后台管理菜单');
+    nav.append(el('h2', 'ap-nav-group', '权限管理'));
+    for (const item of menuItems) {
+      const link = el('a', 'ap-admin-link', item.label);
+      link.href = '#admin/' + item.route;
+      link.prepend(WorkbenchIcon(item.icon, 17));
+      if (section === item.route) link.setAttribute('aria-current', 'page');
+      nav.append(link);
+    }
+    return nav;
+  }
+
+  function menuDrawer(section, toggle) {
+    const dialog = el('dialog', 'ap-menu-drawer');
+    dialog.id = 'admin-menu-drawer';
+    dialog.setAttribute('aria-label', '后台菜单');
+    const bar = el('div', 'ap-drawer-head');
+    const close = action('', 'close-menu', 'ap-menu-close');
+    close.setAttribute('aria-label', '关闭后台菜单');
+    close.append(WorkbenchIcon('x', 19));
+    close.addEventListener('click', () => dialog.close());
+    bar.append(el('strong', '', '后台菜单'), close);
+    const nav = navigation(section);
+    nav.addEventListener('click', event => {
+      if (event.target.closest('a')) dialog.close();
+    });
+    dialog.append(bar, nav);
+    dialog.addEventListener('click', event => {
+      if (event.target !== dialog) return;
+      const bounds = dialog.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+    });
+    toggle.setAttribute('aria-controls', dialog.id);
+    toggle.setAttribute('aria-haspopup', 'dialog');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      dialog.showModal();
+      toggle.setAttribute('aria-expanded', 'true');
+      nav.querySelector('[aria-current="page"]').focus();
+    });
+    dialog.addEventListener('close', () => toggle.setAttribute('aria-expanded', 'false'));
+    return dialog;
+  }
+
+  function requestList(records, group, setGroup) {
     const queue = el('section', 'ap-queue');
     queue.setAttribute('aria-label', '访问申请列表');
-    queue.append(el('h2', 'ap-queue-title', '申请队列'));
+    queue.append(el('h1', 'ap-queue-title', '访问申请'));
     const filters = el('div', 'ap-filters');
-    function openGroup(key) {
-      root.dataset.apGroup = key;
-      if (selectedId) onSelect(null);
-      else render(root, context);
-      requestAnimationFrame(() => root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true }));
-    }
     for (const [key, title] of [['todo', '待处理'], ['done', '已办']]) {
       const button = action(title, 'filter-' + key, 'ap-filter');
       button.append(el('span', 'ap-counter', records.filter(item => groupFor(item) === key).length));
       button.setAttribute('aria-pressed', String(key === group));
-      button.addEventListener('click', () => {
-        if (key === group) return;
-        openGroup(key);
-      });
+      button.addEventListener('click', () => { if (key !== group) setGroup(key); });
       filters.append(button);
     }
     queue.append(filters);
-    const list = el('div', 'ap-items');
-    for (const item of items) {
-      const button = el('button', 'ap-item');
-      button.type = 'button';
-      button.dataset.caseId = item.id;
-      if (item.id === selected?.id) button.setAttribute('aria-current', 'true');
-      else if (item.id === current?.id) button.dataset.preview = 'true';
-      const meta = el('span', 'ap-item-meta');
-      meta.append(el('span', '', (item.applicant || '周店长') + ' · ' + item.id), el('span', '', item.statusLabel));
-      const stamp = item.submittedAt ? ' · ' + dateFormat.format(item.submittedAt) : '';
-      button.append(meta, el('strong', '', item.title), el('small', 'ap-item-purpose', item.purpose));
-      button.title = item.id + stamp;
-      button.addEventListener('click', () => {
-        onSelect(item.id);
-        requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
-      });
-      list.append(button);
-    }
-    queue.append(list);
-    split.append(queue);
-    if (!current) {
-      const empty = el('section', 'ap-empty');
+    const items = records.filter(item => groupFor(item) === group);
+    if (!items.length) {
+      const empty = el('div', 'ap-empty');
       const symbol = el('div', 'ap-empty-icon');
       symbol.append(WorkbenchIcon('inbox', 32));
       empty.append(symbol, el('h2', '', group === 'todo' ? '暂无待处理申请' : '暂无已办申请'),
         el('p', '', group === 'todo' ? '员工提交访问申请后，会出现在这里。' : '处理完成后，可以在这里查阅办理结果。'));
       if (records.length) {
         const other = group === 'todo' ? 'done' : 'todo';
-        const switchGroup = action(other === 'done' ? '查看已办申请' : '查看待处理申请', 'other-group', 'ap-btn ap-secondary');
-        switchGroup.addEventListener('click', () => openGroup(other));
-        empty.append(switchGroup);
+        const jump = action(other === 'done' ? '查看已办申请' : '查看待处理申请', 'other-group', 'ap-btn ap-secondary');
+        jump.addEventListener('click', () => setGroup(other));
+        empty.append(jump);
       }
-      split.append(empty);
-    } else {
-      const detail = el('article', 'ap-detail');
-      detail.dataset.caseId = current.id;
-      detail.dataset.status = current.status;
-      const back = action('返回申请列表', 'back-to-list', 'ap-back');
-      back.prepend(WorkbenchIcon('chevron-right', 14));
-      back.addEventListener('click', () => {
-        onSelect(null);
-        requestAnimationFrame(() => root.querySelector('.ap-item[data-case-id="' + current.id + '"]')?.focus({ preventScroll: true }));
-      });
-      const idLine = el('div', 'ap-detail-id');
-      const pending = current.status === 'pending';
-      const question = current.links[0]?.text || current.title;
-      if (pending) idLine.append(badge(current));
-      idLine.append(el('span', 'ap-id', '申请单 ' + current.id));
-      const title = el('h2', 'ap-detail-title', decisionTitles[current.status] || question);
-      title.tabIndex = -1;
-      const sheetHead = el('header', 'ap-sheet-head');
-      sheetHead.append(idLine, title);
-      if (!pending) sheetHead.append(el('p', 'ap-source-question', question));
-      const error = el('p', 'ap-error');
-      error.setAttribute('role', 'alert');
-      function decide(key, fields) {
-        const response = onDecision(current.id, key, fields);
-        if (!response.ok) { error.textContent = response.message; return; }
-        root.dataset.apGroup = groupFor(response.record);
-        // 从待办转到已办时继续展示刚处理的申请，让负责人能核对实际结果。
-        if (selectedId !== current.id) onSelect(current.id);
-        else render(root, context);
-        requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
-      }
-      detail.append(back, sheetHead);
-      const facts = applicationFacts(current);
-      if (pending) {
-        detail.append(facts, reviewForm(current, decide), error);
-      } else {
-        const contextDetails = el('details', 'ap-log ap-request-context');
-        const summary = el('summary', '', '申请资料');
-        summary.prepend(WorkbenchIcon('chevron-right', 14));
-        contextDetails.append(summary, facts);
-        detail.append(outcome(current, decide), error, contextDetails);
-      }
-      if (current.events.length) detail.append(historyOf(current));
-      split.append(detail);
+      queue.append(empty);
+      return queue;
     }
-    body.append(h1, split);
-    root.classList.add('ap-page');
-    layout.append(body);
-    root.replaceChildren(header, layout);
+    const list = el('div', 'ap-items');
+    const labels = el('div', 'ap-list-labels');
+    labels.setAttribute('aria-hidden', 'true');
+    for (const label of ['申请事项', '申请人', '提交时间', '状态']) labels.append(el('span', '', label));
+    list.append(labels);
+    for (const item of items) {
+      const link = el('a', 'ap-item');
+      link.href = '#admin/access-requests/' + encodeURIComponent(item.id);
+      link.dataset.caseId = item.id;
+      const name = el('span', 'ap-item-main');
+      name.append(el('strong', '', item.title), el('small', 'ap-item-purpose', item.purpose));
+      const applicant = el('span', 'ap-item-by', item.applicant || '周店长');
+      const submitted = el('time', 'ap-item-date', item.submittedAt ? dateFormat.format(item.submittedAt) : '—');
+      if (item.submittedAt) submitted.dateTime = new Date(item.submittedAt).toISOString();
+      link.append(name, applicant, submitted, badge(item), WorkbenchIcon('chevron-right', 15));
+      link.title = item.id;
+      list.append(link);
+    }
+    queue.append(list);
+    return queue;
   }
 
+  function requestDetail(root, context, current) {
+    const { onSelect, onDecision } = context;
+    const detail = el('article', 'ap-detail');
+    detail.dataset.caseId = current.id;
+    detail.dataset.status = current.status;
+    const back = action('返回申请列表', 'back-to-list', 'ap-back');
+    back.prepend(WorkbenchIcon('chevron-right', 14));
+    back.addEventListener('click', () => {
+      onSelect(null);
+      requestAnimationFrame(() => root.querySelector('.ap-item[data-case-id="' + current.id + '"]')?.focus({ preventScroll: true }));
+    });
+    const idLine = el('div', 'ap-detail-id');
+    const pending = current.status === 'pending';
+    const question = current.links[0]?.text || current.title;
+    if (pending) idLine.append(badge(current));
+    idLine.append(el('span', 'ap-id', '申请单 ' + current.id));
+    const title = el('h1', 'ap-detail-title', decisionTitles[current.status] || question);
+    title.tabIndex = -1;
+    const sheetHead = el('header', 'ap-sheet-head');
+    sheetHead.append(idLine, title);
+    if (!pending) sheetHead.append(el('p', 'ap-source-question', question));
+    const error = el('p', 'ap-error');
+    error.setAttribute('role', 'alert');
+    function decide(key, fields) {
+      const response = onDecision(current.id, key, fields);
+      if (!response.ok) { error.textContent = response.message; return; }
+      root.dataset.apGroup = groupFor(response.record);
+      // 从待办转到已办时继续展示刚处理的申请，让负责人能核对实际结果。
+      render(root, context);
+      requestAnimationFrame(() => root.querySelector('.ap-detail-title')?.focus({ preventScroll: true }));
+    }
+    detail.append(sheetHead);
+    const facts = applicationFacts(current);
+    if (pending) {
+      detail.append(facts, reviewForm(current, decide), error);
+    } else {
+      const contextDetails = el('details', 'ap-log ap-request-context');
+      const summary = el('summary', '', '申请资料');
+      summary.prepend(WorkbenchIcon('chevron-right', 14));
+      contextDetails.append(summary, facts);
+      detail.append(outcome(current, decide), error, contextDetails);
+    }
+    if (current.events.length) detail.append(historyOf(current));
+    const wrap = el('div', 'ap-detail-wrap');
+    wrap.append(back, detail);
+    return wrap;
+  }
+
+  function render(root, context) {
+    const { desk, section, selectedId, onSelect, onReturn } = context;
+    const records = desk.list().sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0) || b.id.localeCompare(a.id));
+    const selected = records.find(item => item.id === selectedId);
+    root.querySelector('dialog[open]')?.close();
+    const header = el('header', 'ap-top');
+    const toggle = action('', 'open-menu', 'ap-menu-toggle');
+    toggle.setAttribute('aria-label', '打开后台菜单');
+    toggle.append(WorkbenchIcon('menu', 20));
+    const brand = el('div', 'ap-brand');
+    const logo = el('img');
+    logo.src = 'assets/dataocean-mark.png';
+    logo.alt = '';
+    brand.append(logo, el('strong', '', 'DataOcean'), el('span', 'ap-area', '后台管理'));
+    header.append(toggle, brand, identityMenu(onReturn));
+    const layout = el('div', 'ap-admin-layout');
+    const sidebar = el('aside', 'ap-sidebar');
+    sidebar.append(navigation(section));
+    const body = el('div', 'ap-body');
+    if (section === 'grants') {
+      body.append(GrantHistory.render(records, onSelect));
+    } else if (selected) {
+      root.dataset.apGroup = groupFor(selected);
+      body.append(requestDetail(root, context, selected));
+    } else {
+      body.append(requestList(records, root.dataset.apGroup || 'todo', key => {
+        root.dataset.apGroup = key;
+        render(root, context);
+        root.querySelector('[data-ap-action="filter-' + key + '"]')?.focus({ preventScroll: true });
+      }));
+    }
+    layout.append(sidebar, body);
+    root.classList.add('ap-page');
+    root.replaceChildren(header, layout, menuDrawer(section, toggle));
+  }
+
+  const compact = window.matchMedia('(max-width: 760px)');
+  compact.addEventListener('change', event => {
+    if (!event.matches) document.querySelector('.ap-menu-drawer[open]')?.close();
+  });
   window.ApprovalPage = { render };
 })();
