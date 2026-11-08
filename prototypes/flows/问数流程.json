@@ -18,7 +18,7 @@
           "source",
           "answer"
         ],
-        "note": "已发布知识提供业务口径；通过校验的 SQL 在本次选中的业务数据库上只读执行。"
+        "note": "在同一输入框提问。条件已明确或有适用的企业默认口径时直接查，在答案中注明实际口径。"
       },
       {
         "id": "retry",
@@ -33,7 +33,7 @@
           "poll",
           "stop"
         ],
-        "note": "写 SQL 和校验中均可追问。等待期内补充后重核意图；到期后新建关联请求。仅明确可修复的错误才带原因重写。"
+        "note": "只有歧义会改变结果时才追问。可点选或直接回复，补充与纠正在本轮一并理解；明确换题则按新问数核对条件。"
       },
       {
         "id": "feedback",
@@ -107,8 +107,8 @@
       "lane": "question",
       "col": 0,
       "type": "frontend",
-      "label": "员工选源提问",
-      "sublabel": "选定一个已授权业务源",
+      "label": "在对话中提问",
+      "sublabel": "一个输入框，当前选定一个源",
       "icon": "person"
     },
     {
@@ -116,8 +116,8 @@
       "lane": "question",
       "col": 1,
       "type": "backend",
-      "label": "重核意图与口径",
-      "sublabel": "当前权限、同版依据",
+      "label": "理解本轮并取口径",
+      "sublabel": "合并补充与纠正，重核依据",
       "icon": "decision"
     },
     {
@@ -155,7 +155,7 @@
       "col": 5,
       "type": "frontend",
       "label": "交付本次答案",
-      "sublabel": "交付复核权限与实际结果",
+      "sublabel": "复核权限，注明采用的口径",
       "icon": "success"
     },
     {
@@ -163,8 +163,8 @@
       "lane": "stops",
       "col": 1,
       "type": "frontend",
-      "label": "追问原提问人",
-      "sublabel": "等待本人确认关键条件",
+      "label": "在对话里追问",
+      "sublabel": "可点选，也可自由回复",
       "icon": "waiting"
     },
     {
@@ -320,13 +320,14 @@
     {
       "id": "understand-generate",
       "from": "understand",
-      "to": "generate"
+      "to": "generate",
+      "label": "明确或有适用默认"
     },
     {
       "id": "understand-clarify",
       "from": "understand",
       "to": "clarify",
-      "label": "有歧义",
+      "label": "歧义影响结果",
       "variant": "dashed",
       "role": "branch"
     },
@@ -342,7 +343,7 @@
       "id": "clarify-understand",
       "from": "clarify",
       "to": "understand",
-      "label": "期内补充",
+      "label": "期内补充或纠正",
       "variant": "emphasis",
       "role": "return"
     },
@@ -478,6 +479,14 @@
       "to": "answer",
       "label": "完成且有权交付",
       "role": "branch"
+    },
+    {
+      "id": "clarify-ask",
+      "from": "clarify",
+      "to": "ask",
+      "label": "明确换题",
+      "role": "branch",
+      "variant": "dashed"
     }
   ],
   "cards": [
@@ -490,10 +499,19 @@
       ]
     },
     {
+      "dot": "cyan",
+      "title": "一个输入框，三种走法",
+      "items": [
+        "直接查：用户已经说清，或有已发布、适用的企业默认口径时，按该口径查询，交付时注明。",
+        "接着说：毛销量和净销量都适用且没有默认值时，问“退货的要扣掉吗？”可点选获准选项，也可回复“扣掉退货，顺便按天列”。保留本店、上周和牛奶，把口径和分组一起更新。",
+        "换话题：员工说“算了，先看今天库存”，同一对话接下新问数，沿用仍适用且获准的信息，按新意图重核日期、指标和数据源范围。"
+      ]
+    },
+    {
       "dot": "amber",
       "title": "追问与到期",
       "items": [
-        "理解、生成或校验时发现只有本人能补充的条件，暂停等待。默认空闲期 30 分钟；期内答复重新核对意图与知识，保留已有预算消耗。",
+        "理解、生成或校验时，只有仍缺本人决定且会影响回答的条件，才用业务语言问一句。默认空闲期 30 分钟；期内答复沿用已耗预算，重新核验意图、权限与依据。",
         "到期未答结束原问数。本人此后补充时创建关联的新请求，重新核对身份、数据源、时间条件、有效知识与权限。"
       ]
     },
@@ -579,6 +597,10 @@
       {
         "from": "verify",
         "to": "notify"
+      },
+      {
+        "from": "clarify",
+        "to": "ask"
       }
     ]
   }
