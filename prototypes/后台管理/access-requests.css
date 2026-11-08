@@ -59,6 +59,7 @@ body:has(.ap-menu-drawer[open]) { overflow: hidden; }
 .ap-body { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; width: 100%; padding: 27px 30px 40px; }
 .ap-queue { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .ap-pagebar, .ap-queue > .rl-filters, .ap-queue > .rl-pager { flex: none; }
+.ap-queue > .rl-pager { margin-top: auto; }
 .ap-pagebar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 22px; }
 .ap-queue-title { margin: 0; color: var(--ap-ink); font-size: 24px; font-weight: 630; line-height: 1.4; letter-spacing: -.02em; }
 .ap-inbox { display: grid; grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(0, 1fr); flex: 0 1 auto; min-height: 0; overflow: hidden; border: 1px solid var(--ap-line); border-radius: 10px; background: #fff; }

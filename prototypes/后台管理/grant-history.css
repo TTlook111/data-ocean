@@ -1,6 +1,7 @@
 .gh-page { display: flex; flex-direction: column; min-height: 0; height: 100%; width: min(100%, 1180px); margin: 0; color: var(--ap-text); container: grant-list / inline-size; }
 .gh-title { margin: 0 0 24px; color: var(--ap-ink); font-size: 24px; font-weight: 630; line-height: 1.4; letter-spacing: -.02em; }
 .gh-title, .gh-controls, .gh-page > .rl-pager { flex: none; }
+.gh-page > .rl-pager { margin-top: auto; }
 .gh-controls { margin-bottom: 18px; }
 .gh-panel { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden; border-top: 1px solid var(--ap-line); border-bottom: 1px solid var(--ap-line); background: #fff; }
 .gh-labels, .gh-fields { display: grid; grid-template-columns: minmax(160px, 1.6fr) minmax(72px, .7fr) minmax(144px, 1.1fr) minmax(64px, .6fr) minmax(90px, .7fr); align-items: center; gap: 18px; padding-inline: 16px; }
