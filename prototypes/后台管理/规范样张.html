@@ -39,7 +39,7 @@
       --table-person-width: 128px;
       --table-date-width: 176px;
       --table-status-width: 112px;
-      --table-action-width: 224px;
+      --table-action-width: 176px;
       --table-min-width: 880px;
       --icon-size: 16px;
       --logo-width: 25px;
@@ -134,7 +134,9 @@
     .sample-controls { display: grid; gap: var(--space-2); margin-top: auto; padding: var(--space-3); border-top: var(--border-width) solid var(--color-border); }
     .sample-controls label { color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
     .workspace { display: flex; flex-direction: column; gap: var(--space-6); min-width: var(--space-0); min-height: var(--space-0); padding: var(--space-6); position: relative; overflow: hidden; }
-    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex: none; }
+    .page-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .spec-more.el-button { height: 32px; min-height: 32px; margin: 0; padding: 4px 8px; color: var(--color-muted); font: inherit; }
+    .spec-more-chevron { display: inline-flex; margin-left: 4px; }
     h1 { margin: var(--space-0); font-size: var(--font-title); line-height: var(--line-title); font-weight: var(--weight-semibold); }
     .panel { min-width: var(--space-0); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-panel); }
     .spec-query-slot { position: relative; flex: none; min-width: 0; }
@@ -148,13 +150,13 @@
     .button:disabled { color: #8b95a4; background: var(--color-table-head); }
     .button svg { width: var(--icon-size); height: var(--icon-size); }
     .results { position: relative; }
+    .results th[data-column="4"] { padding-inline-start: 25px; }
     .cell-text { display: block; min-width: var(--space-0); max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     td strong { font-weight: var(--weight-medium); }
     td small { font-size: var(--font-small); line-height: var(--space-4); color: var(--color-muted); }
     .status { display: inline-block; padding: var(--space-0) var(--space-2); border-radius: var(--space-1); background: var(--color-pending-bg); color: var(--color-pending); font-size: var(--font-small); line-height: var(--line-cell); font-weight: var(--weight-medium); white-space: nowrap; }
     .status.success { color: var(--color-success); background: var(--color-success-bg); }
     .row-actions { min-width: var(--space-0); }
-    .row-actions [data-row-action="copy-id"] { min-width: 76px; }
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); flex: 1; padding: var(--space-6); text-align: center; }
     .empty svg { width: var(--empty-symbol-size); height: var(--empty-symbol-size); margin-bottom: var(--space-2); color: var(--color-muted); }
     .empty h3 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
@@ -189,7 +191,7 @@
 <body>
   <div class="specimen">
     <header class="topbar">
-      <div class="brand"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong><span class="spec-caption"><span class="desktop-context">静态</span>规范样张</span></div>
+      <div class="brand"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong><nav id="spec-breadcrumb" class="spec-caption prototype-ui" aria-label="页面层级"></nav></div>
       <div class="top-actions"><button id="measure" type="button" class="button" aria-pressed="false">间距标注</button></div>
     </header>
     <div class="shell">
@@ -213,10 +215,6 @@
     <header><h2 id="record-dialog-title">记录完整内容</h2><button id="close-record" class="button close-record" type="button" aria-label="关闭记录详情"><span data-icon="x"></span></button></header>
     <div class="record-body"><dl id="record-fields"></dl></div>
   </dialog>
-  <div id="record-actions" class="do-menu" popover="auto" aria-label="更多记录操作">
-    <button id="copy-description" type="button"><span data-icon="file-text"></span><span>复制用途</span></button>
-    <button id="copy-person" type="button"><span data-icon="user-round"></span><span>复制申请人</span></button>
-  </div>
   <div id="action-feedback" class="do-feedback" popover="manual" role="status" aria-live="polite"></div>
   <script>
     (() => {
@@ -264,12 +262,18 @@
       let applied = { ...defaults };
       const recordDialog = document.getElementById('record-dialog');
       const recordFields = document.getElementById('record-fields');
-      const actionMenu = document.getElementById('record-actions');
       const feedback = document.getElementById('action-feedback');
-      let activeOperation;
+      let activeDropdown;
       let menuTrigger;
       let feedbackTimer;
       let recordReturnFocus;
+      const pageLocation = Vue.reactive({ title: '访问申请' });
+      PrototypeUI.mount(document.getElementById('spec-breadcrumb'), {
+        setup: () => () => Vue.h(ElementPlus.ElBreadcrumb, { separator: '/' }, { default: () => [
+          Vue.h(ElementPlus.ElBreadcrumbItem, null, { default: () => '规范样张' }),
+          Vue.h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page' }, { default: () => pageLocation.title })
+        ] })
+      });
       for (const slot of document.querySelectorAll('[data-icon]')) slot.replaceWith(WorkbenchIcon(slot.dataset.icon));
 
       function text(tag, content, className) {
@@ -326,11 +330,10 @@
       }
 
       function closeActions() {
-        if (actionMenu.matches(':popover-open')) actionMenu.hidePopover();
+        activeDropdown?.handleClose();
       }
 
-      async function copyValue(value, label, item, isRequests) {
-        const returnFocus = actionMenu.contains(document.activeElement) ? menuTrigger : document.activeElement;
+      async function copyValue(value, label, item, isRequests, returnFocus = document.activeElement) {
         closeActions();
         try {
           await navigator.clipboard.writeText(value);
@@ -341,30 +344,6 @@
         }
       }
 
-      function openActions(trigger, item, isRequests) {
-        if (actionMenu.matches(':popover-open') && menuTrigger === trigger) {
-          closeActions();
-          return;
-        }
-        closeActions();
-        menuTrigger = trigger;
-        activeOperation = { item, isRequests };
-        document.querySelector('#copy-description > span:last-child').textContent = isRequests ? '复制用途' : '复制适用范围';
-        actionMenu.showPopover();
-        const target = trigger.getBoundingClientRect();
-        const width = actionMenu.offsetWidth;
-        const height = actionMenu.offsetHeight;
-        const gap = 8;
-        const edge = 16;
-        const left = Math.max(edge, Math.min(target.right - width, innerWidth - width - edge));
-        const below = target.bottom + gap;
-        const top = below + height <= innerHeight - edge ? below : Math.max(edge, target.top - height - gap);
-        actionMenu.style.left = left + 'px';
-        actionMenu.style.top = top + 'px';
-        trigger.setAttribute('aria-expanded', 'true');
-        actionMenu.querySelector('button').focus({ preventScroll: true });
-      }
-
       function rowActions(item, isRequests) {
         const controls = text('div', '', 'row-actions do-actions');
         const viewButton = text('button', '查看', 'do-action is-primary');
@@ -372,20 +351,24 @@
         viewButton.dataset.rowAction = 'view';
         viewButton.setAttribute('aria-label', '查看记录全文 ' + item.id);
         viewButton.addEventListener('click', () => showRecord(item, isRequests, viewButton));
-        const copyButton = text('button', '复制编号', 'do-action');
-        copyButton.type = 'button';
-        copyButton.dataset.rowAction = 'copy-id';
-        copyButton.addEventListener('click', () => copyValue(item.id, '编号', item, isRequests));
-        const moreButton = text('button', '', 'do-icon-action');
-        moreButton.type = 'button';
-        moreButton.dataset.rowAction = 'more';
-        moreButton.setAttribute('aria-label', '更多记录操作 ' + item.id);
-        moreButton.title = '更多操作';
-        moreButton.setAttribute('aria-controls', actionMenu.id);
-        moreButton.setAttribute('aria-expanded', 'false');
-        moreButton.append(WorkbenchIcon('ellipsis', 16));
-        moreButton.addEventListener('click', () => openActions(moreButton, item, isRequests));
-        controls.append(viewButton, copyButton, moreButton);
+        // 规范样张也复用真实下拉组件，低频复制动作集中在文字“更多”菜单中。
+        const more = text('span', '', 'prototype-ui');
+        PrototypeUI.mount(more, {
+          setup() {
+            const dropdown = Vue.ref();
+            const dismiss = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dropdown.value.handleClose(); more.querySelector('button').focus(); } };
+            Vue.onMounted(() => more.querySelector('.spec-more-chevron').append(WorkbenchIcon('chevron-down', 14)));
+            return () => Vue.h(ElementPlus.ElDropdown, { ref: dropdown, trigger: 'click', placement: 'bottom-end', popperClass: 'prototype-ui-popper',
+              onKeydownCapture: dismiss,
+              onVisibleChange: visible => { if (visible) { activeDropdown = dropdown.value; menuTrigger = more.querySelector('button'); } else if (activeDropdown === dropdown.value) activeDropdown = null; },
+              onCommand: key => { const value = valuesFor(item, isRequests); copyValue(key === 'id' ? item.id : key === 'description' ? value.description : item.person, key === 'id' ? '编号' : key === 'description' ? (isRequests ? '用途' : '适用范围') : '申请人', item, isRequests, menuTrigger); }
+            }, {
+              default: () => Vue.h(ElementPlus.ElButton, { link: true, nativeType: 'button', class: 'spec-more', 'data-row-action': 'more', 'aria-label': '更多记录操作 ' + item.id }, { default: () => ['更多', Vue.h('span', { class: 'spec-more-chevron', 'aria-hidden': 'true' })] }),
+              dropdown: () => Vue.h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => [['id', '复制编号'], ['description', isRequests ? '复制用途' : '复制适用范围'], ['person', '复制申请人']].map(([command, label]) => Vue.h(ElementPlus.ElDropdownItem, { command }, { default: () => label })) })
+            });
+          }
+        });
+        controls.append(viewButton, more);
         return controls;
       }
 
@@ -393,6 +376,7 @@
         closeActions();
         const isRequests = view === 'requests';
         const title = isRequests ? '访问申请' : '授权记录';
+        pageLocation.title = title;
         document.getElementById('page-title').textContent = title;
         document.getElementById('results-panel').setAttribute('aria-label', title + '查询结果');
         document.querySelectorAll('[data-view]').forEach(button => {
@@ -466,30 +450,6 @@
       document.getElementById('close-record').addEventListener('click', () => recordDialog.close());
       recordDialog.addEventListener('close', () => {
         if (recordReturnFocus?.isConnected) recordReturnFocus.focus({ preventScroll: true });
-      });
-      document.getElementById('copy-description').addEventListener('click', () => {
-        if (!activeOperation) return;
-        const { item, isRequests } = activeOperation;
-        const value = valuesFor(item, isRequests);
-        copyValue(value.description, isRequests ? '用途' : '适用范围', item, isRequests);
-      });
-      document.getElementById('copy-person').addEventListener('click', () => {
-        if (!activeOperation) return;
-        const { item, isRequests } = activeOperation;
-        copyValue(item.person, '申请人', item, isRequests);
-      });
-      actionMenu.addEventListener('toggle', () => {
-        if (!menuTrigger) return;
-        const open = actionMenu.matches(':popover-open');
-        menuTrigger.setAttribute('aria-expanded', String(open));
-        if (!open && actionMenu.contains(document.activeElement)) menuTrigger.focus({ preventScroll: true });
-      });
-      actionMenu.addEventListener('keydown', event => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeActions();
-          menuTrigger?.focus({ preventScroll: true });
-        }
       });
       window.addEventListener('resize', closeActions);
       render();

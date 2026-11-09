@@ -47,42 +47,45 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 8px 16px;
   border: 1px solid #cdd7e4;
-  border-radius: 7px;
+  border-radius: 6px;
   background: white;
   color: #334b6b;
-  font-size: 13px;
-  font-weight: 540;
-  line-height: 1.45;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
 }
 .case-action:hover { border-color: #a5bbdb; background: #f2f6fc; }
 .case-action.case-primary { border-color: var(--blue); color: white; background: var(--blue); }
 .case-action.case-primary:hover { border-color: #1c4797; background: #1c4797; }
 .case-form {
-  padding: 13px;
-  border-radius: 9px;
+  padding: 16px;
+  border-radius: 8px;
   border: 1px solid #e0e7f0;
   background: #f7f9fc;
 }
-.case-field { display: grid; min-width: 0; gap: 5px; font-size: 13px; font-weight: 550; }
+.case-field { display: grid; min-width: 0; gap: 8px; font-size: 14px; font-weight: 500; }
 .case-field :is(textarea, input, select) {
   width: 100%;
   min-width: 0;
+  min-height: 40px;
   border: 1px solid #c2cedd;
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 8px 12px;
   background: white;
   color: #293c56;
   font: inherit;
   font-weight: 400;
+  line-height: 22px;
 }
 .case-field textarea { display: block; min-height: 64px; resize: vertical; }
 .case-field input[readonly] { border-color: transparent; background: #edf1f6; }
-.case-field-pair { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(95px, 1fr); gap: 10px; margin-top: 9px; }
+.case-field-pair { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(95px, 1fr); gap: 16px; margin-top: 16px; }
 .case-form-buttons, .case-sim-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.case-form-buttons { justify-content: flex-end; margin-top: 12px; }
+.case-form-buttons { justify-content: flex-end; margin-top: 16px; }
+.case-form-buttons .case-action { min-width: 96px; }
 .case-error { display: block; margin-top: 5px; color: #963a32; font-size: 13px; }
 .case-error:empty { display: none; }
 .case-field textarea[aria-invalid="true"] { border-color: #ae4b43; }

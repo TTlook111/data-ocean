@@ -304,7 +304,7 @@
         return;
       }
       reply.reaction = { type: 'down', reason: value };
-      status.textContent = '已记录示例反馈';
+      status.textContent = '反馈已提交';
       closeForm();
       reflect();
     });

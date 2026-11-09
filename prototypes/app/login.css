@@ -5,8 +5,8 @@ body { margin: 0; min-width: 760px; min-height: 100dvh; color: var(--do-ink); ba
 .login-brand img { width: 26px; height: 30px; object-fit: contain; }
 .login-brand strong { font-size: 22px; font-weight: 600; letter-spacing: -.6px; }
 #login-app { display: grid; place-items: center; min-height: calc(100dvh - 160px); padding: 32px; }
-.login-card { width: 440px; padding: 40px; border: 1px solid var(--do-line); border-radius: 10px; background: #fff; box-shadow: 0 8px 32px #1f293708; }
-h1 { margin: 0 0 32px; font-size: 26px; line-height: 36px; font-weight: 600; }
+.login-card { width: 440px; padding: 40px; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; box-shadow: 0 8px 32px #1f293708; }
+h1 { margin: 0 0 32px; font-size: 24px; line-height: 32px; font-weight: 600; }
 .login-card .el-form-item { margin-bottom: 24px; }
 .login-card .el-form-item__label { color: var(--do-ink); }
 .login-help { display: flex; justify-content: flex-end; margin-top: -8px; margin-bottom: 24px; }

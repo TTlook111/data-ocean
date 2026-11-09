@@ -27,6 +27,7 @@
   const prototypeReview = new URLSearchParams(location.search).get('review') === '1';
   document.documentElement.dataset.prototypeReview = String(prototypeReview);
   document.getElementById('prototype-tools').hidden = !prototypeReview;
+  document.querySelector('.sample').hidden = !prototypeReview;
   function updateAccountMenu() {
     profileToggle.setAttribute('aria-label', account.name + '，' + account.departments.join('、') + '，用户菜单');
     profileMenu.querySelector('.face').textContent = account.name.slice(0, 1);
@@ -140,7 +141,7 @@
     let lastGroup;
     for (const thread of threads.filter(item => item.title.toLowerCase().includes(needle))) {
       if (thread.group !== lastGroup) {
-        history.append(element('p', 'section-label', thread.group));
+        history.append(element('p', 'section-label', !prototypeReview && thread.group === '示例对话' ? '最近' : thread.group));
         lastGroup = thread.group;
       }
       const button = element('button', 'history', thread.title);

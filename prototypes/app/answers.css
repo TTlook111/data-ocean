@@ -146,18 +146,18 @@
 .qa-peak .qa-track i { background: #678dcc; }
 
 /* 回答局部操作可独立聚焦，错误原因、提交和撤销在同条消息就近完成。 */
-.qa-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 7px; margin-top: 6px; }
+.qa-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .qa-answer button, .qa-answer textarea { font-family: inherit; }
 .qa-action {
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--qa-muted);
-  padding: 6px;
+  padding: 4px 8px;
   min-height: 32px;
   min-width: 32px;
   justify-content: center;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .qa-action[aria-pressed="true"], .qa-action[aria-expanded="true"] { color: #2455a5; background: #edf3fc; }
@@ -191,11 +191,14 @@
 .qa-feedback-buttons button {
   border: 1px solid #d4dce6;
   border-radius: 6px;
-  padding: 5px 11px;
+  min-height: 40px;
+  min-width: 96px;
+  padding: 8px 16px;
   background: white;
   color: #45576c;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 22px;
 }
 .qa-feedback-buttons .qa-primary { border-color: #2459b8; color: white; background: #2459b8; }
 .qa-feedback-buttons .qa-undo { margin-right: auto; }

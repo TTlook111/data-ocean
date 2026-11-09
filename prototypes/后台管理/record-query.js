@@ -12,6 +12,12 @@
     return String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase('zh-CN');
   }
 
+  // 各列表共用字面多词匹配，避免同样的输入在不同页面产生不同结果。
+  function matches(values, keyword) {
+    const text = normalized(values.join(' '));
+    return normalized(keyword).split(/\s+/).filter(Boolean).every(word => text.includes(word));
+  }
+
   function validDate(value) {
     const text = String(value || '').trim();
     if (!text) return '';
@@ -41,7 +47,6 @@
   }
 
   function run(records, query = {}, kind = 'requests') {
-    const keywords = normalized(query.keyword).split(/\s+/).filter(Boolean);
     const fromDate = validDate(query.fromDate);
     const toDate = validDate(query.toDate);
     const invalidDates = fromDate === null || toDate === null || (fromDate && toDate && fromDate > toDate);
@@ -63,8 +68,7 @@
         const date = businessDate(at);
         if ((fromDate && date < fromDate) || (toDate && date > toDate)) return false;
       }
-      const text = searchable(record);
-      return keywords.every(word => text.includes(word));
+      return matches([searchable(record)], query.keyword);
     });
     filtered.sort((a, b) => {
       const timeA = timestamp(a, kind) ?? -Infinity;
@@ -84,5 +88,5 @@
     };
   }
 
-  window.AdminQuery = { run };
+  window.AdminQuery = { run, matches };
 })();

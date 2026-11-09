@@ -230,7 +230,7 @@ input.search-box, .search-box input {
   border-bottom: 1px solid #e7ebef;
   background: #fff;
 }
-.crumb, .source, .scope-pill, .who, .compose-tools {
+.crumb, .source, .who, .compose-tools {
   display: flex;
   align-items: center;
 }
@@ -242,7 +242,7 @@ input.search-box, .search-box input {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.crumb svg, .source svg, .scope-pill svg, .new svg, .finder svg { flex: none; }
+.crumb svg, .source svg, .new svg, .finder svg { flex: none; }
 .crumb svg { width: 14px; height: 14px; color: #8996a6; }
 .source {
   flex: none;
@@ -405,15 +405,7 @@ input.search-box, .search-box input {
 }
 .composer textarea::placeholder { color: #647488; opacity: 1; }
 .composer textarea:focus-visible { outline: none; }
-.compose-tools { justify-content: space-between; gap: 12px; margin-top: 5px; }
-.scope-pill {
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: #556b80;
-  font-size: 11px;
-}
-.scope-pill svg { width: 14px; height: 14px; }
+.compose-tools { justify-content: flex-end; gap: 12px; margin-top: 5px; }
 .send {
   display: inline-grid;
   place-items: center;

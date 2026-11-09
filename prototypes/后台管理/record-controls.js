@@ -5,7 +5,8 @@
   const { ElInput, ElSelect, ElOption, ElDatePicker, ElButton, ElSpace, ElPagination } = ElementPlus;
   let sequence = 0;
 
-  function filters({ value, statuses, keywordLabel, keywordPlaceholder, dateLabel = '日期范围', includeDates = true, onApply, onReset }) {
+  // 来源类型等枚举筛选复用同一控件，并提供与实际用途一致的可访问名称。
+  function filters({ value, statuses, keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, onApply, onReset }) {
     const form = document.createElement('form');
     form.className = 'rl-filters prototype-ui';
     const uid = 'list-filter-' + (++sequence);
@@ -47,11 +48,11 @@
               clearable: true, maxlength: 160, 'aria-label': keywordLabel,
               onKeydown: event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); submit(); } } })
           ]),
-          h('div', { class: 'rl-status' }, [
+          includeStatus ? h('div', { class: 'rl-status' }, [
             h(ElSelect, { modelValue: state.status, 'onUpdate:modelValue': next => { state.status = next; },
-              ariaLabel: '状态', placeholder: '全部状态', popperClass: 'prototype-ui-popper',
+              ariaLabel: statusLabel, placeholder: statuses[0]?.label, popperClass: 'prototype-ui-popper',
               style: { width: '100%' } }, { default: () => statuses.map(item => h(ElOption, { key: item.value, value: item.value, label: item.label })) })
-          ]),
+          ]) : null,
           includeDates ? h('div', { class: 'rl-dates', role: 'group', 'aria-label': dateLabel,
             'aria-describedby': uid + '-error', 'aria-invalid': String(Boolean(state.error)) }, [
             h(ElDatePicker, { modelValue: state.dates,
@@ -62,7 +63,7 @@
               style: { width: '100%' } })
           ]) : null,
           h(ElSpace, { class: 'rl-filter-actions', size: 8 }, { default: () => [
-            h(ElButton, { type: 'primary', nativeType: 'submit' }, { default: () => '查询' }),
+            h(ElButton, { nativeType: 'submit' }, { default: () => '查询' }),
             h(ElButton, { nativeType: 'button', onClick: () => { if (current()) onReset(); } }, { default: () => '重置' })
           ] }),
           h('p', { id: uid + '-error', class: 'rl-error', role: 'alert' }, state.error)
