@@ -76,13 +76,13 @@
     }
 
     const table = RecordTable.render({
-      caption: '授权记录', minWidth: 776,
+      caption: '授权记录', minWidth: 808,
       columns: [
         { key: 'resource', label: '获准范围' },
         { key: 'applicant', label: '申请人', width: 128 },
         { key: 'expiresAt', label: '有效至', width: 176 },
         { key: 'status', label: '状态', width: 112 },
-        { key: 'source', label: '来源申请', width: 160 }
+        { key: 'source', label: '来源申请', width: 192 }
       ],
       items: result.items, empty,
       row(item) {

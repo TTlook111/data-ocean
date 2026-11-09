@@ -6,6 +6,8 @@
     { key: 'grants', label: '授权记录', icon: 'layers', permission: 'grants.read' }
   ];
   const fixtures = {
+    superadmin: { id: 'user-root', name: '林管理员', departments: ['总部'], roles: ['超级管理员'], scope: '城南店',
+      permissions: ['query.use', 'access.read', 'access.review', 'access.execute', 'grants.read'], scopes: ['城南店经营复盘'], active: true },
     manager: { id: 'user-zhou', name: '周店长', departments: ['城南店'], roles: ['门店管理'], scope: '城南店',
       permissions: ['query.use', 'access.read', 'grants.read'], scopes: ['城南店经营复盘'], active: true },
     employee: { id: 'user-zhou', name: '周店长', departments: ['城南店'], roles: ['门店员工'], scope: '城南店',
@@ -27,5 +29,5 @@
     return false;
   }
   window.AccountAccess = { can, entries, canEnter, inScope, owns, canDecide,
-    fixture: key => structuredClone(fixtures[key] || fixtures.manager) };
+    fixture: key => structuredClone(fixtures[key] || fixtures.superadmin) };
 })();

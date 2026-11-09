@@ -3,8 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>后台管理 · DataOcean</title>
-  <script>location.replace('../app/index.html?prototype=element-controls-20261108-r3#admin/access-requests');</script>
+  <meta name="color-scheme" content="light">
+  <title>总览 · DataOcean</title>
+  <link rel="icon" href="../app/assets/dataocean-mark.png">
+  <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
+  <link rel="stylesheet" href="admin-system.css">
+  <link rel="stylesheet" href="record-controls.css">
+  <link rel="stylesheet" href="record-table.css">
+  <link rel="stylesheet" href="people.css?v=access-boundaries-1">
+  <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
+  <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
+  <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
+  <script defer src="../shared/element-adapter.js"></script>
+  <script defer src="../app/icons.js"></script>
+  <script defer src="record-controls.js"></script>
+  <script defer src="record-table.js"></script>
+  <script defer src="people-data.js?v=access-boundaries-1"></script>
+  <script defer src="people.js?v=access-boundaries-1"></script>
 </head>
-<body><a href="../app/index.html?prototype=element-controls-20261108-r3#admin/access-requests">进入后台管理的访问申请页面</a></body>
+<body>
+  <header class="admin-top">
+    <a class="admin-brand" href="#dashboard"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong></a>
+    <nav id="admin-breadcrumb" class="admin-breadcrumb prototype-ui" aria-label="页面层级"></nav>
+    <a class="workbench-link" href="../app/index.html#workbench">问数工作台</a>
+    <div class="admin-identity"><span class="identity-avatar" aria-hidden="true">林</span><span>林管理员<small>超级管理员</small></span></div>
+  </header>
+  <div class="admin-layout">
+    <aside class="admin-sidebar"><nav id="admin-nav" aria-label="后台管理菜单"></nav></aside>
+    <main id="admin-main" tabindex="-1"></main>
+  </div>
+  <div id="admin-feedback" class="admin-feedback" role="status" aria-live="polite" hidden></div>
+</body>
 </html>

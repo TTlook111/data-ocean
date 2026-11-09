@@ -32,10 +32,9 @@
     profileMenu.querySelector('.face').textContent = account.name.slice(0, 1);
     profileMenu.querySelector('strong').textContent = account.name;
     profileMenu.querySelector('small').textContent = account.departments.join('、');
-    const target = AccountAccess.entries(account)[0];
     const admin = document.getElementById('enter-admin');
-    admin.hidden = !target;
-    if (target) admin.href = '#admin/' + target.key;
+    admin.hidden = !account.active;
+    admin.href = '../后台管理/index.html#dashboard';
   }
   updateAccountMenu();
 
@@ -319,6 +318,9 @@
   // 导航仅改变页面，账号、授权与数据范围保持不变；手工 URL 也走同一检查。
   function showPage(event) {
     const [view, section, selectedId] = location.hash.slice(1).split('/');
+    // 个人功能统一归入后台；问数仍使用独立界面。
+    if (view === 'account') { location.replace('../后台管理/index.html#account-info'); return; }
+    if (view === 'admin') { location.replace('../后台管理/index.html#' + (section || 'dashboard')); return; }
     const entries = AccountAccess.entries(account);
     if (view === 'admin' && !section && entries.length) {
       location.replace('#admin/' + entries[0].key);

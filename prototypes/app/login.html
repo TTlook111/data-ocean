@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>登录 · DataOcean</title>
+  <link rel="icon" href="assets/dataocean-mark.png">
+  <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
+  <link rel="stylesheet" href="../后台管理/admin-system.css">
+  <link rel="stylesheet" href="../后台管理/record-controls.css">
+  <link rel="stylesheet" href="login.css">
+  <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
+  <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
+  <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
+  <script defer src="login.js"></script>
+</head>
+<body>
+  <header class="login-brand"><img src="assets/dataocean-mark.png" alt=""><strong>DataOcean</strong></header>
+  <main id="login-app" class="prototype-ui" v-cloak>
+    <section class="login-card">
+      <template v-if="mode==='login'">
+        <h1>登录</h1>
+        <el-form ref="loginForm" :model="form" :rules="loginRules" label-position="top" @submit.prevent="submit">
+          <p v-if="error" class="login-error" role="alert">{{error}}</p>
+          <el-form-item label="登录名" prop="login"><el-input v-model="form.login" aria-label="登录名" autocomplete="username" placeholder="请输入登录名" autofocus></el-input></el-form-item>
+          <el-form-item label="密码" prop="password"><el-input v-model="form.password" aria-label="密码" autocomplete="current-password" placeholder="请输入密码" type="password" show-password></el-input></el-form-item>
+          <div class="login-help"><el-button link @click="help=true">忘记密码</el-button></div>
+          <el-button class="login-submit" type="primary" native-type="submit">登录</el-button>
+        </el-form>
+        <div v-if="!changed" class="demo-account"><span>原型示例：lin.admin / Demo2026</span><el-button link @click="fillExample">填入示例</el-button></div>
+        <p v-else class="login-note changed-note">请使用刚设置的新密码登录。</p>
+      </template>
+      <template v-else-if="mode==='change'">
+        <h1>设置新密码</h1><p class="login-note">首次登录或密码重置后，请修改初始密码。</p>
+        <p class="login-name">登录名 <strong>{{form.login}}</strong></p>
+        <el-form ref="changeForm" :model="passwords" :rules="passwordRules" label-position="top" @submit.prevent="changePassword">
+          <el-form-item label="新密码" prop="next"><el-input v-model="passwords.next" aria-label="新密码" autocomplete="new-password" type="password" show-password></el-input></el-form-item>
+          <el-form-item label="确认新密码" prop="confirm"><el-input v-model="passwords.confirm" aria-label="确认新密码" autocomplete="new-password" type="password" show-password></el-input></el-form-item>
+          <el-button class="login-submit" type="primary" native-type="submit">确认修改</el-button>
+        </el-form>
+        <el-button class="return-login" link @click="returnToLogin">返回登录</el-button>
+      </template>
+      <template v-else><div class="login-result"><h1>密码已修改</h1><p>请使用登录名和新密码重新登录。</p><el-button class="login-submit" type="primary" @click="returnToLogin">返回登录</el-button></div></template>
+    </section>
+    <el-dialog class="prototype-ui" v-model="help" title="忘记密码" width="420" :close-on-click-modal="false"><p>请联系管理员核实身份并重置密码。重置后使用登录名和新的初始密码登录，并设置自己的新密码。</p><template #footer><el-button type="primary" @click="help=false">知道了</el-button></template></el-dialog>
+  </main>
+</body>
+</html>

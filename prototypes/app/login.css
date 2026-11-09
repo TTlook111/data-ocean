@@ -1,0 +1,23 @@
+* { box-sizing: border-box; }
+[v-cloak] { display: none; }
+body { margin: 0; min-width: 760px; min-height: 100dvh; color: var(--do-ink); background: var(--do-canvas); font: 14px/22px "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+.login-brand { display: flex; align-items: center; gap: 10px; height: 80px; padding: 24px 40px; }
+.login-brand img { width: 26px; height: 30px; object-fit: contain; }
+.login-brand strong { font-size: 22px; font-weight: 600; letter-spacing: -.6px; }
+#login-app { display: grid; place-items: center; min-height: calc(100dvh - 160px); padding: 32px; }
+.login-card { width: 440px; padding: 40px; border: 1px solid var(--do-line); border-radius: 10px; background: #fff; box-shadow: 0 8px 32px #1f293708; }
+h1 { margin: 0 0 32px; font-size: 26px; line-height: 36px; font-weight: 600; }
+.login-card .el-form-item { margin-bottom: 24px; }
+.login-card .el-form-item__label { color: var(--do-ink); }
+.login-help { display: flex; justify-content: flex-end; margin-top: -8px; margin-bottom: 24px; }
+.login-help .el-button { color: var(--do-muted); }
+.login-submit { width: 100%; }
+.login-error { margin: 0 0 20px; color: #b43c3c; padding: 10px 12px; background: #fdf0ef; border-radius: 6px; }
+.demo-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--do-line); font-size: 12px; color: var(--do-muted); }
+.demo-account .el-button { font-size: 12px; }
+.login-note { margin: -16px 0 24px; color: var(--do-muted); }
+.changed-note { margin: 24px 0 0; font-size: 12px; }
+.login-name { margin: 0 0 24px; color: var(--do-muted); }
+.login-name strong { color: var(--do-ink); margin-left: 12px; font-weight: 500; }
+.return-login { margin-top: 24px; }
+.login-result p { margin-bottom: 28px; color: var(--do-muted); }

@@ -199,7 +199,7 @@
           <button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button>
           <button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button>
         </nav>
-        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10" selected>10 条 · 表体滚动</option><option value="long">超长内容 · 全列检查</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10">10 条 · 整页记录</option><option value="11">11 条 · 分页边界</option><option value="105" selected>105 条 · 多页记录</option><option value="long">超长内容 · 全列检查</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
       </aside>
       <main class="workspace" data-measure="工作区四边 24px · 区块间距 24px">
         <div class="page-heading"><h1 id="page-title">访问申请</h1></div>
@@ -233,6 +233,11 @@
         { id: 'SQ-009', person: '吴店长', purpose: '核验上周毛利额', submitted: '11/07 15:30', status: 'pending' },
         { id: 'SQ-010', person: '徐店长', purpose: '准备经营例会数据', submitted: '11/07 15:15', status: 'approved' }
       ];
+      // 保留少量与长内容场景，默认用多页数据核对真实翻页和末页数量。
+      examples.push(...Array.from({ length: 95 }, (_, index) => ({
+        ...examples[index % 10], id: 'SQ-' + String(index + 11).padStart(3, '0'),
+        submitted: '2026/11/' + String(6 - Math.floor(index / 20)).padStart(2, '0') + ' 09:' + String(59 - index % 60).padStart(2, '0')
+      })));
       const longExamples = [
         {
           id: 'SQ-20261108-' + 'DATAOCEAN-REVIEW-'.repeat(8) + '编号末尾',
@@ -254,7 +259,7 @@
         }
       ];
       let view = 'requests';
-      let sampleMode = '10';
+      let sampleMode = '105';
       const defaults = { keyword: '', status: 'all', fromDate: '', toDate: '', page: 1, pageSize: 10 };
       let applied = { ...defaults };
       const recordDialog = document.getElementById('record-dialog');
