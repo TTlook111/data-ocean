@@ -1,0 +1,68 @@
+/* 角色页沿用后台列表尺度；配置区只补充按页面浏览功能的结构。 */
+.role-cell-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.role-protected { display: inline-flex; align-items: center; padding: 1px 6px; color: #825b24; background: #fbf3e4; border-radius: 4px; font-size: 12px; line-height: 18px; white-space: nowrap; }
+.role-editor { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.role-editor > .el-form { display: flex; flex: 1; flex-direction: column; gap: 24px; min-width: 0; min-height: 0; }
+.role-editor-info { flex: none; display: grid; grid-template-columns: minmax(240px,1fr) minmax(320px,2fr); gap: 24px; padding: 24px; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }
+.role-editor-info .el-form-item { margin: 0; }
+.role-editor-error { flex: none; margin: -8px 0; }
+.role-permission-card { display: flex; flex: 1; flex-direction: column; min-height: 280px; overflow: hidden; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }
+.role-permission-card > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex: none; padding: 16px 24px; border-bottom: 1px solid var(--do-line); }
+.role-permission-card > header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.role-permission-card > header span { color: var(--do-muted); font-size: 12px; }
+.role-unsaved { margin-right: 16px; color: #825b24; font-size: 12px; }
+.permission-browser { display: grid; grid-template-columns: 240px minmax(0,1fr); flex: 1; min-width: 0; min-height: 0; }
+.permission-pages-column { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--do-line); }
+.permission-search { flex: none; padding: 16px; }
+.permission-pages { flex: 1; overflow: auto; padding: 0 8px 16px; }
+.permission-pages section h3 { margin: 16px 12px 8px; color: var(--do-muted); font-size: 12px; font-weight: 400; line-height: 18px; }
+.permission-pages section:first-child h3 { margin-top: 0; }
+.permission-page { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 40px; padding: 9px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--do-ink); cursor: pointer; text-align: left; line-height: 22px; }
+.permission-page:hover { background: var(--do-hover); }
+.permission-page.is-current { background: var(--do-selected); color: var(--do-primary); }
+.permission-page small { flex: none; color: var(--do-muted); font-size: 12px; }
+.permission-content { min-width: 0; overflow: auto; padding: 24px; }
+.permission-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.permission-page-heading h3 { margin: 0; font-size: 16px; line-height: 24px; }
+.permission-page-heading > span { color: var(--do-muted); font-size: 12px; }
+.permission-operations { margin: 0; padding: 0; list-style: none; }
+.permission-operations li { padding: 12px 0; border-bottom: 1px solid var(--do-line); }
+.permission-operations li > p { margin: 2px 0 0; color: var(--do-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.permission-operations .el-checkbox { margin-right: 8px; height: auto; min-height: 24px; }
+.permission-operations strong { font-weight: 500; }
+.permission-included, .permission-hint { margin: 16px 0 0; color: var(--do-muted); font-size: 12px; line-height: 20px; }
+.permission-hint { color: #825b24; }
+.permission-empty { display: grid; place-items: center; min-height: 200px; color: var(--do-muted); }
+.permission-no-results { margin: 12px; color: var(--do-muted); font-size: 12px; }
+.role-editor-footer { display: flex; justify-content: flex-end; gap: 8px; flex: none; padding: 16px 24px; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; }
+.role-editor-footer .el-button { min-width: 96px; margin: 0; }
+.role-detail-dialog { width: min(920px,calc(100vw - 80px)); }
+.role-detail-dialog .dialog-body { display: flex; flex-direction: column; overflow: hidden; }
+.role-overview, .role-detail-dialog .detail-fields, .role-detail-tabs { flex: none; }
+.role-overview > div { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.role-overview h2 { margin: 0; font-size: 18px; line-height: 28px; overflow-wrap: anywhere; }
+.role-description { margin: 12px 0 0; color: var(--do-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.role-detail-dialog .detail-fields { margin: 24px 0; }
+.role-detail-tabs .el-tabs__header { margin: 0; }
+.role-detail-content { display: flex; flex: 1; min-width: 0; min-height: 0; padding-top: 16px; }
+.role-detail-permissions { display: flex; flex: 1; min-width: 0; min-height: 0; border: 1px solid var(--do-line); border-radius: 6px; overflow: hidden; }
+.role-detail-permissions .permission-browser { grid-template-columns: 220px minmax(0,1fr); }
+.role-detail-permissions .permission-content { padding: 16px 24px; }
+.role-detail-actions { justify-content: space-between; }
+.role-detail-main-actions { display: flex; gap: 8px; margin-left: auto; }
+.role-members { display: flex; flex: 1; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; }
+.role-members .rl-filters { padding: 0; border: 0; }
+.role-members .record-panel { min-height: 0; }
+.role-members .rt-scroll { max-height: none; }
+.role-diff { margin-top: 24px; }
+.role-diff h3 { margin: 0 0 12px; font-size: 14px; }
+.role-diff ul { margin: 0; padding-left: 20px; }
+.role-diff li { padding: 3px 0; overflow-wrap: anywhere; }
+.role-review-boundary { margin: 24px 0 0; }
+.role-choice-search { margin-bottom: 12px; width: 100%; }
+.role-choice-field { width: 100%; min-width: 0; }
+.role-choice-selected { margin: 0 0 8px; color: var(--do-muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
+.role-choice-scroll { width: 100%; max-height: 240px; overflow: auto; padding: 2px; }
+.role-choice-scroll .el-checkbox__label { white-space: normal; overflow-wrap: anywhere; line-height: 22px; }
+@media (max-height: 720px) { .role-editor { flex: none; min-height: 640px; } .role-editor > .el-form { min-height: 640px; } }
+@media (max-height: 640px) { .role-detail-dialog .dialog-body { overflow: auto; } .role-detail-content { flex: none; min-height: 360px; } }

@@ -1,15 +1,16 @@
 /* 可交互页面原型：只维护示例行、表单和显示状态，不计算或执行业务权限。 */
 (() => {
   'use strict';
-  const { users, departments, roles, dataSources, outputRules, extraRequests } = PeopleDemo;
+  const { users, departments, dataSources, outputRules, extraRequests } = PeopleDemo;
   const currentUser = users.find(user => user.id === 'u01');
   const main = document.getElementById('admin-main');
-  const pageLocation = Vue.reactive({ title: '总览' });
+  const pageLocation = Vue.reactive({ title: '总览', parent: '' });
   PrototypeUI.mount(document.getElementById('admin-breadcrumb'), {
     setup() {
       const { h } = Vue;
       return () => h(ElementPlus.ElBreadcrumb, { separator: '/' }, { default: () => [
         h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: '#dashboard' }, '后台管理') }),
+        ...(pageLocation.parent ? [h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: '#roles' }, pageLocation.parent) })] : []),
         h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page' }, { default: () => pageLocation.title })
       ] });
     }
@@ -137,14 +138,14 @@
         return () => h(ElementPlus.ElDropdown, {
           ref: dropdown, trigger: 'click', placement, appendTo: popupTarget, onKeydownCapture: dismiss,
           popperClass: 'prototype-ui-popper people-dropdown',
-          onCommand: index => items[Number(index)].action(wrap.querySelector('button'))
+          onCommand: index => { const item = items[Number(index)]; if (!item.disabled) item.action(wrap.querySelector('button')); }
         }, {
           default: () => h(ElementPlus.ElButton, {
             link: !label, nativeType: 'button', class: label ? 'department-action-trigger' : 'more-trigger',
             'data-focus': key, 'aria-label': label || '更多操作'
           }, { default: () => [h('span', null, label || '更多'), h('span', { class: 'more-chevron', 'aria-hidden': 'true' })] }),
           dropdown: () => h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => items.map((item, index) =>
-            h(ElementPlus.ElDropdownItem, { command: index, divided: Boolean(item.separator), class: item.danger ? 'is-danger' : '' }, { default: () => item.label })) })
+            h(ElementPlus.ElDropdownItem, { command: index, divided: Boolean(item.separator), disabled: Boolean(item.disabled), title: item.reason || undefined, class: item.danger ? 'is-danger' : '' }, { default: () => item.label })) })
         });
       }
     });
@@ -182,7 +183,7 @@
     if (fields.some(field => field.type === 'data-access')) node.classList.add('data-access-dialog');
     PrototypeUI.mount(host, {
       components: { DataAccessEditor },
-      data: () => ({ model: structuredClone(value), fields, note, error: '', saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, summary,
+      data: () => ({ model: structuredClone(value), fields, note, error: '', choiceKeywords: {}, saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, summary,
         rules: Object.fromEntries(fields.map(f => [f.key, [
           ...(f.type === 'checkbox' ? [{ required: true, validator: (_, v, done) => done(v ? undefined : new Error('请先完成复核确认')), trigger: 'change' }] : f.required ? [{ required: true, message: f.options ? (f.label.startsWith('选择') ? '请' : '请选择') + f.label : '请填写' + f.label, trigger: f.options ? 'change' : 'blur' }] : []),
           ...(f.key === 'email' ? [{ type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }] : []),
@@ -192,6 +193,8 @@
       watch: { model: { deep: true, handler() { this.error = ''; } } },
       methods: {
         cancel() { node.close(); },
+        matchingChoices(field) { return field.options.filter(option => AdminQuery.matches([option.label], this.choiceKeywords[field.key] || '')); },
+        selectedChoices(field) { return this.model[field.key].map(value => field.options.find(option => option.value === value)?.label || value).join('、'); },
         back() { this.reviewing = false; this.$nextTick(() => node.querySelector('.form-grid input,.form-grid textarea')?.focus()); },
         commit() {
           // 原型表单只有普通数据，序列化同时展开多选组件带来的嵌套响应式引用。
@@ -215,9 +218,11 @@
         <div class="dialog-body"><p v-if="note" class="form-note">{{note}}</p><p v-if="error" class="form-error" role="alert">{{error}}</p>
         <div v-show="!reviewing" class="form-grid"><el-form-item v-for="f in fields" :key="f.key" :label="f.label" :prop="f.key" :class="{'full-width': f.full}">
           <div v-if="f.readonly" class="readonly-value">{{model[f.key]}}</div>
-          <el-checkbox-group v-else-if="f.type === 'checkbox-group'" v-model="model[f.key]" :aria-label="f.label" class="form-choice-group">
-            <el-checkbox v-for="o in f.options" :key="o.value" :value="o.value" :disabled="o.disabled">{{o.label}}</el-checkbox>
-          </el-checkbox-group>
+          <div v-else-if="f.type === 'checkbox-group'" class="role-choice-field"><el-input v-if="f.options.length>8" v-model="choiceKeywords[f.key]" clearable aria-label="搜索可分配角色" placeholder="搜索角色" class="role-choice-search"></el-input>
+            <p v-if="choiceKeywords[f.key] && model[f.key].length" class="role-choice-selected" aria-label="已选角色">已选：{{selectedChoices(f)}}</p>
+            <div class="role-choice-scroll"><el-checkbox-group v-model="model[f.key]" :aria-label="f.label" class="form-choice-group">
+              <el-checkbox v-for="o in matchingChoices(f)" :key="o.value" :value="o.value" :disabled="o.disabled">{{o.label}}</el-checkbox>
+            </el-checkbox-group><p v-if="!matchingChoices(f).length" class="form-note">没有匹配的角色</p></div></div>
           <el-select v-else-if="f.options" v-model="model[f.key]" :aria-label="f.label" :multiple="f.multiple" :disabled="f.disabled" :clearable="!f.required" :append-to="popupTarget" filterable :placeholder="f.placeholder || (f.label.startsWith('选择') ? '请'+f.label : '请选择'+f.label)">
             <el-option v-for="o in f.options" :key="o.value" :value="o.value" :label="o.label" :disabled="o.disabled"></el-option>
           </el-select>
@@ -244,14 +249,14 @@
   }
   function userForm(user, trigger) {
     const initialDepartment = departments.find(d => d.id === selectedDepartment)?.status === '正常' ? selectedDepartment : '';
-    const value = user || { name: '', login: '', department: initialDepartment, extra: [], roles: ['普通用户'], phone: '', email: '', note: '' };
+    const value = user || { name: '', login: '', department: initialDepartment, extra: [], roles: RoleDemo.initialRoles(), phone: '', email: '', note: '' };
     openForm({ title: user ? '编辑人员' : '新增人员', trigger, value: { ...value, initialPassword: '' },
       fields: [
         { key: 'name', label: '姓名', required: true }, { key: 'login', label: '登录名', required: true, disabled: Boolean(user) },
         ...(!user ? [{ key: 'initialPassword', label: '初始密码', type: 'password', required: true, full: true, help: '首次登录需修改初始密码。' }] : []),
         { key: 'department', label: '主部门', options: departmentOptions(value.department), required: true },
         { key: 'extra', label: '兼任部门', options: departmentOptions(), multiple: true },
-        ...(!user ? [{ key: 'roles', label: '初始个人角色', options: options(roles), multiple: true, full: true }] : []),
+        ...(!user ? [{ key: 'roles', label: '初始个人角色', options: RoleDemo.options(), multiple: true, full: true }] : []),
         { key: 'phone', label: '手机号' }, { key: 'email', label: '邮箱' },
         { key: 'note', label: '备注', type: 'textarea', full: true }
       ],
@@ -277,9 +282,9 @@
     });
   }
   function assignRoles(user, trigger, returnToDetail = false) {
-    // 角色数量少，直接呈现可多选名称；保存前仅修改副本，不改变数据访问来源。
+    // 角色只按名称选择，较多时支持搜索；保存前仅修改副本，不改变数据访问来源。
     const node = openForm({ title: '分配角色 · ' + user.name, trigger, value: { roles: [...user.roles] },
-      fields: [{ key: 'roles', label: '个人角色', type: 'checkbox-group', options: options(roles), full: true }],
+      fields: [{ key: 'roles', label: '个人角色', type: 'checkbox-group', options: RoleDemo.options(user.roles), full: true }],
       success: '角色已保存',
       save: data => { user.roles = data.roles; user.updated = timestamp(); } });
     node.classList.add('role-assignment-dialog');
@@ -294,7 +299,7 @@
         note: '核对当前归属、角色与数据访问来源。失效来源和旧任务不随账号恢复。',
         value: { department: departments.find(d => d.id === user.department)?.status === '正常' ? user.department : '', roles: [...user.roles], reviewed: false, reason: '' },
         fields: [{ key: 'department', label: '当前主部门', options: departmentOptions(), required: true, full: true },
-          { key: 'roles', label: '复核个人角色', options: options(roles), multiple: true, full: true },
+          { key: 'roles', label: '复核个人角色', options: RoleDemo.options(user.roles), multiple: true, full: true },
           { key: 'reviewed', label: '恢复前复核', type: 'checkbox', checkLabel: '已核对部门、角色和数据访问来源', full: true },
           { key: 'reason', label: '恢复原因', type: 'textarea', required: true, full: true }],
         preview: data => [change('账号状态', '停用', '正常'), change('主部门', deptName(user.department), deptName(data.department)),
@@ -764,6 +769,7 @@
     const parts = location.hash.slice(1).split('/'); const key = parts[0] === 'admin' ? parts[1] : parts[0];
     const changed = section !== key; section = key || 'dashboard';
     pageLocation.title = titles[section] || '页面不存在';
+    pageLocation.parent = '';
     document.title = (titles[section] || '页面不存在') + ' · DataOcean 后台管理';
     for (const link of document.querySelectorAll('.nav-link')) {
       if (link.hash === '#' + section) { link.setAttribute('aria-current', 'page'); const group = link.closest('details'); if (group) group.open = true; }
@@ -775,6 +781,8 @@
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'output-rules') OutputRulesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, actor: currentUser.name });
+    else if (section === 'roles') RolesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, moreActions,
+      setTitle(title, editor) { pageLocation.title = title; pageLocation.parent = editor ? '角色与功能权限' : ''; document.title = title + ' · DataOcean 后台管理'; } });
     else {
       const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('file-text'), el('h2', '', titles[section] ? '待制作' : '页面不存在'));
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }
