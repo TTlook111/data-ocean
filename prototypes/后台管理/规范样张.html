@@ -242,8 +242,8 @@
           title: '城南片区直营门店上周经营复盘及跨周退货归属核对的毛利汇总访问申请',
           person: '城南片区直营事业部经营分析组负责人周店长',
           purpose: ('用于核对上周各门店经营周报、跨周退货以及销售成本归属，形成经营例会所需的毛利说明。\n').repeat(8) + '原因完整末尾',
-          scope: '华东零售事业部城南片区直营门店经营汇总及获准计算依据的适用业务范围',
-          resource: '门店毛利汇总与经营分析所需销售净额和成本依据的只读权限',
+          source: '华东零售事业部统一经营数据源与跨地区经营分析只读连接',
+          rules: '用户信息限制：不返回身份证号码与电话号码；产品成本限制：不返回产品成本信息',
           submitted: '2026/11/08 09:30', status: 'pending'
         },
         {
@@ -251,8 +251,8 @@
           title: 'MONTHLYBUSINESSPERFORMANCEREVIEW'.repeat(8) + 'TITLE-END',
           person: 'RegionalBusinessOperationsAnalysisManager'.repeat(3) + '-PERSON-END',
           purpose: '连续英文与符号样例 [A+B] <记录>\n' + 'COSTANDRETURNSANALYSISEVIDENCE'.repeat(16) + 'PURPOSE-END',
-          scope: 'AUTHORIZEDBUSINESSRESOURCESCOPE'.repeat(7) + '-SCOPE-END',
-          resource: 'GROSSPROFITANDCALCULATIONBASIS'.repeat(5) + '-RESOURCE-END',
+          source: 'AUTHORIZEDDATASOURCE'.repeat(7) + '-SOURCE-END',
+          rules: 'OUTPUTINFORMATIONRESTRICTION'.repeat(5) + '-RULE-END',
           submitted: '2026/11/08 09:15', status: 'approved'
         }
       ];
@@ -285,10 +285,10 @@
 
       function valuesFor(item, isRequests) {
         return {
-          subject: isRequests ? item.title || '城南店毛利汇总访问申请' : item.resource || '仅毛利额',
-          description: isRequests ? item.purpose : (item.scope || '城南店经营汇总') + ' · 14 天',
+          subject: isRequests ? item.title || '经营业务库访问申请' : item.source || '经营业务库',
+          description: isRequests ? item.purpose : item.rules || '用户信息限制、产品成本限制',
           person: item.person,
-          date: isRequests ? item.submitted : '2026/11/22 09:30',
+          date: item.submitted,
           status: isRequests ? (item.status === 'pending' ? '待审批' : '待执行') : '已生效',
           id: item.id
         };
@@ -305,10 +305,10 @@
         recordReturnFocus = returnFocus || document.activeElement;
         const value = valuesFor(item, isRequests);
         const fields = [
-          [isRequests ? '申请事项' : '获准范围', value.subject],
-          [isRequests ? '业务用途' : '适用范围', value.description],
+          [isRequests ? '申请事项' : '数据源', value.subject],
+          [isRequests ? '业务用途' : '输出限制规则', value.description],
           ['申请人', value.person],
-          [isRequests ? '提交时间' : '有效至', value.date],
+          [isRequests ? '提交时间' : '生效时间', value.date],
           ['状态', value.status],
           [isRequests ? '申请编号' : '来源申请', value.id]
         ];
@@ -361,10 +361,10 @@
             return () => Vue.h(ElementPlus.ElDropdown, { ref: dropdown, trigger: 'click', placement: 'bottom-end', popperClass: 'prototype-ui-popper',
               onKeydownCapture: dismiss,
               onVisibleChange: visible => { if (visible) { activeDropdown = dropdown.value; menuTrigger = more.querySelector('button'); } else if (activeDropdown === dropdown.value) activeDropdown = null; },
-              onCommand: key => { const value = valuesFor(item, isRequests); copyValue(key === 'id' ? item.id : key === 'description' ? value.description : item.person, key === 'id' ? '编号' : key === 'description' ? (isRequests ? '用途' : '适用范围') : '申请人', item, isRequests, menuTrigger); }
+              onCommand: key => { const value = valuesFor(item, isRequests); copyValue(key === 'id' ? item.id : key === 'description' ? value.description : item.person, key === 'id' ? '编号' : key === 'description' ? (isRequests ? '用途' : '输出限制规则') : '申请人', item, isRequests, menuTrigger); }
             }, {
               default: () => Vue.h(ElementPlus.ElButton, { link: true, nativeType: 'button', class: 'spec-more', 'data-row-action': 'more', 'aria-label': '更多记录操作 ' + item.id }, { default: () => ['更多', Vue.h('span', { class: 'spec-more-chevron', 'aria-hidden': 'true' })] }),
-              dropdown: () => Vue.h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => [['id', '复制编号'], ['description', isRequests ? '复制用途' : '复制适用范围'], ['person', '复制申请人']].map(([command, label]) => Vue.h(ElementPlus.ElDropdownItem, { command }, { default: () => label })) })
+              dropdown: () => Vue.h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => [['id', '复制编号'], ['description', isRequests ? '复制用途' : '复制输出限制规则'], ['person', '复制申请人']].map(([command, label]) => Vue.h(ElementPlus.ElDropdownItem, { command }, { default: () => label })) })
             });
           }
         });
@@ -383,7 +383,7 @@
           if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
           else button.removeAttribute('aria-current');
         });
-        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['获准范围', '申请人', '有效至', '状态', '操作'];
+        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['数据源', '申请人', '生效时间', '状态', '操作'];
         const form = RecordControls.filters({
           value: applied,
           statuses: [{ value: 'all', label: '全部状态' }, ...(isRequests

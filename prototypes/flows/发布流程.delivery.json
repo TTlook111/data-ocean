@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "receiptId": "c4a9265e-480b-482d-80a0-3fba553d0cc3",
+  "receiptId": "6aa9eba4-77a3-4445-99a9-f1cd35fa402a",
   "status": "current",
   "command": "deliver",
   "type": "workflow",
-  "input": "E:\\projects\\data-ocean\\prototypes\\flows\\发布流程.json",
-  "output": "E:\\projects\\data-ocean\\prototypes\\flows\\发布流程.html",
+  "input": "D:\\projects\\DataOcean\\prototypes\\flows\\发布流程.json",
+  "output": "D:\\projects\\DataOcean\\prototypes\\flows\\发布流程.html",
   "specification": {
     "sha256": "6e835fc285f4d81ab9b811529d2df0fcb26ddd5540a4412aa8344018d197ccff",
     "bytes": 8981
   },
   "artifact": {
-    "sha256": "b4d444e805c042438f3f84e903800acafe6137833a74a7a337dfec96f27229a7",
-    "bytes": 853733
+    "sha256": "883e23c92106b05af3c5a2dd630ba50e22760b8505c02335f1b0c40b5dd56e88",
+    "bytes": 833312
   }
 }

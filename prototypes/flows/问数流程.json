@@ -80,7 +80,7 @@
       ],
       "size": [
         176,
-        76
+        144
       ],
       "sublabel": "字段标签 · 关系 · 指标口径"
     },
@@ -120,7 +120,7 @@
       ],
       "size": [
         152,
-        76
+        88
       ],
       "sublabel": "按规则检查输出"
     },
@@ -227,7 +227,7 @@
         352,
         124
       ],
-      "sublabel": "答复先回理解；本题预算延续"
+      "sublabel": "补缺项回原节点；改原意回理解"
     },
     {
       "id": "repair",
@@ -262,11 +262,11 @@
       "type": "external",
       "pos": [
         1504,
-        900
+        848
       ],
       "size": [
         144,
-        64
+        116
       ],
       "icon": "stop"
     }
@@ -303,7 +303,7 @@
       "id": "enrich-generate",
       "from": "enrich",
       "to": "generate",
-      "label": "无 SQL",
+      "label": "首次／续作",
       "variant": "emphasis",
       "fromSide": "right",
       "toSide": "left"
@@ -435,7 +435,7 @@
       "id": "enrich-semantic",
       "from": "enrich",
       "to": "semantic",
-      "label": "已有 SQL，原意待复核",
+      "label": "恢复意图校验",
       "variant": "dashed",
       "fromSide": "bottom",
       "toSide": "bottom"
@@ -530,7 +530,7 @@
       "id": "clarify-understand",
       "from": "clarify",
       "to": "understand",
-      "label": "本题答复：更新意图",
+      "label": "改原意／原暂停于此",
       "variant": "dashed"
     },
     {
@@ -617,6 +617,34 @@
       "from": "understand",
       "to": "prepare",
       "label": "识别换题：新请求",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-enrich",
+      "from": "clarify",
+      "to": "enrich",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-generate",
+      "from": "clarify",
+      "to": "generate",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-semantic",
+      "from": "clarify",
+      "to": "semantic",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-security",
+      "from": "clarify",
+      "to": "security",
+      "label": "仅补缺项",
       "variant": "dashed"
     }
   ],

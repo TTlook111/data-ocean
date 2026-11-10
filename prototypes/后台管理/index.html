@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="admin-system.css">
   <link rel="stylesheet" href="record-controls.css">
   <link rel="stylesheet" href="record-table.css">
-  <link rel="stylesheet" href="people.css?v=access-ui-20261110">
+  <link rel="stylesheet" href="people.css?v=role-assignment-20261110">
   <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
   <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
   <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
@@ -19,16 +19,16 @@
   <script defer src="record-query.js"></script>
   <script defer src="record-controls.js"></script>
   <script defer src="record-table.js"></script>
-  <script defer src="people-data.js?v=output-rules-20261110"></script>
+  <script defer src="people-data.js?v=role-assignment-20261110"></script>
   <script defer src="output-rules.js?v=access-ui-20261110"></script>
-  <script defer src="people.js?v=access-ui-20261110"></script>
+  <script defer src="people.js?v=role-assignment-20261110"></script>
 </head>
 <body>
   <header class="admin-top">
     <a class="admin-brand" href="#dashboard"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong></a>
     <nav id="admin-breadcrumb" class="admin-breadcrumb prototype-ui" aria-label="页面层级"></nav>
     <a class="workbench-link" href="../app/index.html#workbench">问数工作台</a>
-    <div class="admin-identity"><span class="identity-avatar" aria-hidden="true">林</span><span>林管理员<small>超级管理员</small></span></div>
+    <div id="admin-account" class="prototype-ui"></div>
   </header>
   <div class="admin-layout">
     <aside class="admin-sidebar"><nav id="admin-nav" aria-label="后台管理菜单"></nav></aside>

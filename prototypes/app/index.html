@@ -7,13 +7,10 @@
   <title>问数工作台 · DataOcean</title>
   <link rel="icon" href="assets/dataocean-mark.png">
   <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
-  <link rel="stylesheet" href="workbench.css?v=element-controls-20261108-r3">
+  <link rel="stylesheet" href="workbench.css?v=prototype-audit-20261110">
   <link rel="stylesheet" href="answers.css?v=element-controls-20261108-r3">
-  <link rel="stylesheet" href="case-view.css?v=output-rules-20261110">
-  <link rel="stylesheet" href="account-view.css?v=element-controls-20261108-r3">
+  <link rel="stylesheet" href="case-view.css?v=prototype-audit-20261110">
   <link rel="stylesheet" href="../后台管理/admin-system.css?v=element-controls-20261108-r3">
-  <link rel="stylesheet" href="../后台管理/access-requests.css?v=element-controls-20261108-r3">
-  <link rel="stylesheet" href="../后台管理/grant-history.css?v=element-controls-20261108-r3">
   <link rel="stylesheet" href="../后台管理/record-controls.css?v=element-controls-20261108-r3">
   <link rel="stylesheet" href="../后台管理/record-table.css?v=element-controls-20261108-r3">
   <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
@@ -21,18 +18,12 @@
   <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
   <script defer src="../shared/element-adapter.js?v=element-controls-20261108-r3"></script>
   <script defer src="icons.js?v=element-controls-20261108-r3"></script>
-  <script defer src="account-access.js?v=element-controls-20261108-r3"></script>
+  <script defer src="../后台管理/people-data.js?v=output-rules-20261110"></script>
   <script defer src="dialogue.js?v=element-controls-20261108-r3"></script>
   <script defer src="answers.js?v=element-controls-20261108-r3"></script>
-  <script defer src="cases.js?v=element-controls-20261108-r3"></script>
-  <script defer src="case-view.js?v=output-rules-20261110"></script>
-  <script defer src="../后台管理/record-query.js?v=element-controls-20261108-r3"></script>
-  <script defer src="../后台管理/record-controls.js?v=element-controls-20261108-r3"></script>
-  <script defer src="../后台管理/record-table.js?v=element-controls-20261108-r3"></script>
-  <script defer src="account-view.js?v=element-controls-20261108-r3"></script>
-  <script defer src="../后台管理/grant-history.js?v=element-controls-20261108-r3"></script>
-  <script defer src="../后台管理/access-requests.js?v=element-controls-20261108-r3"></script>
-  <script defer src="workbench.js?v=admin-flows-20261109"></script>
+  <script defer src="cases.js?v=prototype-audit-20261110"></script>
+  <script defer src="case-view.js?v=prototype-audit-20261110"></script>
+  <script defer src="workbench.js?v=prototype-audit-20261110"></script>
 </head>
 <body>
   <div class="screen" id="manager-page">
@@ -46,9 +37,9 @@
       <input class="search-box" id="history-filter" type="search" placeholder="按标题查找" aria-label="按标题搜索对话" hidden>
       <nav class="history-list" id="history" aria-label="最近的对话"></nav>
       <details class="profile profile-more">
-        <summary aria-label="周店长，城南店，用户菜单" aria-controls="profile-options">
-          <span class="face" aria-hidden="true">周</span>
-          <span class="profile-label"><strong>周店长</strong><small>城南店</small></span>
+        <summary aria-label="林管理员，总部，用户菜单" aria-controls="profile-options">
+          <span class="face" aria-hidden="true">林</span>
+          <span class="profile-label"><strong>林管理员</strong><small>总部</small></span>
           <i data-icon="chevron-down"></i>
         </summary>
         <div id="profile-options">
@@ -68,7 +59,7 @@
           <span>问数工作台</span><i data-icon="chevron-right"></i><b id="thread-title">牛奶净销量</b>
         </div>
         <div class="bar-tools">
-          <div class="source" aria-label="当前数据源为经营数据，门店为城南店"><i data-icon="database"></i>经营数据<span class="line"></span>城南店</div>
+          <div class="source-picker"><i data-icon="database"></i><div id="data-source-picker" class="prototype-ui"></div></div>
           <button type="button" id="open-receipts" class="receipt-trigger" aria-haspopup="dialog" aria-controls="receipts" aria-label="处理回告"><i data-icon="bell"></i><span class="receipt-label">回告</span><span id="receipt-count" hidden></span></button>
         </div>
       </header>
@@ -82,8 +73,6 @@
       </footer>
     </main>
   </div>
-  <main id="approvals-page" aria-label="后台管理" tabindex="-1" hidden></main>
-  <main id="account-page" aria-label="个人管理" tabindex="-1" hidden></main>
   <dialog id="receipts" class="receipt-dialog" aria-labelledby="receipt-title">
     <header><h2 id="receipt-title">处理回告</h2><button type="button" class="receipt-close" aria-label="关闭处理回告"><i data-icon="x"></i></button></header>
     <div id="receipt-list"></div>

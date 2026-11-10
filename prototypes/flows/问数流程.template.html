@@ -11,6 +11,10 @@
   .query-node-contract ul { margin: 0; padding-left: 20px; }
   .query-node-contract li + li { margin-top: 6px; }
   .query-node-contract section:last-child { color: var(--text-muted); }
+  .query-step-navigation { display: flex; gap: 8px; margin: 0 0 16px; }
+  .query-step-navigation button { flex: 1; min-width: 0; min-height: 36px; padding: 6px 8px; border: 1px solid var(--toolbar-border); border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+  .query-step-navigation button:disabled { opacity: .4; cursor: default; }
+  .query-step-navigation button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 </style>
 <script type="application/json" id="query-node-data">{{QUERY_DATA}}</script>
 <script>
@@ -26,6 +30,20 @@
   function renderContract() {
     const node = nodes.get(currentId.textContent.trim()); contract.replaceChildren(); if (!node) return;
     const index = data.mainPath.indexOf(node.id);
+    // 直接沿主流程阅读，避免用户从密集回路中反复寻找下一个节点。
+    if (index >= 0) {
+      const navigation = document.createElement('nav'); navigation.className = 'query-step-navigation'; navigation.setAttribute('aria-label', '主流程逐步阅读');
+      for (const [delta, label] of [[-1, '上一步'], [1, '下一步']]) {
+        const next = nodes.get(data.mainPath[index + delta]), button = document.createElement('button'); button.type = 'button';
+        button.disabled = !next; button.textContent = next ? label + '：' + next.label : label;
+        button.addEventListener('click', () => {
+          document.getElementById('node-' + next.id)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          queueMicrotask(() => { passport.scrollTop = 0; const title = passport.querySelector('.relationship-lens-title'); title.tabIndex = -1; title.focus({ preventScroll: true }); });
+        });
+        navigation.append(button);
+      }
+      contract.append(navigation);
+    }
     document.getElementById('focus-kind').textContent = node.kind;
     document.getElementById('focus-context').hidden = true;
     passport.querySelector('.relationship-lens-eyebrow').textContent = index >= 0 ? `执行节点 ${index + 1} / 9` : node.kind;

@@ -109,7 +109,7 @@
     const details = disclosure('case-records', '查看处理记录', previous);
     if (item.purpose) {
       const description = el('dl', 'case-description');
-      const fields = [['业务用途', item.purpose], ['需要的数据', item.requestedData || item.links?.[0]?.text], ['数据源', '经营业务库'], ['部门范围', '城南店（自动识别）']];
+      const fields = [['业务用途', item.purpose], ['需要的数据', item.requestedData || item.links?.[0]?.text], ['数据源', '经营业务库']];
       for (const [label, value] of fields) {
         description.append(el('dt', '', label), el('dd', '', value));
       }
@@ -132,11 +132,10 @@
 
   function render(item, dispatch, previous) {
     const isAccess = item.type === 'access';
-    const draft = item.status === 'draft';
     const card = el('section', 'case-card');
     card.dataset.caseId = item.id;
     card.dataset.caseStatus = item.status;
-    card.setAttribute('aria-label', isAccess ? '访问申请' : '口径治理事项');
+    card.setAttribute('aria-label', isAccess ? '输出限制' : '口径治理事项');
     const main = el('div', 'case-body');
     const actionError = el('p', 'case-error');
     actionError.setAttribute('aria-live', 'polite');
@@ -147,23 +146,23 @@
     };
     const header = el('div', 'case-heading');
     const symbol = el('span', 'case-symbol');
-    symbol.append(WorkbenchIcon(isAccess ? 'store' : 'layers', 18));
+    symbol.append(WorkbenchIcon(isAccess ? 'file-text' : 'layers', 18));
     const title = el('h2', 'case-title', item.title);
     title.tabIndex = -1;
     header.append(symbol, title, el('span', 'case-status', item.statusLabel));
-    const summary = item.status === 'expired' ? item.summary : item.receipt?.text || item.summary;
+    const summary = item.receipt?.text || item.summary;
     main.append(header, el('p', 'case-summary', summary));
 
-    if (!draft) {
+    if (!isAccess) {
       const linked = item.links?.length || 1;
-      const reference = isAccess ? '申请 ' + item.id :
-        '已自动关联事项 ' + item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
+      const reference = '已自动关联事项 ' + item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
       main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
     }
-    if (isAccess && (draft || ['rejected', 'executionFailed', 'expired'].includes(item.status))) {
-      // 问数复用后台申请表单，只携带原问题，不再维护另一套授权表单和期限。
-      const apply = el('a', 'case-action case-primary', draft ? '申请访问' : '重新申请');
-      apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(item.links?.[0]?.text || item.title) + '#my-requests';
+    if (isAccess && item.status === 'blocked') {
+      // 带入这张卡片的原问题和已知数据源，申请仍由后台表单核对提交。
+      const apply = el('a', 'case-action case-primary', '申请访问');
+      apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(item.originalQuestion || item.links?.[0]?.text || item.title)
+        + (item.sourceId ? '&requestSource=' + encodeURIComponent(item.sourceId) : '') + '#my-requests';
       main.append(apply);
     } else if (!isAccess && ['processing', 'published'].includes(item.status)) {
       main.append(entryForm(item, onAction, previous));
@@ -175,7 +174,7 @@
     main.append(actionError);
     card.append(main);
 
-    if (!draft && (item.purpose || item.notes?.length || item.events?.length)) {
+    if (item.purpose || item.notes?.length || item.events?.length) {
       card.append(records(item, previous));
     }
     const transitions = !isAccess && simulation[item.status];

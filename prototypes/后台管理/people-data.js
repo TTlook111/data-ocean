@@ -1,13 +1,8 @@
 /* 仅供页面评审的少量示例；修改只保留在当前页面内存，刷新恢复。 */
 (() => {
   'use strict';
-  // 角色仅展示页面、按钮和功能；数据访问单独用部门配置与申请示例表达。
-  const roleTemplates = {
-    '超级管理员': [{ page: '全部后台页面、问数工作台', operation: '人员、部门、角色及系统管理功能' }],
-    '管理员': [{ page: '人员管理、部门管理、角色与功能权限', operation: '新增、编辑、调岗、停用与分配角色' }],
-    '数据分析师': [{ page: '问数工作台、元数据目录、个人管理', operation: '问数、查看元数据、反馈与申请数据访问' }],
-    '普通用户': [{ page: '问数工作台、个人管理', operation: '问数、反馈、申请数据访问与查看本人进度' }]
-  };
+  // 人员分配只使用角色名称，不在此模拟角色与页面、按钮权限的对应关系。
+  const roles = ['超级管理员', '管理员', '数据分析师', '普通用户'];
   const dataSources = [
     { id: 'retail', name: '经营业务库' }, { id: 'finance', name: '财务分析库' },
     { id: 'products', name: '商品中心库' }, { id: 'aftersales', name: '售后业务库' }
@@ -57,7 +52,7 @@
     ['唐宁', 'tang.ning', 'd15', ['普通用户'], '停用']
   ].map(([name, login, department, roles, status], index) => ({
     id: 'u' + String(index + 1).padStart(2, '0'), name, login, department, roles, status,
-    extra: index === 10 ? ['d13'] : [], roleUntil: '', mustChangePassword: status === '待首次登录', phone: index === 4 ? '' : '1380000' + String(1000 + index),
+    extra: index === 10 ? ['d13'] : [], mustChangePassword: status === '待首次登录', phone: index === 4 ? '' : '1380000' + String(1000 + index),
     email: login + '@example.com', note: index === 11 ? '兼顾商品与库存分析，参与经营口径梳理。' : '',
     updated: '2026-11-0' + (8 - index % 5) + ' ' + (index % 2 ? '10:35' : '09:20')
   }));
@@ -76,5 +71,5 @@
     { id: 'SQ-DEMO-021', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '核对商品中心上架目录', status: '已生效', submitted: '2026-11-08 11:00' },
     { id: 'SQ-DEMO-022', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对财务部应收与费用', status: '已生效', submitted: '2026-11-08 11:10' }
   ];
-  window.PeopleDemo = { departments, users, roles: Object.keys(roleTemplates), roleTemplates, dataSources, outputRules, extraRequests };
+  window.PeopleDemo = { departments, users, roles, dataSources, outputRules, extraRequests };
 })();

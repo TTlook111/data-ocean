@@ -11,7 +11,7 @@ const graph = JSON.parse(fs.readFileSync(source, 'utf8'));
 const data = JSON.parse(fs.readFileSync(path.join(root, 'prototypes/flows/问数节点详情.json'), 'utf8'));
 const canonical = path.join(root, graph.meta.output);
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
-const archify = process.env.ARCHIFY_BIN || path.join(os.homedir(), '.codex/skills/archify/bin/archify.mjs');
+const archify = process.env.ARCHIFY_BIN || path.join(os.homedir(), '.agents/skills/archify/bin/archify.mjs');
 if (!process.argv.includes('--reuse-graph')) {
   const receipt = JSON.parse(execFileSync(process.execPath, [archify, 'deliver', 'architecture', source, canonical, '--quality', 'showcase', '--json'], { cwd: root, encoding: 'utf8' }));
   if (!receipt.ok || receipt.validation.errors || receipt.validation.warnings) throw new Error('Diagram did not pass its artifact checks.');
@@ -35,9 +35,9 @@ for (const from of ['understand', 'enrich', 'generate', 'semantic', 'security'])
 if (graph.components.filter(node => node.id === 'clarify').length !== 1) throw new Error('The clarification node must appear once.');
 if (byId.has('supplement')) throw new Error('Governance knowledge must use one shared enrichment node.');
 for (const [from, to] of [['outputRules', 'security'], ['governance', 'enrich'], ['semantic', 'enrich'], ['enrich', 'semantic'], ['security', 'enrich'], ['enrich', 'security']]) if (!graph.connections.some(edge => edge.from === from && edge.to === to)) throw new Error(`Missing shared knowledge loop: ${from} -> ${to}`);
-// 本题答复先重解析；新请求和终止是仅有的另外两类出口。
-const clarificationTargets = new Set(['understand', 'prepare', 'end']);
-for (const edge of graph.connections.filter(edge => edge.from === 'clarify')) if (!clarificationTargets.has(edge.to)) throw new Error(`Clarification must not bypass intent parsing: ${edge.to}.`);
+// 仅补缺项按保存的暂停位置恢复；改变原意才回理解。返回理解也覆盖原本暂停于理解的情况。
+const clarificationTargets = new Set(['understand', 'enrich', 'generate', 'semantic', 'security', 'prepare', 'end']);
+for (const edge of graph.connections.filter(edge => edge.from === 'clarify')) if (!clarificationTargets.has(edge.to)) throw new Error(`Invalid clarification target: ${edge.to}.`);
 for (const to of clarificationTargets) if (!graph.connections.some(edge => edge.from === 'clarify' && edge.to === to)) throw new Error(`Missing clarification route: ${to}`);
 for (const from of ['understand', 'retrieve', 'enrich', 'generate', 'semantic', 'security', 'execute', 'answer', 'repair', 'reconcile', 'clarify']) if (!graph.connections.some(edge => edge.from === from && edge.to === 'end')) throw new Error(`Missing terminal exit: ${from}`);
 const repairSources = new Set(['semantic', 'security', 'execute', 'answer', 'reconcile']);
@@ -52,6 +52,12 @@ const native = fs.readFileSync(canonical, 'utf8');
 const extension = fs.readFileSync(path.join(root, 'prototypes/flows/问数流程.template.html'), 'utf8').replace('{{QUERY_DATA}}', () => JSON.stringify(data).replaceAll('<', '\\u003c'));
 const output = native.replace('</body>', `${extension}\n</body>`);
 if (output.includes('{{QUERY_')) throw new Error('Unresolved template markers.');
-const outputPath = path.join(root, 'prototypes/flows/问数流程.html'); fs.writeFileSync(outputPath, output, 'utf8');
+const outputPath = path.join(root, 'prototypes/flows/问数流程.html');
+// 内容一致时不重写，避免预览中的 Windows 文件占用影响重复构建。
+if (!fs.existsSync(outputPath) || fs.readFileSync(outputPath, 'utf8') !== output) fs.writeFileSync(outputPath, output, 'utf8');
+// 页面还包含节点契约与交互扩展，单独绑定最终页面及全部输入，避免误用旧原生图回执。
+const pageProof = { graph: digest(native), page: digest(output), mainNodes: data.mainPath, detailPanels: data.nodes.length, viewer: 'native-with-node-details',
+  inputs: ['prototypes/flows/问数流程.json', 'prototypes/flows/问数节点详情.json', 'prototypes/flows/问数流程.template.html'].map(file => ({ file, sha256: digest(fs.readFileSync(path.join(root, file))) })) };
+fs.writeFileSync(outputPath.replace(/\.html$/, '.page-build.json'), JSON.stringify(pageProof, null, 2) + '\n');
 fs.writeFileSync(path.join(path.dirname(canonical), 'page-build.json'), `${JSON.stringify({ graph: digest(native), page: digest(output), mainNodes: data.mainPath, detailPanels: data.nodes.length, viewer: 'native-with-node-details' }, null, 2)}\n`);
 console.log(JSON.stringify({ output: outputPath, mainNodes: 9, detailPanels: data.nodes.length, viewer: 'native-with-node-details' }));

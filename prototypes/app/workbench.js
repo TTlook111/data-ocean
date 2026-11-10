@@ -15,12 +15,22 @@
   const mobile = matchMedia('(max-width: 720px)');
   const receiptDialog = document.getElementById('receipts');
   const receiptButton = document.getElementById('open-receipts');
-  const managerPage = document.getElementById('manager-page');
-  const approvalsPage = document.getElementById('approvals-page');
-  const accountPage = document.getElementById('account-page');
-  // 样例登录上下文只用于独立 HTML；页面导航始终沿用同一账号及其明确授权。
-  const account = AccountAccess.fixture(new URLSearchParams(location.search).get('scenario'));
-  AccountAccess.current = account;
+  // 与后台共用同一份人员及数据源示例，身份不再绑定门店记录范围。
+  const person = PeopleDemo.users.find(user => user.id === 'u01');
+  const account = { id: person.id, name: person.name, active: person.status === '正常',
+    departments: [person.department, ...person.extra].map(id => PeopleDemo.departments.find(department => department.id === id).name) };
+  const assigned = [...PeopleDemo.departments.filter(department => [person.department, ...person.extra].includes(department.id)).flatMap(department => department.access),
+    ...PeopleDemo.extraRequests.filter(request => request.user === person.id && request.status === '已生效').flatMap(request => request.access)];
+  const sourceOptions = PeopleDemo.dataSources.filter(source => assigned.some(item => item.source === source.id));
+  const defaultSource = sourceOptions.some(source => source.id === 'retail') ? 'retail' : sourceOptions[0]?.id;
+  const sourceName = id => sourceOptions.find(source => source.id === id)?.name || '数据源不可用';
+  const sourceState = Vue.reactive({ value: defaultSource });
+  PrototypeUI.mount(document.getElementById('data-source-picker'), {
+    setup: () => () => Vue.h(ElementPlus.ElSelect, {
+      modelValue: sourceState.value, 'aria-label': '本次问数数据源',
+      'onUpdate:modelValue': value => switchSource(value), popperClass: 'prototype-ui-popper',
+    }, { default: () => sourceOptions.map(source => Vue.h(ElementPlus.ElOption, { key: source.id, value: source.id, label: source.name })) })
+  });
   const profileMenu = sidebar.querySelector('.profile-more');
   const profileToggle = profileMenu.querySelector('summary');
   // 评审操作单独启用，默认产品视图只呈现当前业务流程。
@@ -58,26 +68,18 @@
     if (!profileMenu.contains(event.target)) profileMenu.open = false;
   });
   // 仅保存当前标签页的离线演示，刷新时恢复快照，不重放提问、审批或发布。
-  const storageKey = 'dataocean.workbench.' + account.id + '.v2';
-  const casesKey = 'dataocean.prototype.cases.v2';
+  const storageKey = 'dataocean.workbench.' + account.id + '.v3';
+  const casesKey = 'dataocean.prototype.cases.v3';
   let saved;
   try { saved = JSON.parse(sessionStorage.getItem(storageKey)); } catch { /* 浏览器可禁用本地存储。 */ }
   let sharedCases;
   try { sharedCases = JSON.parse(sessionStorage.getItem(casesKey)); } catch { /* 无共享记录时从当前会话开始。 */ }
   const desk = QueryCases.create(sharedCases || saved?.cases, Date.now, account);
   const readReceipts = new Set(saved?.readReceipts);
-  const defaultQuery = { keyword: '', status: 'all', fromDate: '', toDate: '', page: 1, pageSize: 10 };
-  const adminViews = {
-    requests: { ...defaultQuery, group: 'todo', ...saved?.adminViews?.requests },
-    grants: { ...defaultQuery, ...saved?.adminViews?.grants }
-  };
   const threads = [];
   let active;
   let serial = saved?.serial || 0;
-  let expiryTimer;
   let receiptVersion;
-  let pageView = 'workbench';
-  const adminAccessRoute = '#admin/access-requests';
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -101,16 +103,16 @@
   document.body.append(status);
 
   // 每段对话独立保存意图、输入草稿和回答节点，回看时保留该条明细的展开状态。
-  function createThread(title = '新问数', group = '今天', id = 'chat-' + ++serial) {
-    const thread = { id, title, group, turns: [], state: null, flow: element('div', 'flow'), draft: '', choices: null, position: 0 };
+  function createThread(title = '新问数', group = '今天', id = 'chat-' + ++serial, sourceId = defaultSource) {
+    const thread = { id, title, group, sourceId, turns: [], state: null, flow: element('div', 'flow'), draft: '', choices: null, position: 0 };
     threads.unshift(thread);
     return thread;
   }
 
   function save() {
     const snapshot = {
-      serial, activeId: active?.id, readReceipts: [...readReceipts], cases: desk.snapshot(), adminViews,
-      threads: threads.map(({ id, title, group, turns, draft }) => ({ id, title, group, turns, draft }))
+      serial, activeId: active?.id, readReceipts: [...readReceipts], cases: desk.snapshot(),
+      threads: threads.map(({ id, title, group, sourceId, turns, draft }) => ({ id, title, group, sourceId, turns, draft }))
     };
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
@@ -159,6 +161,8 @@
       active.position = transcript.scrollTop;
     }
     active = thread;
+    sourceState.value = thread.sourceId;
+    input.placeholder = "向" + sourceName(thread.sourceId) + "提问，也可以补充或修改条件…";
     refreshAccess(thread);
     setMenu(false);
     transcript.replaceChildren(thread.flow);
@@ -174,14 +178,14 @@
 
   function drawEmpty(thread) {
     const empty = element('div', 'empty');
-    empty.append(mark(), element('h1', '', '想了解店里的什么数据？'));
+    empty.append(mark(), element('h1', '', '想了解哪些数据？'));
     const prompts = element('div', 'prompts');
-    for (const [name, text] of [
-      ['milk', '本店上周牛奶卖了多少盒？'],
+    for (const [name, text] of thread.sourceId === 'retail' ? [
+      ['milk', '城南店上周牛奶卖了多少盒？'],
       ['warehouse', '今天还有多少牛奶库存？'],
-      ['store', '本店上周的毛利额是多少？'],
-      ['layers', '本店上周牛奶的退货率是多少？'],
-    ]) {
+      ['store', '城南店上周的毛利额是多少？'],
+      ['layers', '城南店上周牛奶的退货率是多少？'],
+    ] : []) {
       const prompt = element('button', 'prompt');
       prompt.type = 'button';
       prompt.append(WorkbenchIcon(name, 16), document.createTextNode(text));
@@ -194,7 +198,7 @@
 
   function hideRestricted(turn) {
     turn.querySelector('.qa-answer')?.remove();
-    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '当前权限不足以查看这条历史回答。可重新提问，按现有权限查询。'));
+    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '这条示例回答已不可用，可重新提问。'));
   }
 
   function refreshAccess(thread) {
@@ -214,7 +218,7 @@
   }
 
   function renderCase(thread, entry, turn) {
-    const record = desk.get(entry.reply.caseId);
+    const record = { ...desk.get(entry.reply.caseId), originalQuestion: entry.text };
     const previousCard = turn.querySelector('.case-card');
     const card = CaseView.render(record, (action, value) => {
       if (action === 'retry' || action === 'reapply') {
@@ -225,8 +229,7 @@
         if (draft) { input.value = draft; syncInput(); save(); }
         return { ok: true };
       }
-      const result = action === 'apply' ? desk.apply(record.id, value)
-        : action === 'supplement' ? desk.supplement(record.id, value) : desk.simulate(record.id, value);
+      const result = action === 'supplement' ? desk.supplement(record.id, value) : desk.simulate(record.id, value);
       if (result.ok) {
         syncCase(record.id);
         refreshAccess(active);
@@ -248,167 +251,19 @@
     }
   }
 
-  function decideAccess(id, action, fields) {
-    const currentRoute = location.hash === adminAccessRoute || location.hash === adminAccessRoute + '/' + encodeURIComponent(id);
-    if (approvalsPage.hidden || !currentRoute) {
-      return { ok: false, message: '请打开对应的访问申请后办理。' };
-    }
-    if (!AccountAccess.canDecide(account, desk.get(id), action)) {
-      return { ok: false, message: '当前账号没有这项办理权限，或申请已不满足办理条件。' };
-    }
-    const result = desk.decide(id, action, fields);
-    if (result.ok) {
-      const nextGroup = ['pending', 'approved'].includes(result.record.status) ? 'todo' : 'done';
-      if (nextGroup !== adminViews.requests.group) {
-        Object.assign(adminViews.requests, { group: nextGroup, status: 'all', page: 1 });
-      }
-      syncCase(id);
-      refreshAccess(active);
-      drawReceipts();
-      save();
-    }
-    status.textContent = result.ok ? result.record.statusLabel : result.message;
-    return result;
-  }
-
-  function updateAdminQuery(key, next, focusKey = 'keyword') {
-    Object.assign(adminViews[key], next);
-    const hash = '#admin/' + (key === 'requests' ? 'access-requests' : 'grants');
-    // 查询和翻页返回当前列表，详情链接仍使用独立申请编号。
-    if (location.hash !== hash) window.history.replaceState(null, '', hash);
-    showPage();
-    const control = approvalsPage.querySelector('[data-list-focus="' + focusKey + '"]');
-    if (control && !control.disabled) control.focus({ preventScroll: true });
-    save();
-  }
-
-  function openOriginalQuestion(record) {
-    if (!AccountAccess.owns(account, record)) return;
-    for (const link of record.links || []) {
-      const thread = threads.find(item => item.id === link.threadId);
-      const turn = thread?.flow.querySelector('#' + link.turnId);
-      if (!turn) continue;
-      location.hash = 'workbench';
-      showPage();
-      selectThread(thread);
-      turn.tabIndex = -1;
-      turn.focus({ preventScroll: true });
-      turn.scrollIntoView({ block: 'center' });
-      return;
-    }
-    return { ok: false, message: '原问题已不可回看，申请的办理记录仍保留。' };
-  }
-
-  function showAdminDenied(message = '当前账号没有后台访问权限。') {
-    approvalsPage.classList.add('ap-page');
-    const header = element('header', 'ap-top');
-    header.append(element('strong', '', 'DataOcean'), element('span', 'ap-area', '后台管理'), element('span', 'account-current-name', account.name));
-    const card = element('section', 'account-denied');
-    const title = element('h1', '', '无法进入此页面');
-    title.tabIndex = -1;
-    const actions = element('div', 'ap-actions');
-    for (const [label, href] of [['个人管理', '#account'], ['返回问数工作台', '#workbench']]) {
-      const link = element('a', 'ap-btn ap-secondary', label); link.href = href; actions.append(link);
-    }
-    card.append(title, element('p', '', message), actions);
-    approvalsPage.replaceChildren(header, card);
-    document.title = '无法访问 · DataOcean';
-    title.focus({ preventScroll: true });
-  }
-
-  // 导航仅改变页面，账号、授权与数据范围保持不变；手工 URL 也走同一检查。
-  function showPage(event) {
-    const [view, section, selectedId] = location.hash.slice(1).split('/');
-    // 个人功能统一归入后台；问数仍使用独立界面。
+  // 个人管理和后台只保留统一入口，旧的嵌入式审批页面已移除。
+  function showPage() {
+    const [view, section] = location.hash.slice(1).split('/');
     if (view === 'account') { location.replace('../后台管理/index.html#account-info'); return; }
     if (view === 'admin') { location.replace('../后台管理/index.html#' + (section || 'dashboard')); return; }
-    const entries = AccountAccess.entries(account);
-    if (view === 'admin' && !section && entries.length) {
-      location.replace('#admin/' + entries[0].key);
-      return;
-    }
-    const nextView = view === 'admin' ? 'admin' : view === 'account' ? 'account' : 'workbench';
-    const changed = pageView !== nextView;
-    if (changed) {
-      setMenu(false);
-      profileMenu.open = false;
-      if (receiptDialog.open) receiptDialog.close();
-    }
-    pageView = nextView;
-    managerPage.hidden = nextView !== 'workbench';
-    approvalsPage.hidden = nextView !== 'admin';
-    accountPage.hidden = nextView !== 'account';
-    // 离开页面时卸载组件，防止下拉及日历浮层残留到另一个页面。
-    if (nextView !== 'admin') approvalsPage.replaceChildren();
-    if (nextView !== 'account') accountPage.replaceChildren();
     updateAccountMenu();
-    if (nextView === 'account') {
-      document.title = '个人管理 · DataOcean';
-      AccountPage.render(accountPage, { account,
-        requests: desk.list().filter(item => item.type === 'access' && AccountAccess.owns(account, item)).map(item => ({
-          ...item, canOpen: item.links.some(link => threads.some(thread => thread.id === link.threadId && thread.turns.some(turn => turn.id === link.turnId)))
-        })),
-        adminRoute: entries.length ? '#admin/' + entries[0].key : null,
-        onReturn: () => { location.hash = 'workbench'; }, onOpenRequest: openOriginalQuestion });
-      if (changed) {
-        const title = accountPage.querySelector('h1'); title.tabIndex = -1; title.focus({ preventScroll: true });
-      }
-      return;
-    }
-    if (nextView === 'admin') {
-      if (!AccountAccess.canEnter(account, section)) {
-        showAdminDenied();
-        return;
-      }
-      const records = desk.list().filter(item => item.type === 'access' && item.status !== 'draft' && AccountAccess.inScope(account, item));
-      if (selectedId && !records.some(item => item.id === selectedId)) {
-        showAdminDenied('当前申请不可查看，请返回有权访问的页面。');
-        return;
-      }
-      document.title = (section === 'grants' ? '授权记录' : '访问申请') + ' · 权限管理 · DataOcean 后台管理';
-      ApprovalPage.render(approvalsPage, {
-        // 办理后重读当前记录，避免已生效仍被旧的待执行快照覆盖。
-        desk: { list: () => desk.list().filter(item => item.type === 'access' && item.status !== 'draft' && AccountAccess.inScope(account, item)) },
-        section, account, entries,
-        canDecide: (record, action) => AccountAccess.canDecide(account, record, action),
-        views: {
-          requests: { query: adminViews.requests, onQuery: (query, focus) => updateAdminQuery('requests', query, focus) },
-          grants: { query: adminViews.grants, onQuery: (query, focus) => updateAdminQuery('grants', query, focus) }
-        },
-        selectedId: selectedId || null,
-        onSelect: id => { location.hash = id ? adminAccessRoute + '/' + encodeURIComponent(id) : adminAccessRoute; },
-        onReturn: () => { location.hash = 'workbench'; },
-        onDecision: decideAccess
-      });
-      if (changed || event?.type === 'hashchange') {
-        const title = approvalsPage.querySelector('.ap-detail-title, .ap-queue-title, .gh-page h1');
-        if (title) { title.tabIndex = -1; title.focus({ preventScroll: true }); }
-        window.scrollTo(0, 0);
-      }
-    } else if (changed) {
-      delete approvalsPage.dataset.apGroup;
-      refreshAccess(active);
-      drawReceipts();
-      document.title = active.title + ' · DataOcean 问数工作台';
-      receiptButton.focus({ preventScroll: true });
-    }
   }
 
   function drawReceipts() {
     // 同一事项的一次完成只通知店长一次，记录内的每个原问都可以单独回看。
     const items = desk.list();
-    const records = items.filter(item => item.receipt && (item.type !== 'access' || AccountAccess.owns(account, item)))
+    const records = items.filter(item => item.receipt)
       .sort((a, b) => b.receipt.completedAt - a.receipt.completedAt);
-    clearTimeout(expiryTimer);
-    const expiries = items.filter(item => item.status === 'effective').map(item => item.expiresAt);
-    if (expiries.length) {
-      const delay = Math.min(...expiries) - Date.now();
-      expiryTimer = setTimeout(() => {
-        refreshAccess(active);
-        drawReceipts();
-        if (!approvalsPage.hidden) showPage();
-      }, Math.min(2147483647, Math.max(1, delay)));
-    }
     const unread = records.filter(item => !readReceipts.has(item.receipt.key)).length;
     const count = document.getElementById('receipt-count');
     count.textContent = String(unread);
@@ -457,10 +312,10 @@
   receiptButton.addEventListener('click', () => { drawReceipts(); receiptDialog.showModal(); });
   receiptDialog.querySelector('.receipt-close').addEventListener('click', () => receiptDialog.close());
   document.getElementById('reset-demo').addEventListener('click', () => {
-    if (!window.confirm('清除这个标签页的示例对话、申请和回告，重新开始演示？')) return;
+    if (!window.confirm('清除当前标签页的示例对话、事项和回告，重新开始演示？')) return;
     window.removeEventListener('pagehide', save);
     try {
-      for (const key of [storageKey, casesKey, 'dataocean.workbench.user-zhou.v2', 'dataocean.workbench.user-chen.v2']) sessionStorage.removeItem(key);
+      for (const key of [storageKey, casesKey]) sessionStorage.removeItem(key);
     } catch { /* 未启用存储时，刷新即重置。 */ }
     location.reload();
   });
@@ -516,7 +371,8 @@
 
   function addTurn(thread, text) {
     const id = 'turn-' + ++serial;
-    const caseReply = desk.ask(text, { threadId: thread.id, turnId: id });
+    const caseReply = thread.sourceId === 'retail' ? desk.ask(text, { threadId: thread.id, turnId: id })
+      : { kind: 'notice', text: sourceName(thread.sourceId) + '暂无可用的问数示例。' };
     if (caseReply?.caseId) syncCase(caseReply.caseId);
     const { state, reply } = caseReply ? { state: null, reply: caseReply } : QueryDemo.next(thread.state, text);
     const entry = { id, text, state, reply };
@@ -559,13 +415,21 @@
       composer.requestSubmit();
     }
   });
+  function switchSource(sourceId) {
+    if (!sourceOptions.some(source => source.id === sourceId) || active?.sourceId === sourceId) return;
+    // 切源创建独立空对话；历史会话仍绑定原源和草稿，不拼接上下文。
+    let thread = threads.find(item => item.sourceId === sourceId && !item.turns.length);
+    if (!thread) { thread = createThread('新问数', '今天', undefined, sourceId); drawEmpty(thread); }
+    selectThread(thread, true); save();
+  }
+
   function newChat() {
     filter.value = '';
     filter.hidden = true;
     findButton.setAttribute('aria-expanded', 'false');
-    let thread = threads.find(item => !item.turns.length && item.title === '新问数');
+    let thread = threads.find(item => !item.turns.length && item.title === '新问数' && item.sourceId === sourceState.value);
     if (!thread) {
-      thread = createThread();
+      thread = createThread('新问数', '今天', undefined, sourceState.value);
       drawEmpty(thread);
     }
     selectThread(thread, true);
@@ -594,7 +458,7 @@
   // 用同一套对话规则构造选稿中的示例；新建问数可从头体验同一个追问。
   if (saved?.threads?.length) {
     for (const data of [...saved.threads].reverse()) {
-      const thread = createThread(data.title, data.group, data.id);
+      const thread = createThread(data.title, data.group, data.id, data.sourceId || defaultSource);
       thread.turns = data.turns;
       thread.draft = data.draft || '';
       if (!thread.turns.length) drawEmpty(thread);
@@ -607,17 +471,16 @@
     selectThread(threads.find(t => t.id === saved.activeId) || threads[0]);
   } else {
     const stock = createThread('今日牛奶库存', '示例对话');
-    addTurn(stock, '今天还有多少牛奶库存？');
+    addTurn(stock, '城南店今天还有多少牛奶库存？');
     const returns = createThread('上周牛奶退货', '示例对话');
     addTurn(returns, '上周牛奶一共退了多少盒？');
     const first = createThread('牛奶净销量');
-    addTurn(first, '本店上周牛奶卖了多少盒？');
+    addTurn(first, '城南店上周牛奶卖了多少盒？');
     addTurn(first, '扣掉，顺便按天列。');
     selectThread(first);
   }
   drawReceipts();
   showPage();
   window.addEventListener('hashchange', showPage);
-  window.addEventListener('account-permissions-changed', () => { updateAccountMenu(); showPage(); });
   window.addEventListener('pagehide', save);
 })();

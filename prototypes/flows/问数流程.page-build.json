@@ -1,0 +1,31 @@
+{
+  "graph": "508b4bd4aeb2a2d042eac79bbd4cab46820f7849aaa184c3659a803d506809e1",
+  "page": "96439ea73e9ae142593b5b5cf36a7cf3c9425a936e8c5b5105840a644bbc90e0",
+  "mainNodes": [
+    "prepare",
+    "understand",
+    "retrieve",
+    "enrich",
+    "generate",
+    "semantic",
+    "security",
+    "execute",
+    "answer"
+  ],
+  "detailPanels": 18,
+  "viewer": "native-with-node-details",
+  "inputs": [
+    {
+      "file": "prototypes/flows/问数流程.json",
+      "sha256": "b8491acbce3a3ce8908c6fc0eb43a7fd441d29360e725e0e0c7eff833c8a76ee"
+    },
+    {
+      "file": "prototypes/flows/问数节点详情.json",
+      "sha256": "edb14eb6f107bb5645c7b92745c77e63ebf03f5ee5574c06721511905eb334a7"
+    },
+    {
+      "file": "prototypes/flows/问数流程.template.html",
+      "sha256": "faa81b7ca29b76ea0daadcdfe37ef2c9d4aac4471233c3fd8d360acd5e95f7d1"
+    }
+  ]
+}

@@ -15,7 +15,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .admin-breadcrumb .el-breadcrumb__inner a { color: var(--do-muted); font-weight: 400; }
 .workbench-link { margin-left: auto; padding: 8px 12px; color: var(--do-muted); text-decoration: none; border-radius: 6px; }
 .workbench-link:hover { background: var(--do-hover); color: var(--do-primary); }
-.admin-identity { display: flex; align-items: center; gap: 10px; }
+.admin-identity { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--do-ink); cursor: pointer; text-align: left; }
+.admin-identity:hover { background: var(--do-hover); }
+.identity-chevron { display: inline-flex; color: var(--do-muted); }
 .identity-avatar { display: grid; place-items: center; width: 32px; height: 32px; background: var(--do-selected); color: var(--do-primary); border-radius: 50%; }
 .admin-identity small { display: block; color: var(--do-muted); font-size: 12px; line-height: 16px; }
 .admin-layout { display: grid; grid-template-columns: 216px minmax(0,1fr); height: calc(100dvh - 64px); }
@@ -101,7 +103,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .dialog-footer > .el-button { min-width: 96px; margin: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 24px; }
 .form-grid .full-width { grid-column: 1/-1; }
-.admin-dialog .el-select { width: 100%; }
+/* 只拉伸表单下拉，避免详情内分页选择器被撑宽规则压成空白。 */
+.admin-dialog .el-form-item .el-select { width: 100%; }
 .admin-dialog .el-form-item { margin-bottom: 24px; }
 .admin-dialog .el-form-item:last-child { margin-bottom: 0; }
 .form-note { color: var(--do-muted); font-size: 12px; line-height: 18px; margin: 0 0 16px; }
@@ -143,11 +146,14 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .template-content { padding: 24px; overflow: auto; }
 .template-content .detail-fields { grid-template-columns: repeat(3,minmax(0,1fr)); margin: 0; }
 .department-access-preview { margin-top: 24px; }
-.role-permissions { width: 100%; font-size: 14px; }
-.role-permissions .el-table__cell { height: auto; padding: 12px 0; }
-.role-permissions th.el-table__cell { background: var(--do-canvas); color: var(--do-muted); font-weight: 400; }
-.role-permissions .cell { line-height: 22px; overflow-wrap: anywhere; }
-.selected-role-preview { margin-top: 12px; }
+.data-access-table { width: 100%; font-size: 14px; }
+.data-access-table .el-table__cell { height: auto; padding: 12px 0; }
+.data-access-table th.el-table__cell { background: var(--do-canvas); color: var(--do-muted); font-weight: 400; }
+.data-access-table .cell { line-height: 22px; overflow-wrap: anywhere; }
+/* 简单角色分配使用紧凑弹窗，全部选项直接可见，保留组件键盘和选中反馈。 */
+.role-assignment-dialog { width: min(480px,calc(100vw - 80px)); }
+.form-choice-group { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; width: 100%; }
+.form-choice-group .el-checkbox { margin-right: 0; min-height: 40px; height: auto; }
 .detail-dialog { width: min(600px,calc(100vw - 80px)); height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; border-radius: 0; border-width: 0 0 0 1px; }
 .detail-dialog[open] { display: flex; flex-direction: column; }
 .detail-dialog .dialog-body { flex: 1; max-height: none; }
@@ -186,15 +192,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .detail-access-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .detail-access-name .status-tag { flex: none; }
 .detail-access-body { padding: 16px 16px 0; font-size: 14px; line-height: 22px; }
-.detail-access-body p { margin: 0 0 12px; }
 .detail-access-empty { padding: 24px 16px; margin: 0; color: var(--do-muted); }
 .detail-access-list .rl-pager { padding: 12px 16px; box-shadow: none; }
-/* 范围明细保留独立来源的状态，避免相同业务范围掩盖停用或待复核的来源。 */
+/* 访问明细保留独立来源状态，避免相同数据源掩盖停用或待复核的来源。 */
 .access-origin { display: grid; }
 .access-origin .status-tag { justify-self: start; margin-top: 4px; }
-.access-context { flex: none; margin: 0; padding: 16px 24px; border-bottom: 1px solid var(--do-line); }
-.access-context > div { display: flex; align-items: baseline; gap: 16px; }
-.access-context dt { flex: none; margin: 0; }
 .access-detail-action, .request-detail-action { white-space: nowrap; }
 .admin-feedback { position: fixed; z-index: 4000; top: 80px; left: 50%; transform: translateX(-50%); padding: 12px 20px; color: #216449; border: 1px solid #cde3d6; border-radius: 8px; background: #f0f8f3; box-shadow: var(--do-shadow); }
 .planned-page { flex: 1; display: grid; place-content: center; justify-items: center; gap: 16px; min-height: 300px; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; color: var(--do-muted); }
