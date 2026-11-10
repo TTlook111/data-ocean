@@ -107,12 +107,15 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .form-note { color: var(--do-muted); font-size: 12px; line-height: 18px; margin: 0 0 16px; }
 .form-error { margin: 0 0 16px; padding: 10px 12px; color: #b43c3c; background: #fdf0ef; border-radius: 6px; }
 .field-help { display: block; width: 100%; color: var(--do-muted); font-size: 12px; line-height: 18px; margin-top: 6px; }
+.readonly-value { width: 100%; color: var(--do-ink); line-height: 22px; overflow-wrap: anywhere; }
 .change-preview h3 { margin: 0 0 20px; font-size: 16px; line-height: 24px; }
 .change-preview table { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
 .change-preview th, .change-preview td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--do-line); overflow-wrap: anywhere; white-space: pre-wrap; }
 .change-preview thead th { color: var(--do-muted); font-weight: 400; background: var(--do-canvas); }
 .change-preview th:first-child { width: 26%; font-weight: 500; }
 .change-preview td:nth-child(2) { color: var(--do-muted); }
+.change-preview.is-summary td:nth-child(2) { color: var(--do-ink); }
+.data-access-dialog .change-preview th:first-child { width: 20%; }
 .first-login-steps { padding-left: 24px; margin: 24px 0 0; }
 .first-login-steps li { padding-left: 8px; margin-bottom: 20px; }
 .first-login-steps p { margin: 6px 0 0; color: var(--do-muted); }
@@ -128,74 +131,6 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .department-tab[aria-selected="true"] { color: var(--do-primary); border-bottom-color: var(--do-primary); font-weight: 500; }
 .department-tab-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .scope-switch { display: inline-flex; gap: 0; border: 1px solid var(--do-line); border-radius: 6px; overflow: hidden; }
-/* 筛选保持一行，生成操作归结果页签；待办与已确认定义分别呈现。 */
-.scope-query-card { align-items: flex-start; }
-.scope-source-select { width: 160px; flex: none; }
-.scope-query-card .rl-keyword { flex: 1 1 240px; min-width: 200px; }
-.scope-query-card .rl-status { width: 128px; }
-.scope-result-panel { position: relative; }
-.scope-list-tabs, .scope-tabs.el-tabs { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
-.scope-tabs > .el-tabs__header { flex: none; margin: 0; padding: 0 24px; }
-.scope-tabs > .el-tabs__header .el-tabs__nav-wrap { padding-right: 144px; }
-.scope-tabs > .el-tabs__header .el-tabs__item { height: 64px; font-size: 14px; }
-.scope-tabs > .el-tabs__content { flex: 1; min-height: 0; }
-.scope-tabs > .el-tabs__content > .el-tab-pane, .scope-result-content { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.scope-result-actions { position: absolute; top: 12px; right: 24px; height: 40px; display: flex; align-items: center; }
-.admin-button:disabled { color: #9099a6; background: var(--do-canvas); border-color: var(--do-line); cursor: default; }
-.scope-evidence { width: 100%; line-height: 22px; }
-.scope-technical-details { margin-top: 16px; }
-.scope-evidence-meta { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; margin: 0 0 24px; }
-.scope-evidence-gap { margin: 0 0 16px; padding: 12px; border: 1px solid #ead5a5; border-radius: 6px; color: #805610; background: #fcf2dd; font-size: 14px; line-height: 22px; }
-.scope-evidence-ref { margin: -8px 0 24px; color: var(--do-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
-.scope-field-purpose { display: block; color: var(--do-muted); font-size: 12px; line-height: 18px; }
-.scope-generation-body > label { display: block; margin-bottom: 8px; }
-.scope-generation-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin: 24px 0 12px; color: var(--do-muted); font-size: 12px; line-height: 18px; }
-.scope-generation-summary code { font-family: Consolas,monospace; }
-.scope-generation-items { margin: 0; padding: 0; list-style: none; }
-.scope-generation-items > li { padding: 16px 0; border-bottom: 1px solid var(--do-line); }
-.scope-generation-item-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.scope-generation-item-title strong { font-size: 14px; line-height: 22px; font-weight: 500; }
-.scope-generation-items p { margin: 8px 0 0; color: var(--do-muted); font-size: 14px; line-height: 22px; }
-.scope-generation-rule, .scope-generation-empty { margin: 16px 0 0; color: var(--do-muted); font-size: 12px; line-height: 18px; }
-.scope-object + .scope-object { border-top: 1px solid var(--do-line); margin-top: 16px; padding-top: 16px; }
-.scope-object-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
-.scope-object-title h4 { margin: 0; font-size: 14px; line-height: 22px; font-weight: 600; }
-.scope-evidence code { font-family: Consolas, monospace; font-size: 12px; color: var(--do-muted); overflow-wrap: anywhere; }
-.scope-object-meaning { margin: 8px 0 0; font-size: 14px; line-height: 22px; }
-.scope-object-fields { margin-top: 8px; --el-collapse-border-color: transparent; --el-collapse-header-height: 48px; border: 0; }
-.scope-object-fields .el-collapse-item__header { background: transparent; color: var(--do-primary); font-weight: 400; }
-.scope-object-fields .el-collapse-item__wrap { background: transparent; }
-.scope-field-mapping { margin: 0; }
-.scope-field-mapping > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.3fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--do-line); }
-.scope-field-mapping dt { margin: 0; color: var(--do-ink); font-size: 14px; line-height: 22px; }
-.scope-field-mapping dd { line-height: 22px; }
-.scope-boundary { display: grid; gap: 12px; margin: 0; }
-.scope-boundary > div { display: grid; grid-template-columns: 84px minmax(0,1fr); gap: 16px; }
-.scope-boundary dt { margin: 0; line-height: 22px; }
-.scope-boundary dd { font-size: 14px; line-height: 22px; }
-.scope-detail-section-title { margin: 24px 0 16px; font-size: 16px; line-height: 24px; font-weight: 600; }
-.scope-detail-description { margin: 0 0 24px; font-size: 14px; line-height: 22px; }
-/* 核对任务左右对照，两个阅读区独立收缩，说明和确认不再被技术长表推走。 */
-.scope-review-dialog { width: min(1040px,calc(100vw - 80px)); height: min(760px,calc(100dvh - 64px)); max-height: calc(100dvh - 64px); overflow: hidden; }
-.scope-review-dialog[open] { display: flex; flex-direction: column; }
-.scope-review-dialog > .dialog-heading { flex: none; }
-.scope-review-heading { display: flex; align-items: center; gap: 12px; }
-.scope-review-host, .scope-review-shell.el-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.scope-review-body { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(300px,1fr); flex: 1; min-height: 0; }
-.scope-review-main, .scope-review-reference { min-width: 0; min-height: 0; padding: 24px; overflow: auto; }
-.scope-review-main { display: flex; flex-direction: column; gap: 16px; }
-.scope-review-main .el-form-item { margin: 0; flex: none; }
-.scope-review-reference { border-left: 1px solid var(--do-line); background: #fafbfc; }
-.scope-review-reference > h3, .scope-boundary-section > h3 { margin: 0 0 16px; font-size: 16px; line-height: 24px; font-weight: 600; }
-.scope-boundary-section { flex: none; padding: 16px; border: 1px solid var(--do-line); border-radius: 6px; }
-.scope-boundary-section > h3 { margin-bottom: 12px; font-size: 14px; line-height: 22px; }
-.scope-readonly-definition { display: grid; gap: 16px; margin: 0; }
-.scope-readonly-definition dd { font-size: 14px; line-height: 22px; }
-.scope-review-footer { flex: none; align-items: center; justify-content: space-between; gap: 24px; }
-.scope-review-ack { display: grid; min-width: 0; }
-.scope-confirm-impact { color: var(--do-muted); font-size: 12px; line-height: 18px; }
-.scope-review-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.scope-review-actions > .el-button { min-width: 96px; margin: 0; }
 .scope-button { min-height: 32px; padding: 4px 12px; border: 0; background: #fff; color: var(--do-muted); font: inherit; cursor: pointer; }
 .scope-button + .scope-button { border-left: 1px solid var(--do-line); }
 .scope-button[aria-pressed="true"] { background: var(--do-selected); color: var(--do-primary); }
@@ -229,17 +164,18 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .detail-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 0 0 24px; }
 .detail-section { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--do-line); }
 .detail-section h2 { margin-bottom: 16px; font-size: 14px; }
-.data-access-editor { width: 100%; display: grid; gap: 12px; }
+.data-access-editor { width: 100%; display: grid; gap: 16px; }
+.data-access-item { padding: 16px; border: 1px solid var(--do-line); border-radius: 6px; }
+.data-access-item > .output-rule-list { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--do-line); }
 .data-access-dialog { width: min(880px,calc(100vw - 80px)); }
-.scope-options { max-width: calc(100vw - 96px); }
-.scope-options .el-select-dropdown__item { height: auto; min-height: 64px; padding: 12px 32px 12px 16px; line-height: 22px; white-space: normal; }
-.scope-option-title, .scope-option-description { display: block; }
-.scope-option-description { font-size: 12px; line-height: 18px; color: var(--do-muted); margin-top: 4px; font-weight: 400; }
-.scope-source-unavailable { margin-left: 16px; color: var(--do-muted); font-size: 12px; }
+.output-rule-options { max-width: calc(100vw - 96px); }
+.output-rule-options .el-select-dropdown__item { height: auto; min-height: 64px; padding: 12px 32px 12px 16px; line-height: 22px; white-space: normal; }
+.rule-option-title, .rule-option-description { display: block; }
+.rule-option-description { font-size: 12px; line-height: 18px; color: var(--do-muted); margin-top: 4px; font-weight: 400; }
 .data-access-row { display: grid; grid-template-columns: minmax(140px,1fr) minmax(180px,1.5fr) auto; align-items: start; gap: 8px; }
 .data-access-row > .el-button { margin: 0; min-height: 40px; }
-.data-access-editor > .el-button { justify-self: start; }
-.data-access-table .cell { white-space: pre-line; }
+.data-access-editor > .el-button { width: 100%; margin: 0; border-style: dashed; }
+.data-access-table .cell { white-space: normal; }
 /* 阅读型来源清单只展开当前项，分页与内容处于同一个外框内。 */
 .detail-access-list { border: 1px solid var(--do-line); border-radius: 6px; overflow: hidden; }
 .detail-access-list .el-collapse { --el-collapse-header-height: 64px; --el-collapse-border-color: var(--do-line); border: 0; }
@@ -249,21 +185,24 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .detail-access-heading { flex: 1; min-width: 0; text-align: left; line-height: 22px; }
 .detail-access-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .detail-access-name .status-tag { flex: none; }
-.detail-access-until { flex: none; color: var(--do-muted); font-size: 12px; line-height: 18px; }
 .detail-access-body { padding: 16px 16px 0; font-size: 14px; line-height: 22px; }
 .detail-access-body p { margin: 0 0 12px; }
-.detail-access-body pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-access-empty { padding: 24px 16px; margin: 0; color: var(--do-muted); }
 .detail-access-list .rl-pager { padding: 12px 16px; box-shadow: none; }
 /* 范围明细保留独立来源的状态，避免相同业务范围掩盖停用或待复核的来源。 */
-.access-origin { display: grid; gap: 4px; }
-.access-origin .status-tag { justify-self: start; }
+.access-origin { display: grid; }
+.access-origin .status-tag { justify-self: start; margin-top: 4px; }
+.access-context { flex: none; margin: 0; padding: 16px 24px; border-bottom: 1px solid var(--do-line); }
+.access-context > div { display: flex; align-items: baseline; gap: 16px; }
+.access-context dt { flex: none; margin: 0; }
 .access-detail-action, .request-detail-action { white-space: nowrap; }
 .admin-feedback { position: fixed; z-index: 4000; top: 80px; left: 50%; transform: translateX(-50%); padding: 12px 20px; color: #216449; border: 1px solid #cde3d6; border-radius: 8px; background: #f0f8f3; box-shadow: var(--do-shadow); }
 .planned-page { flex: 1; display: grid; place-content: center; justify-items: center; gap: 16px; min-height: 300px; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; color: var(--do-muted); }
 .planned-page > .icon { width: 40px; height: 40px; color: #96a2b5; }
 .planned-page p { margin: 0; }
 @media (max-width: 1279px) {
+  .data-access-table .output-rule-list > div { display: block; }
+  .data-access-table .output-rule-list dd { margin-top: 4px; }
   .department-layout { grid-template-columns: 220px minmax(0,1fr); gap: 16px; }
   /* 紧凑 PC 窗口缩小组间距，保留页签与操作按钮的完整文字和面板内边距。 */
   .department-tabs, .department-tab-list { gap: 16px; }
@@ -280,6 +219,21 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .record-panel { flex: none; height: auto; min-height: 0; overflow: visible; }
   .record-panel .rt-scroll { flex: none; min-height: 320px; }
   .department-layout { flex: none; }
-  .scope-list-tabs, .scope-tabs.el-tabs, .scope-tabs > .el-tabs__content { flex: none; overflow: visible; }
-  .scope-tabs > .el-tabs__content > .el-tab-pane, .scope-result-content { height: auto; }
 }
+
+/* 规则全文在选择项与详情中自然换行，来源列表保留紧凑密度。 */
+.output-rule-options { width: 440px; }
+.rule-content { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rule-content-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.output-rule-list { display: grid; gap: 12px; margin: 0; width: 100%; }
+.output-rule-list > div { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 16px; }
+.output-rule-list dt { margin: 0; color: var(--do-ink); font-size: 14px; line-height: 22px; font-weight: 500; }
+.output-rule-list dd { color: var(--do-muted); line-height: 22px; white-space: pre-wrap; }
+.access-detail-dialog .dialog-body > h3 { margin: 24px 0 12px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.access-detail-dialog .dialog-body > p { margin: 0; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.access-detail-dialog .dialog-body > .form-note { margin-top: 24px; }
+.access-detail-dialog .output-rule-list { gap: 0; }
+.access-detail-dialog .output-rule-list > div { padding: 16px 0; border-bottom: 1px solid var(--do-line); }
+.access-detail-dialog .output-rule-list > div:first-child { padding-top: 0; }
+.request-state { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.request-id { color: var(--do-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }

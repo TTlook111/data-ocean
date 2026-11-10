@@ -9,23 +9,15 @@
     '普通用户': [{ page: '问数工作台、个人管理', operation: '问数、反馈、申请数据访问与查看本人进度' }]
   };
   const dataSources = [
-    { id: 'retail', name: '经营业务库', scopes: [
-      { id: 'stock', name: '本部门商品与库存', description: '查看本部门商品与可用库存，不含采购成本', tables: '商品、库存', rows: '门店 / 部门 = {department}', fields: '商品名称、规格、可用库存，不含采购成本' },
-      { id: 'sales', name: '本部门销售汇总', description: '查看本部门销售数量与销售净额', tables: '销售汇总', rows: '门店 / 部门 = {department}', fields: '业务日期、销售数量、销售净额' }
-    ] },
-    { id: 'finance', name: '财务分析库', scopes: [
-      { id: 'receivables', name: '本部门应收与回款', description: '查看本部门应收与回款汇总，不含账户信息', tables: '应收回款汇总', rows: '归属部门 = {department}', fields: '业务日期、应收金额、回款金额，不含账户信息' },
-      { id: 'expenses', name: '本部门费用汇总', description: '查看本部门费用类别与月度费用汇总', tables: '费用汇总', rows: '归属部门 = {department}', fields: '月份、费用类别、费用金额' }
-    ] },
-    { id: 'products', name: '商品中心库', scopes: [
-      { id: 'catalog', name: '商品基础目录', description: '查看已上架商品基础信息，不含采购成本', tables: '商品主数据', rows: '已上架商品', fields: '商品编号、名称、分类、规格，不含采购成本' }
-    ] },
-    { id: 'aftersales', name: '售后业务库', scopes: [] }
+    { id: 'retail', name: '经营业务库' }, { id: 'finance', name: '财务分析库' },
+    { id: 'products', name: '商品中心库' }, { id: 'aftersales', name: '售后业务库' }
   ];
-  // 既有范围也保留明确的确认事实；没有状态的条目不自动视为可选范围。
-  for (const source of dataSources) for (const scope of source.scopes) Object.assign(scope, {
-    state: '已确认', revision: 'GOV-' + source.id.toUpperCase() + '-01', confirmedBy: ({ retail: '陈主管', finance: '刘芳', products: '赵敏' })[source.id], confirmedAt: '2026-11-08 10:00'
-  });
+  const outputRules = [
+    { id: 'privacy', name: '用户信息限制', content: '不允许返回用户的身份证号码、电话号码。', updated: '2026-11-10 09:00' },
+    { id: 'cost', name: '产品成本限制', content: '不允许返回产品成本信息。', updated: '2026-11-10 09:10' },
+    { id: 'account', name: '收款账户限制', content: '不允许返回收款银行账号信息。', updated: '2026-11-10 09:20' }
+  ];
+  const accessExample = source => ({ source, rules: structuredClone(outputRules.filter(rule => source === 'finance' ? ['privacy', 'account'].includes(rule.id) : ['privacy', 'cost'].includes(rule.id))) });
   const departments = [
     ['d01', '总部', '', '林管理员', '', '正常'],
     ['d02', '运营中心', 'd01', '陈主管', 'retail', '正常'],
@@ -43,8 +35,8 @@
     ['d14', '人事行政部', 'd01', '何静', '', '正常'],
     ['d15', '旧城店', 'd03', '唐宁', 'retail', '停用']
   ].map(([id, name, parent, manager, source, status], index) => ({
-    id, name, parent, manager, status, access: source ? [{ source, scopes: [dataSources.find(s => s.id === source).scopes[0].id] }] : [],
-    until: '', code: 'DEP-' + String(index + 1).padStart(3, '0'),
+    id, name, parent, manager, status, access: source ? [accessExample(source)] : [],
+    code: 'DEP-' + String(index + 1).padStart(3, '0'),
     note: name === '数据与信息部' ? '负责经营数据分析、数据治理与系统日常维护。' : '', created: '2026-10-20 09:00'
   }));
   const users = [
@@ -70,19 +62,19 @@
     updated: '2026-11-0' + (8 - index % 5) + ' ' + (index % 2 ? '10:35' : '09:20')
   }));
   const extraRequests = [
-    { id: 'SQ-DEMO-011', user: 'u01', department: 'd01', access: [{ source: 'finance', scopes: ['receivables'] }], reason: '核对总部应收与回款汇总', until: '2026-12-31', status: '已生效', submitted: '2026-11-08 09:20' },
-    { id: 'SQ-DEMO-012', user: 'u04', department: 'd04', access: [{ source: 'finance', scopes: ['receivables'] }], reason: '核对城南店应收与回款汇总', until: '2026-12-31', status: '已生效', submitted: '2026-11-08 09:10' },
-    { id: 'SQ-DEMO-013', user: 'u01', department: 'd01', access: [{ source: 'retail', scopes: ['sales'] }], reason: '补充销售汇总分析', until: '2026-12-15', status: '待审批', submitted: '2026-11-09 08:30' },
-    { id: 'SQ-DEMO-014', user: 'u01', department: 'd01', access: [{ source: 'products', scopes: ['catalog'] }], reason: '查看商品基础目录', until: '2026-12-15', status: '已驳回', submitted: '2026-11-07 08:30', result: '请补充具体业务用途后重新申请。' },
-    // 补足本人 15 项范围明细，覆盖一笔申请包含多范围、多数据源及跨页回看。
-    { id: 'SQ-DEMO-015', user: 'u01', department: 'd01', access: [{ source: 'retail', scopes: ['stock', 'sales'] }], reason: '核对总部商品库存与销售', until: '2026-12-31', status: '已生效', submitted: '2026-11-08 10:00' },
-    { id: 'SQ-DEMO-016', user: 'u01', department: 'd01', access: [{ source: 'finance', scopes: ['expenses'] }], reason: '核对总部月度费用', until: '2026-12-31', status: '已生效', submitted: '2026-11-08 10:10' },
-    { id: 'SQ-DEMO-017', user: 'u01', department: 'd01', access: [{ source: 'products', scopes: ['catalog'] }], reason: '核对已上架商品资料', until: '2026-12-15', status: '已生效', submitted: '2026-11-08 10:20' },
-    { id: 'SQ-DEMO-018', user: 'u01', department: 'd04', access: [{ source: 'retail', scopes: ['stock', 'sales'] }, { source: 'finance', scopes: ['receivables'] }], reason: '核对城南店库存销售与回款', until: '2026-11-30', status: '已生效', submitted: '2026-11-08 10:30' },
-    { id: 'SQ-DEMO-019', user: 'u01', department: 'd05', access: [{ source: 'retail', scopes: ['stock', 'sales'] }], reason: '核对滨江店库存与销售', until: '2026-11-30', status: '已生效', submitted: '2026-11-08 10:40' },
-    { id: 'SQ-DEMO-020', user: 'u01', department: 'd07', access: [{ source: 'retail', scopes: ['stock', 'sales'] }], reason: '核对城北店库存与销售', until: '2026-11-30', status: '已生效', submitted: '2026-11-08 10:50' },
-    { id: 'SQ-DEMO-021', user: 'u01', department: 'd09', access: [{ source: 'products', scopes: ['catalog'] }], reason: '核对商品中心上架目录', until: '2026-12-20', status: '已生效', submitted: '2026-11-08 11:00' },
-    { id: 'SQ-DEMO-022', user: 'u01', department: 'd13', access: [{ source: 'finance', scopes: ['receivables', 'expenses'] }], reason: '核对财务部应收与费用', until: '2026-12-31', status: '已生效', submitted: '2026-11-08 11:10' }
+    { id: 'SQ-DEMO-011', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对总部应收与回款汇总', status: '已生效', submitted: '2026-11-08 09:20' },
+    { id: 'SQ-DEMO-012', user: 'u04', department: 'd04', access: [accessExample('finance')], reason: '核对城南店应收与回款汇总', status: '已生效', submitted: '2026-11-08 09:10' },
+    { id: 'SQ-DEMO-013', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '补充销售汇总分析', status: '待审批', submitted: '2026-11-09 08:30' },
+    { id: 'SQ-DEMO-014', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '查看商品基础目录', status: '已驳回', submitted: '2026-11-07 08:30', result: '请补充具体业务用途后重新申请。' },
+    // 每笔申请分别保留来源；多数据源及不同状态供列表和详情评审。
+    { id: 'SQ-DEMO-015', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '核对总部商品库存与销售', status: '已生效', submitted: '2026-11-08 10:00' },
+    { id: 'SQ-DEMO-016', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对总部月度费用', status: '已生效', submitted: '2026-11-08 10:10' },
+    { id: 'SQ-DEMO-017', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '核对已上架商品资料', status: '已生效', submitted: '2026-11-08 10:20' },
+    { id: 'SQ-DEMO-018', user: 'u01', department: 'd01', access: [accessExample('retail'), accessExample('finance')], reason: '核对城南店库存销售与回款', status: '已生效', submitted: '2026-11-08 10:30' },
+    { id: 'SQ-DEMO-019', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '核对滨江店库存与销售', status: '已生效', submitted: '2026-11-08 10:40' },
+    { id: 'SQ-DEMO-020', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '核对城北店库存与销售', status: '已生效', submitted: '2026-11-08 10:50' },
+    { id: 'SQ-DEMO-021', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '核对商品中心上架目录', status: '已生效', submitted: '2026-11-08 11:00' },
+    { id: 'SQ-DEMO-022', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对财务部应收与费用', status: '已生效', submitted: '2026-11-08 11:10' }
   ];
-  window.PeopleDemo = { departments, users, roles: Object.keys(roleTemplates), roleTemplates, dataSources, extraRequests };
+  window.PeopleDemo = { departments, users, roles: Object.keys(roleTemplates), roleTemplates, dataSources, outputRules, extraRequests };
 })();

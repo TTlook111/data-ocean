@@ -27,7 +27,7 @@
           <div class="login-help"><el-button link @click="help=true">忘记密码</el-button></div>
           <el-button class="login-submit" type="primary" native-type="submit">登录</el-button>
         </el-form>
-        <div v-if="!changed && review" class="demo-account"><span>原型示例</span><el-button link @click="fillExample">填入示例账号</el-button></div>
+        <div v-if="!changed" class="demo-account"><span>原型示例</span><el-button link @click="fillExample">填入示例账号</el-button></div>
         <p v-if="changed" class="login-note changed-note">请使用刚设置的新密码登录。</p>
       </template>
       <template v-else-if="mode==='change'">

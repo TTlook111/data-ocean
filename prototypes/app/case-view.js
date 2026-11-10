@@ -38,39 +38,24 @@
     return wrapper;
   }
 
-  function entryForm(item, apply, onAction, previous) {
-    const action = apply ? 'apply' : 'supplement';
+  function entryForm(item, onAction, previous) {
+    const action = 'supplement';
     const wrap = el('div', 'case-entry');
-    const toggle = button(apply ? '申请访问' : '补充情况', 'open-' + action, apply);
+    const toggle = button('补充情况', 'open-' + action);
     const form = el('form', 'case-form');
     const previousForm = previous?.querySelector('form[data-case-form="' + action + '"]');
     form.dataset.caseForm = action;
     form.id = 'case-form-' + (++sequence);
     toggle.setAttribute('aria-controls', form.id);
     const text = el('textarea');
-    text.name = apply ? 'purpose' : 'note';
+    text.name = 'note';
     text.dataset.caseControl = text.name;
     text.rows = 2;
     text.maxLength = 500;
     text.required = true;
     text.value = previousForm?.querySelector('textarea')?.value || '';
-    text.placeholder = apply ? '例如，用于核对上周门店经营周报' : '例如，希望明确跨周退货计入哪一周';
-    form.append(field(apply ? '业务用途' : '补充给处理人的情况', text));
-
-    let scope, term;
-    if (apply) {
-      const pair = el('div', 'case-field-pair');
-      scope = el('input');
-      scope.value = item.scope || '城南店经营复盘';
-      scope.readOnly = true;
-      term = el('select');
-      term.name = 'term';
-      term.dataset.caseControl = 'term';
-      for (const days of ['7 天', '14 天', '30 天']) term.add(new Option(days, days));
-      term.value = previousForm?.querySelector('select')?.value || item.term || '7 天';
-      pair.append(field('申请范围', scope), field('期望使用期限', term));
-      form.append(pair);
-    }
+    text.placeholder = '例如，希望明确跨周退货计入哪一周';
+    form.append(field('补充给处理人的情况', text));
 
     const error = el('span', 'case-error');
     error.id = form.id + '-error';
@@ -79,7 +64,7 @@
     function validate() {
       const valid = Boolean(text.value.trim());
       text.setAttribute('aria-invalid', String(!valid));
-      error.textContent = valid ? '' : (apply ? '请填写这次查数的业务用途。' : '请填写要补充的情况。');
+      error.textContent = valid ? '' : '请填写要补充的情况。';
       return valid;
     }
     text.addEventListener('input', () => {
@@ -89,7 +74,7 @@
     form.noValidate = true;
     const controls = el('div', 'case-form-buttons');
     const cancel = button('取消', 'cancel-' + action);
-    const submit = button(apply ? '提交申请' : '提交补充', 'send-' + action, true);
+    const submit = button('提交补充', 'send-' + action, true);
     submit.type = 'submit';
     controls.append(cancel, submit);
     form.append(error, controls);
@@ -106,7 +91,7 @@
       const value = text.value.trim();
       text.value = '';
       expand(false);
-      const result = onAction(action, apply ? { purpose: value, scope: scope.value, term: term.value } : value);
+      const result = onAction(action, value);
       if (result?.ok === false) {
         expand(true);
         text.value = value;
@@ -115,7 +100,7 @@
     });
     expand(Boolean(previousForm && !previousForm.hidden));
     wrap.append(toggle);
-    if (!apply && item.notes?.length) wrap.append(el('span', 'case-note-count', '已补充 ' + item.notes.length + ' 条'));
+    if (item.notes?.length) wrap.append(el('span', 'case-note-count', '已补充 ' + item.notes.length + ' 条'));
     wrap.append(form);
     return wrap;
   }
@@ -124,10 +109,7 @@
     const details = disclosure('case-records', '查看处理记录', previous);
     if (item.purpose) {
       const description = el('dl', 'case-description');
-      const fields = [['业务用途', item.purpose], ['申请范围', item.scope], ['期望使用期限', item.term]];
-      if (item.decision?.resource) {
-        fields.push(['批准范围', QueryCases.resources[item.decision.resource]], ['批准期限', item.decision.term]);
-      }
+      const fields = [['业务用途', item.purpose], ['需要的数据', item.requestedData || item.links?.[0]?.text], ['数据源', '经营业务库'], ['部门范围', '城南店（自动识别）']];
       for (const [label, value] of fields) {
         description.append(el('dt', '', label), el('dd', '', value));
       }
@@ -178,16 +160,17 @@
         '已自动关联事项 ' + item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
       main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
     }
-    if (draft || (!isAccess && ['processing', 'published'].includes(item.status))) {
-      main.append(entryForm(item, draft, onAction, previous));
+    if (isAccess && (draft || ['rejected', 'executionFailed', 'expired'].includes(item.status))) {
+      // 问数复用后台申请表单，只携带原问题，不再维护另一套授权表单和期限。
+      const apply = el('a', 'case-action case-primary', draft ? '申请访问' : '重新申请');
+      apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(item.links?.[0]?.text || item.title) + '#my-requests';
+      main.append(apply);
+    } else if (!isAccess && ['processing', 'published'].includes(item.status)) {
+      main.append(entryForm(item, onAction, previous));
     } else if (item.receipt?.canRetry) {
       const retry = button('重新查询原问题', 'retry', true);
       retry.addEventListener('click', () => onAction('retry'));
       main.append(retry);
-    } else if (isAccess && ['rejected', 'executionFailed', 'expired'].includes(item.status)) {
-      const reapply = button('重新申请', 'reapply');
-      reapply.addEventListener('click', () => onAction('reapply'));
-      main.append(reapply);
     }
     main.append(actionError);
     card.append(main);

@@ -1,607 +1,624 @@
 {
-  "schema_version": 2,
-  "diagram_type": "workflow",
+  "schema_version": 1,
+  "diagram_type": "architecture",
   "meta": {
-    "title": "单源问数与反馈处理",
+    "title": "员工问数 · LangGraph 执行节点",
+    "output": "output/diagrams/query/graph.html",
     "locale": "zh-CN",
     "quality_profile": "showcase",
-    "output": "问数流程.html",
-    "views": [
-      {
-        "id": "ask",
-        "label": "从提问到回答",
-        "focus": [
-          "ask",
-          "understand",
-          "generate",
-          "check",
-          "source",
-          "answer"
-        ],
-        "note": "在同一输入框提问。条件已明确或有适用的企业默认口径时直接查，在答案中注明实际口径。"
-      },
-      {
-        "id": "retry",
-        "label": "重写还是追问",
-        "focus": [
-          "understand",
-          "clarify",
-          "expired",
-          "generate",
-          "check",
-          "source",
-          "poll",
-          "stop"
-        ],
-        "note": "只有歧义会改变结果时才追问。可点选或直接回复，补充与纠正在本轮一并理解；明确换题则按新问数核对条件。"
-      },
-      {
-        "id": "feedback",
-        "label": "问题如何回告",
-        "focus": [
-          "gap",
-          "rate",
-          "queue",
-          "business",
-          "technical",
-          "dataOwner",
-          "verify",
-          "notify"
-        ],
-        "note": "按归因修订知识、修复技术或转源系统负责人。复验未过回到处理中；有依据且无需改动的事项可直接回告。"
-      }
-    ],
     "legend": {
+      "mode": "auto",
       "entries": {
-        "frontend": {
-          "label": "人员操作"
-        },
         "backend": {
-          "label": "平台处理"
-        },
-        "database": {
-          "label": "所选业务库"
+          "label": "执行节点"
         },
         "security": {
-          "label": "校验与阻断"
+          "label": "校验节点"
+        },
+        "frontend": {
+          "label": "人工追问"
+        },
+        "database": {
+          "label": "知识与数据"
         },
         "messagebus": {
-          "label": "事项流转"
+          "label": "修复与预算"
         },
         "external": {
-          "label": "源系统责任人"
+          "label": "结束状态"
         }
       }
     }
   },
-  "lanes": [
+  "components": [
     {
-      "id": "stops",
-      "label": "追问或停止",
-      "variant": "exception"
-    },
-    {
-      "id": "question",
-      "label": "员工问一次数"
-    },
-    {
-      "id": "issue",
-      "label": "问题核实与分派"
-    },
-    {
-      "id": "fix",
-      "label": "处理与回告"
-    }
-  ],
-  "mainPath": [
-    "ask",
-    "understand",
-    "generate",
-    "check",
-    "source",
-    "answer"
-  ],
-  "nodes": [
-    {
-      "id": "ask",
-      "lane": "question",
-      "col": 0,
-      "type": "frontend",
-      "label": "在对话中提问",
-      "sublabel": "一个输入框，当前选定一个源",
-      "icon": "person"
+      "id": "prepare",
+      "label": "准备上下文",
+      "type": "backend",
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
     },
     {
       "id": "understand",
-      "lane": "question",
-      "col": 1,
+      "label": "理解问题",
       "type": "backend",
-      "label": "理解本轮并取口径",
-      "sublabel": "合并补充与纠正，重核依据",
-      "icon": "decision"
+      "pos": [
+        208,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "retrieve",
+      "label": "检索知识",
+      "type": "backend",
+      "pos": [
+        376,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "enrich",
+      "label": "补齐同版治理知识",
+      "type": "backend",
+      "pos": [
+        544,
+        460
+      ],
+      "size": [
+        176,
+        76
+      ],
+      "sublabel": "字段标签 · 关系 · 指标口径"
     },
     {
       "id": "generate",
-      "lane": "question",
-      "col": 2,
-      "type": "backend",
       "label": "生成 SQL",
-      "sublabel": "依照意图、口径与授权",
-      "icon": "backend",
-      "height": 66
+      "type": "backend",
+      "pos": [
+        784,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
     },
     {
-      "id": "check",
-      "lane": "question",
-      "col": 3,
+      "id": "semantic",
+      "label": "核对查询意图",
       "type": "security",
-      "label": "校验 SQL",
-      "sublabel": "先核对语义，再查安全权限",
-      "icon": "decision"
+      "pos": [
+        952,
+        460
+      ],
+      "size": [
+        120,
+        76
+      ]
     },
     {
-      "id": "source",
-      "lane": "question",
-      "col": 4,
-      "type": "database",
-      "label": "所选业务数据库",
-      "sublabel": "复核行列权限，只读执行",
-      "icon": "database",
-      "height": 66
+      "id": "security",
+      "label": "权限与输出校验",
+      "type": "security",
+      "pos": [
+        1136,
+        460
+      ],
+      "size": [
+        152,
+        76
+      ],
+      "sublabel": "按规则检查输出"
+    },
+    {
+      "id": "execute",
+      "label": "执行查询",
+      "type": "backend",
+      "pos": [
+        1352,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
     },
     {
       "id": "answer",
-      "lane": "question",
-      "col": 5,
-      "type": "frontend",
-      "label": "交付本次答案",
-      "sublabel": "复核权限，注明采用的口径",
-      "icon": "success"
+      "label": "核对并回答",
+      "type": "backend",
+      "pos": [
+        1520,
+        460
+      ],
+      "size": [
+        120,
+        76
+      ]
+    },
+    {
+      "id": "identity",
+      "label": "身份与访问规则",
+      "type": "database",
+      "pos": [
+        34,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "knowledge",
+      "label": "已发布知识库",
+      "type": "database",
+      "pos": [
+        370,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "governance",
+      "label": "同版治理成果",
+      "type": "database",
+      "pos": [
+        544,
+        40
+      ],
+      "size": [
+        176,
+        60
+      ]
+    },
+    {
+      "id": "businessDb",
+      "label": "业务数据库",
+      "type": "database",
+      "pos": [
+        1346,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "outputRules",
+      "label": "本次中文输出规则",
+      "type": "database",
+      "pos": [
+        1128,
+        40
+      ],
+      "size": [
+        168,
+        64
+      ]
     },
     {
       "id": "clarify",
-      "lane": "stops",
-      "col": 1,
+      "label": "人工追问",
       "type": "frontend",
-      "label": "在对话里追问",
-      "sublabel": "可点选，也可自由回复",
-      "icon": "waiting"
+      "pos": [
+        760,
+        200
+      ],
+      "size": [
+        352,
+        124
+      ],
+      "sublabel": "答复先回理解；本题预算延续"
     },
     {
-      "id": "stop",
-      "lane": "stops",
-      "col": 4,
-      "type": "security",
-      "label": "停止本次请求",
-      "sublabel": "无权限、已禁用或超限",
-      "icon": "stop"
-    },
-    {
-      "id": "gap",
-      "lane": "issue",
-      "col": 1,
+      "id": "repair",
+      "label": "SQL 修复与预算控制",
       "type": "messagebus",
-      "label": "登记治理事项",
-      "sublabel": "缺口自动归并，用户可补充",
-      "icon": "messagebus"
+      "pos": [
+        860,
+        760
+      ],
+      "size": [
+        252,
+        96
+      ],
+      "sublabel": "预算内修改后完整复检"
     },
     {
-      "id": "business",
-      "lane": "issue",
-      "col": 2,
-      "type": "backend",
-      "label": "修订业务知识",
-      "sublabel": "审核、候选回归、发布",
-      "icon": "briefcase"
-    },
-    {
-      "id": "queue",
-      "lane": "issue",
-      "col": 3,
-      "type": "messagebus",
-      "label": "核实原因并分派",
-      "sublabel": "处理中，核对原问题及证据",
-      "icon": "messagebus"
-    },
-    {
-      "id": "rate",
-      "lane": "issue",
-      "col": 5,
-      "type": "frontend",
-      "label": "本人点踩",
-      "sublabel": "仅原提问人可评价",
-      "icon": "person"
-    },
-    {
-      "id": "verify",
-      "lane": "fix",
-      "col": 4,
-      "type": "security",
-      "label": "生效后复验",
-      "sublabel": "核对原问题和关联案例",
-      "icon": "decision",
-      "yOffset": 60
-    },
-    {
-      "id": "notify",
-      "lane": "fix",
-      "col": 5,
-      "type": "frontend",
-      "label": "结案并回告本人",
-      "sublabel": "按当前权限说明真实结论",
-      "icon": "person",
-      "yOffset": 60
-    },
-    {
-      "id": "technical",
-      "lane": "fix",
-      "col": 3,
-      "type": "backend",
-      "label": "修复技术问题",
-      "sublabel": "候选回归通过后交付",
-      "icon": "backend"
-    },
-    {
-      "id": "expired",
-      "lane": "stops",
-      "col": 0,
-      "type": "messagebus",
-      "label": "到期结束原请求",
-      "sublabel": "默认空闲 30 分钟到期",
-      "icon": "clock"
-    },
-    {
-      "id": "poll",
-      "lane": "stops",
-      "col": 5,
-      "type": "backend",
+      "id": "reconcile",
       "label": "核查或取消原任务",
-      "sublabel": "状态未知时禁止重放",
-      "icon": "waiting"
+      "type": "backend",
+      "pos": [
+        1320,
+        690
+      ],
+      "size": [
+        192,
+        76
+      ]
     },
     {
-      "id": "dataOwner",
-      "lane": "fix",
-      "col": 2,
+      "id": "end",
+      "label": "按原因结束",
       "type": "external",
-      "label": "源系统负责人修正",
-      "sublabel": "跟进补录或同步，保持未结",
-      "icon": "person"
+      "pos": [
+        1504,
+        900
+      ],
+      "size": [
+        144,
+        64
+      ],
+      "icon": "stop"
     }
   ],
-  "edges": [
+  "connections": [
     {
-      "id": "check-source",
-      "from": "check",
-      "to": "source",
-      "label": "均通过",
-      "variant": "emphasis"
+      "id": "prepare-understand",
+      "from": "prepare",
+      "to": "understand",
+      "label": "有权",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
     },
     {
-      "id": "source-answer",
-      "from": "source",
-      "to": "answer",
-      "label": "实际结果"
+      "id": "understand-retrieve",
+      "from": "understand",
+      "to": "retrieve",
+      "label": "明确",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
     },
     {
-      "id": "source-generate",
-      "from": "source",
+      "id": "retrieve-enrich",
+      "from": "retrieve",
+      "to": "enrich",
+      "variant": "emphasis",
+      "label": "候选",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "enrich-generate",
+      "from": "enrich",
       "to": "generate",
-      "label": "可修复报错",
-      "role": "return",
+      "label": "无 SQL",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "generate-semantic",
+      "from": "generate",
+      "to": "semantic",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "semantic-security",
+      "from": "semantic",
+      "to": "security",
+      "label": "通过",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "security-execute",
+      "from": "security",
+      "to": "execute",
+      "label": "通过",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "execute-answer",
+      "from": "execute",
+      "to": "answer",
+      "label": "结果",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "identity-prepare",
+      "from": "identity",
+      "to": "prepare",
+      "label": "当前规则",
       "variant": "dashed"
     },
     {
-      "id": "check-generate",
-      "from": "check",
-      "to": "generate",
-      "label": "可修复",
-      "variant": "dashed",
-      "role": "return"
+      "id": "knowledge-retrieve",
+      "from": "knowledge",
+      "to": "retrieve",
+      "label": "RAG",
+      "variant": "dashed"
     },
     {
-      "id": "queue-dataOwner",
-      "from": "queue",
-      "to": "dataOwner",
-      "label": "源数据异常",
-      "role": "branch"
+      "id": "governance-enrich",
+      "from": "governance",
+      "to": "enrich",
+      "label": "同版治理标签",
+      "variant": "dashed"
     },
     {
-      "id": "technical-verify",
-      "from": "technical",
-      "to": "verify",
-      "label": "交付后"
+      "id": "businessDb-execute",
+      "from": "businessDb",
+      "to": "execute",
+      "label": "只读",
+      "variant": "dashed"
     },
     {
-      "id": "ask-understand",
-      "from": "ask",
-      "to": "understand"
-    },
-    {
-      "id": "understand-generate",
-      "from": "understand",
-      "to": "generate",
-      "label": "明确或有适用默认"
+      "id": "outputRules-security",
+      "from": "outputRules",
+      "to": "security",
+      "label": "匹配输出信息",
+      "variant": "dashed"
     },
     {
       "id": "understand-clarify",
       "from": "understand",
       "to": "clarify",
-      "label": "歧义影响结果",
-      "variant": "dashed",
-      "role": "branch"
+      "label": "缺关键条件",
+      "variant": "security"
     },
     {
-      "id": "check-clarify",
-      "from": "check",
+      "id": "enrich-clarify",
+      "from": "enrich",
       "to": "clarify",
-      "label": "缺用户条件",
-      "variant": "dashed",
-      "role": "return"
-    },
-    {
-      "id": "clarify-understand",
-      "from": "clarify",
-      "to": "understand",
-      "label": "期内补充或纠正",
-      "variant": "emphasis",
-      "role": "return"
-    },
-    {
-      "id": "check-stop",
-      "from": "check",
-      "to": "stop",
-      "label": "无权或超限",
-      "variant": "security",
-      "role": "error"
-    },
-    {
-      "id": "understand-gap",
-      "from": "understand",
-      "to": "gap",
-      "label": "知识缺口",
-      "variant": "dashed",
-      "role": "branch"
-    },
-    {
-      "id": "answer-rate",
-      "from": "answer",
-      "to": "rate",
-      "label": "可选",
-      "role": "branch"
-    },
-    {
-      "id": "rate-queue",
-      "from": "rate",
-      "to": "queue",
-      "label": "点踩入队",
-      "variant": "emphasis",
-      "role": "branch"
-    },
-    {
-      "id": "queue-business",
-      "from": "queue",
-      "to": "business",
-      "label": "口径有误"
-    },
-    {
-      "id": "queue-technical",
-      "from": "queue",
-      "to": "technical",
-      "label": "技术问题"
-    },
-    {
-      "id": "business-verify",
-      "from": "business",
-      "to": "verify",
-      "label": "发布后"
-    },
-    {
-      "id": "verify-notify",
-      "from": "verify",
-      "to": "notify",
-      "label": "通过结案"
-    },
-    {
-      "id": "queue-notify",
-      "from": "queue",
-      "to": "notify",
-      "label": "无需修改"
+      "label": "缺口径选择",
+      "variant": "security"
     },
     {
       "id": "generate-clarify",
       "from": "generate",
       "to": "clarify",
-      "label": "缺用户条件",
-      "role": "branch",
-      "variant": "dashed"
-    },
-    {
-      "id": "clarify-expired",
-      "from": "clarify",
-      "to": "expired",
-      "label": "空闲到期",
-      "role": "branch",
-      "variant": "dashed"
-    },
-    {
-      "id": "expired-ask",
-      "from": "expired",
-      "to": "ask",
-      "label": "晚答新建关联请求",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "source-poll",
-      "from": "source",
-      "to": "poll",
-      "label": "状态未知",
-      "role": "branch",
+      "label": "缺查询条件",
       "variant": "security"
     },
     {
-      "id": "source-stop",
-      "from": "source",
-      "to": "stop",
-      "label": "失权或断连",
-      "role": "branch",
+      "id": "semantic-clarify",
+      "from": "semantic",
+      "to": "clarify",
+      "label": "缺用户选择",
       "variant": "security"
     },
     {
-      "id": "gap-queue",
-      "from": "gap",
-      "to": "queue",
-      "label": "自动归并"
+      "id": "security-clarify",
+      "from": "security",
+      "to": "clarify",
+      "label": "缺用户选择",
+      "variant": "security"
     },
     {
-      "id": "verify-queue",
-      "from": "verify",
-      "to": "queue",
-      "label": "未过退回处理",
-      "role": "return",
+      "id": "semantic-enrich",
+      "from": "semantic",
+      "to": "enrich",
+      "label": "缺口径依据",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "security-enrich",
+      "from": "security",
+      "to": "enrich",
+      "label": "输出含义待补",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "enrich-semantic",
+      "from": "enrich",
+      "to": "semantic",
+      "label": "已有 SQL，原意待复核",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "enrich-security",
+      "from": "enrich",
+      "to": "security",
+      "label": "仅补输出含义，原意凭据有效",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "semantic-repair",
+      "from": "semantic",
+      "to": "repair",
+      "label": "意图不符可修复",
+      "variant": "security"
+    },
+    {
+      "id": "security-repair",
+      "from": "security",
+      "to": "repair",
+      "label": "输出可等价改写",
+      "variant": "security"
+    },
+    {
+      "id": "execute-repair",
+      "from": "execute",
+      "to": "repair",
+      "label": "已停止且 SQL 可修复",
+      "variant": "security"
+    },
+    {
+      "id": "repair-generate",
+      "from": "repair",
+      "to": "generate",
+      "label": "重新生成",
       "variant": "dashed"
     },
     {
-      "id": "dataOwner-verify",
-      "from": "dataOwner",
-      "to": "verify",
-      "label": "修正已到位"
+      "id": "execute-reconcile",
+      "from": "execute",
+      "to": "reconcile",
+      "label": "执行状态未知",
+      "variant": "security"
     },
     {
-      "id": "generate-check",
-      "from": "generate",
-      "to": "check"
-    },
-    {
-      "id": "poll-answer",
-      "from": "poll",
+      "id": "reconcile-answer",
+      "from": "reconcile",
       "to": "answer",
       "label": "完成且有权交付",
-      "role": "branch"
+      "variant": "dashed"
     },
     {
-      "id": "clarify-ask",
+      "id": "prepare-end",
+      "from": "prepare",
+      "to": "end",
+      "label": "无权或停用",
+      "variant": "security"
+    },
+    {
+      "id": "enrich-end",
+      "from": "enrich",
+      "to": "end",
+      "label": "知识不足或预算耗尽",
+      "variant": "security"
+    },
+    {
+      "id": "security-end",
+      "from": "security",
+      "to": "end",
+      "label": "真实无权或禁用",
+      "variant": "security"
+    },
+    {
+      "id": "repair-end",
+      "from": "repair",
+      "to": "end",
+      "label": "预算不足或不可修复",
+      "variant": "security"
+    },
+    {
+      "id": "reconcile-end",
+      "from": "reconcile",
+      "to": "end",
+      "label": "不可交付或仍未知",
+      "variant": "security"
+    },
+    {
+      "id": "clarify-understand",
       "from": "clarify",
-      "to": "ask",
-      "label": "明确换题",
-      "role": "branch",
+      "to": "understand",
+      "label": "本题答复：更新意图",
+      "variant": "dashed"
+    },
+    {
+      "id": "answer-repair",
+      "from": "answer",
+      "to": "repair",
+      "label": "结果暴露 SQL 错误",
+      "variant": "dashed"
+    },
+    {
+      "id": "reconcile-repair",
+      "from": "reconcile",
+      "to": "repair",
+      "label": "未取消且确认 SQL 错误",
+      "variant": "dashed"
+    },
+    {
+      "id": "execute-end",
+      "from": "execute",
+      "to": "end",
+      "label": "失权或不可恢复失败",
+      "variant": "security"
+    },
+    {
+      "id": "clarify-prepare",
+      "from": "clarify",
+      "to": "prepare",
+      "label": "明确切源：新请求",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-end",
+      "from": "clarify",
+      "to": "end",
+      "label": "取消、到期或失权",
+      "variant": "security"
+    },
+    {
+      "id": "retrieve-end",
+      "from": "retrieve",
+      "to": "end",
+      "label": "无依据或检索超限",
+      "variant": "security"
+    },
+    {
+      "id": "generate-enrich",
+      "from": "generate",
+      "to": "enrich",
+      "label": "缺正式依据",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "generate-end",
+      "from": "generate",
+      "to": "end",
+      "label": "超限、无进展或失败",
+      "variant": "security"
+    },
+    {
+      "id": "understand-end",
+      "from": "understand",
+      "to": "end",
+      "label": "超出问数范围",
+      "variant": "security"
+    },
+    {
+      "id": "semantic-end",
+      "from": "semantic",
+      "to": "end",
+      "label": "无法满足原意",
+      "variant": "security"
+    },
+    {
+      "id": "answer-end",
+      "from": "answer",
+      "to": "end",
+      "label": "失权或结果不可交付",
+      "variant": "security"
+    },
+    {
+      "id": "understand-prepare",
+      "from": "understand",
+      "to": "prepare",
+      "label": "识别换题：新请求",
       "variant": "dashed"
     }
   ],
-  "cards": [
-    {
-      "dot": "cyan",
-      "title": "自动重写的边界",
-      "items": [
-        "在同一意图和授权范围内，校验未过或库端明确返回可修复的语法、方言错误时，携带原因重写 SQL，每个新候选都要重走校验。",
-        "默认每个请求最多生成 3 个 SQL 候选，执行错误最多重试 1 次，活动处理时间最多 120 秒。同一错误重复且无进展或预算用尽即停止。"
-      ]
-    },
-    {
-      "dot": "cyan",
-      "title": "一个输入框，三种走法",
-      "items": [
-        "直接查：用户已经说清，或有已发布、适用的企业默认口径时，按该口径查询，交付时注明。",
-        "接着说：毛销量和净销量都适用且没有默认值时，问“退货的要扣掉吗？”可点选获准选项，也可回复“扣掉退货，顺便按天列”。保留本店、上周和牛奶，把口径和分组一起更新。",
-        "换话题：员工说“算了，先看今天库存”，同一对话接下新问数，沿用仍适用且获准的信息，按新意图重核日期、指标和数据源范围。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "追问与到期",
-      "items": [
-        "理解、生成或校验时，只有仍缺本人决定且会影响回答的条件，才用业务语言问一句。默认空闲期 30 分钟；期内答复沿用已耗预算，重新核验意图、权限与依据。",
-        "到期未答结束原问数。本人此后补充时创建关联的新请求，重新核对身份、数据源、时间条件、有效知识与权限。"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "查询结果与异常",
-      "items": [
-        "业务数值来自所选企业业务库。超时或连接中断且执行状态不明，先查原任务或请求取消；只有拿到已完成且可交付的结果才可展示。",
-        "所需正式知识确实缺失时，本次问数以知识不足结束并关联治理事项。跨源分析以超出问数范围结束；失权不再交付。"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "修复如何回告",
-      "items": [
-        "原提问人可评价本人可见的回答；点赞进入统计，点踩需填写原因。门店漏录退货等源数据问题交源系统负责人修正，平台保持只读。",
-        "知识或技术修正先通过候选回归，再发布或交付。按实际生效结果复验；失败退回处理中。无需修改时记录依据，单独回告核查结论。"
-      ]
-    }
-  ],
-  "semanticChecks": {
-    "requiredEdges": [
-      {
-        "from": "ask",
-        "to": "understand"
-      },
-      {
-        "from": "understand",
-        "to": "generate"
-      },
-      {
-        "from": "generate",
-        "to": "check"
-      },
-      {
-        "from": "check",
-        "to": "source"
-      },
-      {
-        "from": "source",
-        "to": "answer"
-      },
-      {
-        "from": "generate",
-        "to": "clarify"
-      },
-      {
-        "from": "clarify",
-        "to": "expired"
-      },
-      {
-        "from": "expired",
-        "to": "ask"
-      },
-      {
-        "from": "clarify",
-        "to": "understand"
-      },
-      {
-        "from": "source",
-        "to": "generate"
-      },
-      {
-        "from": "source",
-        "to": "poll"
-      },
-      {
-        "from": "verify",
-        "to": "queue"
-      },
-      {
-        "from": "queue",
-        "to": "dataOwner"
-      },
-      {
-        "from": "dataOwner",
-        "to": "verify"
-      },
-      {
-        "from": "queue",
-        "to": "notify"
-      },
-      {
-        "from": "verify",
-        "to": "notify"
-      },
-      {
-        "from": "clarify",
-        "to": "ask"
-      }
-    ]
-  }
+  "cards": []
 }

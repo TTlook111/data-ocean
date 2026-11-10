@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "b7bbc1c3-6727-48df-835d-af14c4fd8719",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "E:\\projects\\data-ocean\\prototypes\\flows\\运行总览.json",
+  "output": "E:\\projects\\data-ocean\\prototypes\\flows\\运行总览.html",
+  "specification": {
+    "sha256": "efcdcb3659849680705dd9c657eb5f22a0f4d3d809d13feec917ab44a2cc1248",
+    "bytes": 9171
+  },
+  "artifact": {
+    "sha256": "8e97c5cec83e75f0eb825b7f9df2b6ad0016a06a060a0481135d3d4ae63cb16f",
+    "bytes": 855363
+  }
+}

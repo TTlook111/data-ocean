@@ -4,71 +4,85 @@
   "meta": {
     "title": "知识如何发布",
     "locale": "zh-CN",
-    "output": "发布流程.html",
+    "output": "prototypes/flows/发布流程.html",
     "quality_profile": "showcase",
     "views": [
       {
         "id": "draft",
-        "label": "形成候选",
+        "label": "文档与候选准备",
         "focus": [
-          "collect",
-          "suggest",
           "confirm",
           "compose",
           "freeze"
-        ]
+        ],
+        "note": "从已确认治理成果开始；文档确认与候选固定分别保留。"
       },
       {
         "id": "goLive",
-        "label": "测试与发布",
+        "label": "构建、测试与发布",
         "focus": [
-          "freeze",
           "build",
           "test",
           "preflight",
           "activate",
           "hold"
-        ]
+        ],
+        "note": "候选测试与临切换复核分别通过后，整批切换并确认实际入口。"
       },
       {
         "id": "rollback",
-        "label": "暂停与回退",
+        "label": "运行风险与回退",
         "focus": [
-          "activate",
+          "risk",
           "suspend",
+          "rollbackRequest",
           "assess",
           "restore",
           "refused"
-        ]
+        ],
+        "note": "风险处理和回退独立触发；回退仅到直接上一版，不解除当前限制。"
       }
-    ]
+    ],
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "人员操作"
+        },
+        "backend": {
+          "label": "平台处理"
+        },
+        "security": {
+          "label": "验证与阻断"
+        },
+        "database": {
+          "label": "知识与版本"
+        },
+        "messagebus": {
+          "label": "运行变化"
+        }
+      }
+    }
   },
   "lanes": [
     {
-      "id": "authority",
-      "label": "目录与治理"
+      "id": "prepare",
+      "label": "文档与候选准备"
     },
     {
-      "id": "gate",
-      "label": "发布候选"
+      "id": "publish",
+      "label": "构建、测试与发布"
     },
     {
-      "id": "verify",
-      "label": "逐题验证"
+      "id": "blocked",
+      "label": "发布与回退阻断",
+      "variant": "exception"
     },
     {
       "id": "operations",
-      "label": "生效与回退"
-    },
-    {
-      "id": "recovery",
-      "label": "风险处置",
-      "variant": "exception"
+      "label": "运行风险与回退"
     }
   ],
   "mainPath": [
-    "collect",
-    "suggest",
     "confirm",
     "compose",
     "freeze",
@@ -79,147 +93,135 @@
   ],
   "nodes": [
     {
-      "id": "collect",
-      "lane": "authority",
+      "id": "confirm",
+      "lane": "prepare",
       "col": 0,
       "type": "database",
-      "label": "只读采集目录",
-      "sublabel": "记录表、字段和关系",
+      "label": "已确认治理成果",
+      "sublabel": "同源表字段、关系及指标口径",
       "icon": "database"
     },
     {
-      "id": "suggest",
-      "lane": "authority",
+      "id": "compose",
+      "lane": "prepare",
       "col": 1,
-      "type": "backend",
-      "label": "AI 辅助整理",
-      "sublabel": "解释字段和指标口径",
-      "icon": "backend"
-    },
-    {
-      "id": "confirm",
-      "lane": "authority",
-      "col": 2,
       "type": "frontend",
-      "label": "人工逐项审核",
-      "sublabel": "确认定义、条件与依据",
+      "label": "整理并确认知识文档",
+      "sublabel": "从已确认成果生成可编辑草稿",
       "icon": "person"
     },
     {
-      "id": "compose",
-      "lane": "authority",
-      "col": 3,
-      "type": "frontend",
-      "label": "确认知识文档",
-      "sublabel": "从已确认条目生成草稿",
-      "icon": "briefcase"
-    },
-    {
       "id": "freeze",
-      "lane": "gate",
-      "col": 3,
+      "lane": "prepare",
+      "col": 2,
       "type": "database",
-      "label": "固定候选清单",
-      "sublabel": "锁定范围、依赖和修订",
+      "label": "预检并固定候选",
+      "sublabel": "范围、依赖、权限与内容修订",
       "icon": "flag"
     },
     {
       "id": "build",
-      "lane": "gate",
-      "col": 4,
+      "lane": "publish",
+      "col": 2,
       "type": "backend",
-      "label": "构建隔离索引",
-      "sublabel": "候选与生产分开",
+      "label": "构建隔离候选索引",
+      "sublabel": "候选与当前正式入口分开",
       "icon": "backend"
     },
     {
       "id": "test",
-      "lane": "verify",
-      "col": 4,
+      "lane": "publish",
+      "col": 3,
       "type": "security",
-      "label": "逐题验证",
-      "sublabel": "绑定测试身份与授权范围",
+      "label": "运行候选相关测试",
+      "sublabel": "题单、测试身份及当前授权",
       "icon": "decision"
     },
     {
       "id": "preflight",
-      "lane": "verify",
-      "col": 5,
+      "lane": "publish",
+      "col": 4,
       "type": "security",
       "label": "切换前复核",
-      "sublabel": "复核权限、依赖与版本",
+      "sublabel": "权限、版本、依赖与测试依据",
       "icon": "decision"
     },
     {
       "id": "activate",
-      "lane": "operations",
+      "lane": "publish",
       "col": 5,
       "type": "database",
-      "label": "本次范围生效",
-      "sublabel": "整批切换知识与索引",
+      "label": "整批切换并确认生效",
+      "sublabel": "知识与索引使用同一清单",
       "icon": "success"
     },
     {
-      "id": "suspend",
-      "lane": "recovery",
+      "id": "hold",
+      "lane": "blocked",
+      "col": 4,
+      "type": "security",
+      "label": "阻止本次发布",
+      "sublabel": "保留原因及仍有效入口",
+      "icon": "stop",
+      "width": 160,
+      "height": 76
+    },
+    {
+      "id": "refused",
+      "lane": "blocked",
       "col": 5,
       "type": "security",
-      "label": "暂停受影响知识",
-      "sublabel": "禁用已删除或不兼容对象",
+      "label": "阻止本次回退",
+      "sublabel": "保留当前版本及现有限制",
       "icon": "stop"
+    },
+    {
+      "id": "risk",
+      "lane": "operations",
+      "col": 0,
+      "type": "messagebus",
+      "label": "结构失效或对象禁止",
+      "sublabel": "沿依赖定位受影响知识",
+      "icon": "flag"
+    },
+    {
+      "id": "suspend",
+      "lane": "operations",
+      "col": 1,
+      "type": "security",
+      "label": "暂停受影响知识",
+      "sublabel": "禁用失效对象，保留有效知识",
+      "icon": "stop"
+    },
+    {
+      "id": "rollbackRequest",
+      "lane": "operations",
+      "col": 3,
+      "type": "frontend",
+      "label": "申请整批回退",
+      "sublabel": "明确当前版、上一版及目标范围",
+      "icon": "person"
     },
     {
       "id": "assess",
       "lane": "operations",
       "col": 4,
       "type": "security",
-      "label": "回退前整批预检",
-      "sublabel": "仅检查直接上一版",
+      "label": "整批预检直接上一版",
+      "sublabel": "结构、权限、禁止状态与关键题",
       "icon": "decision"
-    },
-    {
-      "id": "hold",
-      "lane": "gate",
-      "col": 5,
-      "type": "security",
-      "label": "阻止发布",
-      "sublabel": "仍有效旧版继续服务",
-      "icon": "stop"
-    },
-    {
-      "id": "refused",
-      "lane": "recovery",
-      "col": 4,
-      "type": "security",
-      "label": "维持当前版本",
-      "sublabel": "上一版缺失或检查失败",
-      "icon": "stop"
     },
     {
       "id": "restore",
       "lane": "operations",
-      "col": 3,
+      "col": 5,
       "type": "database",
       "label": "退回直接上一版",
-      "sublabel": "全部通过后整批切换",
+      "sublabel": "整批切换，沿用当前限制",
       "icon": "success"
     }
   ],
   "edges": [
-    {
-      "id": "e-collect-suggest",
-      "from": "collect",
-      "to": "suggest",
-      "role": "main",
-      "variant": "default"
-    },
-    {
-      "id": "e-suggest-confirm",
-      "from": "suggest",
-      "to": "confirm",
-      "role": "main",
-      "variant": "default"
-    },
     {
       "id": "e-confirm-compose",
       "from": "confirm",
@@ -239,7 +241,8 @@
       "from": "freeze",
       "to": "build",
       "role": "main",
-      "variant": "default"
+      "variant": "default",
+      "label": "预检通过"
     },
     {
       "id": "e-build-test",
@@ -254,7 +257,7 @@
       "to": "preflight",
       "role": "main",
       "variant": "emphasis",
-      "label": "题目全通过"
+      "label": "相关题全通过"
     },
     {
       "id": "e-preflight-activate",
@@ -268,82 +271,83 @@
       "id": "e-build-hold",
       "from": "build",
       "to": "hold",
-      "label": "构建失败",
       "role": "error",
-      "variant": "security"
+      "variant": "security",
+      "label": "构建失败"
     },
     {
       "id": "e-test-hold",
       "from": "test",
       "to": "hold",
-      "label": "无题或未通过",
       "role": "error",
-      "variant": "security"
+      "variant": "security",
+      "label": "无题或未全通过"
     },
     {
       "id": "e-preflight-hold",
       "from": "preflight",
       "to": "hold",
-      "label": "依据变化",
       "role": "error",
-      "variant": "security"
+      "variant": "security",
+      "label": "复核受阻"
     },
     {
-      "id": "e-activate-suspend",
-      "from": "activate",
+      "id": "e-risk-suspend",
+      "from": "risk",
       "to": "suspend",
-      "label": "结构失效",
       "role": "branch",
-      "variant": "security"
+      "variant": "security",
+      "label": "仅受影响部分"
     },
     {
-      "id": "e-activate-assess",
-      "from": "activate",
+      "id": "e-request-assess",
+      "from": "rollbackRequest",
       "to": "assess",
-      "label": "有权申请",
-      "role": "branch",
+      "role": "main",
       "variant": "default"
     },
     {
       "id": "e-assess-restore",
       "from": "assess",
       "to": "restore",
-      "label": "全部通过",
       "role": "branch",
-      "variant": "emphasis"
+      "variant": "emphasis",
+      "label": "全部通过"
     },
     {
       "id": "e-assess-refused",
       "from": "assess",
       "to": "refused",
-      "label": "预检受阻",
       "role": "error",
-      "variant": "security"
+      "variant": "security",
+      "label": "缺失或预检失败"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "测试跟随题目的身份",
+      "title": "范围与内容确认",
       "items": [
-        "题目绑定受控身份、门店范围和授权版本。执行时条件失效，须重新核验。",
-        "无题先补题；未裁定、取消或失败须处理并重测。报告按查看人的当前权限展示。"
+        "每批固定同一数据源内的完整范围、必要依赖和确切修订；未确认内容不进入候选，其他范围保持独立。",
+        "文档含义变化须回到治理条目重新确认；后续修改形成新候选，不能沿用旧候选成绩。"
       ]
     },
     {
       "dot": "amber",
-      "title": "治理缺口与使用限制",
+      "title": "测试与切换门槛",
       "items": [
-        "员工问到可定位的知识缺口时，系统自动建立或关联治理事项，提问人可补充。",
-        "仅怀疑含义有误时转待复核。已暂停或禁止的对象，须验证并由有权人员显式解除。"
+        "测试绑定本次候选、审核题单、受控身份及当前授权；无题、失败、未裁定、取消或执行异常都不算通过。",
+        "临切换复核当前权限、禁止状态、基础版本、依赖和测试依据。切换结果不明时先核实实际入口，不直接宣称成功。",
+        "失败不切换，仅仍有效的旧入口继续使用；首次发布无旧版时，相关业务暂不可用。"
       ]
     },
     {
       "dot": "emerald",
-      "title": "正式范围与回退",
+      "title": "运行与回退边界",
       "items": [
-        "发布只替换本次完整范围。在途问数可沿用仍有效的版本，授权和禁用状态实时复核。",
-        "回退权限和范围由企业授予。重试同一回退请求返回原结果，不能越版或只退部分知识。"
+        "普通更新中的在途问数可沿用仍有效旧版，当前权限和禁止状态持续生效；仅怀疑含义有误先待复核，不自动暂停。",
+        "回退须有整个目标范围的权限，并通过当前结构、依赖、禁止状态和关键题单检查；只整批退回直接上一版，不恢复已撤销权限或自动解除暂停。",
+        "同一回退请求重复提交返回原处理结果；修复、发布或回退都不能代替有权人员对暂停与禁止的显式解除。"
       ]
     }
   ]

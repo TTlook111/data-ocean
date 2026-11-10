@@ -2,63 +2,10 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "DataOcean 项目运行总图",
-    "output": "运行总览.html",
+    "title": "DataOcean 项目运行总览",
     "locale": "zh-CN",
     "quality_profile": "showcase",
-    "views": [
-      {
-        "id": "oneQuery",
-        "label": "员工问一次数",
-        "focus": [
-          "ask",
-          "resolve",
-          "generate",
-          "check",
-          "businessDb",
-          "answer"
-        ],
-        "note": "一个输入框接住提问、补充和换题。已有明确或适用默认口径时直接查，返回实际数值并说明口径。"
-      },
-      {
-        "id": "retry",
-        "label": "重写或追问",
-        "focus": [
-          "resolve",
-          "clarify",
-          "generate",
-          "check",
-          "businessDb"
-        ],
-        "note": "生成或校验时缺关键条件且会改变答案，才在对话中追问。期内补充后重解；可修复 SQL 带原因限次重写，每个新候选都重新校验。"
-      },
-      {
-        "id": "knowledgePrep",
-        "label": "企业准备知识",
-        "focus": [
-          "catalog",
-          "confirm",
-          "publish",
-          "knowledge",
-          "resolve"
-        ],
-        "note": "治理人员确认定义，候选通过测试后发布。同一份有效知识可供多个问题读取。"
-      },
-      {
-        "id": "closeIssue",
-        "label": "从发现到回告",
-        "focus": [
-          "gap",
-          "rating",
-          "triage",
-          "fix",
-          "sourceFix",
-          "verify",
-          "tell"
-        ],
-        "note": "核实后分别处理口径、程序或源数据问题。等待外部修正时保留事项，复验失败退回处理中，通过才按已解决回告。"
-      }
-    ],
+    "output": "prototypes/flows/运行总览.html",
     "legend": {
       "mode": "auto",
       "entries": {
@@ -69,32 +16,84 @@
           "label": "系统处理"
         },
         "database": {
-          "label": "数据与知识"
+          "label": "知识与业务数据"
         },
         "security": {
-          "label": "校验"
+          "label": "访问与校验"
         },
         "messagebus": {
-          "label": "事项与回告"
-        },
-        "external": {
-          "label": "源系统负责人"
+          "label": "问题处理"
         }
       }
-    }
+    },
+    "views": [
+      {
+        "id": "knowledge",
+        "label": "知识如何准备",
+        "focus": [
+          "catalog",
+          "govern",
+          "publish",
+          "knowledge",
+          "retrieve"
+        ],
+        "note": "元数据经过业务确认、候选测试与发布，成为问数检索和同版事实补取的依据。知识提供定义，业务库提供实际数值。"
+      },
+      {
+        "id": "query",
+        "label": "一次问数",
+        "focus": [
+          "ask",
+          "retrieve",
+          "sql",
+          "businessDb",
+          "answer"
+        ],
+        "note": "理解问题并检索、补齐知识，生成 SQL 后核对原意、安全、权限和输出；全部通过才只读执行，核对实际结果后回答。"
+      },
+      {
+        "id": "access",
+        "label": "本次访问边界",
+        "focus": [
+          "configure",
+          "boundary",
+          "retrieve",
+          "sql",
+          "businessDb",
+          "answer"
+        ],
+        "note": "后台维护授权与中文输出规则；运行时读取当前授权、按所属部门自动识别范围。角色只控制功能，知识取用、执行和交付持续复核。"
+      },
+      {
+        "id": "improve",
+        "label": "问题如何改进",
+        "focus": [
+          "issue",
+          "handle",
+          "fix",
+          "close",
+          "govern"
+        ],
+        "note": "知识缺口或本人反馈进入问题处理。知识修正经治理与发布，程序或源数据按责任修正；按真实生效结果复验并回告本人。"
+      }
+    ]
   },
   "lanes": [
     {
       "id": "prepare",
-      "label": "企业准备可复用的知识"
+      "label": "知识准备"
+    },
+    {
+      "id": "access",
+      "label": "身份、权限与运行约束"
     },
     {
       "id": "query",
-      "label": "员工问一次数"
+      "label": "员工问数"
     },
     {
-      "id": "handle",
-      "label": "发现问题、处理与回告"
+      "id": "improve",
+      "label": "问题改进"
     }
   ],
   "nodes": [
@@ -103,17 +102,16 @@
       "lane": "prepare",
       "col": 0,
       "type": "database",
-      "label": "只读采集元数据",
-      "sublabel": "表、字段和关系",
-      "icon": "database"
+      "label": "接入并采集元数据",
+      "sublabel": "只读连接、表字段与结构"
     },
     {
-      "id": "confirm",
+      "id": "govern",
       "lane": "prepare",
       "col": 1,
       "type": "frontend",
-      "label": "人工确认业务口径",
-      "sublabel": "AI 辅助整理，逐项审核",
+      "label": "人工确认业务知识",
+      "sublabel": "含义、关系与指标口径",
       "icon": "person"
     },
     {
@@ -121,453 +119,279 @@
       "lane": "prepare",
       "col": 2,
       "type": "security",
-      "label": "验证并发布候选",
-      "sublabel": "按题目身份测试通过",
-      "icon": "decision"
+      "label": "测试并发布",
+      "sublabel": "候选通过后切换生效"
     },
     {
       "id": "knowledge",
       "lane": "prepare",
       "col": 3,
       "type": "database",
-      "label": "已发布的业务知识",
-      "sublabel": "有效定义、关系与计算规则",
-      "icon": "database"
+      "label": "已发布知识",
+      "sublabel": "文档与对应治理修订"
+    },
+    {
+      "id": "configure",
+      "lane": "access",
+      "col": 3,
+      "type": "frontend",
+      "label": "维护授权与输出规则",
+      "sublabel": "后台配置、授权时选用",
+      "icon": "person"
+    },
+    {
+      "id": "boundary",
+      "lane": "access",
+      "col": 4,
+      "type": "security",
+      "label": "取得本次访问边界",
+      "sublabel": "当前授权、部门范围与规则"
     },
     {
       "id": "ask",
       "lane": "query",
       "col": 0,
       "type": "frontend",
-      "label": "员工选源并提问",
-      "sublabel": "同一输入框里提问或续聊",
-      "icon": "person",
-      "yOffset": 22
+      "label": "员工选源提问",
+      "sublabel": "在同一对话中提问或补充",
+      "icon": "person"
     },
     {
-      "id": "resolve",
+      "id": "retrieve",
       "lane": "query",
       "col": 1,
       "type": "backend",
-      "label": "理解本轮并取口径",
-      "sublabel": "保留适用条件，重核依据",
-      "icon": "backend",
-      "yOffset": 22
+      "label": "理解并检索知识",
+      "sublabel": "RAG 召回、同版事实补取"
     },
     {
-      "id": "generate",
+      "id": "sql",
       "lane": "query",
       "col": 2,
-      "type": "backend",
-      "label": "生成 SQL",
-      "sublabel": "依据意图、口径和方言",
-      "icon": "backend",
-      "yOffset": 22
-    },
-    {
-      "id": "check",
-      "lane": "query",
-      "col": 3,
       "type": "security",
-      "label": "校验 SQL",
-      "sublabel": "先核需求语义，再查安全权限",
-      "icon": "decision",
-      "yOffset": 22
+      "label": "生成并校验 SQL",
+      "sublabel": "核对原意、安全、权限与输出"
     },
     {
       "id": "businessDb",
       "lane": "query",
       "col": 4,
       "type": "database",
-      "label": "所选企业业务库",
-      "sublabel": "在获准行列内只读执行",
-      "icon": "database",
-      "yOffset": 22
+      "label": "只读查询业务库",
+      "sublabel": "执行前复核，取得实际数值"
     },
     {
       "id": "answer",
       "lane": "query",
       "col": 5,
       "type": "frontend",
-      "label": "交付本次答案",
-      "sublabel": "展示查询结果及所用口径",
-      "icon": "success",
-      "yOffset": 22
+      "label": "核对并交付答案",
+      "sublabel": "结果、口径与获准依据",
+      "icon": "success"
     },
     {
-      "id": "clarify",
-      "lane": "query",
-      "col": 2,
-      "type": "frontend",
-      "label": "在对话中追问",
-      "sublabel": "可点选，也可自由回复",
-      "icon": "waiting",
-      "yOffset": -69
-    },
-    {
-      "id": "gap",
-      "lane": "handle",
+      "id": "issue",
+      "lane": "improve",
       "col": 1,
       "type": "messagebus",
-      "label": "自动关联治理事项",
-      "sublabel": "本次知识不足，同一缺口归并",
-      "icon": "briefcase",
-      "yOffset": -28
+      "label": "知识缺口或本人反馈",
+      "sublabel": "自动关联缺口、接收评价"
     },
     {
-      "id": "rating",
-      "lane": "handle",
-      "col": 5,
-      "type": "messagebus",
-      "label": "本人点踩并说明原因",
-      "sublabel": "已交付回答的反馈进入队列",
-      "icon": "messagebus",
-      "yOffset": -26
-    },
-    {
-      "id": "triage",
-      "lane": "handle",
+      "id": "handle",
+      "lane": "improve",
       "col": 2,
       "type": "frontend",
-      "label": "处理中：核实与分派",
-      "sublabel": "查原问题、实际依据与影响",
-      "icon": "person",
-      "yOffset": -28
+      "label": "核实并分类处理",
+      "sublabel": "知识、程序或源数据问题",
+      "icon": "person"
     },
     {
       "id": "fix",
-      "lane": "handle",
-      "col": 2,
+      "lane": "improve",
+      "col": 3,
       "type": "backend",
       "label": "完成修正并生效",
-      "sublabel": "知识重审发布或技术修复交付",
-      "icon": "active",
-      "yOffset": 55
+      "sublabel": "按责任修正，知识须经发布"
     },
     {
-      "id": "verify",
-      "lane": "handle",
-      "col": 3,
-      "type": "security",
-      "label": "按原问题复验",
-      "sublabel": "核对已生效版本与相关用例",
-      "icon": "decision",
-      "yOffset": 55
-    },
-    {
-      "id": "tell",
-      "lane": "handle",
+      "id": "close",
+      "lane": "improve",
       "col": 5,
-      "type": "messagebus",
-      "label": "回告原提问人",
-      "sublabel": "按本人当前权限说明结论",
-      "icon": "flag",
-      "yOffset": 55
-    },
-    {
-      "id": "sourceFix",
-      "lane": "handle",
-      "col": 1,
-      "yOffset": 55,
-      "type": "external",
-      "icon": "person",
-      "label": "源系统负责人修正",
-      "sublabel": "跟踪补录或同步，等待时未结"
+      "type": "frontend",
+      "label": "复验并回告本人",
+      "sublabel": "核对原问题及真实处理结果",
+      "icon": "person"
     }
-  ],
-  "mainPath": [
-    "ask",
-    "resolve",
-    "generate",
-    "check",
-    "businessDb",
-    "answer"
   ],
   "edges": [
     {
-      "id": "ask-resolve",
+      "id": "catalog-govern",
+      "from": "catalog",
+      "to": "govern",
+      "role": "main"
+    },
+    {
+      "id": "govern-publish",
+      "from": "govern",
+      "to": "publish",
+      "role": "main"
+    },
+    {
+      "id": "publish-knowledge",
+      "from": "publish",
+      "to": "knowledge",
+      "role": "main"
+    },
+    {
+      "id": "configure-boundary",
+      "from": "configure",
+      "to": "boundary",
+      "role": "main"
+    },
+    {
+      "id": "ask-retrieve",
       "from": "ask",
-      "to": "resolve"
+      "to": "retrieve",
+      "role": "main"
     },
     {
-      "id": "resolve-generate",
-      "from": "resolve",
-      "to": "generate",
-      "label": "明确或有适用默认"
+      "id": "retrieve-sql",
+      "from": "retrieve",
+      "to": "sql",
+      "label": "依据充分、条件明确",
+      "role": "main"
     },
     {
-      "id": "generate-check",
-      "from": "generate",
-      "to": "check"
-    },
-    {
-      "id": "check-businessDb",
-      "from": "check",
+      "id": "sql-businessDb",
+      "from": "sql",
       "to": "businessDb",
-      "label": "通过"
+      "label": "全部检查通过",
+      "role": "main"
     },
     {
       "id": "businessDb-answer",
       "from": "businessDb",
       "to": "answer",
-      "label": "成功取数"
+      "label": "实际查询结果",
+      "role": "main"
     },
     {
-      "id": "generate-clarify",
-      "from": "generate",
-      "to": "clarify",
-      "label": "缺用户条件",
-      "role": "branch",
-      "variant": "security"
-    },
-    {
-      "id": "resolve-gap",
-      "from": "resolve",
-      "to": "gap",
-      "label": "已定位知识缺口",
-      "role": "branch",
-      "variant": "security"
-    },
-    {
-      "id": "answer-rating",
-      "from": "answer",
-      "to": "rating",
-      "label": "可选点踩",
-      "role": "branch",
-      "variant": "dashed"
-    },
-    {
-      "id": "gap-triage",
-      "from": "gap",
-      "to": "triage"
-    },
-    {
-      "id": "rating-triage",
-      "from": "rating",
-      "to": "triage"
-    },
-    {
-      "id": "triage-fix",
-      "from": "triage",
-      "to": "fix",
-      "label": "知识或程序问题"
-    },
-    {
-      "id": "fix-verify",
-      "from": "fix",
-      "to": "verify"
-    },
-    {
-      "id": "verify-tell",
-      "from": "verify",
-      "to": "tell",
-      "label": "通过，已解决"
-    },
-    {
-      "id": "triage-sourceFix",
-      "from": "triage",
-      "to": "sourceFix",
-      "label": "源数据异常",
-      "role": "branch",
-      "variant": "default"
-    },
-    {
-      "id": "sourceFix-verify",
-      "from": "sourceFix",
-      "to": "verify",
-      "label": "修正完成",
-      "role": "branch",
-      "variant": "default"
-    },
-    {
-      "id": "verify-triage",
-      "from": "verify",
-      "to": "triage",
-      "label": "复验未过",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "triage-tell",
-      "from": "triage",
-      "to": "tell",
-      "label": "无需修改",
-      "role": "branch",
-      "variant": "dashed"
-    },
-    {
-      "id": "clarify-resolve",
-      "from": "clarify",
-      "to": "resolve",
-      "label": "期内补充或纠正",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "resolve-clarify",
-      "from": "resolve",
-      "to": "clarify",
-      "label": "歧义影响结果",
-      "role": "branch",
-      "variant": "security"
-    },
-    {
-      "id": "check-clarify",
-      "from": "check",
-      "to": "clarify",
-      "label": "仍缺条件",
-      "role": "branch",
-      "variant": "security"
-    },
-    {
-      "id": "check-generate",
-      "from": "check",
-      "to": "generate",
-      "label": "可修复，限次重写",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "businessDb-generate",
-      "from": "businessDb",
-      "to": "generate",
-      "label": "可修复的库端错误",
-      "role": "return",
-      "variant": "dashed"
-    },
-    {
-      "id": "knowledge-resolve",
+      "id": "knowledge-retrieve",
       "from": "knowledge",
-      "to": "resolve",
-      "label": "读取口径",
+      "to": "retrieve",
+      "label": "检索与同版补取",
       "role": "branch",
       "variant": "dashed"
     },
     {
-      "id": "catalog-confirm",
-      "from": "catalog",
-      "to": "confirm"
+      "id": "boundary-retrieve",
+      "from": "boundary",
+      "to": "retrieve",
+      "label": "限定知识取用",
+      "role": "branch",
+      "variant": "dashed"
     },
     {
-      "id": "confirm-publish",
-      "from": "confirm",
-      "to": "publish"
+      "id": "boundary-sql",
+      "from": "boundary",
+      "to": "sql",
+      "label": "落实访问与输出约束",
+      "role": "branch",
+      "variant": "dashed"
     },
     {
-      "id": "publish-knowledge",
-      "from": "publish",
-      "to": "knowledge"
+      "id": "retrieve-issue",
+      "from": "retrieve",
+      "to": "issue",
+      "label": "确认知识缺口",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "answer-issue",
+      "from": "answer",
+      "to": "issue",
+      "label": "本人反馈",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "issue-handle",
+      "from": "issue",
+      "to": "handle",
+      "role": "main"
+    },
+    {
+      "id": "handle-fix",
+      "from": "handle",
+      "to": "fix",
+      "role": "main"
+    },
+    {
+      "id": "fix-close",
+      "from": "fix",
+      "to": "close",
+      "label": "按实际生效结果",
+      "role": "main"
+    },
+    {
+      "id": "fix-govern",
+      "from": "fix",
+      "to": "govern",
+      "label": "知识修正走治理发布",
+      "role": "return",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "知识与数值各有来源",
+      "items": [
+        "知识库与同版治理成果提供定义和查询依据；实际业务数值来自本次选中的企业业务库。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "访问边界贯穿问数",
+      "items": [
+        "角色控制功能，所属部门决定自动识别的部门范围；当前授权与输出规则持续约束知识取用、查询和答案交付。"
+      ]
     }
   ],
   "semanticChecks": {
     "requiredEdges": [
       {
+        "from": "knowledge",
+        "to": "retrieve"
+      },
+      {
+        "from": "boundary",
+        "to": "retrieve"
+      },
+      {
+        "from": "boundary",
+        "to": "sql"
+      },
+      {
+        "from": "fix",
+        "to": "govern"
+      }
+    ],
+    "requiredPaths": [
+      {
         "from": "ask",
-        "to": "resolve"
-      },
-      {
-        "from": "resolve",
-        "to": "generate"
-      },
-      {
-        "from": "generate",
-        "to": "check"
-      },
-      {
-        "from": "check",
-        "to": "businessDb"
-      },
-      {
-        "from": "businessDb",
         "to": "answer"
       },
       {
-        "from": "check",
-        "to": "generate"
+        "from": "catalog",
+        "to": "knowledge"
       },
       {
-        "from": "check",
-        "to": "clarify"
-      },
-      {
-        "from": "clarify",
-        "to": "resolve"
-      },
-      {
-        "from": "knowledge",
-        "to": "resolve"
-      },
-      {
-        "from": "resolve",
-        "to": "gap"
-      },
-      {
-        "from": "answer",
-        "to": "rating"
-      },
-      {
-        "from": "verify",
-        "to": "tell"
-      },
-      {
-        "from": "triage",
-        "to": "tell"
-      },
-      {
-        "from": "generate",
-        "to": "clarify"
-      },
-      {
-        "from": "businessDb",
-        "to": "generate"
-      },
-      {
-        "from": "triage",
-        "to": "sourceFix"
-      },
-      {
-        "from": "sourceFix",
-        "to": "verify"
-      },
-      {
-        "from": "verify",
-        "to": "triage"
+        "from": "issue",
+        "to": "close"
       }
     ]
-  },
-  "cards": [
-    {
-      "dot": "cyan",
-      "title": "同一段对话如何得到数字",
-      "items": [
-        "店长在同一个输入框问“本店上周牛奶卖了多少盒？”已发布且适用的默认口径是净销量时，直接查所选业务库，并在答案注明“已扣退货”。",
-        "没有适用默认且选择会改变数字时，问“退货的要扣掉吗？”店长回复“扣掉，顺便按天列”，助手沿用本店、上周、牛奶，同时应用口径与分组；明确说“算了，先查库存”则转入新问数。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "查询未通过时如何继续",
-      "items": [
-        "生成或校验时仍缺会影响答案的条件，在原对话追问。候选可点，也可直接输入。默认空闲期 30 分钟；期内补充重新理解并核验依据，沿用预算。到期后补充另建关联问数。",
-        "语义、语法或方言错误可修复时带原因重写。默认每个请求最多生成 3 个 SQL 候选；已确认的可修复执行错误最多重试 1 次，同错无进展或超预算就停止。",
-        "超时或网络中断时，先核查原数据库任务或请求取消；状态未知时禁止重放。已经执行完成且结果可用时，复核当前权限再交付。"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "知识不足与点踩分开处理",
-      "items": [
-        "必要口径确实缺失时，问数以知识不足结束，自动建立或归并治理事项；本人可直接补充。有效点踩另记反馈，先核实原因。",
-        "退货漏录等源数据问题由源系统负责人修正，平台跟踪，不写业务库。候选回归通过再发布或交付知识、程序修正。生效后复验，未过退回处理中；无需修改时记录依据后回告。"
-      ]
-    },
-    {
-      "dot": "slate",
-      "title": "贯穿三条流程的配置与观察",
-      "items": [
-        "企业配置角色、数据范围和模型用途；在读取知识、执行、交付与历史回看时核验当前权限。",
-        "运营看板按可见范围汇总发布状态、各类问数终态、反馈事项、评测质量和模型用量。"
-      ]
-    }
-  ]
+  }
 }

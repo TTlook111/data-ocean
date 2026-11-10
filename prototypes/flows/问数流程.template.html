@@ -1,0 +1,42 @@
+<style>
+  /* 保留原阅读器及其工具，只扩展节点详情，不替换原有交互。 */
+  .node-outline { display: none !important; }
+  .diagram-container svg [data-node-id] text[data-node-label] { font-size: 14px; }
+  #focus-chip { width: min(420px, calc(100% - 32px)); max-width: calc(100% - 32px); max-height: min(76vh, 820px); overflow-y: auto; }
+  #focus-chip .relationship-lens-title { font-size: 18px; }
+  .query-node-contract { padding: 16px; border-top: 1px solid var(--toolbar-border); color: var(--text); font-size: 14px; line-height: 1.6; }
+  .query-node-contract section + section { margin-top: 20px; }
+  .query-node-contract h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  .query-node-contract p { margin: 0; }
+  .query-node-contract ul { margin: 0; padding-left: 20px; }
+  .query-node-contract li + li { margin-top: 6px; }
+  .query-node-contract section:last-child { color: var(--text-muted); }
+</style>
+<script type="application/json" id="query-node-data">{{QUERY_DATA}}</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById('query-node-data').textContent);
+  const nodes = new Map(data.nodes.map(node => [node.id, node]));
+  const passport = document.getElementById('focus-chip');
+  const currentId = document.getElementById('focus-id');
+  const contract = document.createElement('div');
+  contract.className = 'query-node-contract'; contract.id = 'query-node-contract';
+  passport.insertBefore(contract, document.getElementById('relationship-lens-list'));
+  document.getElementById('btn-focus-clear').setAttribute('aria-label', '关闭节点详情');
+  function renderContract() {
+    const node = nodes.get(currentId.textContent.trim()); contract.replaceChildren(); if (!node) return;
+    const index = data.mainPath.indexOf(node.id);
+    document.getElementById('focus-kind').textContent = node.kind;
+    document.getElementById('focus-context').hidden = true;
+    passport.querySelector('.relationship-lens-eyebrow').textContent = index >= 0 ? `执行节点 ${index + 1} / 9` : node.kind;
+    for (const [title, values, list] of [['职责', [node.purpose], false], ['输入', node.input, true], ['输出', node.output, true], ['流转', node.routes, true], ['约束', node.rules, true]]) {
+      const section = document.createElement('section'); const heading = document.createElement('h3'); heading.textContent = title; section.append(heading);
+      const content = document.createElement(list ? 'ul' : 'p');
+      if (list) for (const value of values) { const item = document.createElement('li'); item.textContent = value; content.append(item); }
+      else content.textContent = values[0];
+      section.append(content); contract.append(section);
+    }
+  }
+  new MutationObserver(renderContract).observe(currentId, { childList: true, characterData: true, subtree: true }); renderContract();
+})();
+</script>

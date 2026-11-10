@@ -56,6 +56,7 @@
   font-size: 14px;
   font-weight: 500;
   line-height: 22px;
+  text-decoration: none;
 }
 .case-action:hover { border-color: #a5bbdb; background: #f2f6fc; }
 .case-action.case-primary { border-color: var(--blue); color: white; background: var(--blue); }
@@ -82,7 +83,6 @@
 }
 .case-field textarea { display: block; min-height: 64px; resize: vertical; }
 .case-field input[readonly] { border-color: transparent; background: #edf1f6; }
-.case-field-pair { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(95px, 1fr); gap: 16px; margin-top: 16px; }
 .case-form-buttons, .case-sim-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .case-form-buttons { justify-content: flex-end; margin-top: 16px; }
 .case-form-buttons .case-action { min-width: 96px; }
@@ -133,7 +133,4 @@
   .case-action, .case-disclosure { min-height: 44px; }
   .case-disclosure { padding-inline: 13px; }
   .case-sim-buttons { padding-inline: 13px; }
-}
-@media (max-width: 380px) {
-  .case-field-pair { grid-template-columns: minmax(0, 1fr); }
 }
