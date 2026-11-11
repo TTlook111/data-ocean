@@ -3,7 +3,7 @@
 .role-protected { display: inline-flex; align-items: center; padding: 1px 6px; color: #825b24; background: #fbf3e4; border-radius: 4px; font-size: 12px; line-height: 18px; white-space: nowrap; }
 .role-editor { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .role-editor > .el-form { display: flex; flex: 1; flex-direction: column; gap: 24px; min-width: 0; min-height: 0; }
-.role-editor-info { flex: none; display: grid; grid-template-columns: minmax(240px,1fr) minmax(320px,2fr); gap: 24px; padding: 24px; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }
+.role-editor-info { flex: none; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 24px; padding: 24px; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }
 .role-editor-info .el-form-item { margin: 0; }
 .role-editor-error { flex: none; margin: -8px 0; }
 .role-permission-card { display: flex; flex: 1; flex-direction: column; min-height: 280px; overflow: hidden; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }

@@ -117,16 +117,17 @@
       const wrapper = el('section', 'role-editor prototype-ui'), draftKey = role?.id || 'new';
       PrototypeUI.mount(wrapper, {
         components: { PermissionBrowser },
-        data: () => ({ model: structuredClone(drafts.get(draftKey) || { name: role?.name || '', description: role?.description || '', permissions: [...(role?.permissions || [])] }), error: '', discarded: false }),
+        data: () => ({ model: structuredClone(drafts.get(draftKey) || { name: role?.name || '', description: role?.description || '', permissions: [...(role?.permissions || [])] }), error: '', nameError: false, discarded: false }),
         computed: { changed() { return !role || this.model.name !== role.name || this.model.description !== role.description || [...this.model.permissions].sort().join('|') !== [...role.permissions].sort().join('|'); } },
         // 临时切换页面或浏览器返回时保留本页草稿；明确取消或保存才清除，不写入角色记录。
-        watch: { model: { deep: true, handler() { this.error = ''; if (!this.discarded) drafts.set(draftKey, JSON.parse(JSON.stringify(this.model))); } } },
+        watch: { model: { deep: true, handler() { this.error = ''; this.nameError = false; if (!this.discarded) drafts.set(draftKey, JSON.parse(JSON.stringify(this.model))); } } },
         beforeUnmount() { if (!this.discarded && this.changed) drafts.set(draftKey, JSON.parse(JSON.stringify(this.model))); },
         methods: {
           cancel() { this.discarded = true; drafts.delete(draftKey); goList(role); },
           review() {
             const data = JSON.parse(JSON.stringify(this.model)), message = RoleDemo.validate(role, data);
-            if (message) { this.error = message; this.$nextTick(() => wrapper.querySelector('.role-editor-error')?.focus()); return; }
+            // 名称错误回到实际输入；功能整体约束仍由错误区说明，避免随意定位某个权限。
+            if (message) { this.error = message; this.nameError = message.includes('角色名称'); this.$nextTick(() => wrapper.querySelector(this.nameError ? 'input[aria-label="角色名称"]' : '.role-editor-error')?.focus()); return; }
             const selected = new Set(data.permissions), previous = new Set(role?.permissions || []);
             const added = catalog.flatMap(page => page.operations.filter(op => selected.has(op.id) && !previous.has(op.id)).map(op => page.name + ' / ' + op.name));
             const removed = catalog.flatMap(page => page.operations.filter(op => previous.has(op.id) && !selected.has(op.id)).map(op => page.name + ' / ' + op.name));
@@ -146,9 +147,9 @@
           }
         },
         template: `<el-form label-position="top" @submit.prevent="review">
-          <section class="role-editor-info"><el-form-item label="角色名称" required><el-input v-model="model.name" maxlength="60" aria-label="角色名称" placeholder="填写角色名称"></el-input></el-form-item>
+          <section class="role-editor-info"><el-form-item label="角色名称" required><el-input v-model="model.name" maxlength="60" aria-label="角色名称" :aria-invalid="nameError" :aria-describedby="nameError ? 'role-editor-error' : undefined" placeholder="填写角色名称"></el-input></el-form-item>
             <el-form-item label="角色说明"><el-input v-model="model.description" maxlength="200" aria-label="角色说明" placeholder="说明角色的使用职责（选填）"></el-input></el-form-item></section>
-          <p v-if="error" class="form-error role-editor-error" role="alert" tabindex="-1">{{error}}</p>
+          <p v-if="error" id="role-editor-error" class="form-error role-editor-error" role="alert" tabindex="-1">{{error}}</p>
           <section class="role-permission-card"><header><h2>功能权限</h2><span><small v-if="changed" class="role-unsaved">未保存</small>已选择 {{model.permissions.length}} 项</span></header><permission-browser v-model="model.permissions"></permission-browser></section>
           <footer class="role-editor-footer"><el-button @click="cancel">取消</el-button><el-button type="primary" native-type="submit" data-focus="review-role" :disabled="!changed">核对变更</el-button></footer>
         </el-form>`

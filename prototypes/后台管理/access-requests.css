@@ -61,7 +61,7 @@
 .source-approval-tabs .el-tabs__item { height: 56px; }
 .source-overview-planned { border: 0; border-radius: 0; }
 .data-access-source-readonly { padding: 8px 12px; border: 1px solid var(--do-line); border-radius: 6px; background: var(--do-canvas); color: var(--do-muted); line-height: 22px; overflow-wrap: anywhere; }
-.approval-action-buttons { display: flex; gap: 8px; margin-left: auto; }
+.approval-action-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%; margin-left: auto; }
 .approval-action-buttons button:disabled { color: #8b95a5; border-color: var(--do-line); background: #f5f7fa; cursor: not-allowed; }
 .approval-document > .empty-state { flex: 1; align-content: center; }
 .data-access-dialog .data-access-row:has(> .el-select:last-child) { grid-template-columns: minmax(180px,1fr) minmax(240px,1.4fr); }

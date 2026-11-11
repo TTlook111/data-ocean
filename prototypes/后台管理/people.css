@@ -88,8 +88,7 @@ h2 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
 dt { color: var(--do-muted); font-size: 12px; line-height: 18px; margin-bottom: 8px; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .department-content .rl-filters { padding: 16px 24px; border: 0; border-bottom: 1px solid var(--do-line); border-radius: 0; }
-.department-content .rl-keyword { min-width: 160px; width: min(280px,100%); flex: 1; }
-.department-content .rl-status { width: 128px; }
+.department-content .rl-keyword { min-width: min(100%, 160px); flex: 1 1 180px; }
 .department-content .rl-filter-row { gap: 12px; }
 .admin-dialog { padding: 0; width: min(680px,calc(100vw - 80px)); max-height: calc(100dvh - 64px); overflow: visible; border: 1px solid var(--do-line); border-radius: 10px; box-shadow: 0 24px 72px #17243b26; color: var(--do-ink); }
 .admin-dialog::backdrop { background: #16243a55; }
@@ -127,12 +126,16 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .archive-check strong { font-size: 14px; font-weight: 500; }
 .archive-check .cell-sub { margin-top: 6px; }
 /* 页签栏统一高度，切换内容或隐藏不可用操作时保持下方内容位置稳定。 */
-.department-tabs { display: flex; flex: none; align-items: center; gap: 24px; min-height: 64px; padding: 0 24px; border-bottom: 1px solid var(--do-line); }
-.department-tab-list { display: flex; flex: none; align-self: stretch; gap: 24px; }
-.tab-action { flex: none; margin-left: auto; }
+.department-tabs { display: flex; flex-wrap: wrap; flex: none; align-items: center; gap: 8px 24px; min-height: 64px; padding: 0 24px; border-bottom: 1px solid var(--do-line); }
+.department-tab-list { display: flex; flex-wrap: wrap; flex: 0 1 auto; align-self: stretch; gap: 8px 24px; min-width: 0; }
+.tab-action { flex: none; margin: 8px 0 8px auto; }
 .department-tab { border: 0; border-bottom: 2px solid transparent; color: var(--do-muted); background: none; padding: 12px 0; cursor: pointer; white-space: nowrap; }
 .department-tab[aria-selected="true"] { color: var(--do-primary); border-bottom-color: var(--do-primary); font-weight: 500; }
 .department-tab-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+/* 嵌入查询和分页按实高排布，表体保留一条记录；空间不足时由工作区承接。 */
+.department-content .record-panel:has(.department-tab-body > .rt-scroll) { display: grid; grid-template-rows: auto minmax(min-content,1fr); min-height: min-content; }
+.department-tab-body:has(> .rt-scroll) { display: grid; grid-template-rows: auto minmax(128px,1fr) auto; }
+.department-tab-body > .rt-scroll { contain: size; min-height: 128px; }
 .scope-switch { display: inline-flex; gap: 0; border: 1px solid var(--do-line); border-radius: 6px; overflow: hidden; }
 .scope-button { min-height: 32px; padding: 4px 12px; border: 0; background: #fff; color: var(--do-muted); font: inherit; cursor: pointer; }
 .scope-button + .scope-button { border-left: 1px solid var(--do-line); }
@@ -142,7 +145,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .member-tools .scope-switch { flex: none; }
 .member-tools .scope-button { min-height: 38px; }
 .department-content .member-tools .rl-filters { flex: 1; min-width: min(100%, 440px); padding: 0; border: 0; }
-.member-tools .rl-keyword { flex: 1 1 180px; max-width: 400px; min-width: 160px; }
+.member-tools .rl-keyword { flex: 1 1 180px; min-width: min(100%, 160px); }
 .template-content { padding: 24px; overflow: auto; }
 .template-content .detail-fields { grid-template-columns: repeat(3,minmax(0,1fr)); margin: 0; }
 .department-access-preview { margin-top: 24px; }
@@ -211,15 +214,16 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .summary-meta { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .section-heading { align-items: flex-start; flex-wrap: wrap; }
   .department-content .member-tools .rl-filters { min-width: min(100%, 400px); }
-  .member-tools .rl-keyword { min-width: 140px; flex-basis: 140px; }
-  .member-tools .rl-status { width: 112px; }
-  .people-query-card .rl-keyword { min-width: 180px; flex-basis: 180px; }
+  .member-tools .rl-keyword { min-width: min(100%, 140px); flex-basis: 140px; }
+  .member-tools .rl-status { min-width: min(100%, 112px); flex-basis: 112px; }
+  .people-query-card .rl-keyword { min-width: min(100%, 180px); flex-basis: 180px; }
 }
 /* 极矮窗口只让工作区纵向滚动，表格自然展开，分页继续属于结果外框。 */
 @media (max-height: 640px) {
   .record-panel { flex: none; height: auto; min-height: 0; overflow: visible; }
   .record-panel .rt-scroll { flex: none; min-height: 320px; }
   .department-layout { flex: none; }
+  .department-tab-body > .rt-scroll { contain: none; }
 }
 
 /* 正文只在维护与核定时完整阅读，其他位置保留单行补充摘要。 */

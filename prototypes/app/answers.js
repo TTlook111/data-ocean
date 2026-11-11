@@ -6,6 +6,7 @@
   const weekday = new Intl.DateTimeFormat('zh-CN', { weekday: 'short', timeZone: 'UTC' });
   const salesFields = { net: 'net', gross: 'sold', returns: 'returned' };
   const metricLabels = { net: '净销量', gross: '售出量', returns: '退货量' };
+  let feedbackSequence = 0;
 
   function element(tag, className, content) {
     const node = document.createElement(tag);
@@ -239,20 +240,26 @@
     // 评价只附属于本条回答。点踩需有非空原因，放弃填写不产生评价。
     const feedback = element('form', 'qa-feedback');
     feedback.hidden = true;
+    feedback.noValidate = true;
     const prompt = element('label', '', '哪里和预期不一致？');
     const reason = element('textarea');
     reason.required = true;
     reason.rows = 2;
     reason.maxLength = 500;
     reason.placeholder = '说说原因';
+    reason.setAttribute('aria-label', '反馈原因');
     prompt.append(reason);
+    const error = element('p', 'qa-feedback-error');
+    error.id = 'answer-feedback-error-' + (++feedbackSequence);
+    error.setAttribute('role', 'alert');
+    error.hidden = true;
     const commands = element('div', 'qa-feedback-buttons');
     const cancel = element('button', '', '取消');
     cancel.type = 'button';
     const commit = element('button', 'qa-primary', '提交反馈');
     commit.type = 'submit';
     commands.append(cancel, commit);
-    feedback.append(prompt, commands);
+    feedback.append(prompt, error, commands);
     const status = element('span', 'qa-feedback-status');
     status.setAttribute('role', 'status');
 
@@ -262,7 +269,13 @@
       dislike.title = reply.reaction?.type === 'down' ? '修改反馈或撤销点踩' : '反馈这条回答的问题';
       cancel.textContent = '取消';
     }
+    // 反馈与其他表单共用就近错误和焦点行为，不让浏览器气泡遮住回答。
+    function clearError() {
+      error.hidden = true; error.textContent = '';
+      reason.removeAttribute('aria-invalid'); reason.removeAttribute('aria-describedby');
+    }
     function closeForm() {
+      clearError();
       feedback.hidden = true;
       dislike.setAttribute('aria-expanded', 'false');
       dislike.focus({ preventScroll: true });
@@ -289,18 +302,19 @@
       feedback.hidden = false;
       dislike.setAttribute('aria-expanded', 'true');
       reason.value = reply.reaction?.reason || '';
-      reason.setCustomValidity('');
+      clearError();
       undo.hidden = reply.reaction?.type !== 'down';
       reason.focus();
     });
     cancel.addEventListener('click', closeForm);
-    reason.addEventListener('input', () => reason.setCustomValidity(''));
+    reason.addEventListener('input', clearError);
     feedback.addEventListener('submit', event => {
       event.preventDefault();
       const value = reason.value.trim();
       if (!value) {
-        reason.setCustomValidity('请填写点踩原因。');
-        reason.reportValidity();
+        error.textContent = '请填写反馈原因。'; error.hidden = false;
+        reason.setAttribute('aria-invalid', 'true'); reason.setAttribute('aria-describedby', error.id);
+        reason.focus();
         return;
       }
       reply.reaction = { type: 'down', reason: value };

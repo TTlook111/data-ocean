@@ -21,5 +21,6 @@
 .rt-empty > * { min-width: 0; max-width: 100%; }
 /* 极矮 PC 窗口由工作区统一纵向滚动，表格按自然记录高度展开。 */
 @media (max-height: 640px) {
-  .rt-scroll { flex: none; min-height: 320px; }
+  /* 表体自然展开后，把纵向滚轮交给工作区，避免卡在表格上方而够不到分页。 */
+  .rt-scroll { flex: none; min-height: 320px; overscroll-behavior-y: auto; }
 }

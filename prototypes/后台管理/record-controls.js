@@ -1,13 +1,26 @@
 /* 共用查询和分页直接使用 Element Plus，业务页只提供条件与回调。 */
 (() => {
   'use strict';
-  const { h, reactive, onMounted } = Vue;
+  const { h, reactive, ref, onMounted, onUpdated, onBeforeUnmount } = Vue;
   const { ElInput, ElSelect, ElOption, ElDatePicker, ElButton, ElSpace, ElPagination } = ElementPlus;
   let sequence = 0;
+
+  // 列表重绘会替换控件；在同一页面或详情内找回入口，保留连续键盘操作。
+  function updateWithFocus(host, update, selector, fallback) {
+    const scope = host.closest('dialog') || host.closest('main') || host.parentElement;
+    update();
+    // 等待组件重绘及容器布局切换，避免聚焦后输入又被紧凑布局替换。
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!scope?.isConnected) return;
+      const target = scope.querySelector(selector) || (fallback && scope.querySelector(fallback));
+      target?.focus({ preventScroll: true });
+    }));
+  }
 
   // 来源类型等枚举筛选复用同一控件，并提供与实际用途一致的可访问名称。
   function filters({ value, statuses, fields, keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, dateBeforeStatus = false, onApply, onReset }) {
     fields = fields || [{ key: 'keyword', label: keywordLabel, placeholder: keywordPlaceholder }];
+    const statusInTail = dateBeforeStatus || !includeDates;
     const form = document.createElement('form');
     form.className = 'rl-filters prototype-ui' + (fields.length > 1 ? ' has-multiple-fields' : '');
     const uid = 'list-filter-' + (++sequence);
@@ -26,8 +39,8 @@
           const isDay = text => /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(text)) && new Date(text).toISOString().slice(0, 10) === text;
           if (includeDates && dates.some(text => text && !isDay(text))) { state.error = '请输入有效日期，格式为 YYYY-MM-DD。'; return; }
           if (fromDate && toDate && fromDate > toDate) { state.error = '结束日期须晚于或等于开始日期。'; return; }
-          onApply({ ...value, ...Object.fromEntries(fields.map(field => [field.key, state[field.key].trim()])), status: state.status, page: 1,
-            ...(includeDates ? { fromDate, toDate } : {}) });
+          updateWithFocus(form, () => onApply({ ...value, ...Object.fromEntries(fields.map(field => [field.key, state[field.key].trim()])), status: state.status, page: 1,
+            ...(includeDates ? { fromDate, toDate } : {}) }), '.rl-filters input[name="' + fields[0].key + '"]');
         };
         onMounted(() => {
           form.querySelectorAll('.rl-keyword input').forEach(input => { input.dataset.listFocus = input.name; });
@@ -56,8 +69,8 @@
               clearable: true, maxlength: 160, 'aria-label': field.label,
               onKeydown: event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); submit(); } } })
           ])),
-          dateBeforeStatus ? null : renderStatus(),
-          h('div', { class: 'rl-filter-tail' }, [includeDates ? h('div', { class: 'rl-dates', role: 'group', 'aria-label': dateLabel,
+          statusInTail ? null : renderStatus(),
+          h('div', { class: 'rl-filter-tail' + (includeDates ? ' has-dates' : '') + (statusInTail && includeStatus ? ' has-status' : '') }, [includeDates ? h('div', { class: 'rl-dates', role: 'group', 'aria-label': dateLabel,
             'aria-describedby': uid + '-error', 'aria-invalid': String(Boolean(state.error)) }, [
             h(ElDatePicker, { modelValue: state.dates,
               'onUpdate:modelValue': next => { state.dates = next; state.error = ''; },
@@ -66,12 +79,14 @@
               clearable: true, unlinkPanels: true, popperClass: 'prototype-ui-popper',
               style: { width: '100%' } })
           ]) : null,
-          // 日期列在状态列之前时，查询控件与键盘顺序同步跟随表头。
-          dateBeforeStatus ? renderStatus() : null,
-          h(ElSpace, { class: 'rl-filter-actions', size: 8 }, { default: () => [
-            h(ElButton, { nativeType: 'submit' }, { default: () => '查询' }),
-            h(ElButton, { nativeType: 'button', onClick: () => { if (current()) onReset(); } }, { default: () => '重置' })
-          ] })]),
+          // 无日期或日期在状态之前时，将末项状态与按钮成组，保持顺序并避免孤立按钮。
+          h('div', { class: 'rl-filter-commands' + (statusInTail && includeStatus ? ' has-status' : '') }, [
+            statusInTail ? renderStatus() : null,
+            h(ElSpace, { class: 'rl-filter-actions', size: 8 }, { default: () => [
+              h(ElButton, { nativeType: 'submit' }, { default: () => '查询' }),
+              h(ElButton, { nativeType: 'button', onClick: () => { if (current()) updateWithFocus(form, onReset, '.rl-filters input[name="' + fields[0].key + '"]'); } }, { default: () => '重置' })
+            ] })
+          ])]),
           h('p', { id: uid + '-error', class: 'rl-error', role: 'alert' }, state.error)
         ]);
       }
@@ -82,23 +97,43 @@
     const nav = document.createElement('nav');
     nav.className = 'rl-pager prototype-ui';
     nav.setAttribute('aria-label', '结果分页');
+    // 组件用失焦提交页码；Enter 走同一提交路径，并回到新的页码输入。
+    nav.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing || !event.target.matches('.el-pagination__editor input')) return;
+      event.preventDefault();
+      updateWithFocus(nav, () => event.target.blur(), '.rl-pager [data-list-focus="page"]');
+    });
     return PrototypeUI.mount(nav, {
       setup() {
-        onMounted(() => {
+        const compact = ref(false);
+        // 根据分页自身宽度切换布局，嵌入部门或详情时也保留总数、页码和跳转。
+        const observer = new ResizeObserver(() => { compact.value = nav.clientWidth < 640; });
+        const markControls = () => {
           for (const [selector, key] of [['.el-pagination__editor input', 'page'], ['.el-pagination__sizes input', 'pageSize'], ['.btn-prev', 'previous'], ['.btn-next', 'next']]) {
-            nav.querySelector(selector)?.setAttribute('data-list-focus', key);
+            const control = nav.querySelector(selector);
+            control?.setAttribute('data-list-focus', key);
+            if (key === 'page') control?.setAttribute('aria-label', '跳转页码');
           }
-        });
-        return () => h('div', { class: 'rl-pagination-content' }, [
+        };
+        onMounted(() => { observer.observe(nav); markControls(); });
+        onUpdated(markControls);
+        onBeforeUnmount(() => observer.disconnect());
+        return () => h('div', { class: ['rl-pagination-content', { 'is-compact': compact.value }] }, [
           h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite' }, '共 ' + result.total + ' 条'),
           h(ElPagination, {
           total: result.total, currentPage: Math.max(1, result.page), pageSize: result.pageSize,
           pageSizes: [10, 20, 50], pagerCount: 5, size: 'large',
-          layout: result.total ? 'total, ->, sizes, prev, pager, next, jumper' : 'total, ->, sizes, prev, next',
+          layout: compact.value ? 'total, sizes, prev, ' + (result.total ? 'jumper, ' : '') + 'slot, next' :
+            result.total ? 'total, ->, sizes, prev, pager, next, jumper' : 'total, ->, sizes, prev, next',
           popperClass: 'prototype-ui-popper',
-          'onUpdate:currentPage': page => { if (nav.isConnected && page !== result.page) onPage(page); },
-          'onUpdate:pageSize': size => { if (nav.isConnected && size !== result.pageSize) onPageSize(size); }
-          })
+          'onUpdate:currentPage': page => {
+            if (!nav.isConnected || page === result.page) return;
+            const key = document.activeElement?.closest('[data-list-focus]')?.dataset.listFocus;
+            updateWithFocus(nav, () => onPage(page), '.rl-pager [data-list-focus="' + (key || 'current') + '"]:not([disabled])', '.rl-pager .el-pager .is-active,.rl-pager .rl-page-position');
+          },
+          'onUpdate:pageSize': size => { if (nav.isConnected && size !== result.pageSize) updateWithFocus(nav, () => onPageSize(size), '.rl-pager [data-list-focus="pageSize"]'); }
+          }, { default: () => h('span', { class: 'rl-page-position', tabindex: -1, 'aria-label': '第 ' + (result.total ? result.page : 0) + ' 页，共 ' + Math.ceil(result.total / result.pageSize) + ' 页' },
+            (result.total ? '/ ' : '0 / ') + Math.ceil(result.total / result.pageSize)) })
         ]);
       }
     });

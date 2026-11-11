@@ -202,6 +202,8 @@
 }
 .qa-feedback-buttons .qa-primary { border-color: #2459b8; color: white; background: #2459b8; }
 .qa-feedback-buttons .qa-undo { margin-right: auto; }
+.qa-feedback-error { margin: 8px 0 0; color: #b43c3c; font-size: 12px; line-height: 18px; }
+.qa-feedback textarea[aria-invalid="true"] { border-color: #b43c3c; }
 .qa-answer [hidden] { display: none; }
 .qa-answer :is(button, summary, textarea):focus-visible { outline: 2px solid #2366cf; outline-offset: 2px; }
 .qa-summary:focus-visible { outline-offset: -3px !important; }

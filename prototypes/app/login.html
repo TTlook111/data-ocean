@@ -12,7 +12,7 @@
   <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
   <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
   <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
-  <script defer src="login.js"></script>
+  <script defer src="login.js?v=site-consistency-20261111"></script>
 </head>
 <body>
   <header class="login-brand"><img src="assets/dataocean-mark.png" alt=""><strong>DataOcean</strong></header>
@@ -20,10 +20,10 @@
     <section class="login-card">
       <template v-if="mode==='login'">
         <h1>登录</h1>
-        <el-form ref="loginForm" :model="form" :rules="loginRules" label-position="top" @submit.prevent="submit">
+        <el-form ref="loginForm" :model="form" :rules="loginRules" label-position="top" @validate="(prop,valid)=>validated('loginForm',prop,valid)" @submit.prevent="submit">
           <p v-if="error" class="login-error" role="alert">{{error}}</p>
-          <el-form-item label="登录名" prop="login"><el-input v-model="form.login" aria-label="登录名" autocomplete="username" placeholder="请输入登录名" autofocus></el-input></el-form-item>
-          <el-form-item label="密码" prop="password"><el-input v-model="form.password" aria-label="密码" autocomplete="current-password" placeholder="请输入密码" type="password" show-password></el-input></el-form-item>
+          <el-form-item label="登录名" prop="login"><el-input v-model="form.login" aria-label="登录名" autocomplete="username" placeholder="请输入登录名" autofocus></el-input><template #error="{error:message}"><div id="loginForm-login-error" class="el-form-item__error" role="alert">{{message}}</div></template></el-form-item>
+          <el-form-item label="密码" prop="password"><el-input v-model="form.password" aria-label="密码" autocomplete="current-password" placeholder="请输入密码" type="password" show-password></el-input><template #error="{error:message}"><div id="loginForm-password-error" class="el-form-item__error" role="alert">{{message}}</div></template></el-form-item>
           <div class="login-help"><el-button link @click="help=true">忘记密码</el-button></div>
           <el-button class="login-submit" type="primary" native-type="submit">登录</el-button>
         </el-form>
@@ -33,9 +33,9 @@
       <template v-else-if="mode==='change'">
         <h1>设置新密码</h1><p class="login-note">首次登录或密码重置后，请修改初始密码。</p>
         <p class="login-name">登录名 <strong>{{form.login}}</strong></p>
-        <el-form ref="changeForm" :model="passwords" :rules="passwordRules" label-position="top" @submit.prevent="changePassword">
-          <el-form-item label="新密码" prop="next"><el-input v-model="passwords.next" aria-label="新密码" autocomplete="new-password" type="password" show-password></el-input></el-form-item>
-          <el-form-item label="确认新密码" prop="confirm"><el-input v-model="passwords.confirm" aria-label="确认新密码" autocomplete="new-password" type="password" show-password></el-input></el-form-item>
+        <el-form ref="changeForm" :model="passwords" :rules="passwordRules" label-position="top" @validate="(prop,valid)=>validated('changeForm',prop,valid)" @submit.prevent="changePassword">
+          <el-form-item label="新密码" prop="next"><el-input v-model="passwords.next" aria-label="新密码" autocomplete="new-password" type="password" show-password></el-input><template #error="{error:message}"><div id="changeForm-next-error" class="el-form-item__error" role="alert">{{message}}</div></template></el-form-item>
+          <el-form-item label="确认新密码" prop="confirm"><el-input v-model="passwords.confirm" aria-label="确认新密码" autocomplete="new-password" type="password" show-password></el-input><template #error="{error:message}"><div id="changeForm-confirm-error" class="el-form-item__error" role="alert">{{message}}</div></template></el-form-item>
           <el-button class="login-submit" type="primary" native-type="submit">确认修改</el-button>
         </el-form>
         <el-button class="return-login" link @click="returnToLogin">返回登录</el-button>
