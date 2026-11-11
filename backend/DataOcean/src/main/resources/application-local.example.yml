@@ -3,10 +3,10 @@
 spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/dataocean?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: dataocean
+    username: root
     # 填实际应用库账号和密码；使用可选 Compose 时密码与根目录 .env 的 MYSQL_PASSWORD 一致。
     # 根目录 .env 不会被 Java 自动读取。
-    password: change-me
+    password: 1234
   data:
     redis:
       host: 127.0.0.1
