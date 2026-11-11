@@ -24,7 +24,7 @@
     ['u07', '核对城北店售后', '查看本周售后与退货处理汇总。', ['aftersales']],
     ['u15', '核对旧城店历史记录', '查看关店前的销售汇总，不需要个人明细。', ['retail']],
     ['u04', '核对月度回款', '核对本月回款与应收差额。', ['finance'], 'independent', '需补充'],
-    ['u02', '查看商品基础目录', '查看在售商品名称与分类。', ['products'], 'independent', '生效失败'],
+    ['u02', '查看商品基础目录', '查看在售商品名称与分类。', ['products'], 'independent', '已生效'],
     ['u14', '查询员工个人资料', '需要员工联系信息。', ['retail'], 'independent', '已驳回'],
     ['u05', '核对历史采购记录', '申请人已撤回本次数据访问申请。', ['products'], 'independent', '已撤回']
   ];
@@ -34,12 +34,15 @@
       approvalItems: sources.map((source, i) => item(source, i, status)), history: [] };
     if (status !== '待审批') {
       request.approvalItems[0].reviewer = 'u01';
-      request.approvalItems[0].decision = status === '生效失败' ? '已批准' : status;
+      request.approvalItems[0].decision = status === '已生效' ? '已批准' : status;
       if (status !== '已撤回') Object.assign(request.approvalItems[0], { reviewedById: 'u01', reviewedBy: person('u01').name, reviewedLogin: person('u01').login, reviewedAt: request.submitted });
       request.approvalItems[0].reason = status === '需补充' ? '请补充具体核对月份及所需汇总指标。' : status === '已驳回' ? '当前业务用途不足以支持所申请的个人联系信息。' : status === '已撤回' ? '本次工作已取消。' : '已批准查看商品基础资料。';
-      if (status === '生效失败') request.approvalItems[0].activationError = '授权更新失败，当前未生效。';
-      request.history.push({ time: request.submitted, actor: status === '已撤回' ? person(user).name : '林管理员', action: status === '生效失败' ? '已批准' : status, content: request.approvalItems[0].reason });
-      if (status === '生效失败') request.history.push({ time: request.submitted, actor: '系统', action: '生效失败', content: request.approvalItems[0].activationError });
+      if (status === '已生效') {
+        request.approvalItems[0].activatedAt = request.submitted;
+        request.access = [{ source: sources[0], rules: structuredClone(request.approvalItems[0].rules) }];
+      }
+      request.history.push({ time: request.submitted, actor: status === '已撤回' ? person(user).name : '林管理员', action: request.approvalItems[0].decision,
+        content: request.approvalItems[0].reason + (status === '已生效' ? '访问已生效。' : '') });
     }
     extraRequests.push(request);
   }
@@ -47,7 +50,7 @@
     if (!request.approvalItems) {
       const sources = request.sourceIds || request.access.map(value => value.source);
       const effective = request.status === '已生效';
-      const initial = effective ? '已生效' : ['已驳回', '已撤回', '需补充', '生效失败'].includes(request.status) ? request.status : '待审批';
+      const initial = effective ? '已生效' : ['已驳回', '已撤回', '需补充'].includes(request.status) ? request.status : '待审批';
       request.sourceIds = sources.filter(Boolean);
       request.approvalItems = (sources.length ? sources : ['']).map((source, index) => ({ ...item(source, index, initial), rules: effective ? structuredClone(request.access.find(value => value.source === source)?.rules || []) : [] }));
       // 旧示例的待审 access 只表示申请意向，不能被当成已生效来源。
@@ -58,9 +61,8 @@
         Object.assign(part, { reviewer: reviewerId, reviewedById: reviewerId, reviewedBy: reviewer.name, reviewedLogin: reviewer.login, reviewedAt: request.submitted,
           decision: effective ? '已批准' : initial, reason: request.result || '' });
         if (effective) part.activatedAt = request.submitted;
-        request.history.push({ time: part.reviewedAt, actor: reviewIdentity(part), action: part.decision, content: sourceName(part.source) + (part.reason ? '：' + part.reason : '') });
+        request.history.push({ time: part.reviewedAt, actor: reviewIdentity(part), action: part.decision, content: sourceName(part.source) + (effective ? '：审批通过，访问已生效。' : '') + (part.reason ? '：' + part.reason : '') });
       }
-      if (effective) request.history.push({ time: request.submitted, actor: '系统', action: '自动生效', content: sources.map(sourceName).join('、') });
     }
     refresh(request); return request;
   }
@@ -71,7 +73,7 @@
     const states = request.approvalItems.map(value => value.status);
     request.status = request.mode === 'joint' && states.includes('已驳回') ? '已驳回' : request.mode === 'joint' && states.includes('需补充') ? '需补充' : request.mode === 'joint' && states.includes('已撤回') ? '已撤回'
       : states.every(state => state === '已生效') ? '已生效' : states.includes('已生效') ? '部分已生效'
-      : states.includes('待分流') ? '待分流' : states.includes('待审批') ? '待审批' : states.includes('生效失败') ? '生效失败'
+      : states.includes('待分流') ? '待分流' : states.includes('待审批') ? '待审批'
       : states.includes('需补充') ? '需补充' : states.includes('已撤销') ? '已撤销' : states.every(state => state === '已撤回') ? '已撤回' : '已驳回';
   }
   function refresh(request, bump = true) {
@@ -86,7 +88,7 @@
     aggregate(request); return changed;
   }
   const records = () => extraRequests.map(ensure);
-  const decisionOf = part => part.decision || (['已生效','已撤销','生效失败','已批准'].includes(part.status) ? '已批准' : part.status);
+  const decisionOf = part => part.decision || (['已生效','已撤销','已批准'].includes(part.status) ? '已批准' : part.status);
   // 分派中的负责人不是已经批准的人；已办身份只读取当时保存的记录。
   function reviewInfo(part, request) {
     if (part.status === '已撤回' || open(part) && !inProgress(request)) return null;
@@ -143,18 +145,18 @@
     part.decision = part.status;
     part.reason = data.reason.trim();
     part.reviewedAt = timestamp(); part.reviewedById = actor.id; part.reviewedBy = actor.name; part.reviewedLogin = actor.login;
-    request.history.push({ time: part.reviewedAt, actor: actor.name, action: part.status, content: sourceName(part.source) + (part.reason ? '：' + part.reason : '') });
+    let ready = [];
     if (action === 'approve') {
-      // 独立项立即联动；联合项全部通过后一起联动，首个批准不会产生部分授权。
-      const ready = request.mode === 'joint' ? request.approvalItems.every(value => value.status === '已批准') ? request.approvalItems : [] : [part];
-      for (const value of ready) { value.status = '已生效'; value.activatedAt = timestamp(); }
-      if (ready.length) {
-        request.access = structuredClone(effectiveAccess(request));
-        request.history.push({ time: timestamp(), actor: '系统', action: '自动生效', content: ready.map(value => sourceName(value.source)).join('、') });
-      }
+      // 审批与访问来源同次提交；联合申请全部必要审批通过时整组生效。
+      ready = request.mode === 'joint' ? request.approvalItems.every(value => value.status === '已批准') ? request.approvalItems : [] : [part];
+      for (const value of ready) { value.status = '已生效'; value.activatedAt = part.reviewedAt; }
+      if (ready.length) request.access = structuredClone(effectiveAccess(request));
     }
+    request.history.push({ time: part.reviewedAt, actor: actor.name, action: part.decision,
+      content: sourceName(part.source) + (action === 'approve' ? ready.length ? '：审批通过，' + ready.map(value => sourceName(value.source)).join('、') + '访问已生效。' : '：当前子项通过，等待其余必要审批。' : '') + (part.reason ? '：' + part.reason : '') });
     aggregate(request);
     request.revision += 1;
+    if (action === 'approve') window.AuditDemo?.recordApproval(request, part, actor, ready);
   }
   function withdraw(request, actor, revision) {
     ensure(request);

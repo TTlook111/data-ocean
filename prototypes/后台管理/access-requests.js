@@ -80,7 +80,6 @@
       const review = demo.reviewInfo(part, selected);
       if(review){partInfo.append(el('span','',review.label+'：'+review.identity));if(review.timeLabel)partInfo.append(el('span','',review.timeLabel+'：'+review.time));}
       if (demo.open(part) && part.reviewer && part.routeReason) partInfo.append(el('span', '', part.routeReason)); decision.append(partInfo);
-      if (part.activationError) decision.append(el('p', 'form-error', part.activationError));
       if (part.source) { const table = el('div', 'prototype-ui approval-access-table'); PrototypeUI.mount(table, { render: () => Vue.h(DataAccessTable, { access: [part] }) }); decision.append(table); }
       if (part.reason) decision.append(el('h4', '', '办理说明'), el('p', 'approval-prose', part.reason));
       const blocked = demo.blocked(selected, part, currentUser);
@@ -139,8 +138,8 @@
         preview: data => [{ label: '申请人', after: applicant(request).name }, { label: '申请与修订', after: request.id + ' · 修订 ' + revision },
           { label: '办理子项', after: '子项 ' + (request.approvalItems.indexOf(part) + 1) + ' · ' + demo.sourceName(approve ? data.access[0].source : part.source) },
           ...(approve ? [{ label: '核定范围', after: data.access.map(value => demo.sourceName(value.source) + '\n' + value.rules.map(rule=>rule.name+'：'+rule.content).join('\n')).join('\n') }] : []),
-          ...(data.reason.trim() ? [{ label: '办理说明', after: data.reason.trim() }] : []), { label: '确认后状态', after: approve ? autoReady ? '批准后自动生效。' : '当前子项将获批准，等待其他必要子项通过。' : action === 'reject' ? '确认后将驳回当前子项。' : '当前子项将退回申请人补充。' }],
-        save: data => demo.decide(request, part.id, action, data, currentUser, revision), success: approve ? autoReady ? '审批已通过，访问已自动生效' : '当前子项已批准' : '申请已' + label,
+          ...(data.reason.trim() ? [{ label: '办理说明', after: data.reason.trim() }] : []), { label: '确认后状态', after: approve ? autoReady ? '审批通过，访问即生效。' : '当前子项将获批准，等待其他必要子项通过。' : action === 'reject' ? '确认后将驳回当前子项。' : '当前子项将退回申请人补充。' }],
+        save: data => demo.decide(request, part.id, action, data, currentUser, revision), success: approve ? autoReady ? '审批已通过，访问已生效' : '当前子项已批准' : '申请已' + label,
         onSaved: () => {
           // 保留查询、分组与有效页码；结果通过只读抽屉回看，队列继续定位相邻申请。
           const index = pageRows.findIndex(value => value.id === request.id);

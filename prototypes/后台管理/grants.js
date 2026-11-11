@@ -51,7 +51,6 @@
         for(const part of parts)approvals.append(pair(joint?demo.sourceName(part.source)+'批准人':'批准人',AccessRequestDemo.reviewIdentity(part)),pair('批准时间',part.reviewedAt||'未记录'));
         body.append(el('h3','','批准记录'),approvals);
       }
-      if(record.part?.activationError)body.append(el('p','form-error',record.part.activationError));
       if(record.part?.revokedAt){const revoked=el('dl','detail-fields');revoked.append(pair('撤销人',record.part.revokedBy),pair('撤销时间',record.part.revokedAt));body.append(el('h3','','撤销记录'),revoked,el('p','grant-reason',record.part.revokedReason));}
       if(record.endedAt)body.append(el('h3','','来源结束时间'),el('p','',record.endedAt));
       const footer=el('footer','dialog-footer');footer.append(button('关闭',()=>node.close()));

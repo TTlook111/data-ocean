@@ -121,7 +121,7 @@
     node.addEventListener('click', () => action(node)); return node;
   }
   function textCell(text) { const node = el('span', 'cell-text', text || '—'); node.title = text || ''; return node; }
-  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '来源已结束', '已驳回', '已撤回', '已撤销'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待分流', '待核定数据源', '缺审批责任', '审批责任需复核', '待确认', '需补充', '未配置', '需复核', '已批准', '部分已生效', '生效失败'].includes(value) ? ' is-pending' : ''), value); }
+  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '来源已结束', '已驳回', '已撤回', '已撤销'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待分流', '待核定数据源', '缺审批责任', '审批责任需复核', '待确认', '需补充', '未配置', '需复核', '已批准', '部分已生效'].includes(value) ? ' is-pending' : ''), value); }
   // 列表默认向下展开，固定底栏可指定向上展开，定位和键盘行为仍由组件处理。
   function moreActions(items, key, label, popupTarget = document.body, placement = 'bottom-end') {
     const wrap = el('span', 'row-more prototype-ui');
@@ -482,7 +482,6 @@
         if (AccessRequestDemo.open(item) && AccessRequestDemo.inProgress(request) && item.routeReason) section.append(el('p', 'form-note', item.routeReason));
         if (item.reason) section.append(el('p', '', item.reason));
         if (AccessRequestDemo.decisionOf(item) === '已批准' && item.rules.length) { const names = el('p', 'access-rule-names', '输出限制规则：' + item.rules.map(rule => rule.name).join('、')); names.title = names.textContent; section.append(names); }
-        if (item.activationError) section.append(el('p', 'form-error', item.activationError));
         if (item.revokedAt) section.append(el('p', 'cell-sub', item.revokedAt + ' · ' + item.revokedBy), el('p', '', item.revokedReason));
         reviewed.append(section);
       }
@@ -547,7 +546,7 @@
     const q = queries.requests, tools = el('section', 'people-query-card personal-query');
     const reset = () => { Object.assign(q, { keyword: '', requestId: '', status: 'all', page: 1 }); renderMyRequests(); };
     tools.append(RecordControls.filters({ value: q, includeDates: false, fields: [{ key: 'keyword', label: '申请事项' }, { key: 'requestId', label: '申请编号' }],
-      statuses: [{ value: 'all', label: '全部状态' }, ...['待分流', '待审批', '需补充', '部分已生效', '已生效', '已撤销', '生效失败', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
+      statuses: [{ value: 'all', label: '全部状态' }, ...['待分流', '待审批', '需补充', '部分已生效', '已生效', '已撤销', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
       onApply: next => { Object.assign(q, next); renderMyRequests(); }, onReset: reset
     }), button('申请额外数据访问', applyExtraAccess, 'admin-button is-primary', 'apply-data-access'));
     const records = extraRequests.filter(r => r.user === currentUser.id && (q.status === 'all' || q.status === r.status) &&
@@ -823,6 +822,8 @@
     else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser });
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
+    else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });
+    else if (section === 'audit') AuditPage.render(main, { el, button, pair, textCell, pageHeading, modal, currentUser, viewRequest: (request, trigger) => requestDetail(request, trigger, true) });
     else if (section === 'output-rules') OutputRulesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, actor: currentUser.name });
     else if (section === 'roles') RolesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, moreActions,
       setTitle(title, editor) { pageLocation.title = title; pageLocation.parent = editor ? '角色与功能权限' : ''; document.title = title + ' · DataOcean 后台管理'; } });

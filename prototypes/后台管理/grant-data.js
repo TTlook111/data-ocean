@@ -42,7 +42,7 @@
       if (request.status === '已生效' && !request.approvalItems) requests.ensure(request);
       for (const part of request.approvalItems || []) if (['已生效','已撤销'].includes(part.status)) rows.push({
         id: 'REQUEST-GRANT-' + request.id + '-' + part.id, type: 'request', typeLabel: '申请授权', user: request.user, source: part.source, rules: part.rules,
-        state: part.status, activatedAt: part.activatedAt || (part.status === '生效失败' ? '' : request.submitted), request, part, origin: request.id, originCode: request.id
+        state: part.status, activatedAt: part.activatedAt || request.submitted, request, part, origin: request.id, originCode: request.id
       });
     }
     return rows;

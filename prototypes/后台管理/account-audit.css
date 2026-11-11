@@ -1,0 +1,24 @@
+/* 新页面沿用共用面板、24px 内距和详情字段尺度。 */
+.account-panel { flex: none; min-width: 0; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; }
+.account-section { padding: 24px; }
+.account-section + .account-section { border-top: 1px solid var(--do-line); }
+.account-section h2 { margin-bottom: 16px; }
+.account-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.account-section-heading h2 { margin: 0; }
+.account-section .detail-fields { margin: 0; gap: 16px 24px; }
+.account-section .detail-fields dd { overflow-wrap: anywhere; }
+.account-roles { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-role { padding: 4px 12px; border: 1px solid var(--do-line); border-radius: 6px; background: var(--do-canvas); }
+.account-unassigned { margin: 0; color: var(--do-muted); }
+.audit-result.is-failed { color: #b43c3c; background: #fdf0ef; }
+.audit-reason { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.audit-detail-dialog .dialog-body > h3 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.audit-changes { margin-top: 24px; }
+.audit-changes h3 { margin-bottom: 16px; }
+.audit-changes table { table-layout: fixed; }
+.audit-changes th, .audit-changes td { overflow-wrap: anywhere; white-space: pre-wrap; }
+.audit-changes th:first-child { width: 28%; }
+/* 极矮窗口由工作区纵向滚动，表格只承接横向溢出，滚轮继续传递给工作区。 */
+@media (max-height: 640px) {
+  .audit-panel .rt-scroll { overscroll-behavior-y: auto; }
+}

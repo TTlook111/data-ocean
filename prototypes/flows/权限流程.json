@@ -38,15 +38,14 @@
       },
       {
         "id": "access-approval",
-        "label": "额外访问与生效",
+        "label": "额外访问审批",
         "focus": [
           "request",
           "map",
           "approval",
-          "commit",
           "refused"
         ],
-        "note": "批准只提供执行依据；执行成功才生效，驳回或执行失败均回告原因。"
+        "note": "审批通过即生效，批准人与生效结果合并留痕；驳回或本次提交失败就近回告。"
       },
       {
         "id": "scope-boundary",
@@ -84,8 +83,7 @@
   "mainPath": [
     "request",
     "map",
-    "approval",
-    "commit"
+    "approval"
   ],
   "nodes": [
     {
@@ -124,17 +122,9 @@
       "id": "approval",
       "lane": "employee",
       "col": 2,
-      "label": "按责任范围审批",
-      "sublabel": "批准不等于访问生效",
+      "label": "审批通过即生效",
+      "sublabel": "核验账号、审批修订与授予上限",
       "type": "security"
-    },
-    {
-      "id": "commit",
-      "lane": "employee",
-      "col": 3,
-      "label": "校验并执行授权",
-      "sublabel": "复核账号、批准版本和授予上限",
-      "type": "database"
     },
     {
       "id": "query",
@@ -149,7 +139,7 @@
       "lane": "usage",
       "col": 4,
       "label": "校验本次查询",
-      "sublabel": "安全、功能、数据源、部门与输出规则",
+      "sublabel": "安全、功能、数据源与输出规则",
       "type": "security"
     },
     {
@@ -164,8 +154,8 @@
       "id": "refused",
       "lane": "changes",
       "col": 2,
-      "label": "回告未生效原因",
-      "sublabel": "保留审批或执行失败记录",
+      "label": "回告审批处理结果",
+      "sublabel": "说明驳回理由或本次提交失败",
       "type": "security"
     },
     {
@@ -227,18 +217,10 @@
       "role": "main"
     },
     {
-      "id": "approved",
-      "from": "approval",
-      "to": "commit",
-      "label": "获批",
-      "variant": "emphasis",
-      "role": "main"
-    },
-    {
       "id": "effective",
-      "from": "commit",
+      "from": "approval",
       "to": "use",
-      "label": "执行成功后可用",
+      "label": "审批通过即可用",
       "variant": "dashed",
       "role": "branch"
     },
@@ -262,15 +244,7 @@
       "id": "decline",
       "from": "approval",
       "to": "refused",
-      "label": "驳回",
-      "variant": "security",
-      "role": "error"
-    },
-    {
-      "id": "execution-failed",
-      "from": "commit",
-      "to": "refused",
-      "label": "执行失败",
+      "label": "驳回或提交失败",
       "variant": "security",
       "role": "error"
     },
@@ -303,9 +277,9 @@
     {
       "title": "授权生效与失权处理",
       "items": [
-        "部门初始配置仅关联直属及直属兼任成员，下级成员不继承；额外申请获批并执行成功才生效，两类来源独立保留。",
+        "部门初始配置仅关联直属及直属兼任成员，下级成员不继承；额外申请审批通过即生效，联合申请全部必要审批通过时整组生效。",
         "撤权仅阻断实际失权部分并重算其他来源；账号停用中断全部访问，保留历史。",
-        "共享规则修改的生效方式、多来源限制合并方式待进一步确定，不能默认跨来源解除限制。"
+        "同一数据源的有效来源限制全部适用，内容相同去重；共享规则修改对既有来源的影响仍待确定。"
       ],
       "dot": "amber"
     }

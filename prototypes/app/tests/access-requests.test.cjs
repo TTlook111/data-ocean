@@ -23,7 +23,7 @@ test('pending responsibility is not displayed as a historical approval identity'
   assert.equal(demo.reviewInfo(routing.approvalItems[0],routing).identity,'待分流');
 });
 
-test('approved and failed activation results retain approver labels while rejections do not', () => {
+test('approved access retains approver labels while rejections do not', () => {
   const { demo, rows }=fixture();
   for(const id of ['SQ-DEMO-018','SQ-REVIEW-012']){
     const request=rows.find(row=>row.id===id);
@@ -53,7 +53,8 @@ test('approval automatically activates only its selected source without changing
   assert.equal(request.status, '已生效');
   assert.equal(JSON.stringify({ users: people.users, departments: people.departments }), before);
   assert.equal(request.access.length, 1); assert.equal(request.access[0].source, part.source);
-  assert.equal(request.history.length, 2);
+  assert.equal(request.history.length, 1);
+  assert.equal(request.history[0].actor, actor.name); assert.match(request.history[0].content, /访问已生效/);
 });
 test('self approval, stopped accounts, and another reviewer cannot change a request', () => {
   const { demo, rows, actor } = fixture();
@@ -223,7 +224,9 @@ test('the final joint approval activates every required item together and cannot
   assert.equal(first.status,'已批准'); assert.equal(demo.effectiveAccess(request).length,0);
   assert.equal(demo.decide(request,second.id,'approve',approval(second),people.users.find(user=>user.id===second.reviewer),request.revision),undefined);
   assert.equal(request.status,'已生效'); assert.ok(request.approvalItems.every(part=>part.status==='已生效'));
-  assert.equal(request.access.length,2); assert.equal(request.history.filter(entry=>entry.action==='自动生效').length,1);
+  assert.equal(request.access.length,2); assert.equal(request.history.filter(entry=>entry.action==='已批准').length,2);
+  assert.ok(!request.history.some(entry=>entry.actor==='系统'));
+  assert.match(request.history.at(-1).content,/访问已生效/);
   const before=JSON.stringify(request);
   assert.equal(typeof demo.decide(request,second.id,'approve',approval(second),people.users.find(user=>user.id===second.reviewer),request.revision),'string');
   assert.equal(JSON.stringify(request),before);
@@ -252,11 +255,21 @@ test('personal pending source intentions are unavailable until the substitute ap
   demo.ensure(historical); assert.equal(historical.approvalItems[0].status,'已生效'); assert.equal(demo.effectiveAccess(historical).length,1);
 });
 
-test('activation failure stays unavailable and the catalog has no manual execution capability', () => {
-  const { demo, rows, routing }=fixture(), failed=rows.find(row=>row.id==='SQ-REVIEW-012');
-  assert.equal(failed.status,'生效失败'); assert.equal(failed.access.length,0); assert.equal(demo.effectiveAccess(failed).length,0);
-  assert.match(failed.approvalItems[0].activationError,/未生效/);
-  assert.equal(failed.history.at(-1).actor,'系统');
-  demo.records(); assert.equal(failed.status,'生效失败');
+test('approved examples are effective directly and have no separate system activation records', () => {
+  const { demo, rows, routing }=fixture(), approved=rows.find(row=>row.id==='SQ-REVIEW-012');
+  assert.equal(approved.status,'已生效'); assert.equal(approved.access.length,1); assert.equal(demo.effectiveAccess(approved).length,1);
+  for (const row of rows) {
+    assert.ok(!row.approvalItems.some(part=>part.status==='生效失败'||part.activationError));
+    assert.ok(!row.history.some(entry=>entry.actor==='系统'||entry.action==='自动生效'));
+    if (row.mode !== 'joint') for (const part of row.approvalItems.filter(part=>part.status==='已生效')) assert.equal(part.activatedAt,part.reviewedAt);
+  }
+  demo.records(); assert.equal(approved.status,'已生效');
   assert.equal(routing.hasAbility(fixture().actor,'grant-management.execute'),false);
+});
+
+test('invalid approval leaves the pending request unchanged without a successful decision', () => {
+  const { demo, rows, actor }=fixture(), request=rows.find(row=>row.id==='SQ-REVIEW-003'), part=request.approvalItems[0];
+  const before=JSON.stringify(request);
+  assert.equal(typeof demo.decide(request,part.id,'approve',{access:[{source:part.source,rules:[]}],reason:''},actor,request.revision),'string');
+  assert.equal(JSON.stringify(request),before);
 });
