@@ -18,7 +18,7 @@
   <script src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
   <script src="../shared/element-adapter.js?v=element-controls-20261108-r3"></script>
   <script src="../app/icons.js"></script>
-  <script src="record-controls.js?v=element-controls-20261108-r3"></script>
+  <script src="record-controls.js?v=filter-order-20261111"></script>
   <script src="record-table.js?v=element-controls-20261108-r3"></script>
   <style>
     :root {
@@ -287,7 +287,7 @@
           description: isRequests ? item.purpose : item.rules || '用户信息限制、产品成本限制',
           person: item.person,
           date: item.submitted,
-          status: isRequests ? (item.status === 'pending' ? '待审批' : '待执行') : '已生效',
+          status: isRequests ? (item.status === 'pending' ? '待审批' : '已生效') : '已生效',
           id: item.id
         };
       }
@@ -385,10 +385,11 @@
         const form = RecordControls.filters({
           value: applied,
           statuses: [{ value: 'all', label: '全部状态' }, ...(isRequests
-            ? [{ value: 'pending', label: '待审批' }, { value: 'approved', label: '待执行' }]
+            ? [{ value: 'pending', label: '待审批' }, { value: 'approved', label: '已生效' }]
             : [{ value: 'effective', label: '已生效' }])],
           keywordLabel: '关键词', keywordPlaceholder: '申请编号、申请人或业务用途',
           dateLabel: isRequests ? '提交日期' : '生效日期',
+          dateBeforeStatus: true,
           onApply: value => { applied = value; render('keyword'); },
           onReset: () => { applied = { ...defaults, pageSize: applied.pageSize }; render('keyword'); }
         });

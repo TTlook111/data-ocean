@@ -25,7 +25,7 @@
   }
   function render(main, ui) {
     const { el, button, status, pair, textCell, pageHeading, modal, currentUser } = ui;
-    const panel = el('section', 'record-panel'), tabs = el('div', 'prototype-ui source-approval-tabs');
+    const panel = el('section', 'record-panel source-approval-panel'), tabs = el('div', 'prototype-ui source-approval-tabs');
     PrototypeUI.mount(tabs, { data: () => ({ active: activeTab }), methods: { changed(value) { activeTab = value; render(main, ui); main.querySelector('.source-approval-tabs .is-active')?.focus(); } },
       template: '<el-tabs v-model="active" @tab-change="changed"><el-tab-pane label="数据源概况" name="overview"></el-tab-pane><el-tab-pane label="审批责任" name="approval"></el-tab-pane></el-tabs>' });
     panel.append(tabs);
@@ -34,13 +34,14 @@
     const tools = RecordControls.filters({ value: query, fields: [{ key: 'sourceName', label: '数据源名称' }, { key: 'primary', label: '主审批人', placeholder: '主审批人姓名或登录名' }, { key: 'alternate', label: '替代负责人', placeholder: '替代负责人姓名或登录名' }], includeDates: false,
       statuses: [{ value: 'all', label: '全部状态' }, ...['已配置', '未配置', '需复核'].map(value => ({ value, label: value }))],
       onApply: next => { Object.assign(query, next); render(main, ui); main.querySelector('input[name="sourceName"]')?.focus(); }, onReset: reset });
+    tools.classList.add('source-approval-filters');
     const rows = dataSources.filter(source => (query.status === 'all' || demo.state(source) === query.status) && AdminQuery.matchesFields({ sourceName: source.name, primary: identity(source.approval.primary), alternate: identity(source.approval.alternate) }, query));
     query.page = Math.max(1, Math.min(query.page, Math.ceil(rows.length / query.pageSize)));
     const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', '没有匹配的数据源'));
     if (query.sourceName || query.primary || query.alternate || query.status !== 'all') empty.append(button('清空筛选', reset));
     const personCell = id => { const user = users.find(user => user.id === id), cell = el('div'); cell.append(textCell(user?.name || '未指定')); if (user) cell.append(el('small', 'cell-sub', user.login)); return cell; };
     panel.append(RecordTable.render({ caption: '数据源审批责任', minWidth: 960,
-      columns: [{ key: 'source', label: '数据源' }, { key: 'primary', label: '主审批人', width: 160 }, { key: 'alternate', label: '替代负责人', width: 160 }, { key: 'state', label: '责任状态', width: 104 }, { key: 'updated', label: '更新时间', width: 166 }, { key: 'actions', label: '操作', width: 128, fixed: 'right' }],
+      columns: [{ key: 'source', label: '数据源',width:220 }, { key: 'primary', label: '主审批人', width: 160 }, { key: 'alternate', label: '替代负责人', width: 160 }, { key: 'state', label: '责任状态', width: 104 }, { key: 'updated', label: '更新时间', width: 166 }, { key: 'actions', label: '操作', width: 128, fixed: 'right' }],
       items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), empty,
       row: source => [button(source.name, trigger => detail(source, trigger), 'cell-title', 'source-' + source.id), personCell(source.approval.primary), personCell(source.approval.alternate), status(demo.state(source)), textCell(source.approval.updated),
         demo.hasAbility(currentUser, 'sources.approval-config') ? button('配置责任', trigger => edit(source, trigger), 'do-action is-primary', 'configure-' + source.id) : el('span', 'cell-sub', '只读')]

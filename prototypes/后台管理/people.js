@@ -20,7 +20,7 @@
     ['数据治理', 'layers', [['governance', '治理工作台'], ['governance-review', '治理审核与复核'], ['test-cases', '标准题单与验证']]],
     ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['releases', '发布管理'], ['versions', '版本与回退']]],
     ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
-    ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['grant-management', '授权执行与撤销'], ['access-requests', '访问申请'], ['grants', '授权记录'], ['audit', '权限审计']]],
+    ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
     ['系统配置', 'layers', [['models', '模型配置'], ['model-uses', '用途设置'], ['retrieval', '知识检索配置'], ['diagnostics', '运行诊断']]],
     ['个人管理', 'user-round', [['account-info', '账号信息'], ['my-requests', '我的申请'], ['my-access', '我的访问范围']]]
   ];
@@ -66,18 +66,17 @@
     limits: item.rules.map(rule => rule.name + '：' + rule.content).join('\n')
   }));
   const accessText = access => accessRows(access).map(row => row.source + '\n' + row.limits).join('\n') || '未配置';
-  // 同一份中文规则在配置与详情中保持一致的阅读结构，不做语义解析。
+  // 阅读摘要只占一行，配置核定保留全文；补充信息不增加展开操作。
   const OutputRuleList = {
-    props: ['rules'],
-    template: `<dl class="output-rule-list"><div v-for="rule in rules" :key="rule.id"><dt>{{rule.name}}</dt><dd>{{rule.content}}</dd></div></dl>`
+    props: { rules: Array, preview: { type: Boolean, default: true } },
+    template: `<dl class="output-rule-list"><div v-for="rule in rules" :key="rule.displayKey || rule.id"><dt :title="rule.name">{{rule.name}}</dt><dd><span class="output-rule-text" :class="{'rule-content-preview':preview}" :title="preview ? rule.content : null">{{rule.content}}</span></dd></div></dl>`
   };
   const DataAccessTable = {
-    components: { OutputRuleList },
     props: ['access'],
     computed: { rows() { return accessRows(this.access); } },
     template: `<el-table :data="rows" class="data-access-table" aria-label="数据源与输出限制规则" empty-text="暂无数据访问配置">
       <el-table-column prop="source" label="数据源" width="160"></el-table-column>
-      <el-table-column label="输出限制规则" min-width="260"><template #default="{row}"><output-rule-list v-if="row.rules.length" :rules="row.rules"></output-rule-list><span v-else class="cell-sub">待核定</span></template></el-table-column>
+      <el-table-column label="输出限制规则" min-width="260"><template #default="{row}"><span v-if="row.rules.length" class="cell-text" :title="row.ruleNames">{{row.ruleNames}}</span><span v-else class="cell-sub">待核定</span></template></el-table-column>
     </el-table>`
   };
   const DataAccessEditor = {
@@ -100,7 +99,7 @@
           <el-option v-for="rule in matchingRules(index)" :key="rule.id" :label="rule.name" :value="rule.id"><span class="rule-option-title">{{rule.name}}</span><span class="rule-option-description">{{rule.content}}</span></el-option>
         </el-select>
         <el-button v-if="!singleSource" link type="danger" @click="remove(index)" :aria-label="'移除数据源 '+(index+1)">移除</el-button>
-      </div><output-rule-list v-if="item.rules.length" :rules="item.rules"></output-rule-list></div>
+      </div><output-rule-list v-if="item.rules.length" :rules="item.rules" :preview="false"></output-rule-list></div>
       <el-button v-if="!singleSource && modelValue.length < dataSources.length" @click="add">添加数据源</el-button>
     </div>`
   };
@@ -122,7 +121,7 @@
     node.addEventListener('click', () => action(node)); return node;
   }
   function textCell(text) { const node = el('span', 'cell-text', text || '—'); node.title = text || ''; return node; }
-  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '已驳回', '已撤回'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待分流', '待核定数据源', '缺审批责任', '审批责任需复核', '待确认', '需补充', '未配置', '需复核', '已批准待执行', '部分批准待执行'].includes(value) ? ' is-pending' : ''), value); }
+  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '来源已结束', '已驳回', '已撤回', '已撤销'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待分流', '待核定数据源', '缺审批责任', '审批责任需复核', '待确认', '需补充', '未配置', '需复核', '已批准', '部分已生效', '生效失败'].includes(value) ? ' is-pending' : ''), value); }
   // 列表默认向下展开，固定底栏可指定向上展开，定位和键盘行为仍由组件处理。
   function moreActions(items, key, label, popupTarget = document.body, placement = 'bottom-end') {
     const wrap = el('span', 'row-more prototype-ui');
@@ -184,7 +183,7 @@
     const errorPrefix = 'admin-form-' + (++formSequence) + '-';
     if (fields.some(field => field.type === 'data-access')) node.classList.add('data-access-dialog');
     PrototypeUI.mount(host, {
-      components: { DataAccessEditor, AssignmentPreview: SourceApprovalsPage.AssignmentPreview },
+      components: { DataAccessEditor, DataAccessTable, AssignmentPreview: SourceApprovalsPage.AssignmentPreview },
       data: () => ({ model: structuredClone(value), fields, note, error: '', errorPrefix, choiceKeywords: {}, saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, previewContentLabel, summary,
         rules: Object.fromEntries(fields.map(f => [f.key, [
           ...(f.type === 'checkbox' ? [{ required: true, validator: (_, v, done) => done(v ? undefined : new Error('请先完成复核确认')), trigger: 'change' }] : f.required ? [{ required: true, message: f.options ? (f.label.startsWith('选择') ? '请' : '请选择') + f.label : '请填写' + f.label, trigger: f.options ? 'change' : 'blur' }] : []),
@@ -237,6 +236,7 @@
         <div v-show="!reviewing" class="form-grid"><el-form-item v-for="f in fields" :key="f.key" :label="f.label" :prop="f.key" :class="{'full-width': f.full}">
           <div v-if="f.readonly" class="readonly-value">{{model[f.key]}}</div>
           <assignment-preview v-else-if="f.type === 'approval-assignment'" :source-id="model.source" :applicant-id="f.applicantId"></assignment-preview>
+          <data-access-table v-else-if="f.type === 'access-summary'" :access="model[f.key]"></data-access-table>
           <div v-else-if="f.type === 'checkbox-group'" class="role-choice-field"><el-input v-if="f.options.length>8" v-model="choiceKeywords[f.key]" clearable aria-label="搜索可分配角色" placeholder="搜索角色" class="role-choice-search"></el-input>
             <p v-if="choiceKeywords[f.key] && model[f.key].length" class="role-choice-selected" aria-label="已选角色">已选：{{selectedChoices(f)}}</p>
             <div class="role-choice-scroll"><el-checkbox-group v-model="model[f.key]" :aria-label="f.label" class="form-choice-group">
@@ -402,11 +402,11 @@
     const sources = [...new Set([user.department, ...user.extra])].map(id => departments.find(d => d.id === id))
       .filter(d => d?.access.length).map(d => ({ id: d.id, type: 'department', label: '部门初始访问 · ' + d.name, access: d.access, submitted: d.created,
         state: d.status !== '正常' ? '来源' + d.status : d.requiresReview ? '待复核' : '' }));
-    for (const request of extraRequests.filter(r => r.user === user.id && r.status === '已生效')) sources.push({ id: request.id, type: 'request', label: '申请授权 · ' + request.id, access: request.access, submitted: request.submitted, request });
+    for (const request of extraRequests.filter(r => r.user === user.id && AccessRequestDemo.effectiveAccess(r).length)) sources.push({ id: request.id, type: 'request', label: '申请授权 · ' + request.id, access: AccessRequestDemo.effectiveAccess(request), submitted: request.submitted, request });
     return sources;
   }
   function dataAccessSources(user) {
-    // 来源按数据源分页，展开即可阅读该笔来源的完整中文规则。
+    // 来源按数据源分页，规则正文作为单行补充摘要。
     const host = el('div', 'detail-access-list'), query = { page: 1, pageSize: 10 };
     const records = accessRecords(user).sort((a, b) => b.origin.submitted.localeCompare(a.origin.submitted) || b.id.localeCompare(a.id));
     const draw = () => {
@@ -446,7 +446,7 @@
       previewTitle: '核对申请内容', previewLabel: '核对申请', summary: true,
       preview: data => [change('需要的数据', '', data.requestedScope.trim()), change('业务用途', '', data.reason.trim()),
         change('已知数据源', '', data.sourceIds.map(id => dataSources.find(source => source.id === id).name).join('、') || '交由负责人核定'),
-        change('提交后的状态', '', data.sourceIds.length && data.sourceIds.every(id=>SourceApprovalDemo.resolve(id,currentUser.id).reviewer) ? '待审批，批准并执行后生效' : '待分流，核定数据源与审批责任后进入审批')],
+        change('提交后的状态', '', data.sourceIds.length && data.sourceIds.every(id=>SourceApprovalDemo.resolve(id,currentUser.id).reviewer) ? '待审批' : '待分流')],
       saveLabel: '提交申请', success: '申请已提交',
       // 仅记录申请并展示待审批，不把申请内容转换为实际授权。
       save: data => { submittedRequest = { ...data, reason: data.reason.trim(), requestedScope: data.requestedScope.trim(), id: 'SQ-' + Date.now(), user: currentUser.id, department: currentUser.department, status: '待审批', submitted: timestamp() }; AccessRequestDemo.ensure(submittedRequest); extraRequests.unshift(submittedRequest); },
@@ -459,34 +459,35 @@
       } });
   }
   function requestDetail(request, trigger, adminResult = false) {
-    if (request.approvalItems) AccessRequestDemo.ensure(request);
-    const node = modal(adminResult ? '审批办理结果' : '数据访问申请详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
+    AccessRequestDemo.ensure(request);
+    const node = modal(adminResult && section !== 'my-access' ? '申请详情' : '我的申请详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
     node.classList.add('access-detail-dialog');
-    const state = el('div', 'request-state'); state.append(status(request.status), el('span', 'request-id', request.id));
-    if (adminResult) { const applicant = users.find(user => user.id === request.user); fields.append(pair('申请人', applicant.name + '（' + applicant.login + '）')); }
+    const state = el('div', 'request-state'); state.append(el('span','cell-sub','申请状态'),status(request.status), el('span', 'request-id', request.id));
+    const applicant = users.find(user => user.id === request.user); fields.append(pair('申请人', applicant.name + '（' + applicant.login + '）'));
     fields.append(pair('提交时间', request.submitted));
     body.append(state, fields, el('h3', '', '业务用途'), el('p', '', request.reason));
     if (request.requestedScope) body.append(el('h3', '', '需要的数据'), el('p', '', request.requestedScope));
-    if (request.access.length && request.status === '已生效') {
-      const table = el('div', 'prototype-ui');
-      PrototypeUI.mount(table, { render: () => Vue.h(DataAccessTable, { access: request.access }) });
-      body.append(el('h3', '', '已生效数据源与输出限制规则'), table);
-    } else {
+    // 子项已包含数据源与办理结果，不再另放一张相同范围的规则明细表。
+    if (!request.approvalItems?.length) {
       const sourceIds = request.sourceIds || request.access.map(item => item.source);
       body.append(el('h3', '', '已知数据源'), el('p', '', sourceIds.map(id => dataSources.find(source => source.id === id).name).join('、') || '交由负责人核定'));
     }
     if (request.approvalItems?.length) {
       const reviewed = el('div', 'request-reviewed-items');
       for (const item of request.approvalItems) {
-        const section = el('section'); section.append(el('h3', '', dataSources.find(source => source.id === item.source)?.name || '待核定数据源'), status(item.status));
-        section.append(el('p', '', '审批负责人：' + (users.find(user=>user.id===item.reviewer)?.name || '待分流')));
-        if (AccessRequestDemo.open(item) && item.routeReason) section.append(el('p', 'form-note', item.routeReason));
+        const section = el('section'); section.append(el('h3', '', dataSources.find(source => source.id === item.source)?.name || '待核定数据源'), status(AccessRequestDemo.open(item)?item.status:AccessRequestDemo.decisionOf(item)));
+        if(AccessRequestDemo.decisionOf(item)==='已批准'&&item.status!=='已批准')section.append(el('p','', '当前授权：'+item.status));
+        const review = AccessRequestDemo.reviewInfo(item, request);
+        if(review){section.append(el('p','',review.label+'：'+review.identity));if(review.timeLabel)section.append(el('p','cell-sub',review.timeLabel+'：'+review.time));}
+        if (AccessRequestDemo.open(item) && AccessRequestDemo.inProgress(request) && item.routeReason) section.append(el('p', 'form-note', item.routeReason));
         if (item.reason) section.append(el('p', '', item.reason));
-        if (item.status === '已批准待执行') { const rules = el('div', 'prototype-ui'); PrototypeUI.mount(rules, { render: () => Vue.h(OutputRuleList, { rules: item.rules }) }); section.append(rules); }
+        if (AccessRequestDemo.decisionOf(item) === '已批准' && item.rules.length) { const names = el('p', 'access-rule-names', '输出限制规则：' + item.rules.map(rule => rule.name).join('、')); names.title = names.textContent; section.append(names); }
+        if (item.activationError) section.append(el('p', 'form-error', item.activationError));
+        if (item.revokedAt) section.append(el('p', 'cell-sub', item.revokedAt + ' · ' + item.revokedBy), el('p', '', item.revokedReason));
         reviewed.append(section);
       }
       body.append(el('h3', '', '办理情况'), reviewed);
-      if (request.approvalItems.some(item => item.status === '已批准待执行')) body.append(el('p', 'form-note', adminResult ? request.mode === 'joint' && request.status !== '已批准待执行' ? '联合组合尚未全部通过，当前不会进入执行。' : '批准范围尚未生效，执行成功后才会产生数据访问。' : '批准范围尚未生效，执行成功后才会出现在我的访问范围。'));
+      if (request.mode === 'joint' && request.approvalItems.some(item => item.status === '已批准')) body.append(el('p', 'form-note', AccessRequestDemo.inProgress(request) ? '等待其他必要子项审批。' : '本组合未通过，当前未生效。'));
     }
     if (adminResult && request.history.length) {
       const history = el('ol', 'approval-history');
@@ -495,74 +496,73 @@
     }
     if (request.result) body.append(el('h3', '', '处理说明'), el('p', '', request.result));
     const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
-    if (!adminResult && ['待审批','待分流'].includes(request.status)) footer.append(button('撤回申请', () => { node.close(); confirmChange({ title: '撤回申请', trigger, danger: true,
-      description: '撤回“' + request.id + '”。', preview: () => [change('申请状态', request.status, '已撤回')], save: () => { request.status = '已撤回'; for (const item of request.approvalItems || []) if (AccessRequestDemo.open(item)) item.status = '已撤回'; } }); }, 'admin-button is-danger'));
-    node.append(body, footer); node.showModal();
+    if(adminResult&&section==='access-requests'&&SourceApprovalDemo.hasAbility(currentUser,'grants.view')&&GrantDemo.records(currentUser,{origin:request.id}).some(record=>record.request?.id===request.id))footer.append(button('查看授权',()=>{node.close();GrantsPage.openOrigin(request.id);}));
+    if (!adminResult && AccessRequestDemo.inProgress(request)) footer.append(button(request.access.length ? '撤回未处理子项' : '撤回申请', () => { const revision = request.revision; node.close(); confirmChange({ title: request.access.length ? '撤回未处理子项' : '撤回申请', trigger, danger: true,
+      description: '撤回“' + request.id + '”的未处理子项。', preview: () => [change('申请状态', request.status, request.access.length ? '部分已生效' : '已撤回')], save: () => AccessRequestDemo.withdraw(request, currentUser, revision) }); }, 'admin-button is-danger'));
+    node.append(body, footer); node.showModal(); return node;
   }
-  // 同一数据源的不同授权来源分别展示，不计算有效权限或规则合并。
+  // 管理回看保留逐笔来源；本人访问范围另按数据源合并当前有效限制。
   function accessRecords(user) {
     return accessOrigins(user).flatMap(origin => origin.access.map(item => ({
       ...accessRows([item])[0], id: origin.id + '-' + item.source, access: [item], origin
     })));
   }
-  function accessDetail(record, trigger) {
-    const node = modal('数据访问详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
-    node.classList.add('access-detail-dialog');
-    fields.append(pair('数据源', record.source), pair('授权来源', record.origin.label), pair('来源状态', record.origin.state || '已生效'));
-    body.append(fields, el('h3', '', '输出限制规则'));
-    const rules = el('div', 'prototype-ui'); PrototypeUI.mount(rules, { render: () => Vue.h(OutputRuleList, { rules: record.rules }) }); body.append(rules);
-    const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
-    if (record.origin.request) footer.append(button('查看申请', () => { node.close(); requestDetail(record.origin.request, trigger); }));
-    node.append(body, footer); node.showModal();
+  function groupedAccessDetail(sourceId, trigger, activeOrigin = '') {
+    const group = GrantDemo.accessGroups(currentUser).find(group=>group.id===sourceId);if(!group)return;
+    const node=modal('访问范围详情',trigger,true),body=el('div','dialog-body'),heading=el('div','grant-detail-heading');node.classList.add('access-detail-dialog');
+    heading.append(el('h2','',group.source),status(group.state));body.append(heading);
+    const identity=el('dl','detail-fields');identity.append(pair('被授权人',GrantDemo.identity(currentUser.id)));body.append(identity);
+    if(group.activeCount){const rules=el('div','prototype-ui');PrototypeUI.mount(rules,{render:()=>Vue.h(OutputRuleList,{rules:group.rules})});body.append(el('h3','','当前输出限制'),rules);}
+    body.append(el('h3','','授权来源（'+group.activeCount+' 笔生效）'));
+    const sources=el('div','prototype-ui detail-access-list');
+    PrototypeUI.mount(sources,{data:()=>({origins:group.origins,active:activeOrigin}),methods:{
+      reviewIdentity:AccessRequestDemo.reviewIdentity,
+      viewRequest(id){const row=group.origins.find(row=>row.id===id);if(!row?.request)return;node.close();const target=main.querySelector('[data-focus="access-detail-'+sourceId+'"]')||main.querySelector('input[name="keyword"]');const dialog=requestDetail(row.request,target,true);dialog.addEventListener('close',()=>groupedAccessDetail(sourceId,target,id),{once:true});}
+    },template:`<el-collapse v-model="active" accordion><el-collapse-item v-for="origin in origins" :key="origin.id" :name="origin.id"><template #title><span class="detail-access-title"><span class="detail-access-heading"><span class="detail-access-name">{{origin.typeLabel}} · {{origin.origin}}</span><span class="cell-sub">{{origin.state}} · {{origin.activatedAt}}</span></span></span></template><div class="detail-access-body"><dl v-if="origin.request" class="detail-fields"><div><dt>批准人</dt><dd>{{reviewIdentity(origin.part)}}</dd></div><div><dt>批准时间</dt><dd>{{origin.part.reviewedAt || '未记录'}}</dd></div></dl><p class="access-rule-names" :title="origin.rules.map(rule=>rule.name).join('、')">{{origin.rules.map(rule=>rule.name).join('、')}}</p><div v-if="origin.request" class="detail-access-actions"><el-button link type="primary" @click="viewRequest(origin.id)" :aria-label="'查看申请 '+origin.origin">查看申请</el-button></div></div></el-collapse-item></el-collapse>`});
+    body.append(sources);const footer=el('footer','dialog-footer');footer.append(button('关闭',()=>node.close()));node.append(body,footer);node.showModal();
   }
   function renderMyAccess() {
-    const q = queries.access, tools = el('section', 'people-query-card');
-    const reset = () => { Object.assign(q, { keyword: '', rule: '', origin: '', status: 'all', page: 1 }); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); };
-    tools.append(RecordControls.filters({ value: q, includeDates: false, fields: [{ key: 'keyword', label: '数据源名称' }, { key: 'rule', label: '输出限制规则名称' }, { key: 'origin', label: '来源名称或编号' }], statusLabel: '来源类型',
-      statuses: [{ value: 'all', label: '全部来源' }, { value: 'department', label: '部门初始访问' }, { value: 'request', label: '申请授权' }],
+    const q = queries.access, tools = el('section', 'people-query-card personal-query');
+    const reset = () => { Object.assign(q, { keyword: '', rule: '', page: 1 }); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); };
+    tools.append(RecordControls.filters({ value: q, includeDates: false, includeStatus:false, fields: [{ key: 'keyword', label: '数据源名称' }, { key: 'rule', label: '输出限制规则名称' }],
       onApply: next => { Object.assign(q, next); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); }, onReset: reset
     }), button('申请额外数据访问', applyExtraAccess, 'admin-button is-primary', 'apply-data-access'));
-    // 条件只匹配对应业务字段，先筛选再计算总数和页数据。
-    const records = accessRecords(currentUser).filter(record => (q.status === 'all' || q.status === record.origin.type) &&
-      AdminQuery.matchesFields({ keyword: record.source, rule: record.ruleNames, origin: record.origin.label }, q))
-      .sort((a, b) => b.origin.submitted.localeCompare(a.origin.submitted) || b.id.localeCompare(a.id));
+    const records = GrantDemo.accessGroups(currentUser,q);
     q.page = Math.max(1, Math.min(q.page, Math.ceil(records.length / q.pageSize)));
-    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.rule || q.origin || q.status !== 'all');
+    const panel = el('section', 'record-panel personal-records-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.rule);
     empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的访问范围' : '暂无数据访问范围'));
     if (filtered) empty.append(button('清空筛选', reset));
-    panel.append(RecordTable.render({ caption: '我的访问范围', minWidth: 880,
-      columns: [{ key: 'source', label: '数据源', width: 160 }, { key: 'rules', label: '输出限制规则' }, { key: 'origin', label: '授权来源', width: 240 }, { key: 'actions', label: '操作', width: 128 }],
+    panel.append(RecordTable.render({ caption: '我的访问范围', minWidth: 800,
+      columns: [{ key: 'source', label: '数据源', width: 180,grow:2 }, { key: 'rules', label: '当前输出限制',width:360,grow:4 }, { key: 'origin', label: '有效来源', width: 112,grow:1 }, { key: 'state', label: '状态', width:104,grow:1 }, { key: 'actions', label: '操作', width: 128, fixed:'right' }],
       items: records.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
       row: record => {
-        const origin = el('div', 'access-origin');
-        origin.append(textCell(record.origin.type === 'request' ? '申请授权' : '部门初始访问'), el('span', 'cell-sub', record.origin.request?.id || deptName(record.origin.id)));
-        if (record.origin.state) origin.append(status(record.origin.state));
-        const view = button('查看详情', trigger => accessDetail(record, trigger), 'do-action is-primary access-detail-action', 'access-detail-' + record.id); view.setAttribute('aria-label', '查看' + record.source + '的访问详情，' + record.origin.label);
-        return [textCell(record.source), textCell(record.ruleNames), origin, view];
+        const view = button('查看详情', trigger => groupedAccessDetail(record.id, trigger), 'do-action is-primary access-detail-action', 'access-detail-' + record.id); view.setAttribute('aria-label', '查看' + record.source + '的合并限制与授权来源');
+        return [textCell(record.source), textCell(record.ruleNames), textCell(record.activeCount+' 笔'),status(record.state), view];
       }
     }), RecordControls.pager({ total: records.length, ...q }, page => { q.page = page; renderMyAccess(); }, size => { q.pageSize = size; q.page = 1; renderMyAccess(); }));
     main.replaceChildren(pageHeading('我的访问范围'), tools, panel);
   }
   function renderMyRequests() {
     AccessRequestDemo.records();
-    const q = queries.requests, tools = el('section', 'people-query-card');
+    const q = queries.requests, tools = el('section', 'people-query-card personal-query');
     const reset = () => { Object.assign(q, { keyword: '', requestId: '', status: 'all', page: 1 }); renderMyRequests(); };
     tools.append(RecordControls.filters({ value: q, includeDates: false, fields: [{ key: 'keyword', label: '申请事项' }, { key: 'requestId', label: '申请编号' }],
-      statuses: [{ value: 'all', label: '全部状态' }, ...['待分流', '待审批', '需补充', '已批准待执行', '部分批准待执行', '已生效', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
+      statuses: [{ value: 'all', label: '全部状态' }, ...['待分流', '待审批', '需补充', '部分已生效', '已生效', '已撤销', '生效失败', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
       onApply: next => { Object.assign(q, next); renderMyRequests(); }, onReset: reset
     }), button('申请额外数据访问', applyExtraAccess, 'admin-button is-primary', 'apply-data-access'));
     const records = extraRequests.filter(r => r.user === currentUser.id && (q.status === 'all' || q.status === r.status) &&
       AdminQuery.matchesFields({ keyword: r.reason, requestId: r.id }, q))
       .sort((a, b) => b.submitted.localeCompare(a.submitted) || b.id.localeCompare(a.id));
     q.page = Math.max(1, Math.min(q.page, Math.ceil(records.length / q.pageSize)));
-    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.requestId || q.status !== 'all');
+    const panel = el('section', 'record-panel personal-records-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.requestId || q.status !== 'all');
     empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的申请' : '暂无数据访问申请'));
     if (filtered) empty.append(button('清空筛选', reset));
-    panel.append(RecordTable.render({ caption: '我的数据访问申请', minWidth: 800,
-      columns: [{ key: 'request', label: '申请事项' }, { key: 'submitted', label: '提交时间', width: 166 }, { key: 'status', label: '状态', width: 104 }, { key: 'actions', label: '操作', width: 144 }],
+    panel.append(RecordTable.render({ caption: '我的数据访问申请', minWidth: 980,
+      columns: [{ key: 'request', label: '申请事项',width:360,grow:4 }, {key:'sources',label:'申请数据源',width:240,grow:3}, { key: 'submitted', label: '提交时间', width: 166,grow:2 }, { key: 'status', label: '状态', width: 104,grow:1 }, { key: 'actions', label: '操作', width: 128,fixed:'right' }],
       items: records.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
       row: request => { const title = el('div'); title.append(button(request.reason, trigger => requestDetail(request, trigger), 'cell-title'), el('span', 'cell-sub', request.id));
-        return [title, textCell(request.submitted), status(request.status), button('查看详情', trigger => requestDetail(request, trigger), 'do-action is-primary request-detail-action')]; }
+        const sources=(request.sourceIds||request.access.map(item=>item.source)).map(id=>dataSources.find(source=>source.id===id)?.name||'数据源不可用').join('、')||'待核定';
+        return [title, textCell(sources), textCell(request.submitted), status(request.status), button('查看详情', trigger => requestDetail(request, trigger), 'do-action is-primary request-detail-action')]; }
     }), RecordControls.pager({ total: records.length, ...q }, page => { q.page = page; renderMyRequests(); }, size => { q.pageSize = size; q.page = 1; renderMyRequests(); }));
     main.replaceChildren(pageHeading('我的申请'), tools, panel);
   }
@@ -574,8 +574,8 @@
     q.page = Math.max(1, Math.min(q.page, Math.ceil(found.length / q.pageSize)));
     const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的人员' : '该部门暂无成员'));
     if (filtered) empty.append(button('清空筛选', () => { Object.assign(q, { keyword: '', login: '', departmentId: '', status: 'all', page: 1 }); target(); }));
-    const columns = [{ key: 'person', label: '人员', ...(kind === 'users' ? {} : { width: '32%' }) },
-      ...(kind === 'users' ? [{ key: 'department', label: '部门', width: 160 }, { key: 'roles', label: '个人角色', width: 200 }] : [{ key: 'department', label: '所属部门' }, { key: 'membership', label: '成员关系', width: 144 }]),
+    const columns = [{ key: 'person', label: '人员', width:kind === 'users'?224:240 },
+      ...(kind === 'users' ? [{ key: 'department', label: '部门', width: 160 }, { key: 'roles', label: '个人角色', width: 200 }] : [{ key: 'department', label: '所属部门',width:160 }, { key: 'membership', label: '成员关系', width: 144 }]),
       { key: 'status', label: '状态', width: 104 }, ...(kind === 'users' ? [{ key: 'updated', label: '更新时间', width: 166 }] : []), { key: 'actions', label: '操作', width: kind === 'users' ? 256 : 200 }];
     const table = RecordTable.render({ caption: kind === 'users' ? '人员列表' : '部门成员', minWidth: kind === 'users' ? 1112 : 840, columns,
       items: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
@@ -808,6 +808,7 @@
   function render() {
     document.querySelector('dialog[open]')?.close();
     const parts = location.hash.slice(1).split('/'); const key = parts[0] === 'admin' ? parts[1] : parts[0];
+    if(key==='grant-management'){location.replace('#grants');return;}
     const changed = section !== key; section = key || 'dashboard';
     pageLocation.title = titles[section] || '页面不存在';
     pageLocation.parent = '';
@@ -826,6 +827,9 @@
     else if (section === 'roles') RolesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, moreActions,
       setTitle(title, editor) { pageLocation.title = title; pageLocation.parent = editor ? '角色与功能权限' : ''; document.title = title + ' · DataOcean 后台管理'; } });
     else if (section === 'access-requests') AccessRequestsPage.render(main, { el, button, textCell, status, pair, pageHeading, notify, openForm, currentUser, DataAccessTable, viewResult: (request, trigger) => requestDetail(request, trigger, true) });
+    else if (section==='grants') GrantsPage.render(main,{ el,button,textCell,status,pair,pageHeading,modal,openForm,currentUser,DataAccessTable,
+      viewRequest:(request,trigger)=>requestDetail(request,trigger,true),openDepartment:id=>{selectedDepartment=id;departmentTab='template';location.hash='departments';}
+    });
     else {
       const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('file-text'), el('h2', '', titles[section] ? '待制作' : '页面不存在'));
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }

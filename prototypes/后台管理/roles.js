@@ -173,7 +173,7 @@
     const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', query.keyword || query.status !== 'all' ? '没有匹配的角色' : '暂无角色'));
     if (query.keyword || query.status !== 'all') empty.append(button('清空筛选', () => { Object.assign(query, { keyword: '', status: 'all', page: 1 }); render(main, ui); }));
     const panel = el('section', 'record-panel'); panel.append(RecordTable.render({ caption: '角色与功能权限', minWidth: 980,
-      columns: [{ key: 'name', label: '角色名称', width: 212 }, { key: 'description', label: '角色说明' }, { key: 'status', label: '状态', width: 82 }, { key: 'members', label: '已分配人员', width: 104 }, { key: 'updated', label: '更新时间', width: 166 }, { key: 'actions', label: '操作', width: 160 }],
+      columns: [{ key: 'name', label: '角色名称', width: 212 }, { key: 'description', label: '角色说明',width:360,grow:4 }, { key: 'status', label: '状态', width: 82 }, { key: 'members', label: '已分配人员', width: 104 }, { key: 'updated', label: '更新时间', width: 166 }, { key: 'actions', label: '操作', width: 160 }],
       items: filtered.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), empty,
       row: role => {
         const identity = el('div', 'role-cell-identity'), name = button(role.name, trigger => detail(role, trigger), 'cell-title', 'role-' + role.id); name.title = role.name; identity.append(name); if (role.protectedRole) identity.append(el('span', 'role-protected', '受保护'));

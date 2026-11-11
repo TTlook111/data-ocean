@@ -6,7 +6,7 @@
   let sequence = 0;
 
   // 来源类型等枚举筛选复用同一控件，并提供与实际用途一致的可访问名称。
-  function filters({ value, statuses, fields, keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, onApply, onReset }) {
+  function filters({ value, statuses, fields, keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, dateBeforeStatus = false, onApply, onReset }) {
     fields = fields || [{ key: 'keyword', label: keywordLabel, placeholder: keywordPlaceholder }];
     const form = document.createElement('form');
     form.className = 'rl-filters prototype-ui' + (fields.length > 1 ? ' has-multiple-fields' : '');
@@ -39,6 +39,11 @@
             node.setAttribute('aria-describedby', uid + '-error');
           });
         });
+        const renderStatus = () => includeStatus ? h('div', { class: 'rl-status' }, [
+          h(ElSelect, { modelValue: state.status, 'onUpdate:modelValue': next => { state.status = next; },
+            ariaLabel: statusLabel, placeholder: statuses[0]?.label, popperClass: 'prototype-ui-popper',
+            style: { width: '100%' } }, { default: () => statuses.map(item => h(ElOption, { key: item.value, value: item.value, label: item.label })) })
+        ]) : null;
         return () => h('div', { class: 'rl-filter-row' }, [
           ...fields.map(field => h('div', { class: 'rl-keyword' + (field.options ? ' rl-field-select' : ''), key: field.key }, [
             h('label', { for: uid + '-' + field.key, class: 'sr-only' }, field.label),
@@ -51,11 +56,7 @@
               clearable: true, maxlength: 160, 'aria-label': field.label,
               onKeydown: event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); submit(); } } })
           ])),
-          includeStatus ? h('div', { class: 'rl-status' }, [
-            h(ElSelect, { modelValue: state.status, 'onUpdate:modelValue': next => { state.status = next; },
-              ariaLabel: statusLabel, placeholder: statuses[0]?.label, popperClass: 'prototype-ui-popper',
-              style: { width: '100%' } }, { default: () => statuses.map(item => h(ElOption, { key: item.value, value: item.value, label: item.label })) })
-          ]) : null,
+          dateBeforeStatus ? null : renderStatus(),
           h('div', { class: 'rl-filter-tail' }, [includeDates ? h('div', { class: 'rl-dates', role: 'group', 'aria-label': dateLabel,
             'aria-describedby': uid + '-error', 'aria-invalid': String(Boolean(state.error)) }, [
             h(ElDatePicker, { modelValue: state.dates,
@@ -65,6 +66,8 @@
               clearable: true, unlinkPanels: true, popperClass: 'prototype-ui-popper',
               style: { width: '100%' } })
           ]) : null,
+          // 日期列在状态列之前时，查询控件与键盘顺序同步跟随表头。
+          dateBeforeStatus ? renderStatus() : null,
           h(ElSpace, { class: 'rl-filter-actions', size: 8 }, { default: () => [
             h(ElButton, { nativeType: 'submit' }, { default: () => '查询' }),
             h(ElButton, { nativeType: 'button', onClick: () => { if (current()) onReset(); } }, { default: () => '重置' })

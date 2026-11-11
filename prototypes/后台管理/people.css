@@ -192,6 +192,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .detail-access-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .detail-access-name .status-tag { flex: none; }
 .detail-access-body { padding: 16px 16px 0; font-size: 14px; line-height: 22px; }
+.detail-access-actions { display: flex; justify-content: flex-end; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--do-line); }
 .detail-access-empty { padding: 24px 16px; margin: 0; color: var(--do-muted); }
 .detail-access-list .rl-pager { padding: 12px 16px; box-shadow: none; }
 /* 访问明细保留独立来源状态，避免相同数据源掩盖停用或待复核的来源。 */
@@ -203,8 +204,6 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .planned-page > .icon { width: 40px; height: 40px; color: #96a2b5; }
 .planned-page p { margin: 0; }
 @media (max-width: 1279px) {
-  .data-access-table .output-rule-list > div { display: block; }
-  .data-access-table .output-rule-list dd { margin-top: 4px; }
   .department-layout { grid-template-columns: 220px minmax(0,1fr); gap: 16px; }
   /* 紧凑 PC 窗口缩小组间距，保留页签与操作按钮的完整文字和面板内边距。 */
   .department-tabs, .department-tab-list { gap: 16px; }
@@ -223,14 +222,17 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .department-layout { flex: none; }
 }
 
-/* 规则全文在选择项与详情中自然换行，来源列表保留紧凑密度。 */
+/* 正文只在维护与核定时完整阅读，其他位置保留单行补充摘要。 */
 .output-rule-options { width: 440px; }
 .rule-content { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.rule-content-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rule-content-preview { display: block; overflow: hidden; text-overflow: ellipsis; line-height: 22px; white-space: nowrap; }
 .output-rule-list { display: grid; gap: 12px; margin: 0; width: 100%; }
 .output-rule-list > div { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 16px; }
-.output-rule-list dt { margin: 0; color: var(--do-ink); font-size: 14px; line-height: 22px; font-weight: 500; }
-.output-rule-list dd { color: var(--do-muted); line-height: 22px; white-space: pre-wrap; }
+.output-rule-list dt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; color: var(--do-ink); font-size: 14px; line-height: 22px; font-weight: 500; }
+.output-rule-list dd { min-width: 0; margin: 0; color: var(--do-muted); line-height: 22px; }
+.output-rule-text:not(.rule-content-preview) { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.access-rule-names { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--do-muted); line-height: 22px; }
+.request-reviewed-items .access-rule-names { white-space: nowrap; }
 .access-detail-dialog .dialog-body > h3 { margin: 24px 0 12px; font-size: 16px; line-height: 24px; font-weight: 600; }
 .access-detail-dialog .dialog-body > p { margin: 0; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .access-detail-dialog .dialog-body > .form-note { margin-top: 24px; }

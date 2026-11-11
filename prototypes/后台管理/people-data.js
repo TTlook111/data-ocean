@@ -66,10 +66,10 @@
     { id: 'SQ-DEMO-016', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对总部月度费用', status: '已生效', submitted: '2026-11-08 10:10' },
     { id: 'SQ-DEMO-017', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '核对已上架商品资料', status: '已生效', submitted: '2026-11-08 10:20' },
     { id: 'SQ-DEMO-018', user: 'u01', department: 'd01', access: [accessExample('retail'), accessExample('finance')], reason: '核对城南店库存销售与回款', status: '已生效', submitted: '2026-11-08 10:30' },
-    { id: 'SQ-DEMO-019', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '核对滨江店库存与销售', status: '已生效', submitted: '2026-11-08 10:40' },
-    { id: 'SQ-DEMO-020', user: 'u01', department: 'd01', access: [accessExample('retail')], reason: '核对城北店库存与销售', status: '已生效', submitted: '2026-11-08 10:50' },
-    { id: 'SQ-DEMO-021', user: 'u01', department: 'd01', access: [accessExample('products')], reason: '核对商品中心上架目录', status: '已生效', submitted: '2026-11-08 11:00' },
-    { id: 'SQ-DEMO-022', user: 'u01', department: 'd01', access: [accessExample('finance')], reason: '核对财务部应收与费用', status: '已生效', submitted: '2026-11-08 11:10' }
+    { id: 'SQ-DEMO-019', user: 'u06', department: 'd05', access: [accessExample('retail')], reason: '核对滨江店库存与销售', status: '已生效', submitted: '2026-11-08 10:40' },
+    { id: 'SQ-DEMO-020', user: 'u07', department: 'd07', access: [accessExample('retail')], reason: '核对城北店库存与销售', status: '已生效', submitted: '2026-11-08 10:50' },
+    { id: 'SQ-DEMO-021', user: 'u09', department: 'd10', access: [accessExample('products')], reason: '核对商品中心上架目录', status: '已生效', submitted: '2026-11-08 11:00' },
+    { id: 'SQ-DEMO-022', user: 'u13', department: 'd13', access: [accessExample('finance')], reason: '核对财务部应收与费用', status: '已生效', submitted: '2026-11-08 11:10' }
   ];
   window.PeopleDemo = { departments, users, roles, dataSources, outputRules, extraRequests };
 })();

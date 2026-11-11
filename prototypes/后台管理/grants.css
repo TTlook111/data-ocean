@@ -1,0 +1,6 @@
+.grant-rule-names { display: block; color: var(--do-muted); font-size: 12px; line-height: 16px; }
+.grant-detail-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.grant-detail-heading h2 { margin: 0; font-size: 16px; line-height: 24px; }
+.grant-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+.grant-panel .row-actions { gap: 8px; flex-wrap: nowrap; }
+.grant-panel .do-action.is-danger { color: #b43c3c; }

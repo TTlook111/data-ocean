@@ -50,13 +50,11 @@
       ['disable', '停用角色', '停用该角色功能，保留分配关系和配置。'], ['enable', '启用角色', '核对影响后启用该角色功能。'],
       ['archive', '归档角色', '先停用并移出当前分配人员，配置仅供回看。'], ['protected', '受保护能力授予', '核验授予上限及受保护管理能力。', true]]),
     page('output-rules', '人员与权限', '输出限制规则', [
-      ['create', '新增规则', '维护可复用规则名称及中文限制内容。'], ['edit', '编辑规则', '维护已有规则名称与中文限制内容。']]),
+      ['create', '新增规则', '维护可复用规则名称及返回限制内容。'], ['edit', '编辑规则', '维护已有规则名称与返回限制内容。']]),
     page('access-requests', '人员与权限', '访问申请', [
       ['route', '核定与分派申请', '核定待处理子项的数据源，按该源审批责任分派，不直接批准或授权。'],
       ['review', '核定与审批', '根据用途核定数据源和输出规则，分项批准。'], ['supplement', '要求补充', '说明缺少的业务信息并交回申请人。'], ['reject', '驳回申请', '说明理由并驳回相应申请子项。']]),
-    page('grant-management', '人员与权限', '授权执行与撤销', [
-      ['execute', '执行获批授权', '核对申请版本、数据源和规则后执行。'], ['revoke', '撤销授权', '核对来源和影响后结束指定授权来源。']]),
-    page('grants', '人员与权限', '授权记录'),
+    page('grants', '人员与权限', '授权管理', [['revoke', '撤销授权', '核对来源和影响后结束指定授权来源。']]),
     page('audit', '人员与权限', '权限审计'),
     page('models', '系统配置', '模型配置', [
       ['create', '新增模型配置', '创建配置草稿，凭据保持遮蔽。'], ['edit', '编辑配置草稿', '维护草稿参数和服务信息。'], ['credential', '替换模型凭据', '替换凭据，不回显旧凭据。'],
@@ -83,8 +81,8 @@
     ['role-release', '发布管理员', '管理候选构建、发布测试及版本回退。', keysFor(['knowledge', 'releases', 'versions', 'test-cases'])],
     ['role-feedback', '反馈处理员', '核查、分派与处理有权问题。', keysFor(['feedback'])],
     ['role-approval', '访问审批员', '核定业务用途、数据源及输出限制。', keysFor(['access-requests', 'output-rules'])],
-    ['role-executor', '授权执行员', '核对获批版本并执行或撤销访问。', keysFor(['grant-management', 'grants'])],
-    ['role-audit', '权限审计员', '回看有权审计的授权及操作记录。', keysFor(['audit', 'grants'])],
+    ['role-executor', '授权管理员', '回看授权来源并按权限撤销访问。', keysFor(['grants'])],
+    ['role-audit', '权限审计员', '回看有权审计的授权及操作记录。', [...keysFor(['audit']), 'grants.view']],
     ['role-model', '模型配置员', '维护模型配置及用途，核对检索条件。', keysFor(['models', 'model-uses', 'retrieval', 'diagnostics'])],
     ['role-observer', '业务观察员', '仅回看获准概览与本人访问来源。', ['dashboard.view', 'my-access.view']],
     ['role-archive', '历史资料查阅协作角色', '结束使用后仅保留配置回看。', ['catalog.view']]

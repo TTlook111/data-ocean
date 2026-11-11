@@ -93,7 +93,7 @@
       "lane": "policy",
       "col": 1,
       "label": "维护输出限制规则",
-      "sublabel": "名称与中文限制内容，统一复用",
+      "sublabel": "名称与返回限制内容，统一复用",
       "type": "frontend"
     },
     {

@@ -13,13 +13,47 @@ function fixture() {
   return { people, demo, routing: context.SourceApprovalDemo, rows: demo.records(), actor: people.users[0] };
 }
 const approval = part => ({ access: [{ source: part.source, rules: structuredClone(part.rules) }], reason: '按业务用途核定' });
-test('approval records a pending execution result without adding data access or changing organization', () => {
+
+test('pending responsibility is not displayed as a historical approval identity', () => {
+  const { demo, rows, actor }=fixture(), own=rows.find(row=>row.id==='SQ-DEMO-013'), waiting=own.approvalItems[0];
+  const info=demo.reviewInfo(waiting,own);
+  assert.equal(info.label,'审批负责人');assert.match(info.identity,/陈主管（chen.zhuguan）/);assert.equal(info.timeLabel,'');
+  assert.notEqual(waiting.reviewer,actor.id);assert.equal(waiting.reviewedById,undefined);
+  const routing=rows.find(row=>row.id==='SQ-REVIEW-007');
+  assert.equal(demo.reviewInfo(routing.approvalItems[0],routing).identity,'待分流');
+});
+
+test('approved and failed activation results retain approver labels while rejections do not', () => {
+  const { demo, rows }=fixture();
+  for(const id of ['SQ-DEMO-018','SQ-REVIEW-012']){
+    const request=rows.find(row=>row.id===id);
+    for(const part of request.approvalItems){
+      const info=demo.reviewInfo(part,request);
+      assert.equal(info.label,'批准人');assert.equal(info.timeLabel,'批准时间');assert.equal(info.time,part.reviewedAt);
+    }
+  }
+  for(const id of ['SQ-REVIEW-011','SQ-REVIEW-013']){
+    const request=rows.find(row=>row.id===id),info=demo.reviewInfo(request.approvalItems[0],request);
+    assert.equal(info.label,'办理人');assert.equal(info.timeLabel,'办理时间');
+  }
+  assert.equal(demo.reviewInfo({status:'已生效',reviewer:'u01'},{}).identity,'未记录');
+});
+
+test('withdrawn and abandoned joint items do not invent completed approvers or current assignments', () => {
+  const { demo, rows, actor }=fixture(), withdrawn=rows.find(row=>row.id==='SQ-REVIEW-014');
+  assert.equal(demo.reviewInfo(withdrawn.approvalItems[0],withdrawn),null);
+  const joint=rows.find(row=>row.id==='SQ-REVIEW-004'),[first,second]=joint.approvalItems;
+  assert.equal(demo.decide(joint,first.id,'reject',{reason:'用途未通过'},actor,joint.revision),undefined);
+  assert.equal(demo.reviewInfo(first,joint).label,'办理人');assert.equal(demo.reviewInfo(second,joint),null);
+});
+test('approval automatically activates only its selected source without changing organization', () => {
   const { people, demo, rows, actor } = fixture(), request = rows.find(value=>value.id==='SQ-REVIEW-003'), part = request.approvalItems[0];
-  const before = JSON.stringify({ users: people.users, departments: people.departments, access: request.access });
+  const before = JSON.stringify({ users: people.users, departments: people.departments });
   assert.equal(demo.decide(request, part.id, 'approve', approval(part), actor, 1), undefined);
-  assert.equal(request.status, '已批准待执行');
-  assert.equal(JSON.stringify({ users: people.users, departments: people.departments, access: request.access }), before);
-  assert.equal(request.history.length, 1);
+  assert.equal(request.status, '已生效');
+  assert.equal(JSON.stringify({ users: people.users, departments: people.departments }), before);
+  assert.equal(request.access.length, 1); assert.equal(request.access[0].source, part.source);
+  assert.equal(request.history.length, 2);
 });
 test('self approval, stopped accounts, and another reviewer cannot change a request', () => {
   const { demo, rows, actor } = fixture();
@@ -40,10 +74,10 @@ test('independent items retain separate outcomes, and supplement and rejection n
   const [first, second] = request.approvalItems;
   assert.match(demo.decide(request, second.id, 'reject', { reason: ' ' }, actor, 1), /说明/);
   demo.decide(request, first.id, 'approve', approval(first), people.users.find(user=>user.id===first.reviewer), 1);
-  assert.equal(request.status, '待审批');
+  assert.equal(request.status, '部分已生效');
   demo.decide(request, second.id, 'reject', { reason: '第二项用途不足' }, actor, 2);
-  assert.equal(request.status, '部分批准待执行');
-  assert.equal(first.status, '已批准待执行');
+  assert.equal(request.status, '部分已生效');
+  assert.equal(first.status, '已生效');
   assert.equal(second.status, '已驳回');
 });
 test('joint approvals wait for all reviewers, and a rejected required item blocks the combination', () => {
@@ -95,7 +129,7 @@ test('changing datasource cannot reuse the old reviewer or an old approval revis
   assert.match(demo.decide(request,part.id,'approve',data,actor,1),/修订/);
   assert.match(demo.decide(request,part.id,'approve',data,actor,2),/刘芳/);
   assert.equal(demo.decide(request,part.id,'approve',data,people.users.find(user=>user.id==='u13'),2),undefined);
-  assert.equal(request.status,'已批准待执行'); assert.equal(request.access.length,0);
+  assert.equal(request.status,'已生效'); assert.equal(request.access.length,1);
 });
 test('responsibility changes update open routing while preserving completed facts', () => {
   const { people, rows, routing, actor } = fixture(), source=people.dataSources[0], open=rows.find(row=>row.id==='SQ-REVIEW-003'), done=rows.find(row=>row.id==='SQ-REVIEW-013');
@@ -168,12 +202,12 @@ test('inbox conditions intersect within visible parts rather than unrelated sour
 test('my processed items include my completed part while another reviewer still has work', () => {
   const { people, demo, rows, actor }=fixture(), request=rows.find(row=>row.id==='SQ-REVIEW-006'), own=request.approvalItems[1];
   assert.equal(demo.decide(request,own.id,'approve',approval(own),actor,request.revision),undefined);
-  assert.equal(request.status,'待审批');
+  assert.equal(request.status,'部分已生效');
   assert.ok(demo.inbox(actor,'done').includes(request));
   assert.ok(!demo.inbox(actor,'pending').includes(request));
   assert.equal(demo.partsFor(request,actor,'done').length,1);
   assert.ok(demo.inbox(people.users.find(user=>user.id==='u09'),'pending').includes(request));
-  assert.equal(request.access.length,0);
+  assert.equal(request.access.length,1);
 });
 
 test('unchanged responsibility never increments revisions or appends routing history', () => {
@@ -181,4 +215,48 @@ test('unchanged responsibility never increments revisions or appends routing his
   const before=JSON.stringify({source,rows});
   assert.match(routing.save(source,{primary:source.approval.primary,alternate:source.approval.alternate},actor,source.approval.revision),/未变化/);
   assert.equal(JSON.stringify({source,rows}),before);
+});
+
+test('the final joint approval activates every required item together and cannot duplicate access', () => {
+  const { people, demo, rows, actor }=fixture(), request=rows.find(row=>row.mode==='joint'), [first,second]=request.approvalItems;
+  demo.decide(request,first.id,'approve',approval(first),actor,request.revision);
+  assert.equal(first.status,'已批准'); assert.equal(demo.effectiveAccess(request).length,0);
+  assert.equal(demo.decide(request,second.id,'approve',approval(second),people.users.find(user=>user.id===second.reviewer),request.revision),undefined);
+  assert.equal(request.status,'已生效'); assert.ok(request.approvalItems.every(part=>part.status==='已生效'));
+  assert.equal(request.access.length,2); assert.equal(request.history.filter(entry=>entry.action==='自动生效').length,1);
+  const before=JSON.stringify(request);
+  assert.equal(typeof demo.decide(request,second.id,'approve',approval(second),people.users.find(user=>user.id===second.reviewer),request.revision),'string');
+  assert.equal(JSON.stringify(request),before);
+});
+
+test('withdrawing unprocessed independent items retains the access already activated', () => {
+  const { people, demo, rows, actor }=fixture(), request=rows.find(row=>row.id==='SQ-REVIEW-006');
+  demo.decide(request,request.approvalItems[1].id,'approve',approval(request.approvalItems[1]),actor,request.revision);
+  const access=JSON.stringify(request.access), applicant=people.users.find(user=>user.id===request.user);
+  assert.match(demo.withdraw(request,actor,request.revision),/本人/);
+  assert.equal(demo.withdraw(request,applicant,request.revision),undefined);
+  assert.equal(request.status,'部分已生效'); assert.equal(request.approvalItems[0].status,'已撤回');
+  assert.equal(JSON.stringify(request.access),access); assert.equal(demo.effectiveAccess(request).length,1);
+  assert.equal(demo.inProgress(request),false);
+});
+
+test('personal pending source intentions are unavailable until the substitute approves', () => {
+  const { people, demo, rows }=fixture(), request=rows.find(row=>row.id==='SQ-DEMO-013');
+  assert.equal(request.access.length,0); assert.equal(demo.effectiveAccess(request).length,0);
+  assert.equal(request.sourceIds[0],'retail');
+  const part=request.approvalItems[0], substitute=people.users.find(user=>user.id===part.reviewer);
+  const data={access:[{source:part.source,rules:structuredClone(people.outputRules.slice(0,1))}],reason:''};
+  assert.equal(demo.decide(request,part.id,'approve',data,substitute,request.revision),undefined);
+  assert.equal(request.status,'已生效'); assert.equal(demo.effectiveAccess(request).length,1);
+  const historical=people.extraRequests.find(row=>row.id==='SQ-DEMO-011');
+  demo.ensure(historical); assert.equal(historical.approvalItems[0].status,'已生效'); assert.equal(demo.effectiveAccess(historical).length,1);
+});
+
+test('activation failure stays unavailable and the catalog has no manual execution capability', () => {
+  const { demo, rows, routing }=fixture(), failed=rows.find(row=>row.id==='SQ-REVIEW-012');
+  assert.equal(failed.status,'生效失败'); assert.equal(failed.access.length,0); assert.equal(demo.effectiveAccess(failed).length,0);
+  assert.match(failed.approvalItems[0].activationError,/未生效/);
+  assert.equal(failed.history.at(-1).actor,'系统');
+  demo.records(); assert.equal(failed.status,'生效失败');
+  assert.equal(routing.hasAbility(fixture().actor,'grant-management.execute'),false);
 });
