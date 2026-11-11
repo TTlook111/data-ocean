@@ -160,8 +160,6 @@
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); flex: 1; padding: var(--space-6); text-align: center; }
     .empty svg { width: var(--empty-symbol-size); height: var(--empty-symbol-size); margin-bottom: var(--space-2); color: var(--color-muted); }
     .empty h3 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
-    .empty p { margin: var(--space-0); color: var(--color-muted); }
-    .spec-note { margin: var(--space-0); font-size: var(--font-small); line-height: var(--line-small); color: var(--color-muted); }
     [data-measure]::before { display: none; }
     .measures [data-measure] { outline: var(--border-width) dashed var(--color-measure); outline-offset: calc(var(--border-width) * -1); }
     .measures [data-measure]::before { display: block; content: attr(data-measure); position: absolute; top: calc(var(--space-3) * -1); left: var(--space-3); z-index: 3; padding: var(--space-0) var(--space-1); border: var(--border-width) solid #fed7aa; border-radius: var(--space-1); background: var(--color-measure-bg); color: var(--color-measure); font-size: var(--font-small); line-height: var(--line-small); white-space: nowrap; pointer-events: none; }
@@ -201,7 +199,7 @@
           <button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button>
           <button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button>
         </nav>
-        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10">10 条 · 整页记录</option><option value="11">11 条 · 分页边界</option><option value="105" selected>105 条 · 多页记录</option><option value="long">超长内容 · 全列检查</option></select><p class="spec-note">仅用于核对布局和间距。</p></div>
+        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10">10 条 · 整页记录</option><option value="11">11 条 · 分页边界</option><option value="105" selected>105 条 · 多页记录</option><option value="long">超长内容 · 全列检查</option></select></div>
       </aside>
       <main class="workspace" data-measure="工作区四边 24px · 区块间距 24px">
         <div class="page-heading"><h1 id="page-title">访问申请</h1></div>
@@ -410,8 +408,7 @@
         applied.page = Math.min(Math.max(1, applied.page), Math.max(1, pageCount));
         const empty = text('div', '', 'empty');
         const filtered = applied.keyword || applied.status !== 'all' || applied.fromDate || applied.toDate;
-        empty.append(WorkbenchIcon('inbox', 32), text('h3', filtered ? '没有符合条件的示例' : '暂无' + title),
-          text('p', filtered ? '调整条件后可重新查看样例。' : '切换示例数据状态，可查看单条或多条记录。'));
+        empty.append(WorkbenchIcon('inbox', 32), text('h3', filtered ? '没有符合条件的示例' : '暂无' + title));
         const widths = [null, '128px', '176px', '112px', '224px'];
         const table = RecordTable.render({
           caption: title + '规范样张', minWidth: '880px', bodyId: 'rows', headId: 'headings',

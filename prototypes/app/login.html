@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
   <link rel="stylesheet" href="../后台管理/admin-system.css">
   <link rel="stylesheet" href="../后台管理/record-controls.css">
-  <link rel="stylesheet" href="login.css">
+  <link rel="stylesheet" href="login.css?v=copy-cleanup-20261111">
   <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
   <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
   <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
@@ -27,7 +27,7 @@
           <div class="login-help"><el-button link @click="help=true">忘记密码</el-button></div>
           <el-button class="login-submit" type="primary" native-type="submit">登录</el-button>
         </el-form>
-        <div v-if="!changed" class="demo-account"><span>原型示例</span><el-button link @click="fillExample">填入示例账号</el-button></div>
+        <div v-if="!changed" class="demo-account"><el-button link @click="fillExample">填入示例账号</el-button></div>
         <p v-if="changed" class="login-note changed-note">请使用刚设置的新密码登录。</p>
       </template>
       <template v-else-if="mode==='change'">

@@ -46,8 +46,7 @@
         <ul class="permission-operations"><li v-for="op in operations" :key="op.id">
           <strong v-if="readonly">{{op.name}}</strong><el-checkbox v-else :model-value="modelValue.includes(op.id)" :disabled="locked(op)" @update:model-value="toggle(op,$event)">{{op.name}}</el-checkbox>
           <span v-if="op.protectedAbility" class="role-protected">受保护</span><p>{{op.purpose}}</p>
-        </li></ul><p v-if="active.operations.some(op=>op.protectedAbility)" class="permission-hint">受保护管理能力需单独核验。</p>
-        <p class="permission-included">查询、重置、分页和详情回看随页面访问开放。{{active.included}}</p></template>
+        </li></ul><p v-if="active.operations.some(op=>op.protectedAbility)" class="permission-hint">受保护管理能力需单独核验。</p></template>
         <div v-else class="permission-empty"><p>{{readonly && !keyword ? '暂无已配置功能' : '没有匹配的页面或操作'}}</p></div>
       </section>
     </div>`
@@ -69,21 +68,20 @@
       const affected = members(role), action = next === '已归档' ? '归档' : next;
       const node = openForm({ title: action + '角色', trigger, value: { reason: '' }, note: role.name,
         fields: [{ key: 'reason', label: '操作原因', type: 'textarea', required: true, full: true }], danger: next !== '启用', saveLabel: action,
-        preview: () => [{ label: '角色状态', before: role.status, after: next }, { label: '已分配人员', before: affected.length + ' 人', after: next === '已归档' ? '无当前分配人员，配置仅供回看' : '保留分配关系，' + next + '该角色功能' },
-          { label: '部门及数据访问来源', before: '独立维护', after: '保持不变' }],
+        preview: () => [{ label: '角色状态', before: role.status, after: next }, { label: '已分配人员', before: affected.length + ' 人', after: next === '已归档' ? '无当前分配人员，配置仅供回看' : '保留分配关系，' + next + '该角色功能' }],
         save: () => { const error = RoleDemo.statusBlock(role, next); if (error) return error; role.status = next; role.updated = RoleDemo.timestamp(); RoleDemo.syncNames(); },
         success: '角色已' + action });
       if (returnToDetail) node.addEventListener('close', () => detail(role, trigger), { once: true });
     }
     function memberPanel(role) {
-      const host = el('div', 'role-members'), state = { keyword: '', status: 'all', page: 1, pageSize: 10 };
+      const host = el('div', 'role-members'), state = { keyword: '', login: '', status: 'all', page: 1, pageSize: 10 };
       const draw = () => {
-        const tools = RecordControls.filters({ value: state, includeDates: false, keywordLabel: '搜索已分配人员', keywordPlaceholder: '姓名、登录名或部门',
+        const tools = RecordControls.filters({ value: state, includeDates: false, fields: [{ key: 'keyword', label: '姓名' }, { key: 'login', label: '登录名' }],
           statuses: [{ value: 'all', label: '全部状态' }, ...['正常', '待首次登录', '停用'].map(value => ({ value, label: value }))],
-          onApply: next => { Object.assign(state, next); draw(); }, onReset: () => { Object.assign(state, { keyword: '', status: 'all', page: 1 }); draw(); } });
-        const rows = members(role).filter(user => (state.status === 'all' || user.status === state.status) && AdminQuery.matches([user.name, user.login, ...[user.department, ...user.extra].map(id => PeopleDemo.departments.find(d => d.id === id)?.name)], state.keyword));
+          onApply: next => { Object.assign(state, next); draw(); }, onReset: () => { Object.assign(state, { keyword: '', login: '', status: 'all', page: 1 }); draw(); } });
+        const rows = members(role).filter(user => (state.status === 'all' || user.status === state.status) && AdminQuery.matchesFields({ keyword: user.name, login: user.login }, state));
         state.page = Math.max(1, Math.min(state.page, Math.ceil(rows.length / state.pageSize)));
-        const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('user-round'), el('p', '', state.keyword || state.status !== 'all' ? '没有匹配的已分配人员' : '暂无已分配人员'));
+        const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('user-round'), el('p', '', state.keyword || state.login || state.status !== 'all' ? '没有匹配的已分配人员' : '暂无已分配人员'));
         const panel = el('section', 'record-panel');
         panel.append(RecordTable.render({ caption: '已分配人员', minWidth: 580, columns: [{ key: 'name', label: '人员', width: 190 }, { key: 'department', label: '部门' }, { key: 'status', label: '账号状态', width: 110 }],
           items: rows.slice((state.page - 1) * state.pageSize, state.page * state.pageSize), empty,
@@ -139,7 +137,6 @@
             if (data.description.trim() || role?.description) body.append(el('p', 'role-description', data.description.trim() || '保存后无角色说明'));
             for (const [label, items] of [['新增功能', added], ['移除功能', removed]]) if (items.length) { const section = el('section', 'role-diff'); section.append(el('h3', '', label + '（' + items.length + '）')); const list = el('ul'); for (const item of items) list.append(el('li', '', item)); section.append(list); body.append(section); }
             if (role && members(role).length) { const affected = el('section', 'role-diff'); affected.append(el('h3', '', '已分配人员'), el('p', '', members(role).map(user => user.name).join('、'))); body.append(affected); }
-            body.append(el('p', 'form-note role-review-boundary', '角色变更不改变部门、数据源访问及输出限制规则。'));
             const footer = el('footer', 'dialog-footer'); footer.append(button('返回修改', () => node.close()), button('确认保存', () => {
               const saved = RoleDemo.save(role, data); if (typeof saved === 'string') { node.close(); this.error = saved; return; }
               this.discarded = true; drafts.delete(draftKey);
@@ -167,10 +164,10 @@
       const empty = el('section', 'planned-page'); empty.append(el('h2', '', role?.status === '已归档' ? '已归档角色仅供回看' : '角色不存在'), button('返回角色列表', () => goList())); main.replaceChildren(pageHeading('角色与功能权限'), empty); return;
     }
     const tools = el('section', 'people-query-card'); tools.append(RecordControls.filters({ value: query, includeDates: false,
-      keywordLabel: '搜索角色', keywordPlaceholder: '角色名称或说明', statuses: [{ value: 'all', label: '全部状态' }, ...['启用', '停用', '已归档'].map(value => ({ value, label: value }))],
+      keywordLabel: '角色名称', keywordPlaceholder: '角色名称', statuses: [{ value: 'all', label: '全部状态' }, ...['启用', '停用', '已归档'].map(value => ({ value, label: value }))],
       onApply: next => { Object.assign(query, next); render(main, ui); }, onReset: () => { Object.assign(query, { keyword: '', status: 'all', page: 1 }); render(main, ui); }
     }), button('新增角色', () => { location.hash = '#roles/new'; }, 'admin-button is-primary', 'new-role'));
-    const filtered = records.filter(role => (query.status === 'all' || query.status === role.status) && AdminQuery.matches([role.name, role.description], query.keyword))
+    const filtered = records.filter(role => (query.status === 'all' || query.status === role.status) && AdminQuery.matches([role.name], query.keyword))
       .sort((a, b) => b.updated.localeCompare(a.updated) || a.name.localeCompare(b.name, 'zh-CN'));
     query.page = Math.max(1, Math.min(query.page, Math.ceil(filtered.length / query.pageSize)));
     const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', query.keyword || query.status !== 'all' ? '没有匹配的角色' : '暂无角色'));

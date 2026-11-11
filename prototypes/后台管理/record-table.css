@@ -10,6 +10,8 @@
 .rt-table td { height: 64px; border-bottom: 1px solid var(--do-line, #e5e7eb); }
 .rt-table tbody tr:last-child td { border-bottom: 0; }
 .rt-table tbody tr:not(.rt-empty-row):hover { background: #fafbfc; }
+.rt-table .rt-fixed-right { position: sticky; right: 0; z-index: 0; background: #fff; box-shadow: -1px 0 var(--do-line, #e5e7eb); }
+.rt-table th.rt-fixed-right, .rt-table tbody tr:hover .rt-fixed-right { background: #fafbfc; }
 .rt-table strong { font-weight: 500; }
 .rt-table small { font-size: 12px; line-height: 16px; color: var(--do-muted, #5b6575); }
 .rt-table time { font-variant-numeric: tabular-nums; }

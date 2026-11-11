@@ -25,8 +25,8 @@
     ['个人管理', 'user-round', [['account-info', '账号信息'], ['my-requests', '我的申请'], ['my-access', '我的访问范围']]]
   ];
   const titles = { dashboard: '总览', ...Object.fromEntries(groups.flatMap(group => group[2])) };
-  const queries = { users: { keyword: '', status: 'all', page: 1, pageSize: 10 }, members: { keyword: '', status: 'all', page: 1, pageSize: 10 }, children: { page: 1, pageSize: 10 }, requests: { keyword: '', status: 'all', page: 1, pageSize: 10 }, access: { keyword: '', status: 'all', page: 1, pageSize: 10 } };
-  let section = '', selectedDepartment = 'd01', treeKeyword = '', feedbackTimer, departmentTab = 'members', includeChildren = true;
+  const queries = { users: { keyword: '', login: '', departmentId: '', status: 'all', page: 1, pageSize: 10 }, members: { keyword: '', login: '', status: 'all', page: 1, pageSize: 10 }, children: { page: 1, pageSize: 10 }, requests: { keyword: '', requestId: '', status: 'all', page: 1, pageSize: 10 }, access: { keyword: '', rule: '', origin: '', status: 'all', page: 1, pageSize: 10 } };
+  let section = '', selectedDepartment = 'd01', treeKeyword = '', feedbackTimer, departmentTab = 'members', includeChildren = true, formSequence = 0;
   const deptName = id => departments.find(d => d.id === id)?.name || '—';
   // 账号区整块可操作；个人入口沿用现有页面，Escape 返回账号按钮。
   PrototypeUI.mount(document.getElementById('admin-account'), {
@@ -77,11 +77,11 @@
     computed: { rows() { return accessRows(this.access); } },
     template: `<el-table :data="rows" class="data-access-table" aria-label="数据源与输出限制规则" empty-text="暂无数据访问配置">
       <el-table-column prop="source" label="数据源" width="160"></el-table-column>
-      <el-table-column label="输出限制规则" min-width="260"><template #default="{row}"><output-rule-list :rules="row.rules"></output-rule-list></template></el-table-column>
+      <el-table-column label="输出限制规则" min-width="260"><template #default="{row}"><output-rule-list v-if="row.rules.length" :rules="row.rules"></output-rule-list><span v-else class="cell-sub">待核定</span></template></el-table-column>
     </el-table>`
   };
   const DataAccessEditor = {
-    components: { OutputRuleList }, props: ['modelValue', 'popupTarget'], emits: ['update:modelValue'],
+    components: { OutputRuleList }, props: ['modelValue', 'popupTarget', 'singleSource', 'sourceReadonly'], emits: ['update:modelValue'],
     data: () => ({ dataSources, outputRules, ruleKeywords: {} }),
     methods: {
       update(index, patch) { this.$emit('update:modelValue', this.modelValue.map((item, i) => i === index ? { ...item, ...patch } : item)); },
@@ -92,15 +92,16 @@
     },
     template: `<div class="data-access-editor">
       <div v-for="(item,index) in modelValue" :key="index" class="data-access-item"><div class="data-access-row">
-        <el-select :model-value="item.source" @update:model-value="update(index,{source:$event})" :aria-label="'数据源 '+(index+1)" :append-to="popupTarget" :validate-event="false" filterable placeholder="选择数据源">
+        <div v-if="sourceReadonly" class="data-access-source-readonly" role="group" aria-label="已核定数据源">{{dataSources.find(source=>source.id===item.source)?.name || '数据源不可用'}}</div>
+        <el-select v-else :model-value="item.source" @update:model-value="update(index,{source:$event})" :aria-label="'数据源 '+(index+1)" :append-to="popupTarget" :validate-event="false" filterable placeholder="选择数据源">
           <el-option v-for="source in dataSources" :key="source.id" :label="source.name" :value="source.id" :disabled="modelValue.some((value,i)=>i!==index && value.source===source.id)"></el-option>
         </el-select>
         <el-select :model-value="item.rules.map(rule=>rule.id)" @update:model-value="selectRules(index,$event)" :aria-label="'输出限制规则 '+(index+1)" :validate-event="false" multiple collapse-tags collapse-tags-tooltip :max-collapse-tags="2" filterable :filter-method="keyword=>ruleKeywords[index]=keyword" :reserve-keyword="false" :disabled="!item.source" :append-to="popupTarget" popper-class="prototype-ui-popper output-rule-options" placeholder="选择输出限制规则" no-match-text="没有匹配的规则">
           <el-option v-for="rule in matchingRules(index)" :key="rule.id" :label="rule.name" :value="rule.id"><span class="rule-option-title">{{rule.name}}</span><span class="rule-option-description">{{rule.content}}</span></el-option>
         </el-select>
-        <el-button link type="danger" @click="remove(index)" :aria-label="'移除数据源 '+(index+1)">移除</el-button>
+        <el-button v-if="!singleSource" link type="danger" @click="remove(index)" :aria-label="'移除数据源 '+(index+1)">移除</el-button>
       </div><output-rule-list v-if="item.rules.length" :rules="item.rules"></output-rule-list></div>
-      <el-button v-if="modelValue.length < dataSources.length" @click="add">添加数据源</el-button>
+      <el-button v-if="!singleSource && modelValue.length < dataSources.length" @click="add">添加数据源</el-button>
     </div>`
   };
   const validateAccess = (access, required = false) => {
@@ -121,7 +122,7 @@
     node.addEventListener('click', () => action(node)); return node;
   }
   function textCell(text) { const node = el('span', 'cell-text', text || '—'); node.title = text || ''; return node; }
-  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '已驳回', '已撤回'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待确认', '需补充'].includes(value) ? ' is-pending' : ''), value); }
+  function status(value) { return el('span', 'status-tag' + (['停用', '已停用', '已归档', '来源停用', '已驳回', '已撤回'].includes(value) ? ' is-disabled' : ['待首次登录', '待复核', '待审批', '待分流', '待核定数据源', '缺审批责任', '审批责任需复核', '待确认', '需补充', '未配置', '需复核', '已批准待执行', '部分批准待执行'].includes(value) ? ' is-pending' : ''), value); }
   // 列表默认向下展开，固定底栏可指定向上展开，定位和键盘行为仍由组件处理。
   function moreActions(items, key, label, popupTarget = document.body, placement = 'bottom-end') {
     const wrap = el('span', 'row-more prototype-ui');
@@ -178,46 +179,64 @@
   const display = value => Array.isArray(value) ? value.join('、') || '无' : value || '无';
   const change = (label, before, after) => ({ label, before: display(before), after: display(after) });
   // 预览只比较表单与示例行；确认前不写入，返回修改和取消均保留原状态。
-  function openForm({ title, trigger, fields, value, note = '', saveLabel = '保存', save, preview, validate, danger = false, success, previewTitle = '核对变更与影响', previewLabel = '预览变更', summary = false, onSaved }) {
+  function openForm({ title, trigger, fields, value, note = '', saveLabel = '保存', save, preview, validate, hasChanges = () => true, danger = false, success, previewTitle = '核对变更与影响', previewLabel = '预览变更', previewContentLabel, summary = false, onSaved }) {
     const node = modal(title, trigger), host = el('div'); node.append(host);
+    const errorPrefix = 'admin-form-' + (++formSequence) + '-';
     if (fields.some(field => field.type === 'data-access')) node.classList.add('data-access-dialog');
     PrototypeUI.mount(host, {
-      components: { DataAccessEditor },
-      data: () => ({ model: structuredClone(value), fields, note, error: '', choiceKeywords: {}, saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, summary,
+      components: { DataAccessEditor, AssignmentPreview: SourceApprovalsPage.AssignmentPreview },
+      data: () => ({ model: structuredClone(value), fields, note, error: '', errorPrefix, choiceKeywords: {}, saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, previewContentLabel, summary,
         rules: Object.fromEntries(fields.map(f => [f.key, [
           ...(f.type === 'checkbox' ? [{ required: true, validator: (_, v, done) => done(v ? undefined : new Error('请先完成复核确认')), trigger: 'change' }] : f.required ? [{ required: true, message: f.options ? (f.label.startsWith('选择') ? '请' : '请选择') + f.label : '请填写' + f.label, trigger: f.options ? 'change' : 'blur' }] : []),
           ...(f.key === 'email' ? [{ type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }] : []),
           ...(f.required && !f.options && (!f.type || f.type === 'textarea' || f.type === 'text') ? [{ pattern: /\S/, message: '请填写' + f.label, trigger: 'blur' }] : []),
-          ...(f.type === 'data-access' ? [{ validator: (_, v, done) => { const error = validateAccess(v, Boolean(f.required)); done(error ? new Error(error) : undefined); }, trigger: 'change' }] : [])
+          ...(f.type === 'data-access' ? [{ validator: (_, v, done) => { const error = f.sourceReadonly && !v[0]?.rules.length ? '请选择至少一条输出限制规则。' : f.singleSource && (v.length !== 1 || !v[0]?.source || !v[0]?.rules.length) ? '请核定数据源并选择至少一条输出限制规则。' : validateAccess(v, Boolean(f.required)); done(error ? new Error(error) : undefined); }, trigger: 'change' }] : [])
         ]])) }),
       watch: { model: { deep: true, handler() { this.error = ''; } } },
+      computed: { unchanged() { return !hasChanges(this.model); } },
       methods: {
         cancel() { node.close(); },
+        validated(prop, valid) {
+          // 将组件的就近报错关联到实际输入，清除时只移除本表单添加的描述。
+          this.$nextTick(() => {
+            const item = this.$refs.form.getField(prop), errorId = errorPrefix + prop;
+            for (const input of item?.$el.querySelectorAll('input:not([disabled]),textarea:not([disabled]),button[role="combobox"]:not([disabled])') || []) {
+              const descriptions = (input.getAttribute('aria-describedby') || '').split(' ').filter(id => id && id !== errorId);
+              if (!valid) descriptions.push(errorId);
+              input.setAttribute('aria-invalid', String(!valid));
+              if (descriptions.length) input.setAttribute('aria-describedby', descriptions.join(' '));
+              else input.removeAttribute('aria-describedby');
+            }
+          });
+        },
+        clearAccessError(key) { this.$nextTick(() => { this.$refs.form.clearValidate(key); this.validated(key, true); }); },
         matchingChoices(field) { return field.options.filter(option => AdminQuery.matches([option.label], this.choiceKeywords[field.key] || '')); },
         selectedChoices(field) { return this.model[field.key].map(value => field.options.find(option => option.value === value)?.label || value).join('、'); },
         back() { this.reviewing = false; this.$nextTick(() => node.querySelector('.form-grid input,.form-grid textarea')?.focus()); },
         commit() {
+          if (this.unchanged) return;
           // 原型表单只有普通数据，序列化同时展开多选组件带来的嵌套响应式引用。
           const data = JSON.parse(JSON.stringify(this.model)), invalid = validate?.(data);
-          if (invalid) { this.error = invalid; this.reviewing = false; return; }
+          if (invalid) { this.error = invalid; this.reviewing = false; this.$nextTick(() => node.querySelector('.form-error')?.focus()); return; }
           const message = save(data);
-          if (message) { this.error = message; this.reviewing = false; return; }
+          if (message) { this.error = message; this.reviewing = false; this.$nextTick(() => node.querySelector('.form-error')?.focus()); return; }
           node.close(); render(); notify(success || title + '成功');
           onSaved?.(data);
         },
-        submit() { this.$refs.form.validate(valid => {
-          if (!valid) { this.reviewing = false; return; }
+        submit() { if (this.unchanged) return; this.$refs.form.validate(valid => {
+          if (!valid) { this.reviewing = false; this.$nextTick(() => node.querySelector('.el-form-item.is-error input:not([disabled]),.el-form-item.is-error textarea,.el-form-item.is-error button')?.focus()); return; }
           if (this.reviewing) { this.commit(); return; }
           const data = JSON.parse(JSON.stringify(this.model)), message = validate?.(data);
-          if (message) { this.error = message; return; }
+          if (message) { this.error = message; this.$nextTick(() => node.querySelector('.form-error')?.focus()); return; }
           if (preview) { this.reviewRows = preview(data); this.reviewing = true; this.$nextTick(() => node.querySelector('.review-heading')?.focus()); }
           else this.commit();
         }); }
       },
-      template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" scroll-to-error @submit.prevent="submit">
-        <div class="dialog-body"><p v-if="note" class="form-note">{{note}}</p><p v-if="error" class="form-error" role="alert">{{error}}</p>
+      template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" scroll-to-error @validate="validated" @submit.prevent="submit">
+        <div class="dialog-body"><p v-if="note" class="form-note">{{note}}</p><p v-if="error" class="form-error" role="alert" tabindex="-1">{{error}}</p>
         <div v-show="!reviewing" class="form-grid"><el-form-item v-for="f in fields" :key="f.key" :label="f.label" :prop="f.key" :class="{'full-width': f.full}">
           <div v-if="f.readonly" class="readonly-value">{{model[f.key]}}</div>
+          <assignment-preview v-else-if="f.type === 'approval-assignment'" :source-id="model.source" :applicant-id="f.applicantId"></assignment-preview>
           <div v-else-if="f.type === 'checkbox-group'" class="role-choice-field"><el-input v-if="f.options.length>8" v-model="choiceKeywords[f.key]" clearable aria-label="搜索可分配角色" placeholder="搜索角色" class="role-choice-search"></el-input>
             <p v-if="choiceKeywords[f.key] && model[f.key].length" class="role-choice-selected" aria-label="已选角色">已选：{{selectedChoices(f)}}</p>
             <div class="role-choice-scroll"><el-checkbox-group v-model="model[f.key]" :aria-label="f.label" class="form-choice-group">
@@ -226,15 +245,16 @@
           <el-select v-else-if="f.options" v-model="model[f.key]" :aria-label="f.label" :multiple="f.multiple" :disabled="f.disabled" :clearable="!f.required" :append-to="popupTarget" filterable :placeholder="f.placeholder || (f.label.startsWith('选择') ? '请'+f.label : '请选择'+f.label)">
             <el-option v-for="o in f.options" :key="o.value" :value="o.value" :label="o.label" :disabled="o.disabled"></el-option>
           </el-select>
-          <data-access-editor v-else-if="f.type === 'data-access'" v-model="model[f.key]" @update:model-value="$nextTick(()=>$refs.form.clearValidate(f.key))" :popup-target="popupTarget"></data-access-editor>
+          <data-access-editor v-else-if="f.type === 'data-access'" v-model="model[f.key]" @update:model-value="clearAccessError(f.key)" :popup-target="popupTarget" :single-source="f.singleSource" :source-readonly="f.sourceReadonly"></data-access-editor>
           <el-checkbox v-else-if="f.type === 'checkbox'" v-model="model[f.key]">{{f.checkLabel}}</el-checkbox>
           <el-input v-else v-model="model[f.key]" :aria-label="f.label" :type="f.type || 'text'" :show-password="f.type === 'password'" :autocomplete="f.type === 'password' ? 'new-password' : 'off'" :disabled="f.disabled" :maxlength="f.type === 'textarea' ? 300 : 80" :rows="3" :show-word-limit="f.type === 'textarea'" :placeholder="f.placeholder || ''"></el-input>
           <span v-if="f.help" class="field-help">{{f.help}}</span>
+          <template #error="{error:message}"><div class="el-form-item__error" :id="errorPrefix+f.key" role="alert">{{message}}</div></template>
         </el-form-item></div>
         <section v-if="reviewing" class="change-preview" :class="{'is-summary':summary}"><h3 class="review-heading" tabindex="-1">{{previewTitle}}</h3>
-          <table><thead><tr><th>内容</th><th v-if="!summary">当前</th><th>{{summary ? '申请内容' : '变更后'}}</th></tr></thead><tbody><tr v-for="row in reviewRows" :key="row.label"><th>{{row.label}}</th><td v-if="!summary">{{row.before}}</td><td>{{row.after}}</td></tr></tbody></table>
+          <table><thead><tr><th>内容</th><th v-if="!summary">当前</th><th>{{previewContentLabel || (summary ? '申请内容' : '变更后')}}</th></tr></thead><tbody><tr v-for="row in reviewRows" :key="row.label"><th>{{row.label}}</th><td v-if="!summary">{{row.before}}</td><td>{{row.after}}</td></tr></tbody></table>
         </section></div>
-        <footer class="dialog-footer"><el-button @click="cancel">取消</el-button><el-button v-if="reviewing" @click="back">返回修改</el-button><el-button :type="danger ? 'danger' : 'primary'" native-type="submit">{{reviewing ? (summary ? saveLabel : '确认'+saveLabel) : ${Boolean(preview)} ? previewLabel : saveLabel}}</el-button></footer>
+        <footer class="dialog-footer"><el-button @click="cancel">取消</el-button><el-button v-if="reviewing" @click="back">返回修改</el-button><el-button :disabled="unchanged" :type="danger ? 'danger' : 'primary'" native-type="submit">{{reviewing ? (summary ? saveLabel : '确认'+saveLabel) : ${Boolean(preview)} ? previewLabel : saveLabel}}</el-button></footer>
       </el-form>`
     });
     node.showModal();
@@ -308,8 +328,8 @@
       return;
     }
     confirmChange({ title: disable ? '停用人员' : '恢复人员', trigger,
-      description: '将停用“' + user.name + '”。该人员将无法继续使用系统，人员资料、旧配置和历史记录保留。', danger: true,
-      preview: () => [change('账号状态', user.status, '停用'), change('继续访问', '按现有配置', '停止'), change('人员资料与历史', '保留', '保留')],
+      description: '停用“' + user.name + '”后，该人员将无法继续使用系统。', danger: true,
+      preview: () => [change('账号状态', user.status, '停用'), change('继续访问', '按现有配置', '停止')],
       save: () => { user.status = disable ? '停用' : '正常'; user.updated = timestamp(); } });
   }
   function firstLogin(user, trigger) {
@@ -325,27 +345,26 @@
     node.append(body, footer); node.showModal();
   }
   function resetPassword(user, trigger) {
-    openForm({ title: '重置登录密码', trigger, value: { initialPassword: '', reason: '' },
-      note: '为“' + user.name + '”设置新的初始密码。重置不改变部门、角色和数据范围，下次登录必须修改密码。',
+    openForm({ title: '重置登录密码 · ' + user.name, trigger, value: { initialPassword: '', reason: '' },
+      note: '下次登录须修改初始密码。',
       fields: [{ key: 'initialPassword', label: '新初始密码', type: 'password', required: true, full: true }, { key: 'reason', label: '重置原因', type: 'textarea', required: true, full: true }],
       validate: data => /^(?=.*[A-Za-z])(?=.*\d).{8,32}$/.test(data.initialPassword) ? undefined : '初始密码需为 8–32 位，包含字母和数字。',
-      preview: () => [change('登录名', user.login, user.login), change('密码', '不回显', '设为新初始密码'), change('下次登录', '原设置', '必须修改密码'), change('部门、角色与范围', '保留', '保持不变')],
+      preview: () => [change('登录名', user.login, user.login), change('密码', '不回显', '设为新初始密码'), change('下次登录', '原设置', '必须修改密码')],
       saveLabel: '重置', save: () => { user.mustChangePassword = true; user.updated = timestamp(); } });
   }
   function transferUser(user, trigger) {
-    openForm({ title: '调整人员归属', trigger, value: { department: user.department, extra: [...user.extra], reason: '' },
-      note: user.name + ' · 调岗调整部门初始数据访问，个人角色、申请授权与其他部门数据访问保持不变。',
+    openForm({ title: '调整人员归属 · ' + user.name, trigger, value: { department: user.department, extra: [...user.extra], reason: '' },
       fields: [{ key: 'department', label: '主部门', options: departmentOptions(user.department), required: true, full: true },
         { key: 'extra', label: '兼任部门', options: departmentOptions(), multiple: true, full: true },
         { key: 'reason', label: '调整原因', type: 'textarea', required: true, full: true }],
       preview: data => [change('主部门', deptName(user.department), deptName(data.department)), change('兼任部门', user.extra.map(deptName), data.extra.filter(id => id !== data.department).map(deptName)),
-        change('个人角色与申请授权', '保留', '保持不变'), change('部门数据访问', '原所属部门配置', '结束移出来源，关联新部门初始数据访问')],
+        change('部门数据访问', '原所属部门配置', '结束移出来源，关联新部门初始数据访问')],
       save: data => { user.department = data.department; user.extra = data.extra.filter(id => id !== data.department); user.updated = timestamp(); } });
   }
   function archiveUser(user, trigger) {
     if (user.status !== '停用') { notify('请先停用人员，再核对归档'); return; }
     confirmChange({ title: '归档人员', trigger, danger: true, description: '归档“' + user.name + '”后，仅保留资料和历史回看，不再提供日常维护操作，登录名不复用。',
-      preview: () => [change('账号状态', '停用', '已归档'), change('登录名', user.login, '保留，不复用'), change('历史记录', '保留', '保留')],
+      preview: () => [change('账号状态', '停用', '已归档'), change('登录名', user.login, '保留，不复用')],
       save: () => { user.status = '已归档'; user.updated = timestamp(); } });
   }
   function userActions(user) {
@@ -411,10 +430,10 @@
   }
   function filterControls(kind, target) {
     return RecordControls.filters({ value: queries[kind], includeDates: false,
-      keywordLabel: '搜索人员', keywordPlaceholder: kind === 'users' ? '姓名、登录名、部门或角色' : '姓名或登录名',
+      fields: [{ key: 'keyword', label: '姓名' }, { key: 'login', label: '登录名' }, ...(kind === 'users' ? [{ key: 'departmentId', label: '所属部门', options: departments.map(department => ({ value: department.id, label: department.name })) }] : [])],
       statuses: [{ value: 'all', label: '全部状态' }, ...['正常', '待首次登录', '停用', ...(kind === 'users' ? ['已归档'] : [])].map(value => ({ value, label: value }))],
       onApply: next => { Object.assign(queries[kind], next); target(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); },
-      onReset: () => { Object.assign(queries[kind], { keyword: '', status: 'all', page: 1 }); target(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); }
+      onReset: () => { Object.assign(queries[kind], { keyword: '', login: '', departmentId: '', status: 'all', page: 1 }); target(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); }
     });
   }
   function applyExtraAccess(trigger) {
@@ -427,22 +446,24 @@
       previewTitle: '核对申请内容', previewLabel: '核对申请', summary: true,
       preview: data => [change('需要的数据', '', data.requestedScope.trim()), change('业务用途', '', data.reason.trim()),
         change('已知数据源', '', data.sourceIds.map(id => dataSources.find(source => source.id === id).name).join('、') || '交由负责人核定'),
-        change('提交后的状态', '', '待审批，批准并执行后生效')],
-      saveLabel: '提交申请', success: '申请已提交，等待审批',
+        change('提交后的状态', '', data.sourceIds.length && data.sourceIds.every(id=>SourceApprovalDemo.resolve(id,currentUser.id).reviewer) ? '待审批，批准并执行后生效' : '待分流，核定数据源与审批责任后进入审批')],
+      saveLabel: '提交申请', success: '申请已提交',
       // 仅记录申请并展示待审批，不把申请内容转换为实际授权。
-      save: data => { submittedRequest = { ...data, reason: data.reason.trim(), requestedScope: data.requestedScope.trim(), id: 'SQ-' + Date.now(), user: currentUser.id, department: currentUser.department, status: '待审批', submitted: timestamp() }; extraRequests.unshift(submittedRequest); },
+      save: data => { submittedRequest = { ...data, reason: data.reason.trim(), requestedScope: data.requestedScope.trim(), id: 'SQ-' + Date.now(), user: currentUser.id, department: currentUser.department, status: '待审批', submitted: timestamp() }; AccessRequestDemo.ensure(submittedRequest); extraRequests.unshift(submittedRequest); },
       onSaved: () => {
         // 新申请直接回看其待审批详情，不让它混入“当前可访问”的清单。
         const reveal = () => requestDetail(submittedRequest, main.querySelector('[data-focus="apply-data-access"]'));
-        Object.assign(queries.requests, { keyword: '', status: 'all', page: 1 });
+        Object.assign(queries.requests, { keyword: '', requestId: '', status: 'all', page: 1 });
         if (section === 'my-requests') { renderMyRequests(); reveal(); }
         else { window.addEventListener('hashchange', reveal, { once: true }); location.hash = 'my-requests'; }
       } });
   }
-  function requestDetail(request, trigger) {
-    const node = modal('数据访问申请详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
+  function requestDetail(request, trigger, adminResult = false) {
+    if (request.approvalItems) AccessRequestDemo.ensure(request);
+    const node = modal(adminResult ? '审批办理结果' : '数据访问申请详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
     node.classList.add('access-detail-dialog');
     const state = el('div', 'request-state'); state.append(status(request.status), el('span', 'request-id', request.id));
+    if (adminResult) { const applicant = users.find(user => user.id === request.user); fields.append(pair('申请人', applicant.name + '（' + applicant.login + '）')); }
     fields.append(pair('提交时间', request.submitted));
     body.append(state, fields, el('h3', '', '业务用途'), el('p', '', request.reason));
     if (request.requestedScope) body.append(el('h3', '', '需要的数据'), el('p', '', request.requestedScope));
@@ -454,11 +475,28 @@
       const sourceIds = request.sourceIds || request.access.map(item => item.source);
       body.append(el('h3', '', '已知数据源'), el('p', '', sourceIds.map(id => dataSources.find(source => source.id === id).name).join('、') || '交由负责人核定'));
     }
-    if (request.status === '待审批') body.append(el('p', 'form-note', '负责人核定数据源与规则，批准并执行后生效。'));
+    if (request.approvalItems?.length) {
+      const reviewed = el('div', 'request-reviewed-items');
+      for (const item of request.approvalItems) {
+        const section = el('section'); section.append(el('h3', '', dataSources.find(source => source.id === item.source)?.name || '待核定数据源'), status(item.status));
+        section.append(el('p', '', '审批负责人：' + (users.find(user=>user.id===item.reviewer)?.name || '待分流')));
+        if (AccessRequestDemo.open(item) && item.routeReason) section.append(el('p', 'form-note', item.routeReason));
+        if (item.reason) section.append(el('p', '', item.reason));
+        if (item.status === '已批准待执行') { const rules = el('div', 'prototype-ui'); PrototypeUI.mount(rules, { render: () => Vue.h(OutputRuleList, { rules: item.rules }) }); section.append(rules); }
+        reviewed.append(section);
+      }
+      body.append(el('h3', '', '办理情况'), reviewed);
+      if (request.approvalItems.some(item => item.status === '已批准待执行')) body.append(el('p', 'form-note', adminResult ? request.mode === 'joint' && request.status !== '已批准待执行' ? '联合组合尚未全部通过，当前不会进入执行。' : '批准范围尚未生效，执行成功后才会产生数据访问。' : '批准范围尚未生效，执行成功后才会出现在我的访问范围。'));
+    }
+    if (adminResult && request.history.length) {
+      const history = el('ol', 'approval-history');
+      for (const entry of request.history) { const item = el('li'); item.append(el('small', '', entry.time + ' · ' + entry.actor), el('strong', '', entry.action), el('p', '', entry.content)); history.append(item); }
+      body.append(el('h3', '', '处理记录'), history);
+    }
     if (request.result) body.append(el('h3', '', '处理说明'), el('p', '', request.result));
     const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
-    if (request.status === '待审批') footer.append(button('撤回申请', () => { node.close(); confirmChange({ title: '撤回申请', trigger, danger: true,
-      description: '撤回“' + request.id + '”，当前数据访问保持不变。', preview: () => [change('申请状态', '待审批', '已撤回')], save: () => { request.status = '已撤回'; } }); }, 'admin-button is-danger'));
+    if (!adminResult && ['待审批','待分流'].includes(request.status)) footer.append(button('撤回申请', () => { node.close(); confirmChange({ title: '撤回申请', trigger, danger: true,
+      description: '撤回“' + request.id + '”。', preview: () => [change('申请状态', request.status, '已撤回')], save: () => { request.status = '已撤回'; for (const item of request.approvalItems || []) if (AccessRequestDemo.open(item)) item.status = '已撤回'; } }); }, 'admin-button is-danger'));
     node.append(body, footer); node.showModal();
   }
   // 同一数据源的不同授权来源分别展示，不计算有效权限或规则合并。
@@ -479,17 +517,17 @@
   }
   function renderMyAccess() {
     const q = queries.access, tools = el('section', 'people-query-card');
-    const reset = () => { Object.assign(q, { keyword: '', status: 'all', page: 1 }); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); };
-    tools.append(RecordControls.filters({ value: q, includeDates: false, keywordLabel: '搜索访问范围', keywordPlaceholder: '数据源、输出限制规则或来源编号', statusLabel: '来源类型',
+    const reset = () => { Object.assign(q, { keyword: '', rule: '', origin: '', status: 'all', page: 1 }); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); };
+    tools.append(RecordControls.filters({ value: q, includeDates: false, fields: [{ key: 'keyword', label: '数据源名称' }, { key: 'rule', label: '输出限制规则名称' }, { key: 'origin', label: '来源名称或编号' }], statusLabel: '来源类型',
       statuses: [{ value: 'all', label: '全部来源' }, { value: 'department', label: '部门初始访问' }, { value: 'request', label: '申请授权' }],
       onApply: next => { Object.assign(q, next); renderMyAccess(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); }, onReset: reset
     }), button('申请额外数据访问', applyExtraAccess, 'admin-button is-primary', 'apply-data-access'));
-    // 按显示的业务信息做字面包含匹配；多个词同时命中，先筛选再计算总数和页数据。
+    // 条件只匹配对应业务字段，先筛选再计算总数和页数据。
     const records = accessRecords(currentUser).filter(record => (q.status === 'all' || q.status === record.origin.type) &&
-      AdminQuery.matches([record.source, record.ruleNames, record.limits, record.origin.label], q.keyword))
+      AdminQuery.matchesFields({ keyword: record.source, rule: record.ruleNames, origin: record.origin.label }, q))
       .sort((a, b) => b.origin.submitted.localeCompare(a.origin.submitted) || b.id.localeCompare(a.id));
     q.page = Math.max(1, Math.min(q.page, Math.ceil(records.length / q.pageSize)));
-    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.status !== 'all');
+    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.rule || q.origin || q.status !== 'all');
     empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的访问范围' : '暂无数据访问范围'));
     if (filtered) empty.append(button('清空筛选', reset));
     panel.append(RecordTable.render({ caption: '我的访问范围', minWidth: 880,
@@ -506,18 +544,20 @@
     main.replaceChildren(pageHeading('我的访问范围'), tools, panel);
   }
   function renderMyRequests() {
+    AccessRequestDemo.records();
     const q = queries.requests, tools = el('section', 'people-query-card');
-    tools.append(RecordControls.filters({ value: q, includeDates: false, keywordLabel: '搜索申请', keywordPlaceholder: '申请编号、用途或需要的数据',
-      statuses: [{ value: 'all', label: '全部状态' }, ...['待审批', '已生效', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
-      onApply: next => { Object.assign(q, next); renderMyRequests(); }, onReset: () => { Object.assign(q, { keyword: '', status: 'all', page: 1 }); renderMyRequests(); }
+    const reset = () => { Object.assign(q, { keyword: '', requestId: '', status: 'all', page: 1 }); renderMyRequests(); };
+    tools.append(RecordControls.filters({ value: q, includeDates: false, fields: [{ key: 'keyword', label: '申请事项' }, { key: 'requestId', label: '申请编号' }],
+      statuses: [{ value: 'all', label: '全部状态' }, ...['待分流', '待审批', '需补充', '已批准待执行', '部分批准待执行', '已生效', '已驳回', '已撤回'].map(value => ({ value, label: value }))],
+      onApply: next => { Object.assign(q, next); renderMyRequests(); }, onReset: reset
     }), button('申请额外数据访问', applyExtraAccess, 'admin-button is-primary', 'apply-data-access'));
     const records = extraRequests.filter(r => r.user === currentUser.id && (q.status === 'all' || q.status === r.status) &&
-      AdminQuery.matches([r.id, r.reason, r.requestedScope || '', ...accessRows(r.access).flatMap(row => [row.source, row.ruleNames, row.limits])], q.keyword))
+      AdminQuery.matchesFields({ keyword: r.reason, requestId: r.id }, q))
       .sort((a, b) => b.submitted.localeCompare(a.submitted) || b.id.localeCompare(a.id));
     q.page = Math.max(1, Math.min(q.page, Math.ceil(records.length / q.pageSize)));
-    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.status !== 'all');
+    const panel = el('section', 'record-panel'), empty = el('div', 'empty-state'), filtered = Boolean(q.keyword || q.requestId || q.status !== 'all');
     empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的申请' : '暂无数据访问申请'));
-    if (filtered) empty.append(button('清空筛选', () => { Object.assign(q, { keyword: '', status: 'all', page: 1 }); renderMyRequests(); main.querySelector('input[name="keyword"]')?.focus({ preventScroll: true }); }));
+    if (filtered) empty.append(button('清空筛选', reset));
     panel.append(RecordTable.render({ caption: '我的数据访问申请', minWidth: 800,
       columns: [{ key: 'request', label: '申请事项' }, { key: 'submitted', label: '提交时间', width: 166 }, { key: 'status', label: '状态', width: 104 }, { key: 'actions', label: '操作', width: 144 }],
       items: records.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
@@ -527,15 +567,15 @@
     main.replaceChildren(pageHeading('我的申请'), tools, panel);
   }
   function userTable(records, kind, target) {
-    const q = queries[kind], keyword = q.keyword.trim();
+    const q = queries[kind], filtered = Boolean(q.keyword || q.login || q.departmentId || q.status !== 'all');
     const found = records.filter(u => (q.status === 'all' || u.status === q.status) &&
-      AdminQuery.matches([u.name, u.login, deptName(u.department), ...u.extra.map(deptName), ...u.roles], keyword))
+      (!q.departmentId || u.department === q.departmentId || u.extra.includes(q.departmentId)) && AdminQuery.matchesFields({ keyword: u.name, login: u.login }, q))
       .sort((a, b) => b.updated.localeCompare(a.updated) || b.id.localeCompare(a.id));
     q.page = Math.max(1, Math.min(q.page, Math.ceil(found.length / q.pageSize)));
-    const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', keyword || q.status !== 'all' ? '没有匹配的人员' : '该部门暂无成员'));
-    if (keyword || q.status !== 'all') empty.append(button('清空筛选', () => { Object.assign(q, { keyword: '', status: 'all', page: 1 }); target(); }));
-    const columns = [{ key: 'person', label: '人员' },
-      ...(kind === 'users' ? [{ key: 'department', label: '部门', width: 160 }, { key: 'roles', label: '个人角色', width: 200 }] : [{ key: 'department', label: '所属部门', width: 200 }, { key: 'membership', label: '成员关系', width: 112 }]),
+    const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', filtered ? '没有匹配的人员' : '该部门暂无成员'));
+    if (filtered) empty.append(button('清空筛选', () => { Object.assign(q, { keyword: '', login: '', departmentId: '', status: 'all', page: 1 }); target(); }));
+    const columns = [{ key: 'person', label: '人员', ...(kind === 'users' ? {} : { width: '32%' }) },
+      ...(kind === 'users' ? [{ key: 'department', label: '部门', width: 160 }, { key: 'roles', label: '个人角色', width: 200 }] : [{ key: 'department', label: '所属部门' }, { key: 'membership', label: '成员关系', width: 144 }]),
       { key: 'status', label: '状态', width: 104 }, ...(kind === 'users' ? [{ key: 'updated', label: '更新时间', width: 166 }] : []), { key: 'actions', label: '操作', width: kind === 'users' ? 256 : 200 }];
     const table = RecordTable.render({ caption: kind === 'users' ? '人员列表' : '部门成员', minWidth: kind === 'users' ? 1112 : 840, columns,
       items: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
@@ -583,7 +623,7 @@
         if (departments.some(d => d.id !== department?.id && d.code === data.code)) return '部门编号已存在，请更换。';
       },
       preview: data => [change('部门名称', department?.name, data.name), change('部门编号', department?.code, data.code), change('上级部门', department ? deptName(department.parent) : '', deptName(data.parent)),
-        change('负责人', department?.manager, data.manager), change('部门说明', department?.note, data.note), change('业务权限', '按明确来源配置', '不随组织层级自动继承')],
+        change('负责人', department?.manager, data.manager), change('部门说明', department?.note, data.note)],
       save: data => {
         data.name = data.name.trim(); data.code = data.code.trim();
         if (department) Object.assign(department, data);
@@ -594,26 +634,26 @@
   function joinMembers(d, trigger) {
     const candidates = users.filter(u => ['正常', '待首次登录'].includes(u.status) && !members(d.id).includes(u));
     if (!candidates.length) { notify('当前没有可加入的人员'); return; }
-    openForm({ title: '加入部门成员', trigger, note: '加入“' + d.name + '”后为兼任成员，原主部门保持不变；更换主部门请使用调岗。',
+    openForm({ title: '添加兼任成员 · ' + d.name, trigger,
       value: { ids: [], reason: '' },
       fields: [{ key: 'ids', label: '选择人员', full: true, multiple: true, required: true, options: candidates.map(u => ({ value: u.id, label: u.name + ' · ' + deptName(u.department) })) },
         { key: 'reason', label: '加入原因', type: 'textarea', required: true, full: true }],
       preview: data => [change('所选人员', '', data.ids.map(id => users.find(u => u.id === id).name)), change('兼任部门', '原配置保留', '新增：' + d.name),
-        change('主部门', '原主部门', '保持不变'), change('部门初始数据访问', '', accessText(d.access)), change('个人角色与申请授权', '保留', '保持不变')],
+        change('部门初始数据访问', '', accessText(d.access))],
       save: data => { for (const id of data.ids) { const user = users.find(u => u.id === id); user.extra.push(d.id); user.updated = timestamp(); } }
     });
   }
   function removeMember(user, d, trigger) {
     if (user.department === d.id) { transferUser(user, trigger); return; }
-    confirmChange({ title: '移出兼任成员', trigger, danger: true, description: '仅将“' + user.name + '”移出“' + d.name + '”，主部门及其他来源保留。',
-      preview: () => [change('兼任部门', user.extra.map(deptName), user.extra.filter(id => id !== d.id).map(deptName)), change('本部门初始数据访问', '关联', '结束'), change('个人角色、申请及其他部门访问', '保留', '保持不变')],
+    confirmChange({ title: '移出兼任成员', trigger, danger: true, description: '将“' + user.name + '”移出“' + d.name + '”，并结束其在本部门的初始数据访问。',
+      preview: () => [change('兼任部门', user.extra.map(deptName), user.extra.filter(id => id !== d.id).map(deptName)), change('本部门初始数据访问', '关联', '结束')],
       save: () => { user.extra = user.extra.filter(id => id !== d.id); user.updated = timestamp(); } });
   }
   function moveDepartmentMembers(d, trigger) {
     const affected = members(d.id), destinations = departmentOptions().filter(o => !branch(d.id).includes(o.value));
-    openForm({ title: '迁移直属成员', trigger, value: { destination: '', reason: '' }, note: '仅迁移“' + d.name + '”直属的主部门与兼任关系，不处理下级部门成员。',
+    openForm({ title: '迁移直属成员 · ' + d.name, trigger, value: { destination: '', reason: '' },
       fields: [{ key: 'destination', label: '迁入部门', options: destinations, required: true, full: true }, { key: 'reason', label: '迁移原因', type: 'textarea', required: true, full: true }],
-      preview: data => [change('受影响人员', affected.map(u => u.name), affected.length + ' 人'), change('部门数据来源', d.name, deptName(data.destination)), change('个人角色、申请及其他部门访问', '保留', '保持不变')],
+      preview: data => [change('受影响人员', affected.map(u => u.name), affected.length + ' 人'), change('部门数据来源', d.name, deptName(data.destination))],
       save: data => { for (const user of affected) { if (user.department === d.id) user.department = data.destination; user.extra = user.extra.filter(id => id !== d.id && id !== user.department); if (user.department !== data.destination && !user.extra.includes(data.destination)) user.extra.push(data.destination); user.updated = timestamp(); } } });
   }
   function moveChildDepartments(d, trigger) {
@@ -621,11 +661,11 @@
     openForm({ title: '迁移下级部门', trigger, value: { parent: '', reason: '' },
       fields: [{ key: 'parent', label: '新的上级部门', required: true, options: departmentOptions().filter(o => !branch(d.id).includes(o.value)), full: true },
         { key: 'reason', label: '迁移原因', type: 'textarea', required: true, full: true }],
-      preview: data => [change('下级部门', children.map(item => item.name), '保持部门身份与成员'), change('上级部门', d.name, deptName(data.parent)), change('授权来源', '原配置', '不因组织迁移自动扩大')],
+      preview: data => [change('下级部门', children.map(item => item.name), '迁入：' + deptName(data.parent))],
       save: data => { for (const item of children) item.parent = data.parent; } });
   }
   function departmentAccess(d, trigger) {
-    openForm({ title: '配置初始数据访问', trigger, value: { access: structuredClone(d.access), members: '直属 ' + members(d.id).length + ' 人，含直属兼任成员', reason: '' },
+    openForm({ title: '配置初始数据访问 · ' + d.name, trigger, value: { access: structuredClone(d.access), members: '直属 ' + members(d.id).length + ' 人，含直属兼任成员', reason: '' },
       fields: [{ key: 'members', label: '影响成员', readonly: true, full: true },
         { key: 'access', label: '数据源与输出限制规则', type: 'data-access', full: true },
         { key: 'reason', label: '配置原因', type: 'textarea', required: true, full: true }],
@@ -637,13 +677,13 @@
       save: data => { Object.assign(d, { access: data.access, requiresReview: false }); } });
   }
   function endDepartmentAccess(d, trigger) {
-    confirmChange({ title: '结束初始数据访问', trigger, danger: true, description: '结束“' + d.name + '”的初始数据访问。个人角色、已生效申请及其他部门数据访问保留。',
-      preview: () => [change('部门初始数据访问', accessText(d.access), '结束本部门来源'), change('个人角色、申请与其他部门访问', '保留', '保持不变')],
+    confirmChange({ title: '结束初始数据访问', trigger, danger: true, description: '结束“' + d.name + '”的初始数据访问，影响本部门直属及直属兼任成员。',
+      preview: () => [change('部门初始数据访问', accessText(d.access), '结束本部门来源')],
       save: () => { Object.assign(d, { access: [], requiresReview: false }); } });
   }
   function toggleDepartment(d, trigger) {
     if (d.status === '停用') {
-      openForm({ title: '复核并恢复部门', trigger, note: '恢复组织状态后，保留的初始数据访问需再次复核；个人角色保持不变。',
+      openForm({ title: '复核并恢复部门', trigger, note: '恢复后，保留的初始数据访问需再次复核。',
         value: { reviewed: false, reason: '' }, fields: [{ key: 'reviewed', label: '恢复前复核', type: 'checkbox', checkLabel: '已核对成员、下级部门及初始数据访问', full: true }, { key: 'reason', label: '恢复原因', type: 'textarea', required: true, full: true }],
         preview: () => [change('部门状态', '停用', '正常'), change('直属成员', members(d.id).length + ' 人', '保持组织归属'), change('初始数据访问', accessText(d.access), '待复核')],
         saveLabel: '恢复', save: () => { d.status = '正常'; d.requiresReview = Boolean(d.access.length); } });
@@ -651,7 +691,7 @@
     }
     confirmChange({ title: '停用部门', trigger, danger: true, description: '仅停用当前部门“' + d.name + '”，成员资料保留；下级部门保持各自状态。',
       preview: () => [change('部门状态', '正常', '停用'), change('本部门直属成员', members(d.id).map(u => u.name), '保留归属，结束本部门派生来源'),
-        change('下级部门', childDepartments(d.id).length + ' 个', '保持原状态'), change('个人角色、申请及其他部门访问', '保留', '保持不变')],
+        change('下级部门', childDepartments(d.id).length + ' 个', '保持原状态')],
       save: () => { d.status = '停用'; } });
   }
   function archiveDepartment(d, trigger) {
@@ -664,10 +704,11 @@
       ['初始数据访问', !d.access.length, d.access.length + ' 个数据源', '结束数据访问', () => endDepartmentAccess(d, trigger)]
     ];
     for (const [label, done, current, action, callback] of items) { const row = el('div', 'archive-check'); const text = el('div'); text.append(el('strong', '', label), el('span', 'cell-sub', current)); row.append(text); if (done) row.append(status('已核对')); else row.append(button(action, () => { node.close(); callback(); })); checks.append(row); }
-    body.append(el('p', 'form-note', '关联事项处理完成后可归档，历史身份和记录继续保留。'), checks);
+    if (!items.every(item => item[1])) body.append(el('p', 'form-note', '请先处理未完成的关联事项。'));
+    body.append(checks);
     const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
     if (items.every(item => item[1])) footer.append(button('继续归档', () => { node.close(); confirmChange({ title: '归档部门', trigger, danger: true, description: '归档后只保留部门及其历史回看，不再用于人员归属或初始数据访问。',
-      preview: () => [change('部门状态', '停用', '已归档'), change('直属成员、下级及初始数据访问', '已处理', '无待处理关联'), change('历史记录', '保留', '保留')], save: () => { d.status = '已归档'; } }); }, 'admin-button is-danger'));
+      preview: () => [change('部门状态', '停用', '已归档'), change('直属成员、下级及初始数据访问', '已处理', '无待处理关联')], save: () => { d.status = '已归档'; } }); }, 'admin-button is-danger'));
     node.append(body, footer); node.showModal();
   }
   function renderDepartmentContent() {
@@ -733,7 +774,7 @@
     content.replaceChildren(summary, panel);
   }
   function selectDepartment(id) {
-    selectedDepartment = id; departmentTab = 'members'; queries.children.page = 1; Object.assign(queries.members, { keyword: '', status: 'all', page: 1 }); renderDepartments();
+    selectedDepartment = id; departmentTab = 'members'; queries.children.page = 1; Object.assign(queries.members, { keyword: '', login: '', status: 'all', page: 1 }); renderDepartments();
   }
   function renderDepartments() {
     main.replaceChildren(pageHeading('部门管理'));
@@ -746,7 +787,7 @@
       data: () => ({ keyword: treeKeyword, nodes: treeData(), selected: selectedDepartment }),
       watch: { keyword(value) { treeKeyword = value; this.$refs.tree.filter(value); } },
       mounted() { this.$refs.tree.filter(this.keyword); },
-      methods: { filter(value, data) { return data.label.includes(value); }, select(data) { selectedDepartment = data.id; queries.children.page = 1; Object.assign(queries.members, { keyword: '', status: 'all', page: 1 }); renderDepartmentContent(); } },
+      methods: { filter(value, data) { return data.label.includes(value); }, select(data) { selectedDepartment = data.id; queries.children.page = 1; Object.assign(queries.members, { keyword: '', login: '', status: 'all', page: 1 }); renderDepartmentContent(); } },
       template: `<div class="tree-filter"><el-input v-model="keyword" clearable aria-label="搜索部门" placeholder="搜索部门"></el-input></div>
         <el-tree ref="tree" :data="nodes" node-key="id" default-expand-all highlight-current :current-node-key="selected" :expand-on-click-node="false" :filter-node-method="filter" @node-click="select" aria-label="部门组织树">
           <template #default="{data}"><span class="tree-label" :title="data.label+' · 本部门及下级共 '+data.count+' 人'" :class="{'tree-disabled':data.status !== '正常'}">{{data.label}}<small>{{data.status !== '正常' ? data.status : data.count}}</small></span></template>
@@ -778,11 +819,13 @@
     if (section === 'dashboard') renderDashboard();
     else if (section === 'users') renderUsers();
     else if (section === 'departments') renderDepartments();
+    else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser });
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'output-rules') OutputRulesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, actor: currentUser.name });
     else if (section === 'roles') RolesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, moreActions,
       setTitle(title, editor) { pageLocation.title = title; pageLocation.parent = editor ? '角色与功能权限' : ''; document.title = title + ' · DataOcean 后台管理'; } });
+    else if (section === 'access-requests') AccessRequestsPage.render(main, { el, button, textCell, status, pair, pageHeading, notify, openForm, currentUser, DataAccessTable, viewResult: (request, trigger) => requestDetail(request, trigger, true) });
     else {
       const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('file-text'), el('h2', '', titles[section] ? '待制作' : '页面不存在'));
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }

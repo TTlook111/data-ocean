@@ -38,6 +38,7 @@
       th.scope = 'col';
       th.dataset.column = column.key;
       th.title = column.label;
+      if (column.fixed === 'right') th.classList.add('rt-fixed-right');
       headings.append(th);
     }
     head.append(headings);
@@ -54,6 +55,7 @@
         for (const [index, column] of columns.entries()) {
           const td = element('td');
           td.dataset.column = column.key;
+          if (column.fixed === 'right') td.classList.add('rt-fixed-right');
           appendContent(td, values[index]);
           record.append(td);
         }

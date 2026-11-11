@@ -1,16 +1,17 @@
 /* 角色页使用少量离线记录和操作目录，不据此判断真实账号权限。 */
 (() => {
   'use strict';
-  const page = (id, group, name, operations = [], included = '') => ({ id, group, name, included,
+  const page = (id, group, name, operations = []) => ({ id, group, name,
     operations: [{ id: id + '.view', name: '访问页面', purpose: '进入' + name + '，查看获准内容。' },
       ...operations.map(([key, label, purpose, protectedAbility = false]) => ({ id: id + '.' + key, name: label, purpose, protectedAbility }))] });
   const catalog = [
-    page('dashboard', '总览', '总览', [], '查看有权读取的治理与问数概览。'),
+    page('dashboard', '总览', '总览'),
     page('sources', '数据源接入', '数据源管理', [
+      ['approval-config', '配置审批责任', '为数据源指定具备审批功能的主审批人和替代负责人，不改变查询授权。'],
       ['create', '新增数据源', '创建连接配置，不自动获得业务查询权。'], ['edit', '编辑连接', '修改连接信息或轮换凭据，凭据不回显。'],
       ['test', '测试连接', '核对连接、读取与采集条件。'], ['enable', '启用数据源', '核对连接和采集条件后启用。'],
       ['pause', '暂停采集', '暂停该源后续采集，保留已有结果。'], ['disable', '停用数据源', '核对使用与依赖影响后停用。'], ['retire', '退役数据源', '核对依赖和历史保留后退役。']]),
-    page('catalog', '数据源接入', '元数据目录', [], '搜索、查看获准的表字段结构、治理说明与来源。'),
+    page('catalog', '数据源接入', '元数据目录'),
     page('collections', '数据源接入', '采集记录与结构变化', [
       ['collect', '发起采集', '从获准数据源只读采集结构信息。'], ['retry', '重试失败对象', '只重试失败部分，保留已有结果。'],
       ['cancel', '取消采集', '停止当前有权取消的采集任务。'], ['review', '复核结构变化', '核对前后差异及影响，提交复核结果。']]),
@@ -47,25 +48,26 @@
     page('roles', '人员与权限', '角色与功能权限', [
       ['create', '新增角色', '创建角色并配置页面及操作。'], ['edit', '编辑角色', '修改名称、说明及功能，核对受影响人员。'],
       ['disable', '停用角色', '停用该角色功能，保留分配关系和配置。'], ['enable', '启用角色', '核对影响后启用该角色功能。'],
-      ['archive', '归档角色', '先停用并移出当前分配人员，配置仅供回看。'], ['protected', '受保护能力授予', '核验授予上限及受保护管理能力。', true]], '查看角色详情和已分配人员。'),
+      ['archive', '归档角色', '先停用并移出当前分配人员，配置仅供回看。'], ['protected', '受保护能力授予', '核验授予上限及受保护管理能力。', true]]),
     page('output-rules', '人员与权限', '输出限制规则', [
       ['create', '新增规则', '维护可复用规则名称及中文限制内容。'], ['edit', '编辑规则', '维护已有规则名称与中文限制内容。']]),
     page('access-requests', '人员与权限', '访问申请', [
+      ['route', '核定与分派申请', '核定待处理子项的数据源，按该源审批责任分派，不直接批准或授权。'],
       ['review', '核定与审批', '根据用途核定数据源和输出规则，分项批准。'], ['supplement', '要求补充', '说明缺少的业务信息并交回申请人。'], ['reject', '驳回申请', '说明理由并驳回相应申请子项。']]),
     page('grant-management', '人员与权限', '授权执行与撤销', [
       ['execute', '执行获批授权', '核对申请版本、数据源和规则后执行。'], ['revoke', '撤销授权', '核对来源和影响后结束指定授权来源。']]),
-    page('grants', '人员与权限', '授权记录', [], '搜索及回看获准的来源、办理记录和实际执行结果。'),
-    page('audit', '人员与权限', '权限审计', [], '查看有权审计的操作对象、差异、原因和结果。'),
+    page('grants', '人员与权限', '授权记录'),
+    page('audit', '人员与权限', '权限审计'),
     page('models', '系统配置', '模型配置', [
       ['create', '新增模型配置', '创建配置草稿，凭据保持遮蔽。'], ['edit', '编辑配置草稿', '维护草稿参数和服务信息。'], ['credential', '替换模型凭据', '替换凭据，不回显旧凭据。'],
       ['test', '测试配置', '验证对应模型服务与用途条件。'], ['activate', '使配置生效', '核对用途影响后使修订生效。'], ['disable', '停用模型配置', '核对绑定用途和依赖后停用。']]),
     page('model-uses', '系统配置', '用途设置', [['governance', '切换治理用途配置', '选择可用配置，核对治理调用影响后切换。'], ['query', '切换问数用途配置', '选择可用配置，核对问数调用影响后切换。']]),
     page('retrieval', '系统配置', '知识检索配置', [['edit', '维护检索配置', '配置向量及重排用途；需要重建时进入候选发布流程。'], ['test', '验证检索', '验证当前检索配置与索引的匹配条件。']]),
-    page('diagnostics', '系统配置', '运行诊断', [['test', '重新测试', '对有权诊断的失败项重新测试。']], '查看获准诊断摘要，不自动开放业务原文。'),
-    page('account-info', '个人管理', '账号信息', [], '仅查看本人账号资料。'),
-    page('my-requests', '个人管理', '我的申请', [['apply', '申请额外访问', '填写业务用途和需要的数据，已知源可选填。'], ['withdraw', '撤回本人申请', '撤回本人尚未生效的申请子项。']], '回看本人申请、办理进度和回告。'),
-    page('my-access', '个人管理', '我的访问范围', [], '按来源查看本人数据源与输出限制规则。'),
-    page('query', '问数工作台', '问数工作台', [['ask', '发起问数', '对单一获准源发起或重新查询业务问题。'], ['sql', '查看 SQL', '按对应权限查看查询依据中的 SQL。']], '本人历史、明细、图表、可见结果导出、停止、重试解释与反馈遵循各自结果及记录条件；不另设导出权限。')
+    page('diagnostics', '系统配置', '运行诊断', [['test', '重新测试', '对有权诊断的失败项重新测试。']]),
+    page('account-info', '个人管理', '账号信息'),
+    page('my-requests', '个人管理', '我的申请', [['apply', '申请额外访问', '填写业务用途和需要的数据，已知源可选填。'], ['withdraw', '撤回本人申请', '撤回本人尚未生效的申请子项。']]),
+    page('my-access', '个人管理', '我的访问范围'),
+    page('query', '问数工作台', '问数工作台', [['ask', '发起问数', '对单一获准源发起或重新查询业务问题。'], ['sql', '查看 SQL', '按对应权限查看查询依据中的 SQL。']])
   ];
   const all = catalog.flatMap(item => item.operations);
   const keysFor = ids => catalog.filter(item => ids.includes(item.id)).flatMap(item => item.operations.filter(op => !op.protectedAbility).map(op => op.id));
@@ -75,7 +77,7 @@
     ['role-admin', '管理员', '维护人员、部门及常用管理功能。', keysFor(['users', 'departments', 'roles', 'output-rules', 'account-info', 'my-requests', 'my-access'])],
     ['role-analyst', '数据分析师', '使用问数、元数据目录和本人管理功能。', [...personal, 'catalog.view']],
     ['role-user', '普通用户', '使用本人问数、申请及访问回看功能。', personal],
-    ['role-source', '数据源维护员', '维护连接、结构目录与采集记录。', keysFor(['sources', 'catalog', 'collections', 'business-notes'])],
+    ['role-source', '数据源维护员', '维护连接、结构目录与采集记录。', keysFor(['sources', 'catalog', 'collections', 'business-notes']).filter(key => key !== 'sources.approval-config')],
     ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', keysFor(['governance', 'catalog', 'test-cases'])],
     ['role-review', '知识审核员', '核对治理依据和知识文档。', keysFor(['governance-review', 'knowledge'])],
     ['role-release', '发布管理员', '管理候选构建、发布测试及版本回退。', keysFor(['knowledge', 'releases', 'versions', 'test-cases'])],

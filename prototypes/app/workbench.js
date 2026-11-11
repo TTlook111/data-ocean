@@ -198,7 +198,7 @@
 
   function hideRestricted(turn) {
     turn.querySelector('.qa-answer')?.remove();
-    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '这条示例回答已不可用，可重新提问。'));
+    if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '这条回答已不可用，请重新提问。'));
   }
 
   function refreshAccess(thread) {
@@ -276,7 +276,7 @@
     if (version === receiptVersion) return;
     receiptVersion = version;
     list.replaceChildren();
-    if (!records.length) list.append(element('p', 'receipt-empty', '还没有处理回告。申请或口径事项处理完成后，可以在这里查看。'));
+    if (!records.length) list.append(element('p', 'receipt-empty', '暂无处理回告。'));
     for (const item of records) {
       const row = element('article', 'receipt-item');
       if (!readReceipts.has(item.receipt.key)) row.classList.add('unread');

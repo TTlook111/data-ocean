@@ -155,7 +155,7 @@
 
     if (!isAccess) {
       const linked = item.links?.length || 1;
-      const reference = '已自动关联事项 ' + item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
+      const reference = item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
       main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
     }
     if (isAccess && item.status === 'blocked') {

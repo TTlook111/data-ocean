@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const { outputRules } = PeopleDemo;
-  const query = { keyword: '', page: 1, pageSize: 10 };
+  const query = { keyword: '', content: '', page: 1, pageSize: 10 };
   function render(main, ui) {
     const { el, button, textCell, modal, pair, pageHeading, openForm } = ui;
     function edit(rule, trigger) {
@@ -15,7 +15,7 @@
         save: data => {
           const value = { name: data.name.trim(), content: data.content.trim(), updated: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) };
           if (rule) Object.assign(rule, value);
-          else { outputRules.unshift({ id: 'rule-' + Date.now(), ...value }); query.keyword = ''; query.page = 1; }
+          else { outputRules.unshift({ id: 'rule-' + Date.now(), ...value }); query.keyword = ''; query.content = ''; query.page = 1; }
         }
       });
     }
@@ -30,14 +30,14 @@
     }
     const tools = el('section', 'people-query-card');
     tools.append(RecordControls.filters({ value: query, includeDates: false, includeStatus: false,
-      keywordLabel: '搜索输出限制规则', keywordPlaceholder: '规则名称或中文限制内容',
+      fields: [{ key: 'keyword', label: '规则名称' }, { key: 'content', label: '中文限制内容' }],
       onApply: next => { Object.assign(query, next); render(main, ui); },
-      onReset: () => { Object.assign(query, { keyword: '', page: 1 }); render(main, ui); }
+      onReset: () => { Object.assign(query, { keyword: '', content: '', page: 1 }); render(main, ui); }
     }), button('新增规则', trigger => edit(null, trigger), 'admin-button is-primary', 'new-output-rule'));
-    const records = outputRules.filter(rule => AdminQuery.matches([rule.name, rule.content], query.keyword));
+    const records = outputRules.filter(rule => AdminQuery.matchesFields({ keyword: rule.name, content: rule.content }, query));
     query.page = Math.max(1, Math.min(query.page, Math.ceil(records.length / query.pageSize)));
-    const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', query.keyword ? '没有匹配的输出限制规则' : '暂无输出限制规则'));
-    if (query.keyword) empty.append(button('清空筛选', () => { query.keyword = ''; query.page = 1; render(main, ui); }));
+    const empty = el('div', 'empty-state'); empty.append(WorkbenchIcon('search'), el('p', '', query.keyword || query.content ? '没有匹配的输出限制规则' : '暂无输出限制规则'));
+    if (query.keyword || query.content) empty.append(button('清空筛选', () => { query.keyword = ''; query.content = ''; query.page = 1; render(main, ui); }));
     const panel = el('section', 'record-panel');
     panel.append(RecordTable.render({ caption: '输出限制规则', minWidth: 800,
       columns: [{ key: 'name', label: '规则名称', width: 200 }, { key: 'content', label: '中文限制内容' }, { key: 'updated', label: '更新时间', width: 166 }, { key: 'actions', label: '操作', width: 112 }],

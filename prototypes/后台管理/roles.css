@@ -27,11 +27,11 @@
 .permission-page-heading > span { color: var(--do-muted); font-size: 12px; }
 .permission-operations { margin: 0; padding: 0; list-style: none; }
 .permission-operations li { padding: 12px 0; border-bottom: 1px solid var(--do-line); }
+.permission-operations li:last-child { border-bottom: 0; }
 .permission-operations li > p { margin: 2px 0 0; color: var(--do-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .permission-operations .el-checkbox { margin-right: 8px; height: auto; min-height: 24px; }
 .permission-operations strong { font-weight: 500; }
-.permission-included, .permission-hint { margin: 16px 0 0; color: var(--do-muted); font-size: 12px; line-height: 20px; }
-.permission-hint { color: #825b24; }
+.permission-hint { margin: 16px 0 0; color: #825b24; font-size: 12px; line-height: 20px; }
 .permission-empty { display: grid; place-items: center; min-height: 200px; color: var(--do-muted); }
 .permission-no-results { margin: 12px; color: var(--do-muted); font-size: 12px; }
 .role-editor-footer { display: flex; justify-content: flex-end; gap: 8px; flex: none; padding: 16px 24px; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; }
@@ -58,7 +58,6 @@
 .role-diff h3 { margin: 0 0 12px; font-size: 14px; }
 .role-diff ul { margin: 0; padding-left: 20px; }
 .role-diff li { padding: 3px 0; overflow-wrap: anywhere; }
-.role-review-boundary { margin: 24px 0 0; }
 .role-choice-search { margin-bottom: 12px; width: 100%; }
 .role-choice-field { width: 100%; min-width: 0; }
 .role-choice-selected { margin: 0 0 8px; color: var(--do-muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
