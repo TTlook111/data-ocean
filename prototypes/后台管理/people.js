@@ -145,7 +145,7 @@
             'data-focus': key, 'aria-label': label || '更多操作'
           }, { default: () => [h('span', null, label || '更多'), h('span', { class: 'more-chevron', 'aria-hidden': 'true' })] }),
           dropdown: () => h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => items.map((item, index) =>
-            h(ElementPlus.ElDropdownItem, { command: index, divided: Boolean(item.separator), disabled: Boolean(item.disabled), title: item.reason || undefined, class: item.danger ? 'is-danger' : '' }, { default: () => item.label })) })
+            h(ElementPlus.ElDropdownItem, { command: index, divided: Boolean(item.separator), disabled: Boolean(item.disabled), title: item.reason || undefined, class: item.danger ? 'is-danger' : '', 'aria-label': item.description ? item.label + '：' + item.description : undefined }, { default: () => item.description ? h('span', { class: 'row-menu-description' }, [h('span', null, item.label), h('small', null, item.description)]) : item.label })) })
         });
       }
     });
@@ -820,7 +820,7 @@
     else if (section === 'users') renderUsers();
     else if (section === 'departments') renderDepartments();
     else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions });
-    else if (['catalog', 'collections', 'business-notes'].includes(section)) DataSourcesPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions }, { section });
+    else if (['catalog', 'collections', 'business-notes', 'governance', 'governance-review'].includes(section)) DataSourcesPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions }, { section, sourceId: decodeURIComponent(parts[1] || ''), target: decodeURIComponent(parts[2] || '') });
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });
@@ -834,8 +834,6 @@
     });
     else {
       const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('file-text'), el('h2', '', titles[section] ? '待制作' : '页面不存在'));
-      // 保留数据源模块交接的来源，后续治理原型据此继续，不混用同名对象。
-      if (section === 'governance' && parts[1] && window.DataSourceDemo) { const source = DataSourceDemo.find(decodeURIComponent(parts[1])); if (source) panel.append(el('p', '', source.name + (parts[2] ? ' / ' + decodeURIComponent(parts[2]) : ''))); }
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }
       main.replaceChildren(pageHeading(titles[section] || '页面不存在'), panel);
     }

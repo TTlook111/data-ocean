@@ -15,9 +15,21 @@
 .ds-record-panel td[data-column="actions"] { min-width: 128px; }
 .ds-status-danger { color: #a33232; background: #fdf0ef; }
 .ds-fields { margin: 24px 0 0; }
+/* 长说明整行阅读，连续英文和原有换行不撑开详情。 */
+.ds-fields > div { min-width: 0; }
+.ds-fields > .full-width { grid-column: 1/-1; }
+.ds-fields dd { white-space: pre-wrap; line-height: 22px; }
+.ds-detail-dialog .dialog-heading h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-detail-dialog .dialog-heading .icon-close { flex: none; }
 .ds-source-facts { margin-top: 24px; }
 .ds-source-facts .el-collapse-item__header { min-height: 48px; font-size: 14px; }
 .ds-source-facts .ds-fields { margin: 16px 0 0; }
+.ds-fact-label { display: flex; align-items: center; gap: 4px; min-height: 24px; }
+.ds-fact-help { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--do-muted); cursor: help; }
+.ds-fact-help span { display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; line-height: 1; }
+.ds-fact-help:hover { color: var(--do-primary); background: var(--do-selected); }
+.ds-fact-help:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.ds-fact-tooltip { max-width: min(360px,calc(100vw - 64px)); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
 .ds-section-heading { margin: 24px 0 16px; font-size: 16px; line-height: 24px; font-weight: 600; }
 .ds-section-heading + .ds-fields { margin-top: 0; }
 .ds-detail-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
@@ -25,6 +37,9 @@
 .ds-notice.is-danger { background: #fdf0ef; color: #a33232; }
 .ds-notice:first-child { margin-top: 0; }
 .ds-history { margin: 12px 0; color: var(--do-muted); }
+.ds-forbidden-item + .ds-forbidden-item { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--do-line); }
+.ds-forbidden-item > .ds-section-heading { margin-top: 0; }
+.ds-forbidden-item .ds-fields { grid-template-columns: minmax(0,1fr); margin-bottom: 0; }
 .ds-connection-dialog { width: min(848px,calc(100vw - 80px)); }
 .ds-note-dialog { width: min(800px,calc(100vw - 80px)); }
 .ds-form-section + .ds-form-section { border-top: 1px solid var(--do-line); padding-top: 24px; margin-top: 24px; }
@@ -51,6 +66,14 @@
 .ds-note-history { border-top: 1px solid var(--do-line); padding: 12px 0; }
 .ds-note-history summary { cursor: pointer; }
 .ds-note-history .ds-prose { padding-top: 12px; color: var(--do-muted); }
+.ds-notes-panel .ds-actions { flex-wrap: nowrap; gap: 8px; }
+.ds-note-use { padding: 12px 0; border-bottom: 1px solid var(--do-line); }
+.ds-note-use strong { font-size: 14px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.ds-note-use .cell-sub { display: block; margin-top: 4px; }
+.ds-note-use .ds-prose { margin-top: 8px; }
+.ds-note-block { margin: 12px 0 0; color: var(--do-muted); line-height: 22px; }
+.row-menu-description { display: grid; gap: 4px; max-width: 240px; white-space: normal; padding: 4px 0; color: var(--do-muted); }
+.row-menu-description small { color: var(--do-muted); font-size: 12px; line-height: 18px; }
 .ds-failure-list { display: grid; gap: 16px; }
 .ds-failure-list .cell-sub { margin-top: 4px; white-space: normal; }
 .ds-progress { margin: 24px 0; }
