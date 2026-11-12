@@ -9,6 +9,9 @@
 .ds-tabs .el-tabs__nav-wrap::after { height: 1px; background: var(--do-line); }
 .ds-tabs .el-tabs__item { height: 56px; font-size: 14px; }
 .ds-tabs .el-tabs__content { display: none; }
+.ds-change-scope { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--do-line); }
+.ds-change-scope > .ds-actions { gap: 12px; }
+.ds-change-scope strong { min-width: 0; overflow-wrap: anywhere; }
 .ds-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .ds-record-panel .do-action { white-space: nowrap; }
 /* 四字行操作预留正文宽度，避免固定列中出现逐字换行。 */

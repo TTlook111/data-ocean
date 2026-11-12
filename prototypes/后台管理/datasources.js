@@ -4,7 +4,8 @@
   const demo = DataSourceDemo;
   const impacts = GovernanceImpactDemo;
   const queries = new Map();
-  let main, ui, section = 'sources', collectionTab = 'tasks', detailSequence = 0;
+  const positions = new Map();
+  let main, ui, section = 'sources', collectionTab = 'tasks', detailSequence = 0, changeScope = '';
   const refresh = () => window.dispatchEvent(new Event('hashchange'));
   const allowed = ability => SourceApprovalDemo.hasAbility(ui.currentUser, ability);
   const person = id => { const user = PeopleDemo.users.find(item => item.id === id); return user ? user.name + '（' + user.login + '）' : '未指定'; };
@@ -29,6 +30,31 @@
     if (source) demo.selected = source.id;
     if (filter) Object.assign(getQuery(key + ':' + demo.selected), filter, { page: 1 });
     if (location.hash === '#' + key) refresh(); else location.hash = key;
+  }
+  // 返回恢复原列表位置；抽屉中的按钮使用原记录入口作为焦点落点。
+  function rememberPosition(trigger) {
+    const scroll = main?.querySelector('.rt-scroll');
+    positions.set(location.hash, { source: demo.selected, focus: trigger?.dataset.focus || document.activeElement?.dataset.focus, top: scroll?.scrollTop || 0, left: scroll?.scrollLeft || 0 });
+  }
+  function restorePosition() {
+    const saved = positions.get(location.hash); if (!saved) return;
+    positions.delete(location.hash);
+    requestAnimationFrame(() => {
+      const scroll = main.querySelector('.rt-scroll'); if (scroll) { scroll.scrollTop = saved.top; scroll.scrollLeft = saved.left; }
+      const target = saved.focus && main.querySelector('[data-focus="' + CSS.escape(saved.focus) + '"]');
+      (target || main.querySelector('[data-focus="ds-scope-governance"]') || main.querySelector('tbody button') || main.querySelector('input'))?.focus({ preventScroll: true });
+    });
+  }
+  const activeChanges = table => demo.changesFor(table).filter(change => impacts.progress(change) !== '已完成');
+  function catalogStatus(table) {
+    const pending = demo.pendingVerification(table).length, active = activeChanges(table).length;
+    return stack(actions(...demo.catalogStates(table).map(badge)), pending ? pending + ' 项待核实' : active ? active + ' 项变化待处理' : '');
+  }
+  function catalogNextAction(table) {
+    if (activeChanges(table).length && allowed('collections.view')) return link('查看变化', trigger => openChanges(table.source, objectName(table), trigger), 'ds-next-' + table.id);
+    if (!allowed('governance.view')) return null;
+    if (demo.pendingVerification(table).length) return ui.el('span', 'cell-sub', '待有权人员核实');
+    return link('治理', trigger => navigateGovernance(demo.find(table.source), objectName(table), trigger), 'ds-next-' + table.id);
   }
   function note(text, danger = false) { const node = ui.el('p', 'ds-notice' + (danger ? ' is-danger' : ''), text); node.setAttribute('role', danger ? 'alert' : 'status'); return node; }
   function queryRows(rows, query, values) {
@@ -59,7 +85,7 @@
   }
   function context(source, primary) {
     const host = ui.el('section', 'ds-context'), select = ui.el('div', 'prototype-ui ds-source-select');
-    PrototypeUI.mount(select, { data: () => ({ selected: source.id, options: demo.sources.map(item => ({ id: item.id, name: item.name })) }), methods: { changed(value) { demo.selected = value; refresh(); } }, template: '<label class="ds-context-label" id="ds-current-source">当前数据源</label><el-select v-model="selected" aria-labelledby="ds-current-source" filterable @change="changed"><el-option v-for="item in options" :key="item.id" :value="item.id" :label="item.name"></el-option></el-select>' });
+    PrototypeUI.mount(select, { data: () => ({ selected: source.id, options: demo.sources.map(item => ({ id: item.id, name: item.name })) }), methods: { changed(value) { demo.selected = value; if (section === 'collections') navigate('collections/' + value + '/' + collectionTab); else refresh(); } }, template: '<label class="ds-context-label" id="ds-current-source">当前数据源</label><el-select v-model="selected" aria-labelledby="ds-current-source" filterable @change="changed"><el-option v-for="item in options" :key="item.id" :value="item.id" :label="item.name"></el-option></el-select>' });
     host.append(select, actions(badge(source.connectionState), badge(source.health), source.collection === '待重新采集' && badge(source.collection)), primary || ui.button('数据源详情', trigger => sourceDetail(source, trigger)));
     return host;
   }
@@ -268,7 +294,7 @@
     const source = demo.find(demo.selected), query = getQuery('catalog:' + source.id);
     const rows = queryRows(demo.objects(source.id), query, table => ({ status: demo.catalogStates(table), fields: { keyword: [objectName(table), table.label], type: table.type, owner: table.governance } }));
     const tools = filters(query, [{ key: 'keyword', label: '对象名称或解释', placeholder: '对象名或解释' }, { key: 'type', label: '对象类型', options: ['普通表', '视图', '物化视图', '分区表', '系统表', '临时表', '外部表'].map(value => ({ value, label: value })) }, { key: 'owner', label: '治理状态', options: ['已确认', '部分确认', '待治理', '待复核'].map(value => ({ value, label: value })) }], ['已采集', '属性缺失', '新发现', '结构变化', '访问丢失待核实', '已确认移除']);
-    const panel = tablePanel(rows, query, [{ key: 'name', label: '对象 / 解释', width: 235 }, { key: 'type', label: '对象类型', width: 110 }, { key: 'governance', label: '治理状态', width: 110 }, { key: 'state', label: '目录状态', width: 170 }, { key: 'version', label: '采集快照', width: 115 }, { key: 'at', label: '采集时间', width: 170 }, { key: 'actions', label: '操作', width: 192, fixed: 'right' }], table => [stack(ui.button(objectName(table), trigger => objectDetail(table, trigger), 'cell-title', 'ds-object-' + table.id), table.label), stack(table.type, table.parent ? '父表 ' + table.parent : ''), badge(table.governance), actions(...demo.catalogStates(table).map(badge)), ui.textCell(table.version), ui.textCell(table.collected), actions(link('查看结构', trigger => objectDetail(table, trigger)), allowed('governance.view') && link('治理', () => navigateGovernance(source, objectName(table))))], demo.objects(source.id).length ? '没有匹配的对象' : source.connectionState === '已启用' ? '尚无结构目录，发起首次采集后显示' : '尚无结构目录，请先测试并启用数据源');
+    const panel = tablePanel(rows, query, [{ key: 'name', label: '对象 / 解释', width: 235 }, { key: 'type', label: '对象类型', width: 110 }, { key: 'governance', label: '治理状态', width: 110 }, { key: 'state', label: '目录状态', width: 170 }, { key: 'version', label: '采集快照', width: 115 }, { key: 'at', label: '采集时间', width: 170 }, { key: 'actions', label: '操作', width: 192, fixed: 'right' }], table => [stack(ui.button(objectName(table), trigger => objectDetail(table, trigger), 'cell-title', 'ds-object-' + table.id), table.label), stack(table.type, table.parent ? '父表 ' + table.parent : ''), badge(table.governance), catalogStatus(table), ui.textCell(table.version), ui.textCell(table.collected), actions(link('查看结构', trigger => objectDetail(table, trigger)), catalogNextAction(table))], demo.objects(source.id).length ? '没有匹配的对象' : source.connectionState === '已启用' ? '尚无结构目录，发起首次采集后显示' : '尚无结构目录，请先测试并启用数据源');
     main.replaceChildren(ui.pageHeading('元数据目录'), context(source, allowed('collections.collect') && source.connectionState === '已启用' && ui.button('发起采集', trigger => collect(source, trigger), 'admin-button is-primary')), tools, panel);
   }
   function objectDetail(table, trigger) {
@@ -276,6 +302,8 @@
     showDetail(objectName(table) + ' · ' + table.label, trigger, (body, node) => {
       // 只展示已确认重建且仍待核对的提示，不凭同名或普通结构修改推断重建。
       if (table.rebuildReviewPending) body.append(note('检测到同名' + (table.type.includes('视图') ? '视图' : '表') + '重建，需重新核对对象身份及关联知识。'));
+      const pending = demo.pendingVerification(table).length;
+      if (pending) body.append(note('该对象有 ' + pending + ' 项变化待核实，请先核对结构变化。'));
       // 注释属于当前表或视图，保留来源原文，不限定语言。
       fields(body, [['数据源', source.name], ['对象路径', table.path], ['对象类型', table.type], ['目录状态', demo.catalogStates(table).join('、')], ['治理状态', table.governance], [table.type.includes('视图') ? '视图注释' : '表注释', table.commentState === '已读取' ? table.comment || '无注释' : table.commentState, true]]);
       const blocked = source.forbiddenKnowledge.filter(item => item.dependency === objectName(table) || item.dependency.startsWith(objectName(table) + '.'));
@@ -288,12 +316,15 @@
       fields(body, [...(ordinaryView ? [] : [['主键', table.fields[0].name], ['唯一约束', '已读取：未声明其他唯一约束'], ['来源外键', table.name === 'sale_item' ? 'product_id → product.id（数据库声明）' : '已读取：未声明外键']]), ['业务关系', '需在治理中核对；来源外键不等于已确认业务关系'], ...(ordinaryView ? [] : [['索引读取', table.indexState], ['索引定义', table.indexState === '无权限' ? '未知：账号无索引目录读取权限' : 'PRIMARY (' + table.fields[0].name + ')']])]);
       if (table.indexState === '无权限') body.append(note('请数据库负责人确认索引目录读取权限。字段等已取得属性保留，不将缺项解释为没有索引。'));
       if (table.type === '视图') { heading(body, '视图来源'); fields(body, [['依赖', 'sale_order、sale_item'], ['定义读取', '已读取；仅同源对象'], ['刷新信息', '普通视图，按查询实时读取']]); }
-      const related = demo.changes.filter(change => change.source === table.source && change.object === objectName(table));
+      const related = demo.changesFor(table);
       if (related.length && allowed('collections.view')) { heading(body, '相关变化'); related.forEach(change => body.append(link(demo.changeTarget(change) + ' · ' + impacts.progress(change), () => { node.close(); changeDetail(change, trigger); }))); }
       sourceFacts(body, [['来源对象标识', table.identity], ['对象世代', '第 ' + table.generation + ' 代', '用于区分同名对象删除后重新创建的情况。例如 sale_order 删除重建后，从第 1 代变为第 2 代。表、视图等都适用；重新采集、改字段或修改视图定义不会自动换代。'], ['采集快照', table.version], ['采集时间', table.collected], ['来源只读能力', table.readState], ['注释读取状态', table.commentState]], node);
-    }, (bar, node) => { if (allowed('governance.view')) bar.append(ui.button('进入治理', () => { node.close(); navigateGovernance(source, objectName(table)); }, 'admin-button is-primary')); });
+    }, (bar, node) => {
+      if (activeChanges(table).length && allowed('collections.view')) bar.append(ui.button('查看变化', () => { node.close(); openChanges(table.source, objectName(table), trigger); }, 'admin-button is-primary'));
+      else if (allowed('governance.view') && !demo.pendingVerification(table).length) bar.append(ui.button('进入治理', () => { node.close(); navigateGovernance(source, objectName(table), trigger); }, 'admin-button is-primary'));
+    });
   }
-  function navigateGovernance(source, object) { GovernancePage.open(source.id, object, { from: 'catalog' }); }
+  function navigateGovernance(source, object, trigger) { rememberPosition(trigger); GovernancePage.open(source.id, object, { from: 'catalog' }); }
   function collect(source, trigger, parent) {
     if (!allowed(parent ? 'collections.retry' : 'collections.collect')) return;
     // 元数据读取保留一次范围与账号确认，不再重复比较相同的变更前后内容。
@@ -305,14 +336,28 @@
     }, onSaved: () => { navigate('collections', source); }, success: '采集任务已创建' });
   }
   function renderCollections() {
-    const source = demo.find(demo.selected), isTasks = collectionTab === 'tasks', query = getQuery(collectionTab + ':' + source.id);
-    const base = (isTasks ? demo.tasks : demo.changes).filter(item => item.source === source.id).sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+    const source = demo.find(demo.selected), isTasks = collectionTab === 'tasks', query = getQuery(collectionTab + ':' + source.id + (!isTasks && changeScope ? ':' + changeScope : ''));
+    const base = (isTasks ? demo.tasks : demo.changes).filter(item => item.source === source.id && (isTasks || !changeScope || item.object === changeScope)).sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
     const rows = queryRows(base, query, item => ({ status: isTasks ? item.state : impacts.progress(item), fields: isTasks ? { keyword: item.id, owner: item.trigger } : { keyword: [demo.changeTarget(item), item.attribute], owner: item.kind, type: item.fact } }));
     const choices = isTasks ? ['手动', '定时', '重试'] : ['新增字段', '类型变化', '删除字段', '访问丢失', '修改注释'];
     const tools = filters(query, [{ key: 'keyword', label: isTasks ? '采集编号' : '变化对象', placeholder: isTasks ? '采集编号' : '对象名、字段名或变化项' }, { key: 'owner', label: isTasks ? '发起方式' : '变化类型', options: choices.map(value => ({ value, label: value })) }, ...(!isTasks ? [{ key: 'type', label: '变化事实', options: ['待核实', '已确认', '已排除'].map(value => ({ value, label: value })) }] : [])], isTasks ? ['排队', '进行中', '完整成功', '部分成功', '失败', '已取消'] : ['待核实', '待治理', '处理中', '待知识更新', '已完成'], true);
-    const tabbar = tabs([['tasks', '采集记录'], ['changes', '结构变化']], collectionTab, value => { collectionTab = value; refresh(); });
+    const tabbar = tabs([['tasks', '采集记录'], ['changes', '结构变化']], collectionTab, value => navigate('collections/' + source.id + '/' + value, source));
+    if (!isTasks && changeScope) {
+      const scope = ui.el('div', 'ds-change-scope'), identity = ui.el('div', 'ds-actions');
+      const pending = base.filter(change => change.fact === '待核实').length;
+      const factStatus = badge(pending ? '待核实 ' + pending + ' 项' : base.length ? '事实已核实' : '暂无变化');
+      if (pending) factStatus.classList.add('is-pending');
+      identity.append(ui.el('strong', '', changeScope), factStatus);
+      const controls = actions(ui.button('返回元数据目录', () => navigate('catalog', source)), ui.button('查看全源变化', () => openChanges(source.id)));
+      const next = base.find(change => change.fact === '已确认' && impacts.progress(change) !== '已完成');
+      if (!pending && next && allowed('governance.view')) controls.append(ui.button('进入治理', trigger => openImpactPage(impacts.forChange(next), trigger), 'admin-button is-primary', 'ds-scope-governance'));
+      scope.append(identity, controls); tabbar.append(scope);
+      ui.setTitle('结构变化 · ' + changeScope, '元数据目录', '#catalog');
+    }
     const columns = isTasks ? [{ key: 'id', label: '采集编号', width: 152 }, { key: 'trigger', label: '发起方式', width: 105 }, { key: 'scope', label: '采集范围', width: 190 }, { key: 'at', label: '开始时间', width: 166 }, { key: 'state', label: '任务状态', width: 112 }, { key: 'coverage', label: '处理 / 已发现', width: 150 }, { key: 'actions', label: '操作', width: 156, fixed: 'right' }] : [{ key: 'object', label: '变化对象', width: 210 }, { key: 'kind', label: '变化类型', width: 112 }, { key: 'impact', label: '影响及使用控制', width: 210 }, { key: 'fact', label: '变化事实', width: 110 }, { key: 'at', label: '发现时间', width: 166 }, { key: 'progress', label: '处理进度', width: 120 }, { key: 'actions', label: '操作', width: 118, fixed: 'right' }];
-    const panel = tablePanel(rows, query, columns, item => isTasks ? [ui.button(item.id, trigger => taskDetail(item, trigger), 'cell-title', 'ds-task-' + item.id), stack(item.trigger, item.actor), ui.textCell(item.scope), ui.textCell(item.at), badge(item.state), stack(item.processed + ' / ' + item.discovered, item.enumeration ? '总数 ' + item.total + ' · 失败 ' + item.failed : '总数未知 · 枚举不完整'), actions(link('详情', trigger => taskDetail(item, trigger), 'ds-task-detail-' + item.id), ['排队', '进行中'].includes(item.state) && allowed('collections.cancel') ? link('取消', trigger => cancelTask(item, trigger)) : ['部分成功', '失败'].includes(item.state) && allowed('collections.retry') && source.connectionState === '已启用' ? link('重试', trigger => collect(source, trigger, item)) : null)] : [stack(ui.button(demo.changeTarget(item), trigger => changeDetail(item, trigger), 'cell-title', 'ds-change-' + item.id), item.attribute), ui.textCell(item.kind), stack(ui.textCell(item.impact), item.control), stack(badge(item.fact), item.factSource), ui.textCell(item.at), badge(impacts.progress(item)), link(item.fact === '待核实' && allowed('collections.review') ? '核实变化' : '查看详情', trigger => changeDetail(item, trigger))], base.length ? '没有匹配的记录' : isTasks ? '尚无采集记录' : '尚未发现结构变化', tabbar);
+    const verificationDone = !isTasks && changeScope && query.type === '待核实' && base.length && base.every(change => change.fact !== '待核实');
+    const emptyMessage = verificationDone ? '该对象的变化已全部核实' : base.length ? '没有匹配的记录' : isTasks ? '尚无采集记录' : '尚未发现结构变化';
+    const panel = tablePanel(rows, query, columns, item => isTasks ? [ui.button(item.id, trigger => taskDetail(item, trigger), 'cell-title', 'ds-task-' + item.id), stack(item.trigger, item.actor), ui.textCell(item.scope), ui.textCell(item.at), badge(item.state), stack(item.processed + ' / ' + item.discovered, item.enumeration ? '总数 ' + item.total + ' · 失败 ' + item.failed : '总数未知 · 枚举不完整'), actions(link('详情', trigger => taskDetail(item, trigger), 'ds-task-detail-' + item.id), ['排队', '进行中'].includes(item.state) && allowed('collections.cancel') ? link('取消', trigger => cancelTask(item, trigger)) : ['部分成功', '失败'].includes(item.state) && allowed('collections.retry') && source.connectionState === '已启用' ? link('重试', trigger => collect(source, trigger, item)) : null)] : [stack(ui.button(demo.changeTarget(item), trigger => changeDetail(item, trigger), 'cell-title', 'ds-change-' + item.id), item.attribute), ui.textCell(item.kind), stack(ui.textCell(item.impact), item.control), stack(badge(item.fact), item.factSource), ui.textCell(item.at), badge(impacts.progress(item)), link(item.fact === '待核实' && allowed('collections.review') ? '核实变化' : '查看详情', trigger => changeDetail(item, trigger))], emptyMessage, tabbar);
     main.replaceChildren(ui.pageHeading('采集记录与结构变化'), context(source, allowed('collections.collect') && source.connectionState === '已启用' && ui.button(demo.activeTask(source.id) ? '查看进行中任务' : '发起采集', trigger => demo.activeTask(source.id) ? taskDetail(demo.activeTask(source.id), trigger) : collect(source, trigger), 'admin-button is-primary')), tools, panel);
   }
   function taskDetail(task, trigger) {
@@ -347,7 +392,10 @@
   }
   function changeDetail(change, trigger) {
     const source = demo.find(change.source);
+    const table = demo.objects(change.source).find(table => objectName(table) === change.object);
+    const pending = table ? demo.pendingVerification(table).length : 0;
     showDetail('结构变化 · ' + demo.changeTarget(change), trigger, (body, dialog) => {
+      if (pending && change.fact !== '待核实') body.append(note('该对象仍有 ' + pending + ' 项变化待核实，核实后可进入治理。'));
       fields(body, [['数据源', source.name], ['变化编号', change.id], ['变化对象', demo.changeTarget(change), true], ['变化项', change.attribute], ['变化类型', change.kind], ['发现时间', change.at], ['变化事实', change.fact + ' · ' + change.factSource], ['处理进度', impacts.progress(change)]]);
       sourceFacts(body, [['来源采集', change.taskId || '未关联'], ['对比前快照', change.beforeSnapshot || '未记录'], ['本次快照', change.afterSnapshot || '未记录']], dialog);
       heading(body, '前后差异'); fields(body, [['原值', change.before], ['新值', change.after], ['来源证据', change.evidence, true], ['受影响内容', change.impact, true], ['知识使用控制', change.control]]);
@@ -361,7 +409,8 @@
       if (sourceTask) bar.append(ui.button('查看来源采集', trigger => taskDetail(sourceTask, trigger)));
       if (change.fact === '待核实' && allowed('collections.review')) bar.append(ui.button('核实变化', () => { node.close(); verifyEditor(change, trigger); }, 'admin-button is-primary'));
       const item = impacts.forChange(change);
-      if (item && allowed('governance.view')) bar.append(ui.button('打开治理', () => { node.close(); openImpactPage(item); }, 'admin-button is-primary'));
+      if (item && pending && allowed('collections.view')) bar.append(ui.button('查看待核实变化', () => { node.close(); openChanges(change.source, change.object, trigger, true); }, 'admin-button is-primary'));
+      else if (item && !pending && allowed('governance.view')) bar.append(ui.button('进入治理', () => { node.close(); openImpactPage(item, trigger); }, 'admin-button is-primary'));
     });
   }
   function verifyEditor(change, trigger) {
@@ -369,9 +418,9 @@
     ui.openForm({ title: '核实变化 · ' + demo.changeTarget(change), trigger, value: { decision: '', reason: '' },
       fields: [{ key: 'decision', label: '核实结论', options: ['确认变化', '排除结构变化'].map(value => ({ value, label: value })), required: true, full: true }, { key: 'reason', label: '核实依据', type: 'textarea', required: true, full: true }],
       saveLabel: '保存核实结论',
-      save: data => impacts.verify(change, data, ui.currentUser, revision), success: '核实结论已记录', onSaved: data => {
-        if (data.decision === '确认变化' && allowed('governance.view')) openImpactPage(impacts.forChange(change));
-        else changeDetail(change, main.querySelector('[data-focus="ds-change-' + change.id + '"]'));
+      save: data => impacts.verify(change, data, ui.currentUser, revision), success: '核实结论已记录', onSaved: () => {
+        // 保存只推进事实核实，保留列表任务；进入治理由明确入口触发。
+        rememberPosition(trigger); refresh();
       } });
   }
   function processEvents(body, events) {
@@ -382,8 +431,9 @@
     fields(body, [['处理编号', item.id], ['处理进度', item.state], ['处理人', item.owner ? person(item.owner) : '尚未处理'], ['知识更新', item.knowledge], ...(item.governanceResult ? [['治理结果', item.governanceResult, true]] : [])]);
     if (title === '变更影响' && allowed('governance.view')) body.append(link('打开治理', () => { dialog.close(); openImpactPage(item); }));
   }
-  function openImpactPage(item) {
-    GovernancePage.openImpact(item, { from: location.hash.startsWith('#collections') ? 'collections' : location.hash.startsWith('#business-notes') ? 'business-notes' : '' });
+  function openImpactPage(item, trigger) {
+    rememberPosition(trigger);
+    GovernancePage.openImpact(item, { from: location.hash.startsWith('#catalog') ? 'catalog' : location.hash.startsWith('#collections') ? 'collections' : location.hash.startsWith('#business-notes') ? 'business-notes' : '' });
   }
   function renderNotes() {
     const source = demo.find(demo.selected), query = getQuery('business-notes:' + source.id);
@@ -488,11 +538,17 @@
   function render(target, controls, options = {}) {
     main = target; ui = controls; section = options.section || 'sources';
     if (options.sourceId && demo.find(options.sourceId)) demo.selected = options.sourceId;
+    else if (positions.has(location.hash)) demo.selected = positions.get(location.hash).source;
+    if (section === 'collections') {
+      if (['tasks', 'changes'].includes(options.target)) collectionTab = options.target;
+      changeScope = collectionTab === 'changes' && options.target === 'changes' ? decodeURIComponent(location.hash.split('/')[3] || '') : '';
+    }
     if (!allowed(section + '.view')) { main.replaceChildren(ui.pageHeading('不可访问'), note('当前账号没有此页面的查看权限。', true)); return; }
     if (section === 'sources') renderSources(options.tabs);
     else if (section === 'catalog') renderCatalog();
     else if (section === 'collections') renderCollections();
     else renderNotes();
+    restorePosition();
   }
   window.addEventListener('datasource-task-updated', event => {
     const body = document.querySelector('[data-task-body="' + event.detail + '"]'), task = demo.tasks.find(item => item.id === event.detail);
@@ -508,9 +564,12 @@
     if (!source) return ui.notify('来源记录当前不可用。');
     (structural ? changeDetail : noteDetail)(source, trigger);
   }
-  function openChanges(sourceId) {
+  function openChanges(sourceId, object = '', trigger, pendingOnly = false) {
+    if (ui && !allowed('collections.view')) return ui.notify('当前账号没有查看结构变化的权限。');
+    rememberPosition(trigger);
     demo.selected = sourceId; collectionTab = 'changes';
-    if (location.hash === '#collections') refresh(); else location.hash = 'collections';
+    if (pendingOnly) Object.assign(getQuery('changes:' + sourceId + (object ? ':' + object : '')), { keyword: '', owner: '', type: '待核实', status: 'all', fromDate: '', toDate: '', page: 1 });
+    navigate('collections/' + encodeURIComponent(sourceId) + '/changes' + (object ? '/' + encodeURIComponent(object) : ''));
   }
   window.DataSourcesPage = { render, connectionEditor, viewImpactSource, openChanges };
 })();

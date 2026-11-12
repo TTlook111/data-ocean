@@ -9,6 +9,24 @@ function fixture() {
   const data = context.DataSourceDemo, gov = context.GovernanceDemo, actor = context.PeopleDemo.users[0];
   return { data, gov, actor, impacts: context.GovernanceImpactDemo, record: gov.get(data.objects('retail').find(table => table.name === 'product')) };
 }
+
+test('unverified changes block governance of that table until every fact is resolved', () => {
+  const { data, gov, actor, impacts, record: other } = fixture();
+  const table = data.objects('retail').find(table => table.name === 'supplier'), record = gov.get(table);
+  const first = data.changesFor(table).find(change => change.fact === '待核实');
+  const second = { ...structuredClone(first), id: 'CH-TEST', field: 'code' }; data.changes.push(second);
+  const entry = record.items[0], before = JSON.stringify(record);
+  assert.match(gov.generate(record, ['overview'], actor), /待核实/);
+  assert.match(gov.act(record, entry, 'save', actor, entry.content), /待核实/);
+  assert.match(gov.act(record, entry, 'confirm', actor), /待核实/);
+  assert.match(gov.generateDraft(record, actor).error, /待核实/);
+  assert.equal(JSON.stringify(record), before);
+  assert.equal(gov.generate(other, ['overview'], actor), undefined);
+  assert.equal(impacts.verify(first, { decision: '排除结构变化', reason: '源端对象仍存在' }, actor, 0), undefined);
+  assert.match(gov.generate(record, ['overview'], actor), /待核实/);
+  assert.equal(impacts.verify(second, { decision: '排除结构变化', reason: '字段存在，目录账号权限异常' }, actor, 0), undefined);
+  assert.equal(gov.generate(record, ['overview'], actor), undefined);
+});
 test('AI regeneration keeps confirmed definitions and reviewer facts separate', () => {
   const { gov, record, actor } = fixture(), entry = record.items.find(entry=>entry.id==='field:id'), before = JSON.stringify(entry.content), reviewer = entry.reviewer;
   gov.generate(record, ['fields'], actor,entry.id); gov.generate(record, ['fields'], actor,entry.id);

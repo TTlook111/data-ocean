@@ -61,10 +61,19 @@
   changes.filter(change => change.kind === '修改注释').forEach(change => { tables.find(table => table.source === change.source && table.name === change.object).comment = change.after; });
   // 只有实际字段名进入限定路径；注释、可见性等属性单独作为变化项。
   const changeTarget = change => change.field ? change.object + '.' + change.field : change.object;
+  // 以同源完整对象名关联，避免 sale_order 与其分区、同名其他源混在一起。
+  const changesFor = table => changes.filter(change => change.source === table.source && change.object === (table.schema ? table.schema + '.' : '') + table.name);
+  const pendingVerification = table => changesFor(table).filter(change => change.fact === '待核实');
   // 目录关注项可同时存在，结构变化不能掩盖同一对象的属性读取缺项。
   const catalogStates = table => {
     const missing = [table.indexState, table.commentState].some(state => ['无权限', '读取失败', '未知', '未读取'].includes(state));
-    const states = [missing && table.collection === '已采集' ? '属性缺失' : table.collection];
+    const related = changesFor(table), progress = window.GovernanceImpactDemo?.progress;
+    const active = related.some(change => !progress || progress(change) !== '已完成');
+    const accessPending = pendingVerification(table).some(change => change.kind === '访问丢失');
+    let collection = table.collection;
+    if (active) collection = accessPending ? '访问丢失待核实' : '结构变化';
+    else if (related.length && collection === '结构变化') collection = '已采集';
+    const states = [missing && collection === '已采集' ? '属性缺失' : collection];
     if (missing && !states.includes('属性缺失')) states.push('属性缺失');
     return states;
   };
@@ -217,6 +226,6 @@
     if (action === '退役数据源') source.connectionState = '已退役';
     source.updated = now(); source.history.unshift({ revision: source.revision, at: now(), action, reason });
   }
-  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, catalogStates, now, find, objects, activeTask, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, advanceTask, cancelTask, lifecycle,
+  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, advanceTask, cancelTask, lifecycle,
     get selected() { return selected; }, set selected(value) { if (find(value)) selected = value; }, nextId: prefix => prefix + (++sequence) };
 })();

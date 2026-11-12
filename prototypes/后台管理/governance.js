@@ -15,11 +15,17 @@
   function open(source, object, options = {}) {
     const table = DataSourceDemo.objects(source).find(table => demo.objectName(table) === object);
     if (!table) { ui?.notify('当前目录中找不到对应治理对象。'); return; }
-    const scroll = main?.querySelector('.rt-scroll');
+    // 同表的事实疑点先核实；其他对象不受阻，可靠采集差异无需重复人工确认。
+    if (DataSourceDemo.pendingVerification(table).length) {
+      DataSourcesPage.openChanges(source, object);
+      return;
+    }
+    const currentMain = document.getElementById('admin-main'), scroll = currentMain?.querySelector('.rt-scroll');
     const sameTask=options.impact&&activeRecord&&location.hash.split('?')[0]===path(activeRecord.table.source,demo.objectName(activeRecord.table))&&new URLSearchParams(location.hash.split('?')[1]||'').get('impact')===options.impact;
     returns.set(table.id, sameTask&&returns.get(activeRecord.table.id) || { hash: location.hash, focus: document.activeElement?.dataset.focus, scroll: scroll?.scrollTop || 0 });
     DataSourceDemo.selected = source;
-    const next = path(source, object, { tab: options.tab || (options.field ? 'fields' : ''), field: options.field, impact: options.impact, from: options.from });
+    const from = options.from || (location.hash.startsWith('#catalog') ? 'catalog' : location.hash.startsWith('#collections') ? 'collections' : '');
+    const next = path(source, object, { tab: options.tab || (options.field ? 'fields' : ''), field: options.field, impact: options.impact, from });
     if (location.hash === next) refresh(); else location.hash = next;
   }
   function openImpact(impact, options = {}) {
@@ -185,11 +191,14 @@
     const impact = GovernanceImpactDemo.records.find(item => item.id === route.params.get('impact') && item.source === table.source) || GovernanceImpactDemo.records.find(item=>item.state!=='已完成'&&item.bindings.some(binding=>binding.table===table.id&&binding.entry===selected?.id));
     const origin = returns.get(table.id), fromCatalog = route.params.get('from') === 'catalog';
     const rootOrigin = origin?.hash.split('?')[0].split('/').length<=2 && origin?.hash.startsWith('#governance');
-    ui.setTitle(table.label + ' · ' + demo.objectName(table), '治理工作台', rootOrigin ? origin.hash : path(table.source,'',{view:impact?'changes':''}));
+    const originSection = route.params.get('from');
+    const parent = originSection === 'catalog' ? '元数据目录' : originSection === 'collections' ? '结构变化' : originSection === 'business-notes' ? '企业业务说明' : '治理工作台';
+    const parentHref = origin?.hash || (originSection === 'catalog' ? '#catalog' : originSection === 'collections' ? '#collections/' + table.source + '/changes/' + encodeURIComponent(demo.objectName(table)) : originSection === 'business-notes' ? '#business-notes' : rootOrigin ? origin.hash : path(table.source,'',{view:impact?'changes':''}));
+    ui.setTitle(table.label + ' · ' + demo.objectName(table), parent, parentHref);
     const shell = el('section', 'gov-shell'), toolbar = el('header', 'gov-toolbar'), identity = el('div', 'gov-identity'), buttons = el('div', 'gov-toolbar-actions');
     identity.append(el('strong', '', route.source.name + ' / ' + demo.objectName(table)), el('small', '', table.type + ' · ' + table.version + ' · 表与字段待确认 ' + demo.summary(record).pending + ' 项'));
     if (fromCatalog) buttons.append(button('返回元数据目录', () => { DataSourceDemo.selected = table.source; location.hash = origin?.hash || '#catalog'; }));
-    else if(['collections','business-notes'].includes(route.params.get('from'))) buttons.append(button(route.params.get('from')==='collections'?'返回结构变化':'返回业务说明',()=>{DataSourceDemo.selected=table.source;const from=route.params.get('from');if(from==='collections')DataSourcesPage.openChanges(table.source);else location.hash=origin?.hash.startsWith('#'+from)?origin.hash:'#'+from;}));
+    else if(['collections','business-notes'].includes(route.params.get('from'))) buttons.append(button(route.params.get('from')==='collections'?'返回结构变化':'返回业务说明',()=>{DataSourceDemo.selected=table.source;location.hash=parentHref;}));
     if (allowed('knowledge.generate')) buttons.append(button('生成知识草稿', trigger => draftPreview(record, trigger), false, 'gov-draft'));
     if (allowed('governance.suggest')) buttons.append(button('生成 AI 建议', trigger => generate(record, trigger), !record.items.some(entry => entry.ai), 'gov-generate'));
     toolbar.append(identity, buttons); shell.append(toolbar);
@@ -224,6 +233,11 @@
     DataSourceDemo.selected = source.id; route = { source, params: new URLSearchParams(raw[1] || '') };
     const tableName = decodeURIComponent(parts[2] || ''), table = tableName && DataSourceDemo.objects(source.id).find(table => demo.objectName(table) === tableName);
     if (tableName && !table) { main.replaceChildren(ui.pageHeading('治理对象不可访问'), el('p', 'ds-notice is-danger', '当前目录中找不到此对象，请重新核对数据源与对象。'), button('返回表列表', () => { location.hash = path(source.id); })); return; }
+    if (table && DataSourceDemo.pendingVerification(table).length) {
+      ui.setTitle('变化待核实 · ' + demo.objectName(table), '治理工作台', path(source.id));
+      main.replaceChildren(ui.pageHeading('变化待核实'), el('p', 'ds-notice', '该对象仍有 ' + DataSourceDemo.pendingVerification(table).length + ' 项变化待核实，核实后可进入治理。'), ...(allowed('collections.view') ? [button('查看待核实变化', () => DataSourcesPage.openChanges(source.id, demo.objectName(table)), true)] : [el('p', 'ds-prose', '请联系有权人员核对结构变化。')]));
+      return;
+    }
     if (table) detail(demo.get(table)); else if(route.params.get('view')==='changes') changesList(source); else list(source);
   }
   function renderDraft(target, controls, sourceId, draftId) {

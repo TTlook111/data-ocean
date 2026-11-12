@@ -415,3 +415,28 @@ test('file replacement and withdrawal create review work, while unused notes and
   assert.equal(impacts.forNote(note).length, count);
   assert.equal(record.state, '待治理');
 });
+
+test('verification scope covers all fields of exactly one source object', () => {
+  const { demo, people, impacts } = fixture(), table = demo.objects('retail').find(table => table.name === 'supplier');
+  const original = demo.changes.find(change => change.id === 'CH-012');
+  demo.changes.push({ ...structuredClone(original), id: 'another-field', field: 'code' });
+  demo.changes.push({ ...structuredClone(original), id: 'another-source', source: 'finance' });
+  demo.changes.push({ ...structuredClone(original), id: 'similar-name', object: 'supplier_archive' });
+  assert.equal(demo.pendingVerification(table).length, 2);
+  assert.equal(impacts.verify(original, { decision: '确认变化', reason: '已核对源端权限变化' }, people.users[0], 0), undefined);
+  assert.equal(demo.pendingVerification(table).length, 1);
+  assert.equal(demo.pendingVerification(demo.objects('retail').find(table => table.name === 'sale_order')).length, 0);
+});
+
+test('catalog attention follows outstanding changes and keeps attribute gaps after completion', () => {
+  const { demo, impacts } = fixture(), table = demo.objects('retail').find(table => table.name === 'legacy_price');
+  assert.deepEqual(Array.from(demo.catalogStates(table)), ['结构变化', '属性缺失']);
+  const item = impacts.forChange(demo.changesFor(table)[0]);
+  item.state = '待知识更新';
+  assert.ok(demo.catalogStates(table).includes('结构变化'));
+  item.state = '已完成';
+  assert.deepEqual(Array.from(demo.catalogStates(table)), ['属性缺失']);
+  const order = demo.objects('retail').find(table => table.name === 'sale_order');
+  impacts.forChange(demo.changesFor(order)[0]).state = '已完成';
+  assert.deepEqual(Array.from(demo.catalogStates(order)), ['已采集']);
+});

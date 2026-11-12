@@ -5,6 +5,7 @@
   const has = (actor, ability) => SourceApprovalDemo.hasAbility(actor, ability);
   const objectName = table => (table.schema ? table.schema + '.' : '') + table.name;
   const copy = value => structuredClone(value);
+  const verificationError = record => DataSourceDemo.pendingVerification(record.table).length ? '该对象仍有变化待核实，请先核对结构变化。' : '';
   function get(table) {
     if (records.has(table.id)) return records.get(table.id);
     const started = table.governance !== '待治理';
@@ -63,6 +64,7 @@
   }
   function generate(record, kinds, actor, entryId) {
     if (!has(actor, 'governance.view') || !has(actor, 'governance.suggest')) return '当前账号没有生成 AI 建议的权限。';
+    if (verificationError(record)) return verificationError(record);
     if (!kinds.length) return '请选择需要生成建议的内容。';
     for (const entry of record.items.filter(entry => kinds.includes(entry.kind) && !entry.retired && (!entryId || entry.id === entryId))) {
       const field = record.table.fields.find(field => field.name === entry.field);
@@ -76,6 +78,7 @@
   function act(record, entry, action, actor, data = {}) {
     const permitted = action === 'confirm' ? has(actor, 'governance.confirm') : action === 'pending' ? has(actor, 'governance.edit') || has(actor, 'governance.supplement') : has(actor, 'governance.edit');
     if (!has(actor, 'governance.view') || !permitted) return '当前账号没有此项治理操作权限。';
+    if (verificationError(record)) return verificationError(record);
     if (!record.items.includes(entry)) return '治理条目已变化，请重新打开。';
     if (action === 'confirm') {
       if (!entry.content.meaning.trim() || entry.gap) return '请先补齐业务内容与待确认问题。';
@@ -149,6 +152,7 @@
   }
   function generateDraft(record, actor) {
     if (!has(actor, 'knowledge.generate')) return { error: '当前账号没有生成知识草稿的权限。' };
+    if (verificationError(record)) return { error: verificationError(record) };
     // 已确认只表示可进入草稿；禁止、失效、依赖不完整的条目仍排除，不改变已发布知识。
     const included = record.items.filter(entry => entry.review === '已确认' && entry.validity === '适用' && !entry.blocked && !entry.retired && !entry.dependencies?.some(id => { const dependency = record.items.find(item => item.id === id); return !dependency || dependency.review !== '已确认' || dependency.blocked; }));
     if (!included.length) return { error: '暂无可纳入草稿的已确认条目。' };
