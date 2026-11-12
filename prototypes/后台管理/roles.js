@@ -148,7 +148,7 @@
         },
         template: `<el-form label-position="top" @submit.prevent="review">
           <section class="role-editor-info"><el-form-item label="角色名称" required><el-input v-model="model.name" maxlength="60" aria-label="角色名称" :aria-invalid="nameError" :aria-describedby="nameError ? 'role-editor-error' : undefined" placeholder="填写角色名称"></el-input></el-form-item>
-            <el-form-item label="角色说明"><el-input v-model="model.description" maxlength="200" aria-label="角色说明" placeholder="说明角色的使用职责（选填）"></el-input></el-form-item></section>
+            <el-form-item label="角色说明"><el-input v-model="model.description" maxlength="200" aria-label="角色说明" placeholder="说明角色的使用职责"></el-input></el-form-item></section>
           <p v-if="error" id="role-editor-error" class="form-error role-editor-error" role="alert" tabindex="-1">{{error}}</p>
           <section class="role-permission-card"><header><h2>功能权限</h2><span><small v-if="changed" class="role-unsaved">未保存</small>已选择 {{model.permissions.length}} 项</span></header><permission-browser v-model="model.permissions"></permission-browser></section>
           <footer class="role-editor-footer"><el-button @click="cancel">取消</el-button><el-button type="primary" native-type="submit" data-focus="review-role" :disabled="!changed">核对变更</el-button></footer>

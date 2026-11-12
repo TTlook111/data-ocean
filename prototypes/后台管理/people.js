@@ -442,7 +442,7 @@
     openForm({ title: '申请额外数据访问', trigger, value: { sourceIds: dataSources.some(source => source.id === requestedSource) ? [requestedSource] : [], access: [], requestedScope: query.get('requestData') || '', reason: '' },
       fields: [{ key: 'requestedScope', label: '需要的数据', type: 'textarea', required: true, full: true, placeholder: '例如：近两周的销售数量与退货情况' },
         { key: 'reason', label: '业务用途', type: 'textarea', required: true, full: true, placeholder: '例如：核对经营周报' },
-        { key: 'sourceIds', label: '已知数据源（选填）', options: dataSources.map(source => ({ value: source.id, label: source.name })), placeholder: '选择已知数据源', multiple: true, full: true }],
+        { key: 'sourceIds', label: '已知数据源', options: dataSources.map(source => ({ value: source.id, label: source.name })), placeholder: '选择已知数据源', multiple: true, full: true }],
       previewTitle: '核对申请内容', previewLabel: '核对申请', summary: true,
       preview: data => [change('需要的数据', '', data.requestedScope.trim()), change('业务用途', '', data.reason.trim()),
         change('已知数据源', '', data.sourceIds.map(id => dataSources.find(source => source.id === id).name).join('、') || '交由负责人核定'),
@@ -819,7 +819,8 @@
     if (section === 'dashboard') renderDashboard();
     else if (section === 'users') renderUsers();
     else if (section === 'departments') renderDepartments();
-    else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser });
+    else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions });
+    else if (['catalog', 'collections', 'business-notes'].includes(section)) DataSourcesPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions }, { section });
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });
@@ -833,6 +834,8 @@
     });
     else {
       const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('file-text'), el('h2', '', titles[section] ? '待制作' : '页面不存在'));
+      // 保留数据源模块交接的来源，后续治理原型据此继续，不混用同名对象。
+      if (section === 'governance' && parts[1] && window.DataSourceDemo) { const source = DataSourceDemo.find(decodeURIComponent(parts[1])); if (source) panel.append(el('p', '', source.name + (parts[2] ? ' / ' + decodeURIComponent(parts[2]) : ''))); }
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }
       main.replaceChildren(pageHeading(titles[section] || '页面不存在'), panel);
     }

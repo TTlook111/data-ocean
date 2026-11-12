@@ -1,9 +1,9 @@
-/* 数据源管理当前只制作审批责任页签；复用已有列表、详情和变更核对。 */
+/* 数据源概况与审批责任共用入口，保留现有审批分派与核对流程。 */
 (() => {
   'use strict';
   const { dataSources, users } = PeopleDemo, demo = SourceApprovalDemo;
   const query = { sourceName: '', primary: '', alternate: '', status: 'all', page: 1, pageSize: 10 };
-  let activeTab = 'approval';
+  let activeTab = 'overview';
   const identity = id => { const user = users.find(user => user.id === id); return user ? user.name + '（' + user.login + '）' : '未指定'; };
   function configure(source, trigger, ui, afterSave) {
     const { openForm, currentUser } = ui, revision = source.approval.revision;
@@ -29,7 +29,7 @@
     PrototypeUI.mount(tabs, { data: () => ({ active: activeTab }), methods: { changed(value) { activeTab = value; render(main, ui); main.querySelector('.source-approval-tabs .is-active')?.focus(); } },
       template: '<el-tabs v-model="active" @tab-change="changed"><el-tab-pane label="数据源概况" name="overview"></el-tab-pane><el-tab-pane label="审批责任" name="approval"></el-tab-pane></el-tabs>' });
     panel.append(tabs);
-    if (activeTab === 'overview') { const planned = el('div', 'planned-page source-overview-planned'); planned.append(WorkbenchIcon('database'), el('h2', '', '待制作')); panel.append(planned); main.replaceChildren(pageHeading('数据源管理'), panel); return; }
+    if (activeTab === 'overview') { DataSourcesPage.render(main, ui, { tabs }); return; }
     const reset = () => { Object.assign(query, { sourceName: '', primary: '', alternate: '', status: 'all', page: 1 }); render(main, ui); };
     const tools = RecordControls.filters({ value: query, fields: [{ key: 'sourceName', label: '数据源名称' }, { key: 'primary', label: '主审批人', placeholder: '主审批人姓名或登录名' }, { key: 'alternate', label: '替代负责人', placeholder: '替代负责人姓名或登录名' }], includeDates: false,
       statuses: [{ value: 'all', label: '全部状态' }, ...['已配置', '未配置', '需复核'].map(value => ({ value, label: value }))],

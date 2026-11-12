@@ -132,7 +132,7 @@
       const dialog = openForm({ title: label + '当前子项 · ' + applicant(request).name, trigger, value: { access: [{ source: part.source, rules: structuredClone(part.rules) }], reason: '' },
         note: request.id + ' · 子项 ' + (request.approvalItems.indexOf(part) + 1) + ' · 修订 ' + revision,
         fields: [...(approve ? [{ key: 'access', label: '核定输出限制规则', type: 'data-access', required: true, full: true, singleSource: true, sourceReadonly: true }] : []),
-          { key: 'reason', label: approve ? '审批意见（选填）' : action === 'supplement' ? '需要补充的内容' : '驳回原因', type: 'textarea', required: !approve, full: true }],
+          { key: 'reason', label: approve ? '审批意见' : action === 'supplement' ? '需要补充的内容' : '驳回原因', type: 'textarea', required: !approve, full: true }],
         validate: data => approve && request.approvalItems.some(value => value.id !== part.id && value.source === data.access[0]?.source) ? '该数据源已有审批子项，请勿重复核定。' : undefined,
         previewTitle: '核对' + label + '结果', previewLabel: '核对' + label, previewContentLabel: '核对内容', saveLabel: '确认' + label, summary: true, danger: action === 'reject',
         preview: data => [{ label: '申请人', after: applicant(request).name }, { label: '申请与修订', after: request.id + ' · 修订 ' + revision },
