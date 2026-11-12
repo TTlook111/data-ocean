@@ -4,20 +4,20 @@
   const { users, departments, dataSources, outputRules, extraRequests } = PeopleDemo;
   const currentUser = users.find(user => user.id === 'u01');
   const main = document.getElementById('admin-main');
-  const pageLocation = Vue.reactive({ title: '总览', parent: '' });
+  const pageLocation = Vue.reactive({ title: '总览', parent: '', parentHref: '#roles' });
   PrototypeUI.mount(document.getElementById('admin-breadcrumb'), {
     setup() {
       const { h } = Vue;
       return () => h(ElementPlus.ElBreadcrumb, { separator: '/' }, { default: () => [
         h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: '#dashboard' }, '后台管理') }),
-        ...(pageLocation.parent ? [h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: '#roles' }, pageLocation.parent) })] : []),
+        ...(pageLocation.parent ? [h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: pageLocation.parentHref }, pageLocation.parent) })] : []),
         h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page' }, { default: () => pageLocation.title })
       ] });
     }
   });
   const groups = [
     ['数据源接入', 'database', [['sources', '数据源管理'], ['catalog', '元数据目录'], ['collections', '采集记录与结构变化'], ['business-notes', '企业业务说明']]],
-    ['数据治理', 'layers', [['governance', '治理工作台'], ['governance-review', '治理审核与复核'], ['test-cases', '标准题单与验证']]],
+    ['数据治理', 'layers', [['governance', '治理工作台'], ['test-cases', '标准题单与验证']]],
     ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['releases', '发布管理'], ['versions', '版本与回退']]],
     ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
     ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
@@ -128,6 +128,19 @@
     PrototypeUI.mount(wrap, {
       setup() {
         const { h, onMounted, ref } = Vue, dropdown = ref();
+        // 只有一个剩余动作时直接显示；禁用原因仍支持悬停和键盘查看。
+        if (!label && items.length === 1) {
+          const item = items[0], reason = item.reason || item.description;
+          const action = () => h(ElementPlus.ElButton, {
+            link: true, nativeType: 'button', type: item.danger ? 'danger' : undefined, class: 'more-trigger',
+            disabled: Boolean(item.disabled), 'data-focus': key,
+            onClick: event => { if (!item.disabled) item.action(event.currentTarget); }
+          }, { default: () => item.label });
+          return () => reason ? h(ElementPlus.ElTooltip, {
+            content: reason, trigger: ['hover', 'focus'], triggerKeys: [], appendTo: popupTarget,
+            placement, popperClass: 'prototype-ui-popper'
+          }, { default: () => h('span', { tabindex: item.disabled ? 0 : undefined, 'aria-label': item.disabled ? item.label + '：' + reason : undefined }, [action()]) }) : action();
+        }
         // 关闭浮层后回到触发按钮；阻止 Escape 同时关闭外层详情抽屉。
         const dismiss = event => {
           if (event.key !== 'Escape') return;
@@ -811,6 +824,7 @@
     const changed = section !== key; section = key || 'dashboard';
     pageLocation.title = titles[section] || '页面不存在';
     pageLocation.parent = '';
+    pageLocation.parentHref = '#roles';
     document.title = (titles[section] || '页面不存在') + ' · DataOcean 后台管理';
     for (const link of document.querySelectorAll('.nav-link')) {
       if (link.hash === '#' + section) { link.setAttribute('aria-current', 'page'); const group = link.closest('details'); if (group) group.open = true; }
@@ -820,7 +834,15 @@
     else if (section === 'users') renderUsers();
     else if (section === 'departments') renderDepartments();
     else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions });
-    else if (['catalog', 'collections', 'business-notes', 'governance', 'governance-review'].includes(section)) DataSourcesPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions }, { section, sourceId: decodeURIComponent(parts[1] || ''), target: decodeURIComponent(parts[2] || '') });
+    else if (['catalog', 'collections', 'business-notes'].includes(section)) DataSourcesPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions,
+      setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
+    }, { section, sourceId: decodeURIComponent(parts[1] || ''), target: decodeURIComponent(parts[2] || '') });
+    else if (section === 'governance') GovernancePage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions,
+      setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
+    });
+    else if (section === 'knowledge' && parts[2] && GovernancePage.renderDraft(main, { el, button, textCell, pageHeading, currentUser,
+      setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
+    }, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]))) { /* 仅承接本页内生成的知识草稿。 */ }
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });

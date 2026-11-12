@@ -16,13 +16,12 @@
       ['collect', '发起采集', '从获准数据源只读采集结构信息。'], ['retry', '重试失败对象', '只重试失败部分，保留已有结果。'],
       ['cancel', '取消采集', '停止当前有权取消的采集任务。'], ['review', '核实变化', '核对结构、注释或可见性变化的证据并记录结论，不替代业务治理确认。']]),
     page('business-notes', '数据源接入', '企业业务说明', [
-      ['submit', '提交业务资料', '编写说明或上传业务资料，保存修订。'], ['replace', '替换业务资料', '保存替换修订，已引用正文或附件变更进入影响评估。'], ['withdraw', '撤下业务资料', '核对影响后撤下有权管理的资料。'],
+      ['submit', '提交业务资料', '编写说明或上传业务资料，保存修订。'], ['replace', '替换业务资料', '保存替换修订，已引用正文或附件变更进入治理工作台待办。'], ['withdraw', '撤下业务资料', '核对影响后撤下有权管理的资料。'],
       ['restore', '恢复业务资料', '恢复已撤下资料供后续治理取用，保留原修订和操作记录。'], ['delete', '删除未使用资料', '仅删除所有修订均未被任务取用或成果引用的资料。']]),
     page('governance', '数据治理', '治理工作台', [
       ['suggest', '生成 AI 建议', '基于获准资料生成待确认建议。'], ['edit', '编辑治理内容', '维护表字段、关系和指标的业务说明。'],
-      ['classify', '维护主题归类', '确认或调整主题归类，不替代关系确认。']]),
-    page('governance-review', '数据治理', '治理审核与复核', [
-      ['confirm', '确认治理内容', '评估变化影响、交接治理并确认处理结果，不自动发布或授权。'], ['supplement', '要求补充', '记录评估缺口并保留待处理状态。'],
+      ['classify', '维护主题归类', '确认或调整主题归类，不替代关系确认。'],
+      ['confirm', '审核治理内容', '在表字段详情逐项人工确认，或记录变化无需修改的依据；不自动发布或授权。'], ['supplement', '要求补充', '记录治理条目缺口，保留待确认状态。'],
       ['forbid', '禁止对象使用', '核对影响后禁止对象参与查询。'], ['allow', '解除对象禁止', '明确确认后解除禁止，仍须核验当前权限和资源状态。']]),
     page('test-cases', '数据治理', '标准题单与验证', [
       ['edit', '维护标准题单', '新增或修订标准问题及预期结果。'], ['run', '运行验证', '执行获准的相关测试并查看结果。']]),
@@ -77,8 +76,8 @@
     ['role-analyst', '数据分析师', '使用问数、元数据目录和本人管理功能。', [...personal, 'catalog.view']],
     ['role-user', '普通用户', '使用本人问数、申请及访问回看功能。', personal],
     ['role-source', '数据源维护员', '维护连接、结构目录与采集记录。', keysFor(['sources', 'catalog', 'collections', 'business-notes']).filter(key => key !== 'sources.approval-config')],
-    ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', keysFor(['governance', 'catalog', 'test-cases'])],
-    ['role-review', '知识审核员', '核对治理依据和知识文档。', keysFor(['governance-review', 'knowledge'])],
+    ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', [...keysFor(['catalog', 'test-cases']), 'governance.view', 'governance.suggest', 'governance.edit', 'governance.classify']],
+    ['role-review', '知识审核员', '核对治理依据和知识文档。', [...keysFor(['knowledge']), 'governance.view', 'governance.confirm', 'governance.supplement', 'governance.forbid', 'governance.allow']],
     ['role-release', '发布管理员', '管理候选构建、发布测试及版本回退。', keysFor(['knowledge', 'releases', 'versions', 'test-cases'])],
     ['role-feedback', '反馈处理员', '核查、分派与处理有权问题。', keysFor(['feedback'])],
     ['role-approval', '访问审批员', '核定业务用途、数据源及输出限制。', keysFor(['access-requests', 'output-rules'])],

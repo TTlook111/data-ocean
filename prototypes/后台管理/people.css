@@ -34,6 +34,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .nav-overview { display: flex; gap: 10px; align-items: center; padding-left: 12px; margin-bottom: 8px; }
 .row-more { display: inline-flex; }
 .row-more .el-button.more-trigger { height: 32px; min-height: 32px; padding: 4px 8px; border: 1px solid transparent; color: var(--do-muted); font: inherit; }
+.row-more .el-button.more-trigger.el-button--danger:not(.is-disabled) { color: #b43c3c; }
+.row-more .el-button.more-trigger.is-disabled { color: #8a93a1; }
 .more-chevron { display: inline-flex; align-items: center; margin-left: 4px; }
 .department-action-trigger { min-height: 40px; }
 .people-dropdown .el-dropdown-menu__item.is-danger { color: #b43c3c; }

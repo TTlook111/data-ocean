@@ -353,21 +353,23 @@ test('reliable differences are confirmed without treating governance as complete
   const { demo, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-015');
   assert.equal(change.fact, '已确认');
   assert.equal(change.factSource, '采集证据');
-  assert.equal(impacts.progress(change), '待评估');
+  assert.equal(impacts.progress(change), '待治理');
   assert.equal(change.control, '已禁止使用');
-  assert.equal(impacts.forChange(change).state, '待评估');
+  assert.equal(impacts.forChange(change).state, '待治理');
 });
 
-test('inconclusive verification remains open and has no premature governance transfer', () => {
+test('unresolved verification is not a submitted conclusion and confirmation creates a governance todo directly', () => {
   const { demo, people, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-012'), actor = people.users[0];
-  assert.equal(impacts.verify(change, { decision: '继续核实', reason: '等待源端权限证据' }, actor, 0), undefined);
+  const before = JSON.stringify(change);
+  assert.match(impacts.verify(change, { decision: '继续核实', reason: '等待源端权限证据' }, actor, 0), /请选择核实结论/);
+  assert.equal(JSON.stringify(change), before);
   assert.equal(change.fact, '待核实');
   assert.equal(impacts.progress(change), '待核实');
   assert.equal(impacts.forChange(change), undefined);
+  assert.equal(impacts.verify(change, { decision: '确认变化', reason: '已查明来源可见性变化，未确认删除' }, actor, 0), undefined);
   assert.ok(impacts.verify(change, { decision: '确认变化', reason: '旧窗口' }, actor, 0));
-  assert.equal(impacts.verify(change, { decision: '确认变化', reason: '已查明来源可见性变化，未确认删除' }, actor, 1), undefined);
   assert.equal(change.fact, '已确认');
-  assert.equal(impacts.progress(change), '待评估');
+  assert.equal(impacts.progress(change), '待治理');
   assert.equal(change.kind, '访问丢失');
   assert.equal(change.control, '待核实');
 });
@@ -382,60 +384,13 @@ test('excluding a structural change retains evidence and existing access control
   assert.equal(change.verifications.length, 1);
 });
 
-test('no-impact assessment closes the item without requiring an owner or rewriting catalog definitions', () => {
-  const { demo, people, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-011'), item = impacts.forChange(change);
-  const catalog = JSON.stringify(demo.tables), source = JSON.stringify(demo.sources);
-  assert.equal(impacts.assess(item, '无需治理', { reason: '仅注释增加系统名称，业务定义未变' }, people.users[0], impacts.token(item)), undefined);
-  assert.equal(change.fact, '已确认');
-  assert.equal(impacts.progress(change), '已完成');
-  assert.equal(item.owner, '');
-  assert.equal(item.knowledge, '无需更新');
-  assert.equal(JSON.stringify(demo.tables), catalog);
-  assert.equal(JSON.stringify(demo.sources), source);
-});
-
-test('assessment supplements retain pending work and invalid owners cannot receive governance', () => {
-  const { demo, people, impacts } = fixture(), item = impacts.forChange(demo.changes[0]), actor = people.users[0];
-  assert.equal(impacts.assess(item, '继续评估', { reason: '缺少指标依赖说明' }, actor, impacts.token(item)), undefined);
-  assert.equal(item.state, '待评估');
-  assert.match(impacts.assess(item, '需要治理', { reason: '影响净销量', owner: 'u11' }, actor, impacts.token(item)), /权限/);
-  assert.equal(item.state, '待评估');
-});
-
-test('governance transfer and result preserve prohibition and stop at pending knowledge update', () => {
-  const { demo, people, impacts } = fixture(), change = demo.changes[0], item = impacts.forChange(change), actor = people.users[0];
-  const forbidden = JSON.stringify(demo.sources.map(source => source.forbiddenKnowledge));
-  assert.equal(impacts.assess(item, '需要治理', { reason: '原整数计算不适用', owner: actor.id }, actor, impacts.token(item)), undefined);
-  assert.equal(item.state, '待治理');
-  assert.equal(impacts.start(item, actor, impacts.token(item)), undefined);
-  const revision = impacts.token(item);
-  assert.equal(impacts.finish(item, { result: '已确认小数数量计算及单位', knowledge: '需要更新' }, actor, revision), undefined);
-  assert.equal(item.state, '待知识更新');
-  assert.equal(item.knowledge, '待更新');
-  assert.equal(change.fact, '已确认');
-  assert.equal(change.control, '已禁止使用');
-  assert.equal(JSON.stringify(demo.sources.map(source => source.forbiddenKnowledge)), forbidden);
-  assert.ok(impacts.finish(item, { result: '过期确认', knowledge: '无需更新' }, actor, revision));
-});
-
-test('governance may complete without knowledge changes while permissions still guard each action', () => {
-  const { demo, people, impacts } = fixture(), item = impacts.forChange(demo.changes[0]), actor = people.users[0], reader = { ...actor, roles: ['普通用户'] };
-  assert.match(impacts.assess(item, '无需治理', { reason: '无影响' }, reader, impacts.token(item)), /权限/);
-  impacts.assess(item, '需要治理', { reason: '补充核对依据', owner: actor.id }, actor, impacts.token(item));
-  assert.match(impacts.start(item, reader, impacts.token(item)), /权限/);
-  impacts.start(item, actor, impacts.token(item));
-  assert.match(impacts.finish(item, { result: '已核对', knowledge: '无需更新' }, reader, impacts.token(item)), /权限/);
-  assert.equal(impacts.finish(item, { result: '仅完善治理依据，正式业务定义未变', knowledge: '无需更新' }, actor, impacts.token(item)), undefined);
-  assert.equal(item.state, '已完成');
-});
-
 test('note title changes do not create impact work; body changes retain exact revision snapshots and old uses', () => {
   const { demo, people, impacts } = fixture(), note = demo.notes[0], actor = people.users[0];
   const uses = JSON.stringify(demo.noteUses), oldBody = note.content;
   assert.ok(!impacts.saveNote(note, { ...note, title: '销售与退货说明' }, actor, demo.noteToken(note)).impact);
   assert.equal(note.revision, 2);
   const result = impacts.saveNote(note, { ...note, content: '销售额改按含税金额，退货按原销售日冲减。' }, actor, demo.noteToken(note));
-  assert.equal(result.impact.state, '待评估');
+  assert.equal(result.impact.state, '待治理');
   assert.equal(result.impact.source, note.source);
   assert.equal(result.impact.beforeRevision, 2);
   assert.equal(result.impact.noteRevision, 3);
@@ -455,8 +410,8 @@ test('file replacement and withdrawal create review work, while unused notes and
   demo.changeNote(note, '撤下', { reason: '口径需确认' }, actor, demo.noteToken(note));
   const record = impacts.forNote(note)[0], count = impacts.forNote(note).length;
   assert.equal(record.action, '撤下');
-  assert.equal(record.state, '待评估');
+  assert.equal(record.state, '待治理');
   demo.changeNote(note, '恢复', {}, actor, demo.noteToken(note));
   assert.equal(impacts.forNote(note).length, count);
-  assert.equal(record.state, '待评估');
+  assert.equal(record.state, '待治理');
 });
