@@ -10,6 +10,75 @@ function fixture() {
   return { data, gov, actor, impacts: context.GovernanceImpactDemo, record: gov.get(data.objects('retail').find(table => table.name === 'product')) };
 }
 
+test('generation automatically records same-source effective revisions without confirming the suggested content', () => {
+  const { data, gov, record, actor } = fixture(), before = data.noteUses.length;
+  data.notes.push({ ...structuredClone(data.notes[0]), id: 'OTHER-SOURCE', source: 'finance' });
+  const expected = data.notes.filter(note => note.source === record.table.source && note.status === '有效');
+  assert.equal(gov.generate(record, ['fields'], actor, 'field:code'), undefined);
+  const task = gov.tasksFor(record)[0], uses = data.noteUses.filter(use => use.taskId === task.id);
+  assert.equal(task.notes.length, expected.length);
+  assert.equal(uses.length, expected.length);
+  assert.equal(data.noteUses.length - before, expected.length);
+  assert.ok(!task.notes.some(note => note.id === 'OTHER-SOURCE' || note.id === 'ZL-001'));
+  assert.ok(uses.every(use => use.kind === '治理任务' && use.actor === actor.id));
+  assert.equal(task.entries.length, 1);
+  assert.equal(task.outputs[0].id, 'field:code');
+  assert.equal(record.items.find(entry => entry.id === 'field:code').review, '待确认');
+  assert.ok(data.noteDeleteBlock(expected[3]));
+});
+
+test('task snapshots survive edits and withdrawal while new tasks take the latest effective revisions', () => {
+  const { data, gov, record, actor, impacts } = fixture(), note = data.notes[0];
+  gov.generate(record, ['overview'], actor);
+  const first = gov.tasksFor(record)[0], frozen = JSON.stringify(first.notes), original = note.content;
+  impacts.saveNote(note, { ...note, content: original + ' 新补充规则。' }, actor, data.noteToken(note));
+  gov.generate(record, ['overview'], actor);
+  const second = gov.tasksFor(record)[0];
+  assert.notEqual(first.id, second.id);
+  assert.equal(first.notes.find(item => item.id === note.id).revision, 1);
+  assert.equal(second.notes.find(item => item.id === note.id).revision, 2);
+  assert.equal(JSON.stringify(first.notes), frozen);
+  data.changeNote(note, '撤下', { reason: '暂停用于后续治理' }, actor, data.noteToken(note));
+  gov.generate(record, ['overview'], actor);
+  assert.ok(!gov.tasksFor(record)[0].notes.some(item => item.id === note.id));
+  assert.equal(data.noteUsesFor(note).filter(use => use.taskId).length, 2);
+  assert.equal(JSON.stringify(first.notes), frozen);
+});
+
+test('confirmation inherits adopted sources rather than subsequently regenerated suggestions', () => {
+  const { data, gov, record, actor } = fixture(), entry = record.items.find(entry => entry.id === 'field:code');
+  gov.generate(record, ['fields'], actor, entry.id);
+  const adoptedTask = gov.tasksFor(record)[0];
+  gov.act(record, entry, 'adopt', actor);
+  data.notes[0].revision++;
+  gov.generate(record, ['fields'], actor, entry.id);
+  gov.act(record, entry, 'save', actor, { meaning: '商品业务编码', values: '来源系统分配', usage: '按确认编码规则使用', basis: '已核对业务资料', gap: '' });
+  assert.equal(gov.act(record, entry, 'confirm', actor), undefined);
+  const uses = data.noteUses.filter(use => use.kind === '治理成果' && use.table === record.table.id && use.entryId === entry.id);
+  assert.equal(uses.length, adoptedTask.notes.length);
+  assert.ok(uses.every(use => use.taskId === adoptedTask.id));
+  assert.ok(adoptedTask.events.some(event => event.action === '采用建议，保留待确认' && event.actor === actor.name));
+  assert.ok(adoptedTask.events.some(event => event.action === '人工确认治理内容' && event.entryId === entry.id));
+  assert.equal(uses.find(use => use.noteId === data.notes[0].id).revision, 1);
+  const count = data.noteUses.length;
+  gov.act(record, entry, 'confirm', actor);
+  assert.equal(data.noteUses.length, count);
+});
+
+test('denied and empty generations create no references; missing source notes do not prevent unresolved suggestions', () => {
+  const { data, gov, record, actor } = fixture(), before = data.noteUses.length;
+  assert.ok(gov.generate(record, ['fields'], { ...actor, roles: ['普通用户'] }));
+  assert.ok(gov.generate(record, [], actor));
+  assert.ok(gov.generate(record, ['fields'], actor, 'unknown'));
+  assert.equal(gov.tasks.length, 0);
+  assert.equal(data.noteUses.length, before);
+  const other = gov.get(data.objects('products')[0]);
+  assert.equal(gov.generate(other, ['fields'], actor), undefined);
+  assert.equal(gov.tasksFor(other)[0].notes.length, 0);
+  assert.equal(data.noteUses.length, before);
+  assert.ok(other.items.some(entry => entry.gap));
+});
+
 test('unverified changes block governance of that table until every fact is resolved', () => {
   const { data, gov, actor, impacts, record: other } = fixture();
   const table = data.objects('retail').find(table => table.name === 'supplier'), record = gov.get(table);
@@ -63,19 +132,20 @@ test('item review directly advances a change without a second result confirmatio
   assert.equal(impact.state,'待治理');
   const record = gov.get(gov.impactTarget(impact).table), entry = record.items.find(entry => entry.id === 'field:quantity');
   impacts.reviewed(impact,actor); assert.equal(impact.state,'待治理');
-  assert.match(impacts.dismiss(impact,'跳过不兼容变化',actor,impacts.token(impact)),/不兼容/);
+  const sourceFacts = JSON.stringify([change.fact, change.factSource, change.verifications]);
   gov.act(record, entry, 'save', actor, { meaning: '销售数量', values: '允许小数，计量单位随商品核对', usage: '不可混合不同单位', basis: '来源类型和数量制度', gap: '' });
   assert.equal(impact.state,'处理中');
   assert.equal(gov.act(record, entry, 'confirm', actor), undefined); assert.equal(gov.impactReady(impact), true);
   assert.equal(impact.state, '待知识更新'); assert.equal(entry.blocked, true); assert.equal(change.control, '已禁止使用');
+  assert.equal(JSON.stringify([change.fact, change.factSource, change.verifications]), sourceFacts);
   assert.ok(!gov.generateDraft(record, actor).draft.items.some(item => item.id === entry.id));
 });
 
-test('no business change is decided in the table detail and leaves unrelated unknown fields pending',()=>{
+test('reviewing existing business content completes the source progress without a separate closure',()=>{
   const {data,gov,actor,impacts,record}=fixture(),impact=impacts.forChange(data.changes.find(change=>change.id==='CH-011'));
   const before=JSON.stringify(record.items[0].content),code=record.items.find(entry=>entry.id==='field:code');
   assert.equal(record.items[0].review,'待确认');
-  assert.equal(impacts.dismiss(impact,'仅补充来源系统名称，业务含义未变',actor,impacts.token(impact)),undefined);
+  assert.equal(gov.act(record,record.items[0],'confirm',actor),undefined);
   assert.equal(impact.state,'已完成');assert.equal(impact.knowledge,'无需更新');
   assert.equal(JSON.stringify(record.items[0].content),before);assert.equal(record.items[0].review,'已确认');
   assert.equal(code.review,'待确认');assert.equal(gov.summary(record).state,'部分确认');
@@ -91,12 +161,9 @@ test('editing and AI generation do not grant review rights after the page merge'
   assert.equal(gov.act(record,entry,'confirm',reviewer),undefined);
 });
 
-test('unknown definitions and modified content cannot be closed as requiring no changes',()=>{
+test('changed business content remains pending until its own review and then waits for knowledge',()=>{
   const {data,gov,actor,impacts,record}=fixture(),impact=impacts.forChange(data.changes.find(change=>change.id==='CH-011'));
-  const revision=impacts.token(impact);
   gov.act(record,record.items[0],'save',actor,{meaning:'新的商品业务用途',values:'新粒度',usage:'新条件',basis:'新版制度',gap:''});
-  assert.match(impacts.dismiss(impact,'旧窗口提交',actor,revision),/已更新/);
-  assert.match(impacts.dismiss(impact,'不再处理',actor,impacts.token(impact)),/已修改/);
   assert.equal(impact.state,'处理中');
   gov.act(record,record.items[0],'confirm',actor); assert.equal(impact.state,'待知识更新');
 });
@@ -123,23 +190,49 @@ test('read-only and cross-source selections cannot bind a note change',()=>{
   const other=data.objects('products')[0];
   assert.match(gov.associate(impact,[{table:other.id,entry:'overview'}],actor,impacts.token(impact)),/当前数据源/);
   assert.equal(impact.bindings.length,0);
-  assert.match(impacts.dismiss(impact,'无影响',reader,impacts.token(impact)),/权限/);
 });
 
 test('one current-definition review updates overlapping changes to the same entry',()=>{
-  const {data,gov,actor,impacts}=fixture(),change=data.changes.find(change=>change.id==='CH-012');
-  impacts.verify(change,{decision:'确认变化',reason:'确认目录权限变化'},actor,0);
+  const {data,gov,actor,impacts}=fixture(),source=data.changes.find(change=>change.id==='CH-012');
+  const change={...structuredClone(source),id:'CH-COMMENT',kind:'修改注释',attribute:'表注释',before:'供应商',after:'供应商档案',fact:'待核实'};
+  impacts.verify(source,{decision:'排除结构变化',reason:'原目录访问问题已恢复'},actor,0);
+  data.changes.push(change);
+  impacts.verify(change,{decision:'确认变化',reason:'来源注释变化已核实'},actor,0);
   const impact=impacts.forChange(change),record=gov.get(gov.impactTarget(impact).table);
   const related=impacts.records.filter(item=>item.bindings.some(binding=>binding.table===record.table.id&&binding.entry==='overview'));
   assert.ok(related.length>1);
-  assert.equal(impacts.dismiss(impact,'核对当前用途与相关来源变化，业务含义无需修改',actor,impacts.token(impact)),undefined);
+  assert.equal(gov.act(record,record.items[0],'confirm',actor),undefined);
   assert.ok(related.every(item=>item.state==='已完成'));
+});
+
+test('confirmed visibility changes preserve business definitions and source restrictions',()=>{
+  const {data,gov,actor,impacts}=fixture(),change=data.changes.find(change=>change.id==='CH-012');
+  const record=gov.get(data.objects('retail').find(table=>table.name==='supplier'));
+  const before=JSON.stringify(record.items),control=change.control;
+  assert.equal(impacts.verify(change,{decision:'确认变化',reason:'目录读取权限变化，表定义未变'},actor,0),undefined);
+  assert.equal(JSON.stringify(record.items),before);
+  assert.equal(impacts.progress(change),'已完成');
+  assert.equal(change.control,control);
+  assert.equal(change.verifications.length,1);
 });
 test('knowledge draft freezes only confirmed usable revisions without publishing', () => {
   const { gov, record, actor } = fixture(), { draft } = gov.generateDraft(record, actor), before = draft.items[0].content.meaning;
   assert.ok(draft.items.length); assert.ok(!draft.items.some(entry => entry.id === 'field:status'));
   record.items[0].content.meaning = '后续修改'; assert.equal(draft.items[0].content.meaning, before);
   assert.ok(record.items.every(entry => entry.publication === '未发布'));
+});
+
+test('changed cited notes directly mark their mapped business entries while preserving adjacent confirmations',()=>{
+  const {data,gov,actor,impacts,record}=fixture(),note=data.notes[0],entry=record.items.find(entry=>entry.id==='field:code');
+  gov.generate(record,['fields'],actor,entry.id); gov.act(record,entry,'adopt',actor);
+  gov.act(record,entry,'save',actor,{meaning:'商品业务编码',values:'由业务制度分配',usage:'限定当前数据源',basis:'已采用资料及业务制度',gap:''});
+  gov.act(record,entry,'confirm',actor);
+  const stable=JSON.stringify(record.items.find(entry=>entry.id==='field:id'));
+  const impact=impacts.saveNote(note,{...note,content:'商品编码制度已调整。'},actor,data.noteToken(note)).impact;
+  assert.ok(impact.bindings.some(binding=>binding.table===record.table.id&&binding.entry===entry.id));
+  assert.ok(gov.attention(record).affected.includes(entry));
+  assert.equal(entry.review,'待确认');
+  assert.equal(JSON.stringify(record.items.find(entry=>entry.id==='field:id')),stable);
 });
 test('no-edit and no-review roles cannot mutate labels or generate knowledge', () => {
   const { gov, record, actor } = fixture(), reader = { ...actor, roles: ['普通用户'] }, before = JSON.stringify(record);

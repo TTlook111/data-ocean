@@ -20,7 +20,7 @@
       });
     }
     function detail(rule, trigger) {
-      const node = modal('输出限制规则详情', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
+      const node = modal('输出限制规则详情', trigger), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
       node.classList.add('access-detail-dialog');
       fields.append(pair('规则名称', rule.name), pair('更新时间', rule.updated));
       body.append(fields, el('h3', '', '返回限制内容'), el('p', 'rule-content', rule.content));

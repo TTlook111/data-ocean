@@ -39,8 +39,48 @@ test('retrying a subset retains the original task and last verified full collect
   assert.equal(task.retryOnly, true);
   assert.equal(task.total, 2);
   assert.equal(task.state, '部分成功');
-  assert.equal(task.failed, 2);
+  assert.equal(task.partial, 2);
+  assert.equal(task.failed, 0);
   assert.equal(source.lastFull, lastFull);
+  assert.equal(JSON.stringify(parent), original);
+});
+
+test('retry with two index gaps reports two partial objects rather than two failed objects', () => {
+  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0];
+  const { task } = demo.startTask(source, parent);
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  assert.equal(task.processed, 2);
+  assert.equal(task.complete, 0);
+  assert.equal(task.partial, 2);
+  assert.equal(task.failed, 0);
+  assert.deepEqual(Array.from(task.partialObjects), ['supplier', 'legacy_price']);
+  assert.deepEqual(Array.from(task.failures), []);
+});
+
+test('task progress reconciles complete partial and failed objects in examples and while running', () => {
+  const { demo } = fixture();
+  const check = task => {
+    assert.equal(task.processed, task.complete + task.partial + task.failed, task.id);
+    assert.equal(task.partial, task.partialObjects.length, task.id);
+    assert.equal(task.failed, task.failures.length, task.id);
+    assert.ok(task.processed <= task.discovered, task.id);
+  };
+  demo.tasks.forEach(check);
+  const { task } = demo.startTask(demo.find('retail'));
+  for (let i = 0; i < 3; i++) { demo.advanceTask(task); check(task); }
+});
+
+test('retry covers partial objects and becomes complete only after the missing reads are restored', () => {
+  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0], original = JSON.stringify(parent), full = source.lastFull;
+  for (const name of ['supplier', 'legacy_price']) demo.objects(source.id).find(table => table.name === name).indexState = '已读取';
+  const { task } = demo.startTask(source, parent);
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  assert.equal(task.total, 2);
+  assert.equal(task.complete, 2);
+  assert.equal(task.partial, 0);
+  assert.equal(task.failed, 0);
+  assert.equal(task.state, '完整成功');
+  assert.equal(source.lastFull, full);
   assert.equal(JSON.stringify(parent), original);
 });
 test('one active collection per source, and cancellation cannot later become success', () => {
@@ -234,6 +274,34 @@ test('catalog examples with unresolved definitions are not reported as fully con
   }
 });
 
+test('source governance totals partition the same current catalog objects', () => {
+  const { demo } = fixture();
+  const summary = demo.governanceSummary('retail');
+  assert.deepEqual({ ...summary }, { total: 23, confirmed: 0, partial: 14, pending: 6, review: 3 });
+  for (const source of demo.sources) {
+    const value = demo.governanceSummary(source.id);
+    assert.equal(value.total, demo.objects(source.id).length);
+    assert.equal(value.total, value.confirmed + value.partial + value.pending + value.review);
+  }
+  demo.find('retail').governed = 99; demo.find('retail').partialGoverned = 99;
+  demo.objects('retail').find(table => table.governance === '待治理').governance = '已确认';
+  const updated = demo.governanceSummary('retail');
+  assert.equal(updated.total, 23); assert.equal(updated.confirmed, 1); assert.equal(updated.pending, 5);
+});
+
+test('latest source collection is the actual retry and keeps the full-scope result separate', () => {
+  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0], full = source.lastFull;
+  for (const name of ['supplier', 'legacy_price']) demo.objects(source.id).find(table => table.name === name).indexState = '已读取';
+  const { task } = demo.startTask(source, parent); task.at = '2099-01-01 00:00:00';
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  const order = demo.tasks.map(row => row.id).join(',');
+  assert.equal(demo.latestTask(source.id), task);
+  assert.equal(task.state, '完整成功'); assert.equal(task.total, 2);
+  assert.equal(source.collection, '部分成功'); assert.equal(source.lastFull, full);
+  assert.equal(demo.governanceSummary(source.id).total, 23);
+  assert.equal(demo.tasks.map(row => row.id).join(','), order);
+});
+
 test('collection records retain the configuration revision used when they start', () => {
   const { demo } = fixture(), source = demo.find('retail'), revision = source.revision;
   const { task } = demo.startTask(source);
@@ -358,7 +426,7 @@ test('reliable differences are confirmed without treating governance as complete
   assert.equal(impacts.forChange(change).state, '待治理');
 });
 
-test('unresolved verification is not a submitted conclusion and confirmation creates a governance todo directly', () => {
+test('unresolved verification is not submitted and confirmed visibility does not require business rechecking', () => {
   const { demo, people, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-012'), actor = people.users[0];
   const before = JSON.stringify(change);
   assert.match(impacts.verify(change, { decision: '继续核实', reason: '等待源端权限证据' }, actor, 0), /请选择核实结论/);
@@ -369,7 +437,7 @@ test('unresolved verification is not a submitted conclusion and confirmation cre
   assert.equal(impacts.verify(change, { decision: '确认变化', reason: '已查明来源可见性变化，未确认删除' }, actor, 0), undefined);
   assert.ok(impacts.verify(change, { decision: '确认变化', reason: '旧窗口' }, actor, 0));
   assert.equal(change.fact, '已确认');
-  assert.equal(impacts.progress(change), '待治理');
+  assert.equal(impacts.progress(change), '已完成');
   assert.equal(change.kind, '访问丢失');
   assert.equal(change.control, '待核实');
 });

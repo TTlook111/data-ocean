@@ -5,6 +5,8 @@
   const impacts = GovernanceImpactDemo;
   const queries = new Map();
   const positions = new Map();
+  const taskOrigins = new Map();
+  let editor = null, askingToLeave = false;
   let main, ui, section = 'sources', collectionTab = 'tasks', detailSequence = 0, changeScope = '';
   const refresh = () => window.dispatchEvent(new Event('hashchange'));
   const allowed = ability => SourceApprovalDemo.hasAbility(ui.currentUser, ability);
@@ -20,8 +22,16 @@
   }
   function stack(primary, secondary) { const node = ui.el('div'); node.append(typeof primary === 'string' ? ui.textCell(primary) : primary); if (secondary) node.append(ui.el('small', 'cell-sub', secondary)); return node; }
   function collectionCell(source) {
-    const task = demo.activeTask(source.id), node = stack(badge(task ? task.state : source.collection), task ? task.at : source.lastCollected || '尚无采集记录');
+    const task = demo.activeTask(source.id) || demo.latestTask(source.id), state = task ? task.state : source.collection;
+    const flags = actions(badge(state), task?.retryOnly && ui.el('small', 'cell-sub', '子范围'), source.collection === '待重新采集' && state !== '待重新采集' && badge('待重新采集'));
+    const node = stack(flags, task ? task.ended || task.at : source.lastCollected || '尚无采集记录');
     node.dataset.sourceCollection = source.id;
+    return node;
+  }
+  function governanceCell(source) {
+    const summary = demo.governanceSummary(source.id);
+    const node = stack('目录 ' + summary.total + ' · 已确认 ' + summary.confirmed, '部分确认 ' + summary.partial + ' · 待治理 ' + summary.pending + ' · 待复核 ' + summary.review);
+    node.dataset.sourceGovernance = source.id;
     return node;
   }
   function actions(...nodes) { const node = ui.el('div', 'ds-actions'); node.append(...nodes.filter(Boolean)); return node; }
@@ -31,16 +41,51 @@
     if (filter) Object.assign(getQuery(key + ':' + demo.selected), filter, { page: 1 });
     if (location.hash === '#' + key) refresh(); else location.hash = key;
   }
+  function openTask(path, trigger) {
+    rememberPosition(trigger);
+    taskOrigins.set('#' + path, location.hash);
+    navigate(path);
+  }
+  const taskOrigin = fallback => taskOrigins.get(location.hash) || fallback;
+  function taskPage(title, parent, back, className) {
+    ui.setTitle(title, parent, back);
+    const node = ui.el('section', 'ds-task-page prototype-ui ' + className);
+    main.replaceChildren(ui.pageHeading(title), node);
+    requestAnimationFrame(() => main.querySelector('h1')?.focus({ preventScroll: true }));
+    return node;
+  }
+  function finishEditor() { editor?.cleanup?.(); editor = null; }
+  // 仅实际修改时阻止离开长任务；继续编辑为默认动作，取消和 Esc 均不丢输入。
+  function beforeNavigation() {
+    if (!editor || editor.hash === location.hash) return false;
+    if (!editor.node.isConnected || !editor.dirty()) { finishEditor(); return false; }
+    const next = location.hash, current = editor;
+    history.replaceState(null, '', current.hash);
+    if (current.node.confirmNavigation) { current.node.confirmNavigation(next); return true; }
+    if (!askingToLeave) {
+      askingToLeave = true;
+      ElementPlus.ElMessageBox.confirm('尚有未保存的修改。离开后这些修改将丢失。', '离开当前编辑？', {
+        confirmButtonText: '继续编辑', cancelButtonText: '放弃修改', distinguishCancelAndClose: true,
+        closeOnClickModal: false, closeOnHashChange: false, type: 'warning', customClass: 'prototype-ui ds-leave-confirm'
+      }).then(() => current.node.querySelector('input,textarea')?.focus()).catch(action => {
+        if (action === 'cancel') { finishEditor(); location.hash = next; }
+      }).finally(() => { askingToLeave = false; });
+    }
+    return true;
+  }
   // 返回恢复原列表位置；抽屉中的按钮使用原记录入口作为焦点落点。
   function rememberPosition(trigger) {
     const scroll = main?.querySelector('.rt-scroll');
-    positions.set(location.hash, { source: demo.selected, focus: trigger?.dataset.focus || document.activeElement?.dataset.focus, top: scroll?.scrollTop || 0, left: scroll?.scrollLeft || 0 });
+    const focus = trigger?.dataset.focus || trigger?.closest('tr')?.querySelector('[data-focus]')?.dataset.focus || document.activeElement?.dataset.focus;
+    positions.set(location.hash, { source: demo.selected, focus, top: scroll?.scrollTop || 0, left: scroll?.scrollLeft || 0, readingTop: main?.querySelector('.ds-task-page > .dialog-body')?.scrollTop || 0, mainTop: main?.scrollTop || 0 });
   }
   function restorePosition() {
     const saved = positions.get(location.hash); if (!saved) return;
     positions.delete(location.hash);
     requestAnimationFrame(() => {
       const scroll = main.querySelector('.rt-scroll'); if (scroll) { scroll.scrollTop = saved.top; scroll.scrollLeft = saved.left; }
+      const reading = main.querySelector('.ds-task-page > .dialog-body'); if (reading) reading.scrollTop = saved.readingTop;
+      main.scrollTop = saved.mainTop;
       const target = saved.focus && main.querySelector('[data-focus="' + CSS.escape(saved.focus) + '"]');
       (target || main.querySelector('[data-focus="ds-scope-governance"]') || main.querySelector('tbody button') || main.querySelector('input'))?.focus({ preventScroll: true });
     });
@@ -90,12 +135,31 @@
     return host;
   }
   function showDetail(title, trigger, build, footer) {
-    const node = ui.modal(title, trigger, true); node.classList.add('ds-detail-dialog');
-    // 知识明细可从源详情打开，两个抽屉分别关联自己的标题。
+    const current = document.querySelector('dialog[open].ds-detail-dialog');
+    const node = current || ui.modal(title, trigger, true); node.classList.add('ds-detail-dialog');
+    let stash, back;
+    if (current) {
+      // 次级资料在同一抽屉内钻取，保留已挂载内容，返回时不重置滚动或展开状态。
+      const previous = [...node.children], previousLabel = node.getAttribute('aria-labelledby'), previousBack = node.detailBack;
+      const previousBody = node.querySelector(':scope > .dialog-body'), top = previousBody.scrollTop;
+      stash = ui.el('div'); stash.hidden = true; node.append(stash); previous.forEach(child => stash.append(child));
+      back = () => {
+        [...node.children].filter(child => child !== stash).forEach(child => child.remove());
+        previous.forEach(child => node.append(child)); stash.remove();
+        node.setAttribute('aria-labelledby', previousLabel); node.detailBack = previousBack;
+        previousBody.scrollTop = top; trigger?.focus({ preventScroll: true });
+      };
+      const header = ui.el('header', 'dialog-heading'), close = ui.button('', () => node.close(), 'icon-close');
+      close.setAttribute('aria-label', '关闭' + title); close.append(WorkbenchIcon('x'));
+      header.append(ui.el('h2', '', title), close); node.prepend(header); node.detailBack = back;
+    } else node.addEventListener('cancel', event => { if (node.detailBack) { event.preventDefault(); node.detailBack(); } });
     const label = node.querySelector('.dialog-heading h2'); label.id = 'ds-detail-' + (++detailSequence); label.title = title; node.setAttribute('aria-labelledby', label.id);
     const body = ui.el('div', 'dialog-body'); build(body, node);
-    const bar = ui.el('footer', 'dialog-footer'); bar.append(ui.button('关闭', () => node.close())); footer?.(bar, node);
-    node.append(body, bar); node.showModal();
+    const bar = ui.el('footer', 'dialog-footer'); bar.detailBack = back;
+    bar.append(ui.button(back ? '返回上一级' : '关闭', back || (() => node.close()))); footer?.(bar, node);
+    body.detailFooter = bar; body.detailTrigger = trigger;
+    if (stash) { node.insertBefore(body, stash); node.insertBefore(bar, stash); }
+    else { node.append(body, bar); node.showModal(); }
     // 标题过长时固定抽屉边界，在正文保留可阅读和复制的完整名称。
     if (label.scrollWidth > label.clientWidth) body.prepend(fields(body, [['完整名称', title, true]]));
     return node;
@@ -117,8 +181,8 @@
     const rows = queryRows(demo.sources, query, source => ({ status: source.connectionState, fields: { keyword: source.name, owner: person(source.config.technical), type: source.config.type } })).sort((a, b) => b.updated.localeCompare(a.updated) || b.id.localeCompare(a.id));
     const tools = filters(query, [{ key: 'keyword', label: '数据源名称' }, { key: 'type', label: '数据库类型', options: ['MySQL', 'PostgreSQL'].map(value => ({ value, label: value })) }, { key: 'owner', label: '技术联系人', placeholder: '技术联系人姓名或登录名' }], ['草稿', '已启用', '已停用', '已退役'], false, allowed('sources.create') && ui.button('新增数据源', trigger => connectionEditor(null, trigger), 'admin-button is-primary', 'ds-create'));
     const panel = tablePanel(rows, query, [
-      { key: 'name', label: '数据源', width: 210 }, { key: 'type', label: '数据库类型', width: 130 }, { key: 'owner', label: '技术联系人', width: 140 }, { key: 'state', label: '配置 / 连接', width: 138 }, { key: 'collection', label: '结构采集', width: 160 }, { key: 'knowledge', label: '治理 / 知识', width: 210 }, { key: 'actions', label: '操作', width: 192, fixed: 'right' }
-    ], source => [stack(ui.button(source.name, trigger => sourceDetail(source, trigger), 'cell-title', 'ds-source-' + source.id), source.config.database || '未配置连接'), stack(source.config.type, source.config.version || '版本未识别'), stack(PeopleDemo.users.find(user => user.id === source.config.technical)?.name || '未指定', PeopleDemo.users.find(user => user.id === source.config.technical)?.login), stack(badge(source.connectionState), source.health), collectionCell(source), stack('完整确认 ' + source.governed + ' · 部分 ' + source.partialGoverned, source.knowledge + ' 项已发布 · ' + source.forbidden + ' 项禁止使用'), actions(allowed('sources.edit') && source.connectionState !== '已退役' && link('编辑连接', trigger => connectionEditor(source, trigger), 'ds-edit-' + source.id), sourceMenu(source))], '没有匹配的数据源', parentTabs);
+      { key: 'name', label: '数据源', width: 188 }, { key: 'type', label: '数据库类型', width: 110 }, { key: 'owner', label: '技术联系人', width: 116 }, { key: 'state', label: '配置 / 连接', width: 110 }, { key: 'collection', label: '最近结构采集', width: 164 }, { key: 'governance', label: '业务治理（对象）', width: 240 }, { key: 'knowledge', label: '知识（项）', width: 126 }, { key: 'actions', label: '操作', width: 184, fixed: 'right' }
+    ], source => [stack(ui.button(source.name, trigger => sourceDetail(source, trigger), 'cell-title', 'ds-source-' + source.id), source.config.database || '未配置连接'), stack(source.config.type, source.config.version || '版本未识别'), stack(PeopleDemo.users.find(user => user.id === source.config.technical)?.name || '未指定', PeopleDemo.users.find(user => user.id === source.config.technical)?.login), stack(badge(source.connectionState), source.health), collectionCell(source), governanceCell(source), stack('已发布 ' + source.knowledge, '禁止使用 ' + source.forbidden), actions(allowed('sources.edit') && source.connectionState !== '已退役' && link('编辑连接', trigger => connectionEditor(source, trigger), 'ds-edit-' + source.id), sourceMenu(source))], '没有匹配的数据源', parentTabs);
     main.replaceChildren(ui.pageHeading('数据源管理'), tools, panel);
   }
   function sourceMenu(source) {
@@ -134,14 +198,18 @@
     return ui.moreActions(items, 'ds-more-' + source.id);
   }
   function sourceDetail(source, trigger) {
-    const count = demo.objects(source.id).length;
+    const counts = demo.governanceSummary(source.id), task = demo.activeTask(source.id) || demo.latestTask(source.id);
     showDetail(source.name, trigger, body => {
-      body.append(actions(badge(source.connectionState), badge(source.health), badge(source.collection)));
+      body.append(actions(badge(source.connectionState), badge(source.health)));
       if (source.health === '网络异常') body.append(note('网络连接超时。请检查连接路径，再重新测试；已有治理和知识继续保留。', true));
       if (source.paused) body.append(note('定时采集已暂停；已有查询能力不因此停止，结构可能陈旧。'));
       fields(body, [['数据源编号', source.id], ['用途说明', source.config.purpose || '未填写', true], ['技术联系人', person(source.config.technical)], ['业务联系人', person(source.config.business)], ['数据库', source.config.database || '未配置'], ...(source.config.type === 'PostgreSQL' ? [['Schema 范围', source.config.schemas.join('、') || '尚未选择']] : []), ['数据库类型', source.config.type], ['数据库版本', source.config.version || '未识别'], ['连接地址', source.config.host ? source.config.host + ':' + source.config.port : '未配置'], ['只读账号', source.config.account], ['数据库密码', source.credentialSet ? '已设置' : '未设置']]);
-      heading(body, '采集与知识');
-      const summary = fields(body, [['已发现对象', count ? count + ' 个（当前连接可见范围）' : '尚未采集'], ['最近采集', source.lastCollected || '暂无'], ['最近完整采集', source.lastFull || '暂无'], ['定时采集', source.paused ? '已暂停' : '每 ' + source.config.syncHours + ' 小时'], ['完整确认对象', source.governed + ' 个'], ['部分确认对象', source.partialGoverned + ' 个'], ['已发布知识', source.knowledge + ' 项']]);
+      heading(body, '结构目录');
+      fields(body, [['目录对象总数', counts.total + ' 个'], ['最近采集结果', task ? task.state : source.collection], ['最近任务时间', task ? task.ended || task.at : '暂无'], ['最近完整整源采集', source.lastFull || '暂无'], ['最近任务范围', task ? task.scope : '暂无', true], ['定时采集', source.paused ? '已暂停' : '每 ' + source.config.syncHours + ' 小时']]);
+      heading(body, '业务治理（目录对象）');
+      fields(body, [['已确认', counts.confirmed + ' / ' + counts.total + ' 个'], ['部分确认', counts.partial + ' 个'], ['待治理', counts.pending + ' 个'], ['待复核', counts.review + ' 个']]);
+      heading(body, '知识');
+      const summary = fields(body, [['已发布知识', source.knowledge + ' 项']]);
       const forbidden = ui.pair('已禁止使用的知识', source.forbidden + ' 项');
       if (source.forbidden) {
         const view = ui.button(source.forbidden + ' 项', trigger => forbiddenKnowledgeDetail(source, trigger), 'cell-title');
@@ -187,7 +255,9 @@
   }
   function connectionEditor(source, trigger, mode = 'edit') {
     const credential = mode === 'credential', testOnly = mode === 'test';
-    const node = ui.modal((credential ? '更新连接密码' : testOnly ? '测试连接' : source ? '编辑连接' : '新增数据源') + (source ? ' · ' + source.name : ''), trigger); node.classList.add('ds-connection-dialog');
+    const title = (credential ? '更新连接密码' : testOnly ? '测试连接' : source ? '编辑连接' : '新增数据源') + (source ? ' · ' + source.name : '');
+    const node = ui.modal(title, trigger); node.classList.add('ds-connection-dialog');
+    if (credential) node.classList.add('ds-credential-dialog'); else if (testOnly) node.classList.add('ds-test-dialog');
     const host = ui.el('div'); node.append(host); const uid = 'ds-connection-' + (++detailSequence);
     const initial = source ? demo.configuration(source) : { ...demo.configDefaults, name: '', purpose: '' };
     const initialRevision = source?.revision;
@@ -197,10 +267,11 @@
     ];
     const limits = [['connections', '最大连接数', 1, 20], ['concurrency', '采集并发', 1, 8], ['retries', '重试上限', 0, 5], ['taskTimeout', '采集任务时限（秒）', 30, 3600], ['queryTimeout', '查询时限（秒）', 1, 300], ['rowLimit', '结果行数上限', 1, 10000], ['syncHours', '采集周期（小时）', 1, 720]];
     PrototypeUI.mount(host, {
-      data: () => ({ model: { ...initial, schemas: [...initial.schemas], password: '' }, groups: credential ? [{ name: '连接密码', fields: [['password', '数据库密码', 'password']] }] : testOnly ? groups.filter(group => group.name === '数据库连接') : groups, limits, people: PeopleDemo.users.filter(user => user.status === '正常').map(user => ({ value: user.id, label: person(user.id) })), busy: false, results: [], review: '', error: '', advanced: [], tested: '', schemaOptions: [], probeAttempted: false, scopeChosen: Boolean(initial.schemas.length), credential, testOnly, uid, readonly: testOnly,
+      data: () => ({ model: { ...initial, schemas: [...initial.schemas], password: '' }, groups: credential ? [{ name: '连接密码', fields: [['password', '数据库密码', 'password']] }] : testOnly ? groups.filter(group => group.name === '数据库连接') : groups, limits, people: PeopleDemo.users.filter(user => user.status === '正常').map(user => ({ value: user.id, label: person(user.id) })), busy: false, confirmingClose: false, closeScroll: 0, nextDestination: '', results: [], review: '', error: '', advanced: [], tested: '', schemaOptions: [], probeAttempted: false, scopeChosen: Boolean(initial.schemas.length), credential, testOnly, uid, readonly: testOnly,
         rules: Object.fromEntries(['name', 'type', 'host', 'port', 'database', 'account', ...((!source?.credentialSet || credential) ? ['password'] : [])].map(key => [key, [{ required: true, message: '请填写或选择此项', trigger: 'blur' }, ...(['name', 'host', 'database', 'account', 'password'].includes(key) ? [{ validator: (_, value, done) => done(String(value || '').trim() ? undefined : new Error('此项不能为空')), trigger: 'blur' }] : [])]])) }),
       computed: {
         unchanged() { return source && !demo.configChanged(this.model, source, Boolean(this.model.password)); },
+        dirty() { return !testOnly && (source ? !this.unchanged : Boolean(this.model.password || Object.keys(initial).filter(key => key !== 'version').some(key => JSON.stringify(this.model[key]) !== JSON.stringify(initial[key])))); },
         passed() { return demo.canEnable(this.results) && this.tested === this.fingerprint(); },
         connectionKey() { return this.fingerprint(); },
         scopeRules() { return [{ validator: (_, value, done) => { const message = demo.scopeError(this.model, this.schemaOptions); done(message ? new Error(message) : undefined); }, trigger: 'change' }]; },
@@ -258,18 +329,41 @@
           const data = Object.fromEntries(Object.keys(initial).map(key => [key, this.model[key]]));
           const target = demo.saveConfig(data, source, activating, Boolean(this.model.password));
           // 先记录办理结果，再清除秘密和重绘；提示不能读取已被重置的表单状态。
-          this.clearSecret(); node.close();
+          this.clearSecret(); if (editor?.node === node) finishEditor(); node.close();
           if (!source) Object.assign(getQuery('sources'), { keyword: '', owner: '', type: '', status: 'all', page: 1 });
           demo.selected = target.id;
           if (activating) navigate('catalog', target); else refresh();
           ui.notify(credential ? '连接密码已更新' : activating ? '连接已启用' : action === 'enable' ? '连接配置已保存' : '连接草稿已保存');
-        }, close() { this.clearSecret(); node.close(); }
+        },
+        close() {
+          if (this.confirmingClose) { this.resume(); return; }
+          if (!this.dirty) { this.discard(); return; }
+          // 在同一弹窗内确认放弃，不叠加另一个模态框；表单及测试结果保持原样。
+          this.closeScroll = node.querySelector('.dialog-body').scrollTop; this.confirmingClose = true;
+          this.$nextTick(() => { node.querySelector('.dialog-body').scrollTop = 0; node.querySelector('[data-continue-editing]')?.focus(); });
+        },
+        resume() {
+          this.confirmingClose = false; this.nextDestination = '';
+          this.$nextTick(() => { node.querySelector('.dialog-body').scrollTop = this.closeScroll; node.querySelector('.dialog-heading button')?.focus({ preventScroll: true }); });
+        },
+        discard() {
+          const destination = this.nextDestination;
+          if (editor?.node === node) finishEditor(); this.clearSecret(); node.close();
+          if (destination) location.hash = destination;
+        }
       },
-      mounted() { node.addEventListener('close', () => this.clearSecret(), { once: true }); },
+      mounted() {
+        node.closeGuard = () => this.close();
+        node.confirmNavigation = next => { this.nextDestination = next; if (!this.confirmingClose) this.close(); };
+        node.addEventListener('keydown', event => { if (event.key === 'Escape' && this.confirmingClose) { event.preventDefault(); event.stopImmediatePropagation(); this.resume(); } }, true);
+        if (!testOnly) editor = { node, hash: location.hash, dirty: () => this.dirty, cleanup: () => this.clearSecret() };
+        node.addEventListener('close', () => { if (editor?.node === node) finishEditor(); this.clearSecret(); }, { once: true });
+      },
+      beforeUnmount() { this.clearSecret(); },
       template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" @validate="fieldChanged" @submit.prevent="test">
-        <div class="dialog-body"><p v-if="error" class="form-error" role="alert" tabindex="-1">{{error}}</p>
+        <div class="dialog-body"><section v-if="confirmingClose" class="ds-close-warning" role="alert"><h3>放弃未保存的修改？</h3><p>关闭后这些修改将丢失。</p></section><div v-show="!confirmingClose"><p v-if="error" class="form-error" role="alert" tabindex="-1">{{error}}</p>
         <div v-show="!review"><section v-for="group in groups" :key="group.name" class="ds-form-section"><h3 v-if="!credential">{{group.name}}</h3><div class="form-grid">
-          <el-form-item v-for="field in group.fields.filter(item=>item[2]!=='schemas'||model.type==='PostgreSQL')" :key="field[0]" :label="field[1]" :prop="field[0]" :rules="field[2]==='schemas'?scopeRules:undefined" :required="readonly?false:field[2]==='schemas' && schemaOptions.length ? true : undefined" :class="{'full-width':field[2]==='textarea' || field[0]==='name' || field[2]==='schemas'}">
+          <el-form-item v-for="field in group.fields.filter(item=>item[2]!=='schemas'||model.type==='PostgreSQL')" :key="field[0]" :label="field[1]" :prop="field[0]" :rules="field[2]==='schemas'?scopeRules:undefined" :required="readonly?false:field[2]==='schemas' && schemaOptions.length ? true : undefined" :class="{'full-width':credential || field[2]==='textarea' || field[0]==='name' || field[2]==='schemas'}">
             <div v-if="field[2]==='detected'" class="ds-detected-version" role="status" aria-label="数据库版本">{{model.version || (busy?'识别中':probeAttempted?'未识别':'测试后识别')}}</div>
             <div v-else-if="readonly" class="readonly-value">{{field[0]==='password'?(hasCredential?'已设置':'未设置'):field[0]==='schemas'?(model.schemas.join('、') || '尚未选择'):model[field[0]]}}</div>
             <el-select v-else-if="field[2]==='schemas'" v-model="model.schemas" aria-label="Schema 范围" multiple collapse-tags collapse-tags-tooltip :max-collapse-tags="3" :append-to="popupTarget" :disabled="readonly || busy || !schemaOptions.length || scopeLocked" :placeholder="schemaOptions.length?'选择 Schema':'测试连接后选择'" @change="changeSchemas"><el-option v-for="name in schemaOptions" :key="name" :value="name" :label="name"></el-option></el-select>
@@ -285,7 +379,7 @@
           <el-collapse v-if="!credential && !testOnly" v-model="advanced" class="ds-advanced"><el-collapse-item title="运行与定时采集" name="limits"><div class="form-grid"><el-form-item v-for="field in limits" :key="field[0]" :label="field[1]"><el-input-number v-model="model[field[0]]" :aria-label="field[1]" :min="field[2]" :max="field[3]" :disabled="readonly || busy" controls-position="right"></el-input-number></el-form-item><el-form-item label="采集时段"><el-input v-model="model.window" aria-label="采集时段" :disabled="readonly || busy" :maxlength="40"></el-input></el-form-item></div></el-collapse-item></el-collapse>
           <section v-if="results.length" class="ds-test-results" tabindex="-1" aria-label="分项连接测试结果"><h3>分项连接测试</h3><div v-for="item in results" :key="item.label" class="ds-test-row"><span>{{item.label}}</span><el-tag :type="item.state==='失败'?'danger':item.state==='通过'?'success':'warning'">{{item.state}}</el-tag><span>{{item.detail}}</span></div></section>
         </div><section v-if="review" class="ds-review change-preview is-summary" tabindex="-1"><h3>核对{{credential?'密码更新':review==='enable'?(sourceLocked?'连接变更':'连接启用'):'连接草稿'}} · {{model.name}}</h3><table><thead><tr><th>内容</th><th>当前</th><th>保存后</th></tr></thead><tbody><tr v-for="item in reviewItems" :key="item.label"><th>{{item.label}}</th><td>{{item.before}}</td><td>{{item.after}}</td></tr></tbody></table><p class="form-note" style="margin-top:16px">{{review==='enable'?(sourceLocked?'当前参数测试通过；保存配置修订':'当前配置通过测试并启用'):'保留为草稿，尚未启用'}}</p></section></div>
-        <footer class="dialog-footer"><el-button @click="close">{{testOnly?'关闭':'取消'}}</el-button><template v-if="review"><el-button @click="review=''">返回修改</el-button><el-button type="primary" @click="commit">确认{{credential?'更新':review==='enable'?(sourceLocked?'保存':'启用'):'保存草稿'}}</el-button></template><template v-else><el-button v-if="!testOnly && !credential && !sourceLocked" :disabled="busy || unchanged" @click="prepare('draft')">保存草稿</el-button><el-button :loading="busy" native-type="submit">{{results.length?'重新测试':'测试连接'}}</el-button><el-button v-if="!testOnly" type="primary" :disabled="!passed || busy || (unchanged && sourceLocked)" @click="prepare('enable')">{{credential?'核对密码更新':sourceLocked?'核对并保存':'核对并启用'}}</el-button></template></footer>
+        </div><footer class="dialog-footer"><template v-if="confirmingClose"><el-button @click="discard">放弃修改</el-button><el-button type="primary" data-continue-editing @click="resume">继续编辑</el-button></template><template v-else><el-button @click="close">{{testOnly?'关闭':'取消'}}</el-button><template v-if="review"><el-button @click="review=''">返回修改</el-button><el-button type="primary" @click="commit">确认{{credential?'更新':review==='enable'?(sourceLocked?'保存':'启用'):'保存草稿'}}</el-button></template><template v-else><el-button v-if="!testOnly && !credential && !sourceLocked" :disabled="busy || unchanged" @click="prepare('draft')">保存草稿</el-button><el-button :loading="busy" native-type="submit">{{results.length?'重新测试':'测试连接'}}</el-button><el-button v-if="!testOnly" type="primary" :disabled="!passed || busy || (unchanged && sourceLocked)" @click="prepare('enable')">{{credential?'核对密码更新':sourceLocked?'核对并保存':'核对并启用'}}</el-button></template></template></footer>
       </el-form>`,
       setup() { return { popupTarget: node, hasCredential: Boolean(source?.credentialSet), sourceLocked: Boolean(source && source.connectionState !== '草稿'), scopeLocked: Boolean(source && demo.activeTask(source.id)) }; }
     }); node.showModal();
@@ -298,37 +392,44 @@
     main.replaceChildren(ui.pageHeading('元数据目录'), context(source, allowed('collections.collect') && source.connectionState === '已启用' && ui.button('发起采集', trigger => collect(source, trigger), 'admin-button is-primary')), tools, panel);
   }
   function objectDetail(table, trigger) {
+    openTask('catalog/' + encodeURIComponent(table.source) + '/' + encodeURIComponent(objectName(table)), trigger);
+  }
+  function renderObject(table) {
     const source = demo.find(table.source), ordinaryView = table.type === '视图';
-    showDetail(objectName(table) + ' · ' + table.label, trigger, (body, node) => {
-      // 只展示已确认重建且仍待核对的提示，不凭同名或普通结构修改推断重建。
-      if (table.rebuildReviewPending) body.append(note('检测到同名' + (table.type.includes('视图') ? '视图' : '表') + '重建，需重新核对对象身份及关联知识。'));
-      const pending = demo.pendingVerification(table).length;
-      if (pending) body.append(note('该对象有 ' + pending + ' 项变化待核实，请先核对结构变化。'));
-      // 注释属于当前表或视图，保留来源原文，不限定语言。
-      fields(body, [['数据源', source.name], ['对象路径', table.path], ['对象类型', table.type], ['目录状态', demo.catalogStates(table).join('、')], ['治理状态', table.governance], [table.type.includes('视图') ? '视图注释' : '表注释', table.commentState === '已读取' ? table.comment || '无注释' : table.commentState, true]]);
-      const blocked = source.forbiddenKnowledge.filter(item => item.dependency === objectName(table) || item.dependency.startsWith(objectName(table) + '.'));
-      if (blocked.length) body.append(note('关联知识已禁止使用：' + blocked.map(item => item.name + '（' + item.dependency + '）').join('、') + '。', true));
-      heading(body, '字段');
-      const region = ui.el('div', 'ds-inner-table'); region.append(RecordTable.render({ caption: objectName(table) + ' 字段', columns: [{ key: 'name', label: '字段', width: 160 }, { key: 'meaning', label: '业务解释', width: 240 }, { key: 'type', label: '类型', width: 140 }, { key: 'null', label: '可空', width: 70 }, ...(ordinaryView ? [] : [{ key: 'default', label: '默认值 / 生成', width: 150 }]), { key: 'comment', label: '字段注释', width: 160 }], items: table.fields, row: field => [ui.textCell(field.name), ui.el('span', 'ds-field-meaning', field.meaning), ui.textCell(field.type), field.nullable, ...(ordinaryView ? [] : [ui.textCell(field.default)]), ui.el('span', 'ds-field-meaning', field.comment || '无注释')] }));
-      const fieldScroll = region.querySelector('.rt-scroll'); fieldScroll.tabIndex = 0; fieldScroll.setAttribute('aria-label', objectName(table) + ' 的字段，可横向滚动');
-      body.append(region);
-      heading(body, ordinaryView ? '业务关系' : '键、关系与索引');
-      fields(body, [...(ordinaryView ? [] : [['主键', table.fields[0].name], ['唯一约束', '已读取：未声明其他唯一约束'], ['来源外键', table.name === 'sale_item' ? 'product_id → product.id（数据库声明）' : '已读取：未声明外键']]), ['业务关系', '需在治理中核对；来源外键不等于已确认业务关系'], ...(ordinaryView ? [] : [['索引读取', table.indexState], ['索引定义', table.indexState === '无权限' ? '未知：账号无索引目录读取权限' : 'PRIMARY (' + table.fields[0].name + ')']])]);
-      if (table.indexState === '无权限') body.append(note('请数据库负责人确认索引目录读取权限。字段等已取得属性保留，不将缺项解释为没有索引。'));
-      if (table.type === '视图') { heading(body, '视图来源'); fields(body, [['依赖', 'sale_order、sale_item'], ['定义读取', '已读取；仅同源对象'], ['刷新信息', '普通视图，按查询实时读取']]); }
-      const related = demo.changesFor(table);
-      if (related.length && allowed('collections.view')) { heading(body, '相关变化'); related.forEach(change => body.append(link(demo.changeTarget(change) + ' · ' + impacts.progress(change), () => { node.close(); changeDetail(change, trigger); }))); }
-      sourceFacts(body, [['来源对象标识', table.identity], ['对象世代', '第 ' + table.generation + ' 代', '用于区分同名对象删除后重新创建的情况。例如 sale_order 删除重建后，从第 1 代变为第 2 代。表、视图等都适用；重新采集、改字段或修改视图定义不会自动换代。'], ['采集快照', table.version], ['采集时间', table.collected], ['来源只读能力', table.readState], ['注释读取状态', table.commentState]], node);
-    }, (bar, node) => {
-      if (activeChanges(table).length && allowed('collections.view')) bar.append(ui.button('查看变化', () => { node.close(); openChanges(table.source, objectName(table), trigger); }, 'admin-button is-primary'));
-      else if (allowed('governance.view') && !demo.pendingVerification(table).length) bar.append(ui.button('进入治理', () => { node.close(); navigateGovernance(source, objectName(table), trigger); }, 'admin-button is-primary'));
-    });
+    const back = taskOrigin('#catalog'), node = taskPage(objectName(table) + ' · ' + table.label, '元数据目录', back, 'ds-object-page');
+    const body = ui.el('div', 'dialog-body');
+    // 只展示已确认重建且仍待核对的提示，不凭同名或普通结构修改推断重建。
+    if (table.rebuildReviewPending) body.append(note('检测到同名' + (table.type.includes('视图') ? '视图' : '表') + '重建，需重新核对对象身份及关联知识。'));
+    const pending = demo.pendingVerification(table).length;
+    if (pending) body.append(note('该对象有 ' + pending + ' 项变化待核实，请先核对结构变化。'));
+    // 注释属于当前表或视图，保留来源原文，不限定语言。
+    const summary = ui.el('header', 'ds-object-summary'), identity = stack(ui.el('strong', '', table.path), source.name + ' · ' + table.type);
+    summary.append(identity, actions(badge(table.governance), ...demo.catalogStates(table).map(badge))); body.append(summary);
+    fields(body, [[table.type.includes('视图') ? '视图注释' : '表注释', table.commentState === '已读取' ? table.comment || '无注释' : table.commentState, true]]);
+    const blocked = source.forbiddenKnowledge.filter(item => item.dependency === objectName(table) || item.dependency.startsWith(objectName(table) + '.'));
+    if (blocked.length) body.append(note('关联知识已禁止使用：' + blocked.map(item => item.name + '（' + item.dependency + '）').join('、') + '。', true));
+    heading(body, '字段');
+    const region = ui.el('div', 'ds-inner-table'); region.append(RecordTable.render({ caption: objectName(table) + ' 字段', columns: [{ key: 'name', label: '字段', width: 160 }, { key: 'meaning', label: '业务解释', width: 240 }, { key: 'type', label: '类型', width: 140 }, { key: 'null', label: '可空', width: 70 }, ...(ordinaryView ? [] : [{ key: 'default', label: '默认值 / 生成', width: 150 }]), { key: 'comment', label: '字段注释', width: 160 }], items: table.fields, row: field => [ui.textCell(field.name), ui.el('span', 'ds-field-meaning', field.meaning), ui.textCell(field.type), field.nullable, ...(ordinaryView ? [] : [ui.textCell(field.default)]), ui.el('span', 'ds-field-meaning', field.comment || '无注释')] }));
+    const fieldScroll = region.querySelector('.rt-scroll'); fieldScroll.tabIndex = 0; fieldScroll.setAttribute('aria-label', objectName(table) + ' 的字段，可横向滚动');
+    body.append(region);
+    heading(body, ordinaryView ? '业务关系' : '键、关系与索引');
+    fields(body, [...(ordinaryView ? [] : [['主键', table.fields[0].name], ['唯一约束', '已读取：未声明其他唯一约束'], ['来源外键', table.name === 'sale_item' ? 'product_id → product.id（数据库声明）' : '已读取：未声明外键']]), ['业务关系', '需在治理中核对；来源外键不等于已确认业务关系'], ...(ordinaryView ? [] : [['索引读取', table.indexState], ['索引定义', table.indexState === '无权限' ? '未知：账号无索引目录读取权限' : 'PRIMARY (' + table.fields[0].name + ')']])]);
+    if (table.indexState === '无权限') body.append(note('请数据库负责人确认索引目录读取权限。字段等已取得属性保留，不将缺项解释为没有索引。'));
+    if (table.type === '视图') { heading(body, '视图来源'); fields(body, [['依赖', 'sale_order、sale_item'], ['定义读取', '已读取；仅同源对象'], ['刷新信息', '普通视图，按查询实时读取']]); }
+    const related = demo.changesFor(table);
+    if (related.length && allowed('collections.view')) { heading(body, '相关变化'); related.forEach(change => body.append(link(demo.changeTarget(change) + ' · ' + impacts.progress(change), trigger => changeDetail(change, trigger)))); }
+    sourceFacts(body, [['来源对象标识', table.identity], ['对象世代', '第 ' + table.generation + ' 代', '用于区分同名对象删除后重新创建的情况。例如 sale_order 删除重建后，从第 1 代变为第 2 代。表、视图等都适用；重新采集、改字段或修改视图定义不会自动换代。'], ['采集快照', table.version], ['采集时间', table.collected], ['来源只读能力', table.readState], ['注释读取状态', table.commentState]], node);
+    const bar = ui.el('footer', 'dialog-footer');
+    bar.append(ui.button('返回元数据目录', () => navigate(back.slice(1))));
+    if (activeChanges(table).length && allowed('collections.view')) bar.append(ui.button('查看变化', trigger => openChanges(table.source, objectName(table), trigger), 'admin-button is-primary', 'ds-object-changes-' + table.id));
+    else if (allowed('governance.view') && !demo.pendingVerification(table).length) bar.append(ui.button('进入治理', trigger => navigateGovernance(source, objectName(table), trigger), 'admin-button is-primary', 'ds-object-governance-' + table.id));
+    node.append(body, bar);
   }
   function navigateGovernance(source, object, trigger) { rememberPosition(trigger); GovernancePage.open(source.id, object, { from: 'catalog' }); }
   function collect(source, trigger, parent) {
     if (!allowed(parent ? 'collections.retry' : 'collections.collect')) return;
     // 元数据读取保留一次范围与账号确认，不再重复比较相同的变更前后内容。
-    ui.openForm({ title: parent ? '重试采集 · ' + source.name : '发起采集 · ' + source.name, trigger, value: { scope: parent?.enumeration && parent.failures.length ? parent.failures.join('、') : demo.scopeLabel(source) + ' · 全部可见对象', account: source.config.account }, fields: [{ key: 'scope', label: '采集范围', readonly: true, full: true }, { key: 'account', label: '采集账号', readonly: true, full: true }], note: parent && !parent.enumeration ? '原任务枚举不完整，需要重新枚举连接范围；原结果保留。' : parent ? '仅重新读取失败对象；原任务结论保留，不将子范围重试视为整源完整采集。' : '', saveLabel: '开始采集', validate: () => demo.activeTask(source.id) ? '该数据源已有进行中的任务，请先查看当前任务。' : source.connectionState !== '已启用' ? '请先启用数据源。' : '', save: () => {
+    ui.openForm({ title: parent ? '重试采集 · ' + source.name : '发起采集 · ' + source.name, trigger, value: { scope: parent?.enumeration && demo.retryTargets(parent).length ? demo.retryTargets(parent).join('、') : demo.scopeLabel(source) + ' · 全部可见对象', account: source.config.account }, fields: [{ key: 'scope', label: '采集范围', readonly: true, full: true }, { key: 'account', label: '采集账号', readonly: true, full: true }], note: parent && !parent.enumeration ? '原任务枚举不完整，需要重新枚举连接范围；原结果保留。' : parent ? '仅重新读取部分采集或读取失败的对象；原任务结论保留，不将子范围重试视为整源完整采集。' : '', saveLabel: '开始采集', validate: () => demo.activeTask(source.id) ? '该数据源已有进行中的任务，请先查看当前任务。' : source.connectionState !== '已启用' ? '请先启用数据源。' : '', save: () => {
       const result = demo.startTask(source, parent); if (result.error) return result.error;
       // 计时器只推进这一笔示例任务，取消或停用后不会继续写成功结果。
       const timer = setInterval(() => { demo.advanceTask(result.task); if (!['排队', '进行中'].includes(result.task.state)) clearInterval(timer); window.dispatchEvent(new CustomEvent('datasource-task-updated', { detail: result.task.id })); }, 3000);
@@ -348,47 +449,57 @@
       const factStatus = badge(pending ? '待核实 ' + pending + ' 项' : base.length ? '事实已核实' : '暂无变化');
       if (pending) factStatus.classList.add('is-pending');
       identity.append(ui.el('strong', '', changeScope), factStatus);
-      const controls = actions(ui.button('返回元数据目录', () => navigate('catalog', source)), ui.button('查看全源变化', () => openChanges(source.id)));
+      const back = taskOrigin('#catalog'), fromObject = back.startsWith('#catalog/');
+      const controls = actions(ui.button(fromObject ? '返回结构详情' : '返回元数据目录', () => navigate(back.slice(1), source)), ui.button('查看全源变化', () => openChanges(source.id)));
       const next = base.find(change => change.fact === '已确认' && impacts.progress(change) !== '已完成');
       if (!pending && next && allowed('governance.view')) controls.append(ui.button('进入治理', trigger => openImpactPage(impacts.forChange(next), trigger), 'admin-button is-primary', 'ds-scope-governance'));
       scope.append(identity, controls); tabbar.append(scope);
-      ui.setTitle('结构变化 · ' + changeScope, '元数据目录', '#catalog');
+      ui.setTitle('结构变化 · ' + changeScope, fromObject ? '结构详情' : '元数据目录', back);
     }
-    const columns = isTasks ? [{ key: 'id', label: '采集编号', width: 152 }, { key: 'trigger', label: '发起方式', width: 105 }, { key: 'scope', label: '采集范围', width: 190 }, { key: 'at', label: '开始时间', width: 166 }, { key: 'state', label: '任务状态', width: 112 }, { key: 'coverage', label: '处理 / 已发现', width: 150 }, { key: 'actions', label: '操作', width: 156, fixed: 'right' }] : [{ key: 'object', label: '变化对象', width: 210 }, { key: 'kind', label: '变化类型', width: 112 }, { key: 'impact', label: '影响及使用控制', width: 210 }, { key: 'fact', label: '变化事实', width: 110 }, { key: 'at', label: '发现时间', width: 166 }, { key: 'progress', label: '处理进度', width: 120 }, { key: 'actions', label: '操作', width: 118, fixed: 'right' }];
+    const columns = isTasks ? [{ key: 'id', label: '采集编号', width: 152 }, { key: 'trigger', label: '发起方式', width: 105 }, { key: 'scope', label: '采集范围', width: 190 }, { key: 'at', label: '开始时间', width: 166 }, { key: 'state', label: '任务状态', width: 112 }, { key: 'coverage', label: '已处理 / 已发现', width: 200 }, { key: 'actions', label: '操作', width: 156, fixed: 'right' }] : [{ key: 'object', label: '变化对象', width: 210 }, { key: 'kind', label: '变化类型', width: 112 }, { key: 'impact', label: '影响及使用控制', width: 210 }, { key: 'fact', label: '变化事实', width: 110 }, { key: 'at', label: '发现时间', width: 166 }, { key: 'progress', label: '处理进度', width: 120 }, { key: 'actions', label: '操作', width: 118, fixed: 'right' }];
     const verificationDone = !isTasks && changeScope && query.type === '待核实' && base.length && base.every(change => change.fact !== '待核实');
     const emptyMessage = verificationDone ? '该对象的变化已全部核实' : base.length ? '没有匹配的记录' : isTasks ? '尚无采集记录' : '尚未发现结构变化';
-    const panel = tablePanel(rows, query, columns, item => isTasks ? [ui.button(item.id, trigger => taskDetail(item, trigger), 'cell-title', 'ds-task-' + item.id), stack(item.trigger, item.actor), ui.textCell(item.scope), ui.textCell(item.at), badge(item.state), stack(item.processed + ' / ' + item.discovered, item.enumeration ? '总数 ' + item.total + ' · 失败 ' + item.failed : '总数未知 · 枚举不完整'), actions(link('详情', trigger => taskDetail(item, trigger), 'ds-task-detail-' + item.id), ['排队', '进行中'].includes(item.state) && allowed('collections.cancel') ? link('取消', trigger => cancelTask(item, trigger)) : ['部分成功', '失败'].includes(item.state) && allowed('collections.retry') && source.connectionState === '已启用' ? link('重试', trigger => collect(source, trigger, item)) : null)] : [stack(ui.button(demo.changeTarget(item), trigger => changeDetail(item, trigger), 'cell-title', 'ds-change-' + item.id), item.attribute), ui.textCell(item.kind), stack(ui.textCell(item.impact), item.control), stack(badge(item.fact), item.factSource), ui.textCell(item.at), badge(impacts.progress(item)), link(item.fact === '待核实' && allowed('collections.review') ? '核实变化' : '查看详情', trigger => changeDetail(item, trigger))], emptyMessage, tabbar);
+    const panel = tablePanel(rows, query, columns, item => isTasks ? [ui.button(item.id, trigger => taskDetail(item, trigger), 'cell-title', 'ds-task-' + item.id), stack(item.trigger, item.actor), ui.textCell(item.scope), ui.textCell(item.at), badge(item.state), stack(item.processed + ' / ' + item.discovered, '完整 ' + item.complete + ' · 部分 ' + item.partial + ' · 失败 ' + item.failed + (item.enumeration ? '' : ' · 总数未知')), actions(link('详情', trigger => taskDetail(item, trigger), 'ds-task-detail-' + item.id), ['排队', '进行中'].includes(item.state) && allowed('collections.cancel') ? link('取消', trigger => cancelTask(item, trigger)) : ['部分成功', '失败'].includes(item.state) && allowed('collections.retry') && source.connectionState === '已启用' ? link('重试', trigger => collect(source, trigger, item)) : null)] : [stack(ui.button(demo.changeTarget(item), trigger => changeDetail(item, trigger), 'cell-title', 'ds-change-' + item.id), item.attribute), ui.textCell(item.kind), stack(ui.textCell(item.impact), item.control), stack(badge(item.fact), item.factSource), ui.textCell(item.at), badge(impacts.progress(item)), link(item.fact === '待核实' && allowed('collections.review') ? '核实变化' : '查看详情', trigger => changeDetail(item, trigger))], emptyMessage, tabbar);
     main.replaceChildren(ui.pageHeading('采集记录与结构变化'), context(source, allowed('collections.collect') && source.connectionState === '已启用' && ui.button(demo.activeTask(source.id) ? '查看进行中任务' : '发起采集', trigger => demo.activeTask(source.id) ? taskDetail(demo.activeTask(source.id), trigger) : collect(source, trigger), 'admin-button is-primary')), tools, panel);
   }
   function taskDetail(task, trigger) {
     const node = showDetail('采集任务 · ' + task.id, trigger, body => {
       body.dataset.taskBody = task.id; taskBody(task, body);
     }, (bar, dialog) => taskActions(task, bar, dialog, trigger));
-    node.taskTrigger = trigger;
+    // 实时结果退出后同步列表；转入重试或取消表单时不打断新弹窗。
+    if (!node.refreshTaskListOnClose) {
+      node.refreshTaskListOnClose = true;
+      node.addEventListener('close', () => {
+        if (location.hash.startsWith('#collections') && collectionTab === 'tasks' && !document.querySelector('dialog[open]')) { rememberPosition(trigger); refresh(); }
+      }, { once: true });
+    }
     return node;
   }
   // 首次打开与实时结束共用操作判断，避免部分成功后丢失重试入口。
   function taskActions(task, bar, dialog, trigger) {
     const source = demo.find(task.source), hadFocus = bar.contains(document.activeElement);
-    bar.replaceChildren(ui.button('关闭', () => { dialog.close(); refresh(); }));
+    bar.replaceChildren(ui.button(bar.detailBack ? '返回上一级' : '关闭', () => { if (bar.detailBack) bar.detailBack(); else dialog.close(); }));
     if (['排队', '进行中'].includes(task.state) && allowed('collections.cancel')) bar.append(ui.button('取消采集', () => { dialog.close(); cancelTask(task, trigger); }, 'admin-button is-danger'));
-    else if (['部分成功', '失败', '已取消'].includes(task.state) && allowed('collections.retry') && source.connectionState === '已启用') bar.append(ui.button(task.enumeration && task.failures.length ? '重试失败对象' : '重新采集', () => { dialog.close(); collect(source, trigger, task); }, 'admin-button is-primary'));
+    else if (['部分成功', '失败', '已取消'].includes(task.state) && allowed('collections.retry') && source.connectionState === '已启用') bar.append(ui.button(task.enumeration && demo.retryTargets(task).length ? '重试未完整对象' : '重新采集', () => { dialog.close(); collect(source, trigger, task); }, 'admin-button is-primary'));
     if (hadFocus) bar.querySelector('button')?.focus({ preventScroll: true });
   }
   function taskBody(task, body) {
     body.replaceChildren(actions(badge(task.state)));
-    fields(body, [['数据源', demo.find(task.source).name], ['任务编号', task.id], ['配置修订', task.configRevision ? '修订 ' + task.configRevision : '未记录'], ['采集范围', task.scope], ['采集账号', task.account], ['发起方式', task.trigger + ' · ' + task.actor], ['开始时间', task.at], ['结束时间', task.ended || '尚未结束'], ['枚举覆盖', task.enumeration ? '枚举完整' : '不完整，总数未知'], ['已发现 / 已处理', task.discovered + ' / ' + task.processed], ['失败对象', task.failed], [task.state === '完整成功' ? '采集快照' : '候选采集快照', task.version], ['数据库任务状态', task.databaseState], ...(task.parent ? [['原任务', task.parent]] : [])]);
+    fields(body, [['数据源', demo.find(task.source).name], ['任务编号', task.id], ['采集范围', task.scope, true], ['已处理 / 已发现对象', task.processed + ' / ' + task.discovered], ['枚举覆盖', task.enumeration ? '枚举完整' : '不完整，总数未知'], ['完整采集对象', task.complete + ' 个'], ['部分采集对象', task.partial + ' 个'], ['读取失败对象', task.failed + ' 个'], ['未处理对象', (task.discovered - task.processed) + ' 个' + (task.enumeration ? '' : '（已发现范围）')]]);
     if (task.enumeration) { const host = ui.el('div', 'prototype-ui ds-progress'); PrototypeUI.mount(host, { data: () => ({ percentage: task.total ? Math.round(task.processed / task.total * 100) : 0, state: task.state }), template: '<el-progress :percentage="percentage" :status="state===\'完整成功\'?\'success\':state===\'部分成功\'?\'warning\':state===\'失败\'?\'exception\':undefined"></el-progress>' }); body.append(host); }
+    heading(body, '任务信息');
+    fields(body, [['配置修订', task.configRevision ? '修订 ' + task.configRevision : '未记录'], ['采集账号', task.account], ['发起方式', task.trigger + ' · ' + task.actor], ['开始时间', task.at], ['结束时间', task.ended || '尚未结束'], [task.state === '完整成功' ? '采集快照' : '候选采集快照', task.version], ['数据库任务状态', task.databaseState], ...(task.parent ? [['原任务', task.parent]] : [])]);
     if (task.reason) { heading(body, task.state === '已取消' ? '取消原因' : '采集说明'); body.append(note(task.reason, task.state === '失败')); }
-    if (task.failures.length) { heading(body, '失败对象'); const list = ui.el('div', 'ds-failure-list'); task.failures.forEach(name => list.append(stack(name, task.enumeration ? '索引：无权限；字段、类型等可靠属性已保留' : '未完整取得结构，请重新枚举确认'))); body.append(list); }
+    if (task.partialObjects.length) { heading(body, '部分采集对象'); const list = ui.el('div', 'ds-failure-list'); task.partialObjects.forEach(name => list.append(stack(name, '索引：无权限；字段、类型等可靠属性已保留'))); body.append(list); }
+    if (task.failures.length) { heading(body, '读取失败对象'); const list = ui.el('div', 'ds-failure-list'); task.failures.forEach(name => list.append(stack(name, '未取得可用结构，请核对失败原因后重试。'))); body.append(list); }
     heading(body, '结果与来源');
     const changes = demo.changes.filter(change => change.source === task.source && change.taskId === task.id);
     fields(body, [['发现变化', changes.length + ' 项']]);
     if (allowed('collections.view')) changes.forEach(change => body.append(link(demo.changeTarget(change) + ' · ' + change.attribute, trigger => changeDetail(change, trigger))));
-    body.append(ui.el('p', 'ds-prose', task.retryOnly ? '本次仅覆盖失败对象，不代表整源完整采集；原任务及最近完整采集记录保留。' : task.enumeration ? '本次结果独立保留采集快照与采集时间，人工确认的业务说明不会被同步覆盖。' : '当前仅记录已发现及已完成范围，未发现对象不作为删除证据。'));
+    body.append(ui.el('p', 'ds-prose', task.retryOnly ? '本次仅覆盖未完整对象，不代表整源完整采集；原任务及最近完整采集记录保留。' : task.enumeration ? '本次结果独立保留采集快照与采集时间，人工确认的业务说明不会被同步覆盖。' : '当前仅记录已发现及已处理范围，未发现对象不作为删除证据。'));
   }
   function cancelTask(task, trigger) {
-    ui.openForm({ title: '取消采集 · ' + task.id, trigger, note: '停止采集并保留已完成范围；未完成部分不作为对象删除依据。', value: { reason: '' }, fields: [{ key: 'reason', label: '取消原因', type: 'textarea', required: true, full: true }], danger: true, saveLabel: '取消采集', preview: data => [{ label: '任务', before: task.state, after: '已取消' }, { label: '已完成范围', before: task.processed + ' 个对象', after: '保留已取得属性' }, { label: '取消原因', before: '—', after: data.reason.trim() }], save: data => demo.cancelTask(task, data.reason) ? undefined : '任务已结束，请回看最新结果。', success: '采集已取消' });
+    ui.openForm({ title: '取消采集 · ' + task.id, trigger, note: '停止采集并保留已取得的可靠属性；未处理部分不作为对象删除依据。', value: { reason: '' }, fields: [{ key: 'reason', label: '取消原因', type: 'textarea', required: true, full: true }], danger: true, saveLabel: '取消采集', preview: data => [{ label: '任务', before: task.state, after: '已取消' }, { label: '已处理对象', before: task.processed + ' 个', after: '保留已取得的可靠属性' }, { label: '取消原因', before: '—', after: data.reason.trim() }], save: data => demo.cancelTask(task, data.reason) ? undefined : '任务已结束，请回看最新结果。', success: '采集已取消' });
   }
   function changeDetail(change, trigger) {
     const source = demo.find(change.source);
@@ -428,7 +539,7 @@
   }
   function impactSummary(body, item, dialog, title = '治理处理') {
     heading(body, title);
-    fields(body, [['处理编号', item.id], ['处理进度', item.state], ['处理人', item.owner ? person(item.owner) : '尚未处理'], ['知识更新', item.knowledge], ...(item.governanceResult ? [['治理结果', item.governanceResult, true]] : [])]);
+    fields(body, [['处理进度', item.state], ['处理人', item.owner ? person(item.owner) : '尚未处理'], ['知识更新', item.knowledge], ...(item.governanceResult ? [['治理结果', item.governanceResult, true]] : [])]);
     if (title === '变更影响' && allowed('governance.view')) body.append(link('打开治理', () => { dialog.close(); openImpactPage(item); }));
   }
   function openImpactPage(item, trigger) {
@@ -485,6 +596,72 @@
       })
     });
   }
+  // 引用记录回答谁在何时取用了哪一版；任务输入与人工确认依据分别表达。
+  const noteUseActorLabel = use => use.kind === '治理任务' ? '发起人' : '引用人';
+  function noteReferenceDetail(item, use, trigger) {
+    if (!allowed('business-notes.view')) return ui.notify('当前账号没有查看业务说明的权限。');
+    // 历史引用只读取绑定修订；找不到原修订时不能用最新版冒充。
+    const revision = use.snapshot || (item.revision === use.revision ? item : item.history.find(entry => entry.revision === use.revision));
+    const task = window.GovernanceDemo?.tasks.find(task => task.id === use.taskId);
+    const dialog = showDetail('引用详情 · ' + use.name, trigger, body => {
+      body.append(badge(use.state));
+      fields(body, [['引用对象', use.name, true], ['记录编号', use.id], ['记录类型', use.kind], [noteUseActorLabel(use), person(use.actor)], ['引用时间', use.at], ['使用方式', use.method], ['资料修订', '第 ' + use.revision + ' 版' + (item.revision !== use.revision ? '（历史修订，当前第 ' + item.revision + ' 版）' : '（当前修订）')], ['使用用途', use.purpose, true]]);
+      if (use.excerpt) { heading(body, '采用的资料内容'); body.append(ui.el('blockquote', 'ds-note-excerpt ds-prose', use.excerpt)); }
+      heading(body, use.kind === '治理任务' ? '任务进展与产出' : '治理成果内容');
+      // 资料查看权可追溯引用，具体治理内容仍需对应的治理查看权。
+      if (allowed('governance.view')) {
+        body.append(ui.el('p', 'ds-prose', use.result));
+        if (use.reviewer) fields(body, [['确认人', person(use.reviewer)], ['确认时间', use.reviewedAt]]);
+        if (use.ended) fields(body, [['任务完成时间', use.ended]]);
+      } else body.append(note('当前账号没有查看治理内容的权限。'));
+      heading(body, '被引用的业务说明 · 第 ' + use.revision + ' 版');
+      if (revision) {
+        fields(body, [['资料标题', revision.title, true], ['数据源', demo.find(item.source).name], ['修订时间', revision.updated]]);
+        body.append(ui.el('p', 'ds-prose', revision.content || '未填写文字说明'));
+        if (revision.files.length) { heading(body, '该版附件'); revision.files.forEach(file => body.append(ui.el('p', 'ds-file-name', file.name + ' · ' + Math.ceil(file.size / 1024) + ' KB'))); }
+      } else body.append(note('原修订内容暂不可用，请保留该引用记录并联系资料管理人员核对。', true));
+    }, (bar, node) => { if (task && allowed('governance.view')) bar.append(ui.button('查看治理任务', trigger => viewGovernanceTask(main, ui, task, trigger))); });
+    const title = dialog.querySelector(':scope > .dialog-heading h2'); title.tabIndex = -1;
+    requestAnimationFrame(() => title.focus({ preventScroll: true }));
+  }
+  function noteReferences(body, item) {
+    const uses = demo.noteUsesFor(item); if (!uses.length) return;
+    heading(body, '引用记录（' + uses.length + '）');
+    uses.forEach(use => {
+      const row = ui.el('section', 'ds-note-reference'), header = ui.el('div', 'ds-note-reference-heading');
+      const title = link(use.name, trigger => noteReferenceDetail(item, use, trigger));
+      title.setAttribute('aria-label', '查看引用：' + use.name);
+      header.append(title, badge(use.state));
+      row.append(header, ui.el('small', 'cell-sub', use.kind + ' ' + use.id + ' · ' + use.method + ' · 引用第 ' + use.revision + ' 版' + (item.revision !== use.revision ? '（历史修订）' : '')));
+      fields(row, [[noteUseActorLabel(use), person(use.actor)], ['引用时间', use.at]]);
+      row.append(ui.el('p', 'ds-prose', use.purpose)); body.append(row);
+    });
+    body.append(ui.el('p', 'ds-note-block', '以上 ' + uses.length + ' 条引用需保留来源，不能删除资料。' + (item.status === '有效' ? '撤下可停止后续取用，已有引用保留。' : '资料撤下后，已有引用仍保留。')));
+  }
+  function viewGovernanceTask(target, controls, task, trigger) {
+    main = target; ui = controls;
+    if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理内容的权限。');
+    const dialog = showDetail('治理任务 · ' + task.id, trigger, body => {
+      body.append(badge(task.state));
+      fields(body, [['任务名称', task.name, true], ['数据源', demo.find(task.source).name], ['治理对象', task.object], ['发起人', person(task.actor)], ['发起时间', task.at], ['资料取用', '自动取用 ' + task.notes.length + ' 份有效说明'], ['生成范围', task.entries.map(entry => entry.name).join('、'), true]]);
+      heading(body, '取用与生成过程');
+      processEvents(body, task.events.map(event => ({ ...event, actor: event.actor || '系统', reason: event.detail })));
+      heading(body, '当次业务说明（' + task.notes.length + '）');
+      const list = ui.el('div', 'gov-task-notes');
+      task.notes.forEach(snapshot => {
+        const item = demo.notes.find(note => note.id === snapshot.id), use = demo.noteUses.find(use => use.kind === '治理任务' && use.taskId === task.id && use.noteId === snapshot.id);
+        const row = ui.el('div');
+        if (allowed('business-notes.view') && item && use) row.append(link(snapshot.title, trigger => noteReferenceDetail(item, use, trigger)));
+        else row.append(ui.el('span', '', snapshot.title));
+        row.append(ui.el('small', 'cell-sub', '第 ' + snapshot.revision + ' 版' + (snapshot.files.length ? ' · ' + snapshot.files.length + ' 个附件' : ''))); list.append(row);
+      });
+      if (!task.notes.length) list.append(note('当次没有有效业务说明；业务背景不足的条目仍需补充资料并保留待确认。'));
+      body.append(list); heading(body, '当次生成的建议（' + task.outputs.length + '）');
+      task.outputs.forEach(entry => { const row = ui.el('details', 'gov-task-output'); row.append(ui.el('summary', '', entry.name), ui.el('p', 'ds-prose', Object.values(entry.content).filter(Boolean).join('\n') || '尚缺业务定义')); if (entry.gap) row.append(note(entry.gap)); body.append(row); });
+    }, (bar, node) => bar.append(ui.button('打开当前治理条目', () => { node.close(); rememberPosition(trigger); const entry = task.entries[0]; GovernancePage.open(task.source, task.object, { from: location.hash.startsWith('#business-notes') ? 'business-notes' : '', tab: entry.kind, field: entry.id === 'overview' ? '' : entry.id }); }, 'admin-button is-primary')));
+    const title = dialog.querySelector(':scope > .dialog-heading h2'); title.tabIndex = -1;
+    requestAnimationFrame(() => title.focus({ preventScroll: true }));
+  }
   function noteDetail(item, trigger) {
     const source = demo.find(item.source);
     showDetail(item.title, trigger, (body, dialog) => {
@@ -493,13 +670,8 @@
       fields(body, [['数据源', source.name], ['提交人', person(item.author)], ['更新时间', item.updated], ['当前修订', '第 ' + item.revision + ' 版']]);
       heading(body, '业务说明'); body.append(ui.el('p', 'ds-prose', item.content || '未填写文字说明'));
       if (item.files.length) { heading(body, '附件'); item.files.forEach(file => body.append(ui.el('p', 'ds-file-name', file.name + ' · ' + Math.ceil(file.size / 1024) + ' KB'))); }
-      const uses = demo.noteUsesFor(item);
       // 引用与变更影响仅在有记录时展示，不作为资料生效流程。
-      if (uses.length) {
-        heading(body, '引用记录');
-        uses.forEach(use => { const row = ui.el('div', 'ds-note-use'); row.append(ui.el('strong', '', use.name), ui.el('small', 'cell-sub', use.kind + ' · 第 ' + use.revision + ' 版 · ' + use.state)); body.append(row); });
-        body.append(ui.el('p', 'ds-note-block', demo.noteDeleteBlock(item)));
-      }
+      noteReferences(body, item);
       impacts.forNote(item).forEach(record => impactSummary(body, record, dialog, '变更影响'));
       if (item.history.length) { heading(body, '修订记录'); item.history.forEach(entry => { const history = ui.el('details', 'ds-note-history'), summary = ui.el('summary', '', '第 ' + entry.revision + ' 版 · ' + entry.updated); history.append(summary, ui.el('p', 'ds-prose', entry.title), ui.el('p', 'ds-prose', entry.content || '无文字说明')); entry.files.forEach(file => history.append(ui.el('p', 'ds-file-name', file.name))); body.append(history); }); }
       const events = demo.noteEvents.filter(event => event.noteId === item.id);
@@ -511,12 +683,18 @@
       if (item.status === '有效' && allowed('business-notes.replace')) bar.append(ui.button('编辑业务说明', () => { node.close(); noteEditor(source, item, trigger); }, 'admin-button is-primary'));
     });
   }
-  function noteEditor(source, item, trigger) {
-    const node = ui.modal((item ? '编辑业务说明' : '新增业务说明') + ' · ' + source.name, trigger); node.classList.add('ds-note-dialog'); const host = ui.el('div'); node.append(host);
+  function noteEditor(source, item, trigger, fullPage = false) {
+    if (!fullPage) return openTask('business-notes/' + encodeURIComponent(source.id) + (item ? '/edit/' + encodeURIComponent(item.id) : '/new'), trigger);
+    const back = taskOrigin('#business-notes');
+    const node = taskPage((item ? '编辑业务说明' : '新增业务说明') + ' · ' + source.name, '企业业务说明', back, 'ds-note-page');
+    const host = ui.el('div', 'ds-task-host'); node.append(host);
     const uid = 'ds-note-form-' + (++detailSequence), initialToken = item && demo.noteToken(item);
     PrototypeUI.mount(host, { data: () => ({ model: { title: item?.title || '', content: item?.content || '', files: (item?.files || []).map((file, i) => ({ ...file, uid: i + 1 })) }, error: '', uid, rules: { title: [{ required: true, whitespace: true, message: '请填写资料标题', trigger: 'blur' }] } }), computed: {
       unchanged() { return item && this.model.title.trim() === item.title && this.model.content.trim() === item.content && !this.model.files.some(file => file.raw) && JSON.stringify(this.model.files.map(file => ({ name: file.name, size: file.size || 0 }))) === JSON.stringify(item.files); }
+    }, mounted() {
+      editor = { node, hash: location.hash, dirty: () => item ? !this.unchanged : Boolean(this.model.title.trim() || this.model.content.trim() || this.model.files.length) };
     }, methods: {
+      close() { navigate(back.slice(1)); },
       fileChanged(file, list) { if ((file.size || 0) > 20 * 1024 * 1024 || !/\.(pdf|docx|xlsx|csv|txt|md)$/i.test(file.name)) { this.model.files = list.filter(entry => entry.uid !== file.uid); this.error = '请选择 20 MB 以内的 PDF、DOCX、XLSX、CSV、TXT 或 Markdown 文件。'; return; } this.model.files = list; this.error = ''; },
       validField(key, valid) { this.$nextTick(() => { const input = this.$refs.form.getField(key)?.$el.querySelector('input'); if (input) { input.setAttribute('aria-invalid', String(!valid)); if (!valid) input.setAttribute('aria-describedby', uid + '-title-error'); else input.removeAttribute('aria-describedby'); } }); },
       // 新增和编辑在表单校验通过后直接保存，不增加核对步骤。
@@ -530,10 +708,10 @@
         if (result.error) { this.error = result.error; return; }
         const saved = result.note;
         if (!item) Object.assign(getQuery('business-notes:' + source.id), { keyword: '', owner: '', status: 'all', page: 1 });
-        node.close(); refresh(); ui.notify(result.impact ? '新修订已保存，已加入治理工作台变化待办' : item ? '业务说明已保存新修订' : '业务说明已保存');
+        finishEditor(); navigate(back.slice(1)); ui.notify(result.impact ? '新修订已保存，已加入治理工作台变化待办' : item ? '业务说明已保存新修订' : '业务说明已保存');
         requestAnimationFrame(() => (main.querySelector('[data-focus="ds-note-' + saved.id + '"]') || main.querySelector('.ds-notes-panel .cell-title') || main.querySelector('.ds-query-card input'))?.focus({ preventScroll: true }));
       }
-    }, template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" @validate="validField" @submit.prevent="submit"><div class="dialog-body"><p v-if="error" class="form-error" role="alert">{{error}}</p><el-form-item label="资料标题" prop="title"><el-input v-model="model.title" aria-label="资料标题" :maxlength="120"></el-input><template #error="{error:message}"><div class="el-form-item__error" :id="uid+'-title-error'" role="alert">{{message}}</div></template></el-form-item><el-form-item label="业务说明"><el-input v-model="model.content" aria-label="业务说明" type="textarea" :rows="7" :maxlength="5000" show-word-limit></el-input></el-form-item><el-form-item label="附件"><el-upload v-model:file-list="model.files" :auto-upload="false" :limit="5" :on-change="fileChanged" :on-exceed="()=>error='最多选择 5 个附件。'" accept=".pdf,.docx,.xlsx,.csv,.txt,.md" multiple><el-button>选择附件</el-button><template #tip><div class="el-upload__tip">PDF、DOCX、XLSX、CSV、TXT、Markdown；单个文件不超过 20 MB</div></template></el-upload></el-form-item></div><footer class="dialog-footer"><el-button @click="$el.closest('dialog').close()">取消</el-button><el-button type="primary" :disabled="unchanged" native-type="submit">保存</el-button></footer></el-form>` }); node.showModal();
+    }, template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" @validate="validField" @submit.prevent="submit"><div class="dialog-body"><p v-if="error" class="form-error" role="alert">{{error}}</p><el-form-item label="资料标题" prop="title"><el-input v-model="model.title" aria-label="资料标题" :maxlength="120"></el-input><template #error="{error:message}"><div class="el-form-item__error" :id="uid+'-title-error'" role="alert">{{message}}</div></template></el-form-item><el-form-item label="业务说明"><el-input v-model="model.content" aria-label="业务说明" type="textarea" :rows="12" :maxlength="5000" show-word-limit></el-input></el-form-item><el-form-item label="附件"><el-upload v-model:file-list="model.files" :auto-upload="false" :limit="5" :on-change="fileChanged" :on-exceed="()=>error='最多选择 5 个附件。'" accept=".pdf,.docx,.xlsx,.csv,.txt,.md" multiple><el-button>选择附件</el-button><template #tip><div class="el-upload__tip">PDF、DOCX、XLSX、CSV、TXT、Markdown；单个文件不超过 20 MB</div></template></el-upload></el-form-item></div><footer class="dialog-footer"><el-button @click="close">取消</el-button><el-button type="primary" :disabled="unchanged" native-type="submit">保存</el-button></footer></el-form>` });
   }
   function render(target, controls, options = {}) {
     main = target; ui = controls; section = options.section || 'sources';
@@ -544,7 +722,17 @@
       changeScope = collectionTab === 'changes' && options.target === 'changes' ? decodeURIComponent(location.hash.split('/')[3] || '') : '';
     }
     if (!allowed(section + '.view')) { main.replaceChildren(ui.pageHeading('不可访问'), note('当前账号没有此页面的查看权限。', true)); return; }
-    if (section === 'sources') renderSources(options.tabs);
+    if (options.sourceId && !demo.find(options.sourceId)) { main.replaceChildren(note('当前数据源不存在或不可访问。', true)); return; }
+    if (section === 'business-notes' && ['new', 'edit'].includes(options.target)) {
+      const source = demo.find(options.sourceId), id = decodeURIComponent(location.hash.split('/')[3] || ''), item = options.target === 'edit' && demo.notes.find(item => item.id === id && item.source === source?.id);
+      if (!source || options.target === 'edit' && (!item || item.status !== '有效') || !allowed(item ? 'business-notes.replace' : 'business-notes.submit') || source.connectionState === '已退役') { main.replaceChildren(note('当前资料不可编辑或没有相应权限。', true)); return; }
+      noteEditor(source, item || null, null, true);
+    }
+    else if (section === 'sources') renderSources(options.tabs);
+    else if (section === 'catalog' && options.target) {
+      const table = demo.objects(demo.selected).find(table => objectName(table) === options.target);
+      if (table) renderObject(table); else main.replaceChildren(note('当前目录中找不到此对象，请返回目录重新选择。', true), ui.button('返回元数据目录', () => navigate('catalog')));
+    }
     else if (section === 'catalog') renderCatalog();
     else if (section === 'collections') renderCollections();
     else renderNotes();
@@ -554,7 +742,8 @@
     const body = document.querySelector('[data-task-body="' + event.detail + '"]'), task = demo.tasks.find(item => item.id === event.detail);
     // 跨页只更新只读状态单元格，保留筛选输入、分页和焦点。
     if (task && allowed('sources.view')) document.querySelectorAll('[data-source-collection]').forEach(cell => { if (cell.dataset.sourceCollection === task.source) cell.replaceWith(collectionCell(demo.find(task.source))); });
-    if (body && task) { taskBody(task, body); if (!['排队', '进行中'].includes(task.state)) { const dialog = body.closest('dialog'); taskActions(task, dialog.querySelector('.dialog-footer'), dialog, dialog.taskTrigger); } }
+    if (task && allowed('sources.view')) document.querySelectorAll('[data-source-governance]').forEach(cell => { if (cell.dataset.sourceGovernance === task.source) cell.replaceWith(governanceCell(demo.find(task.source))); });
+    if (body && task) { taskBody(task, body); if (!['排队', '进行中'].includes(task.state)) { const dialog = body.closest('dialog'); taskActions(task, body.detailFooter, dialog, body.detailTrigger); } }
     else if (location.hash === '#collections' && !document.querySelector('dialog[open]') && collectionTab === 'tasks') { const focused = document.activeElement; if (focused === document.body || main.contains(focused) && !focused.closest('.rl-filters,.rl-pager')) refresh(); }
   });
   function viewImpactSource(target, controls, item, trigger) {
@@ -569,7 +758,9 @@
     rememberPosition(trigger);
     demo.selected = sourceId; collectionTab = 'changes';
     if (pendingOnly) Object.assign(getQuery('changes:' + sourceId + (object ? ':' + object : '')), { keyword: '', owner: '', type: '待核实', status: 'all', fromDate: '', toDate: '', page: 1 });
-    navigate('collections/' + encodeURIComponent(sourceId) + '/changes' + (object ? '/' + encodeURIComponent(object) : ''));
+    const path = 'collections/' + encodeURIComponent(sourceId) + '/changes' + (object ? '/' + encodeURIComponent(object) : '');
+    if (location.hash.startsWith('#catalog')) taskOrigins.set('#' + path, location.hash);
+    navigate(path);
   }
-  window.DataSourcesPage = { render, connectionEditor, viewImpactSource, openChanges };
+  window.DataSourcesPage = { render, connectionEditor, viewImpactSource, viewGovernanceTask, openChanges, beforeNavigation };
 })();

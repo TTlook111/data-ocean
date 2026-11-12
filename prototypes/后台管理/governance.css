@@ -35,18 +35,28 @@
 .gov-basis { padding-top:24px; margin-top:24px; border-top:1px solid var(--do-line); }
 .gov-basis summary { cursor:pointer; color:var(--do-primary); }
 .gov-basis p { margin:12px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--do-muted); }
+.gov-generation-dialog .readonly-value { white-space:pre-wrap; }
+.gov-task-notes { display:grid; gap:12px; }
+.gov-task-notes .do-action { display:block; height:auto; min-height:22px; padding:0; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.gov-task-output { padding:12px 0; border-bottom:1px solid var(--do-line); }
+.gov-task-output summary { cursor:pointer; overflow-wrap:anywhere; }
+.gov-task-output .ds-prose { margin-top:12px; }
 .gov-review .gov-status-line { margin-top:16px; font-size:12px; color:var(--do-muted); }
 .gov-page-footer { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; padding:16px 24px; border-top:1px solid var(--do-line); background:#fff; flex:none; }
 .gov-current-item { margin-right:auto; color:var(--do-muted); overflow-wrap:anywhere; }
 .gov-shell .admin-button:disabled { color:#818b9a; border-color:var(--do-line); background:#edf0f4; cursor:not-allowed; }
-.gov-impact { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:12px 24px; border-bottom:1px solid var(--do-line); background:#fbf2dd; }
-.gov-impact .do-action { margin-left:auto; }
+.gov-work-cell { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+.gov-work-cell .do-action { white-space:normal; text-align:left; }
+.gov-source-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:12px 0; }
+.gov-source-status .do-action { margin-left:auto; }
 .gov-change-evidence { padding:16px 24px; border-bottom:1px solid var(--do-line); }
 .gov-change-evidence > summary { cursor:pointer; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gov-change-evidence .gov-diff { margin:16px 0; padding:16px; }
 .gov-change-evidence .ds-prose + .ds-prose { margin-top:8px; }
 .gov-related-items { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .gov-unmapped { padding:24px; border:1px solid var(--do-line); border-radius:8px; background:#fff; flex:none; }
+.gov-unmapped > summary { cursor:pointer; font-weight:500; }
+.gov-unmapped[open] > summary { margin-bottom:16px; }
 .gov-unmapped .gov-change-evidence { padding:0 0 16px; border:0; }
 .gov-unmapped .gov-toolbar-actions { justify-content:flex-end; margin-top:16px; }
 .gov-history { padding:24px; }

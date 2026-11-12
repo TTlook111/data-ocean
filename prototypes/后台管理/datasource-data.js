@@ -77,9 +77,14 @@
     if (missing && !states.includes('属性缺失')) states.push('属性缺失');
     return states;
   };
-  const tasks = Array.from({ length: 15 }, (_, i) => ({ id: 'CJ-' + String(30 - i).padStart(4, '0'), source: 'retail', configRevision: 1, trigger: i % 3 ? '定时' : '手动', actor: i % 3 ? '系统调度' : '林管理员', at: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:00:00' : ' 02:00:00'), ended: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:03:21' : ' 02:03:21'), state: i === 0 ? '部分成功' : i === 2 ? '失败' : i === 4 ? '已取消' : '完整成功', enumeration: i !== 2 && i !== 4, total: i === 2 || i === 4 ? null : 23, discovered: i === 2 ? 12 : 23, processed: i === 2 ? 10 : i === 4 ? 8 : 23, failed: i === 0 ? 2 : i === 2 ? 2 : 0, version: 'S-' + String(30 - i).padStart(3, '0'), scope: 'retail · 全部可见对象', account: 'dataocean_reader', reason: i === 0 ? 'supplier、legacy_price 的索引目录无权限；已保留字段等可靠属性。' : i === 2 ? '枚举中途超时，全部数量未知；未据此判断对象删除。' : i === 4 ? '发起人取消，保留已完成范围。' : '', databaseState: '已确认结束', failures: i === 0 ? ['supplier', 'legacy_price'] : i === 2 ? ['purchase_order', 'purchase_item'] : [], parent: '' }));
-  tasks.push({ ...tasks[0], id: 'CJ-F001', source: 'finance', at: '2026-11-11 02:00:00', state: '失败', enumeration: false, discovered: 0, total: null, processed: 0, failed: 0, scope: 'finance · 全部可见对象', reason: '网络连接超时。请检查连接路径，再重新测试。', failures: [] });
-  tasks.push({ ...tasks[1], id: 'CJ-P001', source: 'products', version: 'S-003', at: '2026-11-11 03:00:00', ended: '2026-11-11 03:01:10', state: '完整成功', enumeration: true, discovered: 12, total: 12, processed: 12, failed: 0, scope: 'products · 全部可见对象', reason: '', failures: [] });
+  // 已处理包含三类结果；读取了可靠属性但有缺项的对象不计作读取失败。
+  const tasks = Array.from({ length: 15 }, (_, i) => {
+    const partialObjects = i === 0 ? ['supplier', 'legacy_price'] : [], failures = i === 2 ? ['purchase_order', 'purchase_item'] : [];
+    const processed = i === 2 ? 10 : i === 4 ? 8 : 23;
+    return { id: 'CJ-' + String(30 - i).padStart(4, '0'), source: 'retail', configRevision: 1, trigger: i % 3 ? '定时' : '手动', actor: i % 3 ? '系统调度' : '林管理员', at: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:00:00' : ' 02:00:00'), ended: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:03:21' : ' 02:03:21'), state: i === 0 ? '部分成功' : i === 2 ? '失败' : i === 4 ? '已取消' : '完整成功', enumeration: i !== 2 && i !== 4, total: i === 2 || i === 4 ? null : 23, discovered: i === 2 ? 12 : 23, processed, complete: processed - partialObjects.length - failures.length, partial: partialObjects.length, failed: failures.length, partialObjects, failures, version: 'S-' + String(30 - i).padStart(3, '0'), scope: 'retail · 全部可见对象', account: 'dataocean_reader', reason: i === 0 ? 'supplier、legacy_price 的索引目录无权限；已保留字段等可靠属性。' : i === 2 ? '枚举中途超时，全部数量未知；未据此判断对象删除。' : i === 4 ? '发起人取消，保留已完成范围。' : '', databaseState: '已确认结束', parent: '' };
+  });
+  tasks.push({ ...tasks[0], id: 'CJ-F001', source: 'finance', at: '2026-11-11 02:00:00', state: '失败', enumeration: false, discovered: 0, total: null, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], scope: 'finance · 全部可见对象', reason: '网络连接超时。请检查连接路径，再重新测试。', failures: [] });
+  tasks.push({ ...tasks[1], id: 'CJ-P001', source: 'products', version: 'S-003', at: '2026-11-11 03:00:00', ended: '2026-11-11 03:01:10', state: '完整成功', enumeration: true, discovered: 12, total: 12, processed: 12, complete: 12, failed: 0, scope: 'products · 全部可见对象', reason: '', failures: [] });
   // 最近采集包含失败和取消的尝试；对象本身保留可靠属性的采集时间。
   sources.forEach(source => { const latest = tasks.filter(task => task.source === source.id).sort((a, b) => b.at.localeCompare(a.at))[0]; if (latest) source.lastCollected = latest.ended || latest.at; });
   tables.filter(table => table.source === 'retail').forEach(table => { table.version = tasks[0].version; });
@@ -87,10 +92,10 @@
   const notes = noteTitles.map((title, i) => ({ id: 'ZL-' + String(15 - i).padStart(3, '0'), source: 'retail', title, content: i === 0 ? '本系统管理超市商品、库存和销售。销售额按实际收款计算，退货需要扣除。作废单据不计入销售。不同门店的营业日以各自关账时间为准，未关账的当天数据可能继续变化。' : title + '。请结合当前有效业务制度核对，尚不明确的技术映射留待治理确认。', files: i % 4 === 1 ? [{ name: title + '.pdf', size: 245760 }] : [], author: i % 3 ? 'u02' : 'u01', revision: 1, status: i === 14 ? '已撤下' : '有效', updated: '2026-11-' + String(11 - Math.floor(i / 2)).padStart(2, '0') + ' 10:00:00', history: [] }));
   // 引用绑定实际修订；历史任务和历史成果仍需保留来源，不能只检查当前版本。
   const noteUses = [
-    { noteId: 'ZL-015', revision: 1, kind: '治理成果', name: '销售额与退货扣减口径', state: '已确认' },
-    { noteId: 'ZL-014', revision: 1, kind: '治理任务', name: '库存与盘点规则核对', state: '进行中' },
-    { noteId: 'ZL-013', revision: 1, kind: '治理任务', name: '促销折扣规则识别', state: '已完成' },
-    { noteId: 'ZL-001', revision: 1, kind: '治理成果', name: '历史订单归属说明', state: '已确认' }
+    { id: 'CG-021', noteId: 'ZL-015', revision: 1, kind: '治理成果', name: '销售额与退货扣减口径', state: '已确认', actor: 'u12', at: '2026-11-11 11:20:00', method: '人工治理依据', purpose: '确认销售额、退货扣减和作废单据的统计口径。', excerpt: '销售额按实际收款计算，退货需要扣除。作废单据不计入销售。', result: '销售额按实际收款统计，扣除退货，排除作废单据。', reviewer: 'u11', reviewedAt: '2026-11-11 14:10:00' },
+    { id: 'RW-008', noteId: 'ZL-014', revision: 1, kind: '治理任务', name: '库存与盘点规则核对', state: '进行中', actor: 'u11', at: '2026-11-11 11:30:00', method: 'AI 治理输入', purpose: '将该版正文及附件作为输入，辅助整理库存流转、盘点差异和待确认问题。', result: '正在整理业务规则，尚未形成已确认成果。' },
+    { id: 'RW-006', noteId: 'ZL-013', revision: 1, kind: '治理任务', name: '促销折扣规则识别', state: '已完成', actor: 'u12', at: '2026-11-09 11:00:00', method: 'AI 治理输入', purpose: '依据第 1 版正文识别促销折扣规则和信息缺口。', result: '已生成待人工确认的建议；优惠叠加规则仍需补充。', ended: '2026-11-09 11:08:00' },
+    { id: 'CG-009', noteId: 'ZL-001', revision: 1, kind: '治理成果', name: '历史订单归属说明', state: '已确认', actor: 'u11', at: '2026-11-04 09:00:00', method: '人工治理依据', purpose: '核对历史订单归属说明，保留原业务资料作为确认依据。', result: '技术映射仍按已确认的对象定义核对，不从迁移说明推断关联键。', reviewer: 'u11', reviewedAt: '2026-11-04 09:30:00' }
   ];
   const revisedNote = notes.find(item => item.id === 'ZL-013');
   revisedNote.history.push({ revision: 1, updated: '2026-11-09 10:00:00', title: revisedNote.title, content: '促销折扣按订单记录核对；叠加优惠规则待补充。', files: [] });
@@ -101,8 +106,11 @@
   const noteToken = item => item.revision + ':' + item.status + ':' + noteEvents.filter(event => event.noteId === item.id).length;
   function noteDeleteBlock(item) {
     const uses = noteUsesFor(item);
-    if (uses.some(use => use.kind === '治理任务' && ['排队', '进行中'].includes(use.state))) return '治理任务正在取用，不能删除。' + (item.status === '有效' ? '可撤下以停止后续取用。' : '保留当前任务的来源依据。');
-    if (uses.length) return '已有治理引用（含历史修订），' + (item.status === '有效' ? '请撤下并保留来源。' : '需保留来源供追溯。');
+    if (!uses.length) return;
+    const active = uses.filter(use => use.kind === '治理任务' && ['排队', '进行中'].includes(use.state));
+    const example = (active[0] || uses[0]), target = example.kind + '「' + (example.name || example.id || '未命名记录') + '」';
+    const reason = active.length ? target + '正在取用第 ' + example.revision + ' 版，不能删除。' : target + '已引用第 ' + example.revision + ' 版，需保留来源，不能删除。';
+    return reason + (uses.length > 1 ? '共 ' + uses.length + ' 条引用。' : '') + '可在资料详情的“引用记录”查看。' + (item.status === '有效' ? '撤下可停止后续取用，已有引用保留。' : '撤下后已有引用仍保留。');
   }
   function changeNote(item, action, data, actor, token) {
     const ability = { '撤下': 'withdraw', '恢复': 'restore', '删除': 'delete' }[action];
@@ -121,6 +129,12 @@
   const find = id => sources.find(source => source.id === id);
   const objects = id => tables.filter(table => table.source === id && (find(id).config.type !== 'PostgreSQL' || find(id).config.schemas.includes(table.schema)));
   const activeTask = id => tasks.find(task => task.source === id && ['排队', '进行中'].includes(task.state));
+  const latestTask = id => tasks.filter(task => task.source === id).sort((a, b) => b.at.localeCompare(a.at))[0];
+  // 治理分类和目录数量使用同一组对象，避免把字段数、任务范围或旧汇总混入分母。
+  function governanceSummary(id) {
+    const rows = objects(id);
+    return { total: rows.length, confirmed: rows.filter(row => row.governance === '已确认').length, partial: rows.filter(row => row.governance === '部分确认').length, pending: rows.filter(row => row.governance === '待治理').length, review: rows.filter(row => row.governance === '待复核').length };
+  }
   const configuration = source => ({ ...source.config, schemas: [...source.config.schemas], name: source.name });
   const scopeLabel = source => source.config.database + (source.config.type === 'PostgreSQL' ? ' / ' + (source.config.schemas.join('、') || '尚未选择 Schema') : '');
   // 服务端识别用固定响应表达；版本不取自用户填写值，失败不伪造识别结果。
@@ -183,12 +197,13 @@
     if (scopeChanged && source.lastCollected) { source.collection = '待重新采集'; source.lastFull = ''; }
     return source;
   }
+  const retryTargets = task => [...new Set([...(task.partialObjects || []), ...task.failures])];
   function startTask(source, parent) {
     if (source.connectionState !== '已启用') return { error: '数据源尚未启用，不能采集。' };
     if (source.config.type === 'PostgreSQL' && !source.config.schemas.length) return { error: '请先核定 Schema 范围。' };
     if (activeTask(source.id)) return { error: '该数据源已有进行中的采集，请先查看当前任务。' };
-    const retry = parent && parent.enumeration && parent.failures.length;
-    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队', enumeration: false, total: null, discovered: 0, processed: 0, failed: 0, version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + (retry ? ' · 失败对象：' + parent.failures.join('、') : ' · 全部可见对象'), schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', retryOnly: Boolean(retry), retryObjects: retry ? [...parent.failures] : [] };
+    const targets = parent ? retryTargets(parent) : [], retry = parent && parent.enumeration && targets.length;
+    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + (retry ? ' · 未完整对象：' + targets.join('、') : ' · 全部可见对象'), schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', retryOnly: Boolean(retry), retryObjects: retry ? targets : [] };
     tasks.unshift(task); return { task };
   }
   // 简单任务分段仅用于评审进度与取消；不拼接新旧结果，不改写历史任务结论。
@@ -197,15 +212,20 @@
     const source = find(task.source), count = task.retryOnly ? task.retryObjects.length : source.config.type === 'PostgreSQL' ? task.schemas.length * 6 : objects(task.source).length || 6;
     if (task.state === '排队') { task.state = '进行中'; task.databaseState = '采集中'; return; }
     if (source.health !== '正常') { Object.assign(task, { state: '失败', reason: '网络连接不可用，请先测试并修复连接。', ended: now(), databaseState: '已确认结束' }); source.lastCollected = task.ended; if (!task.retryOnly) source.collection = '失败'; return; }
-    if (!task.enumeration) { task.enumeration = true; task.total = count; task.discovered = count; task.processed = Math.ceil(count / 2); return; }
-    const failures = task.retryOnly ? task.retryObjects.filter(name => objects(source.id).find(table => table.name === name)?.indexState === '无权限') : objects(source.id).filter(table => table.indexState === '无权限').map(table => table.name);
-    Object.assign(task, { processed: count, failed: failures.length, failures, state: failures.length ? '部分成功' : '完整成功', ended: now(), databaseState: '已确认结束', reason: failures.length ? '索引目录无权限。请数据库负责人核对读取权限，成功属性已保留。' : '' });
+    const objectNames = task.retryOnly ? task.retryObjects : objects(source.id).map(table => table.name);
+    const partialFor = names => names.filter(name => objects(source.id).find(table => table.name === name)?.indexState === '无权限');
+    if (!task.enumeration) {
+      const processed = Math.ceil(count / 2), partialObjects = partialFor(objectNames.slice(0, processed));
+      Object.assign(task, { enumeration: true, total: count, discovered: count, processed, complete: processed - partialObjects.length, partial: partialObjects.length, partialObjects }); return;
+    }
+    const partialObjects = partialFor(objectNames);
+    Object.assign(task, { processed: count, complete: count - partialObjects.length, partial: partialObjects.length, partialObjects, failed: 0, failures: [], state: partialObjects.length ? '部分成功' : '完整成功', ended: now(), databaseState: '已确认结束', reason: partialObjects.length ? '索引目录无权限。请数据库负责人核对读取权限，成功属性已保留。' : '' });
     // 相同表名按 Schema 区分；变更范围后保留旧记录，当前目录只呈现选定范围。
     if (source.config.type === 'PostgreSQL') task.schemas.forEach(schema => names.slice(0, 6).forEach(([name, label], index) => { const row = object(source, name, label, index, schema); if (!tables.some(table => table.id === row.id)) tables.push(row); }));
     else if (!objects(source.id).length) names.slice(0, 6).forEach(([name, label], index) => tables.push(object(source, name, label, index)));
     source.lastCollected = task.ended;
     // 子范围重试不能把整源目录标为完整；每个对象保留本次结构来源。
-    if (!task.retryOnly) { source.collection = task.state; if (!failures.length) source.lastFull = task.ended; }
+    if (!task.retryOnly) { source.collection = task.state; if (!partialObjects.length) source.lastFull = task.ended; }
     objects(source.id).filter(table => !task.retryOnly || task.retryObjects.includes(table.name)).forEach(table => { table.collected = task.ended; table.version = task.version; });
   }
   function cancelTask(task, reason = '发起人取消采集') {
@@ -226,6 +246,6 @@
     if (action === '退役数据源') source.connectionState = '已退役';
     source.updated = now(); source.history.unshift({ revision: source.revision, at: now(), action, reason });
   }
-  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, advanceTask, cancelTask, lifecycle,
+  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, latestTask, governanceSummary, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, retryTargets, advanceTask, cancelTask, lifecycle,
     get selected() { return selected; }, set selected(value) { if (find(value)) selected = value; }, nextId: prefix => prefix + (++sequence) };
 })();

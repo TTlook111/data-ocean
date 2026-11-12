@@ -44,7 +44,38 @@
 .ds-forbidden-item > .ds-section-heading { margin-top: 0; }
 .ds-forbidden-item .ds-fields { grid-template-columns: minmax(0,1fr); margin-bottom: 0; }
 .ds-connection-dialog { width: min(848px,calc(100vw - 80px)); }
+.ds-close-warning h3 { margin: 0 0 12px; font-size: 16px; line-height: 24px; }
+.ds-close-warning p { margin: 0; color: var(--do-muted); }
 .ds-note-dialog { width: min(800px,calc(100vw - 80px)); }
+.ds-connection-dialog.ds-credential-dialog { width: min(480px,calc(100vw - 48px)); }
+.ds-connection-dialog.ds-test-dialog { width: min(720px,calc(100vw - 48px)); }
+/* 长任务使用真实页面，表单保留阅读宽度，操作固定在当前工作区底部。 */
+.ds-task-page { display: flex; flex-direction: column; min-height: 0; flex: 1; border: 1px solid var(--do-line); border-radius: 8px; background: #fff; overflow: hidden; }
+.ds-task-page > .ds-task-host, .ds-task-page > .ds-task-host > .el-form { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.ds-task-page .dialog-body { flex: 1; max-height: none; min-height: 0; }
+.ds-task-page > .ds-task-host > .el-form { overflow: auto; }
+.ds-task-page > .ds-task-host > .el-form > .dialog-body { flex: 1 0 auto; overflow: visible; }
+.ds-task-page > .ds-task-host > .el-form > .dialog-footer { position: sticky; bottom: 0; z-index: 4; }
+.ds-task-page .el-form-item { margin-bottom: 24px; }
+.ds-task-page .el-form-item .el-select { width: 100%; }
+.ds-task-page .dialog-footer { flex: none; flex-wrap: wrap; }
+.ds-note-page .dialog-footer { padding-left: max(24px,calc((100% - 800px)/2)); padding-right: max(24px,calc((100% - 800px)/2)); }
+.ds-task-page .ds-form-section .el-form-item:last-child { margin-bottom: 0; }
+.ds-task-page .dialog-body > * { max-width: 800px; margin-left: auto; margin-right: auto; }
+.ds-object-page .dialog-body > * { max-width: none; }
+.ds-object-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.ds-object-summary > div { min-width: 0; }
+.ds-object-summary strong { overflow-wrap: anywhere; font-size: 16px; line-height: 24px; }
+.ds-object-summary + .ds-fields { margin-top: 16px; }
+/* 字段表按内容展开，只独立承接横向滚动；纵向滚轮继续传给详情正文。 */
+.ds-object-page .ds-inner-table .rt-scroll { max-height: none; height: auto; overscroll-behavior-y: auto; }
+.ds-task-page .ds-fields:first-child { margin-top: 0; }
+.ds-task-page .ds-prose, .ds-task-page dd { overflow-wrap: anywhere; }
+@media (max-height: 700px) {
+  .ds-task-page, .ds-task-page > .ds-task-host, .ds-task-page > .ds-task-host > .el-form { flex: none; overflow: visible; }
+  .ds-task-page .dialog-body { overflow: visible; }
+  .ds-task-page .dialog-footer { position: sticky; bottom: 0; z-index: 4; }
+}
 .ds-form-section + .ds-form-section { border-top: 1px solid var(--do-line); padding-top: 24px; margin-top: 24px; }
 .ds-form-section h3, .ds-review h3, .ds-test-results h3 { margin: 0 0 16px; font-size: 16px; line-height: 24px; font-weight: 600; }
 .ds-form-section .el-input-number, .ds-advanced .el-input-number { width: 100%; }
@@ -74,6 +105,14 @@
 .ds-note-use strong { font-size: 14px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
 .ds-note-use .cell-sub { display: block; margin-top: 4px; }
 .ds-note-use .ds-prose { margin-top: 8px; }
+/* 引用对象、责任人和用途分层展示；详情复用抽屉钻取，不叠加浮层。 */
+.ds-note-reference { padding: 16px 0; border-bottom: 1px solid var(--do-line); }
+.ds-note-reference-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ds-note-reference-heading .do-action { display: block; flex: 0 1 auto; min-width: 0; height: auto; min-height: 22px; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 22px; }
+.ds-note-reference-heading .status-tag { flex: none; }
+.ds-note-reference > .cell-sub { display: block; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
+.ds-note-reference > .ds-fields { margin: 16px 0; }
+.ds-note-excerpt { padding: 12px 16px; border-left: 3px solid var(--do-line); background: var(--do-canvas); }
 .ds-note-block { margin: 12px 0 0; color: var(--do-muted); line-height: 22px; }
 .row-menu-description { display: grid; gap: 4px; max-width: 240px; white-space: normal; padding: 4px 0; color: var(--do-muted); }
 .row-menu-description small { color: var(--do-muted); font-size: 12px; line-height: 18px; }

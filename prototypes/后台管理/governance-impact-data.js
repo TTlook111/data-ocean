@@ -1,4 +1,4 @@
-/* 变化到治理的离线交接；只保存页面内记录，不执行真实治理、知识生成或发布。 */
+/* 来源结论与治理条目衔接；进度随条目更新，不另办变化确认或结案。 */
 (() => {
   'use strict';
   const demo = DataSourceDemo, records = [];
@@ -15,6 +15,8 @@
   function addChange(change) {
     const existing = forChange(change); if (existing) return existing;
     const item = add({ source: change.source, kind: '结构变化', originId: change.id, title: demo.changeTarget(change), targets: change.impact, before: change.before, after: change.after, at: change.at });
+    // 仅目录可见性改变不改写业务定义；来源访问与已有知识禁止仍单独保留。
+    if (change.attribute === '目录可见性') Object.assign(item, { state: '已完成', knowledge: '无需更新', governanceResult: '来源可见性结论已沿用，原业务定义保留。' });
     window.GovernanceDemo?.prepareImpact(item); return item;
   }
   // 可靠差异自动确认；旧的核实结论不冒充治理完成，仍保留后续办理。
@@ -49,19 +51,11 @@
     item.governanceResult = needsKnowledge ? '受影响条目已人工审核，待知识更新。' : '受影响条目已人工审核，业务定义无需更新。';
     event(item, '条目审核完成', item.governanceResult, actor);
   }
-  function dismiss(item, reason, actor, revision) {
-    if (!has(actor, 'governance.view') || !has(actor, 'governance.confirm')) return '当前账号没有审核治理内容的权限。';
-    if (!records.includes(item) || !['待治理', '处理中'].includes(item.state) || token(item) !== revision) return '变化事项已更新，请重新核对。';
-    if (!reason?.trim()) return '请填写无需修改的依据。';
-    if (!window.GovernanceDemo) return '治理内容尚未加载，请重新打开。';
-    const error = window.GovernanceDemo.dismissError(item); if (error) return error;
-    window.GovernanceDemo?.restoreImpact(item, actor, reason.trim());
-    item.state = '已完成'; item.knowledge = '无需更新'; item.owner = actor.id; item.governanceResult = reason.trim(); event(item, '无需修改', reason.trim(), actor);
-  }
   const noteSnapshot = note => [note.content || '无文字说明', '附件：' + (note.files.map(file => file.name).join('、') || '无')].join('\n');
   function noteImpact(note, previous, action) {
     const uses = demo.noteUsesFor(note); if (!uses.length) return;
-    return add({ source: note.source, kind: '业务说明', originId: note.id, title: note.title, beforeRevision: previous.revision, noteRevision: note.revision, action, references: structuredClone(uses), targets: [...new Set(uses.map(use => use.name))].join('、'), before: noteSnapshot(previous), after: action === '撤下' ? '资料已撤下；' + note.reason : noteSnapshot(note), at: demo.now() });
+    const item = add({ source: note.source, kind: '业务说明', originId: note.id, title: note.title, beforeRevision: previous.revision, noteRevision: note.revision, action, references: structuredClone(uses), targets: [...new Set(uses.map(use => use.name))].join('、'), before: noteSnapshot(previous), after: action === '撤下' ? '资料已撤下；' + note.reason : noteSnapshot(note), at: demo.now() });
+    window.GovernanceDemo?.prepareImpact(item); return item;
   }
   function saveNote(note, data, actor, revision) {
     if (!has(actor, note ? 'business-notes.replace' : 'business-notes.submit')) return { error: '当前账号没有保存资料的权限。' };
@@ -80,6 +74,6 @@
     }
     return { note, impact };
   }
-  window.GovernanceImpactDemo = { records, token, forChange, forNote, progress, verify, touch, reviewed, dismiss, saveNote,
+  window.GovernanceImpactDemo = { records, token, forChange, forNote, progress, verify, touch, reviewed, saveNote,
     onWithdraw: note => noteImpact(note, note, '撤下') };
 })();

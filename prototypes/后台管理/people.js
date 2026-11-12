@@ -11,7 +11,7 @@
       return () => h(ElementPlus.ElBreadcrumb, { separator: '/' }, { default: () => [
         h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: '#dashboard' }, '后台管理') }),
         ...(pageLocation.parent ? [h(ElementPlus.ElBreadcrumbItem, null, { default: () => h('a', { href: pageLocation.parentHref }, pageLocation.parent) })] : []),
-        h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page' }, { default: () => pageLocation.title })
+        h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page', title: pageLocation.title }, { default: () => pageLocation.title })
       ] });
     }
   });
@@ -26,7 +26,7 @@
   ];
   const titles = { dashboard: '总览', ...Object.fromEntries(groups.flatMap(group => group[2])) };
   const queries = { users: { keyword: '', login: '', departmentId: '', status: 'all', page: 1, pageSize: 10 }, members: { keyword: '', login: '', status: 'all', page: 1, pageSize: 10 }, children: { page: 1, pageSize: 10 }, requests: { keyword: '', requestId: '', status: 'all', page: 1, pageSize: 10 }, access: { keyword: '', rule: '', origin: '', status: 'all', page: 1, pageSize: 10 } };
-  let section = '', selectedDepartment = 'd01', treeKeyword = '', feedbackTimer, departmentTab = 'members', includeChildren = true, formSequence = 0;
+  let section = '', selectedDepartment = 'd01', treeKeyword = '', feedbackTimer, departmentTab = 'members', includeChildren = true, formSequence = 0, dialogSequence = 0;
   const deptName = id => departments.find(d => d.id === id)?.name || '—';
   // 账号区整块可操作；个人入口沿用现有页面，Escape 返回账号按钮。
   PrototypeUI.mount(document.getElementById('admin-account'), {
@@ -177,14 +177,16 @@
   }
   function modal(title, trigger, detail = false) {
     const node = el('dialog', 'admin-dialog prototype-ui' + (detail ? ' detail-dialog' : ''));
-    const heading = el('header', 'dialog-heading'); const label = el('h2', '', title); label.id = 'active-dialog-title';
+    const heading = el('header', 'dialog-heading'); const label = el('h2', '', title); label.id = 'admin-dialog-title-' + (++dialogSequence); label.title = title;
     node.setAttribute('aria-labelledby', label.id);
-    const close = button('', () => node.close(), 'icon-close'); close.setAttribute('aria-label', '关闭' + title); close.append(WorkbenchIcon('x'));
+    const dismiss = () => node.closeGuard ? node.closeGuard() : node.close();
+    const close = button('', dismiss, 'icon-close'); close.setAttribute('aria-label', '关闭' + title); close.append(WorkbenchIcon('x'));
     heading.append(label, close); node.append(heading); document.body.append(node);
     node.addEventListener('close', () => { node.remove(); restoreFocus(trigger); }, { once: true });
+    node.addEventListener('cancel', event => { if (node.closeGuard) { event.preventDefault(); dismiss(); } });
     node.addEventListener('click', event => {
       const rect = node.getBoundingClientRect();
-      if (event.target === node && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) node.close();
+      if (event.target === node && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dismiss();
     });
     return node;
   }
@@ -818,6 +820,7 @@
     }
   }
   function render() {
+    if (DataSourcesPage.beforeNavigation()) return;
     document.querySelector('dialog[open]')?.close();
     const parts = location.hash.slice(1).split('/'); const key = parts[0] === 'admin' ? parts[1] : parts[0];
     if(key==='grant-management'){location.replace('#grants');return;}

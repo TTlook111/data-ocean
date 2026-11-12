@@ -48,7 +48,7 @@
     }), RecordControls.pager({ total: rows.length, ...query }, page => { query.page = page; render(main, ui); }, size => { query.pageSize = size; query.page = 1; render(main, ui); }));
     main.replaceChildren(pageHeading('数据源管理'), tools, panel);
     function detail(source, trigger) {
-      const node = modal('数据源审批责任', trigger, true), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
+      const node = modal('数据源审批责任', trigger), body = el('div', 'dialog-body'), fields = el('dl', 'detail-fields');
       fields.append(pair('数据源', source.name), pair('责任状态', demo.state(source)), pair('主审批人', identity(source.approval.primary)), pair('替代负责人', identity(source.approval.alternate)), pair('更新时间', source.approval.updated));
       body.append(fields); if (demo.error(source.approval)) body.append(el('p', 'form-note', demo.error(source.approval)));
       const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
