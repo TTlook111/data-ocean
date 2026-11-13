@@ -449,7 +449,7 @@
     const source = demo.find(demo.selected), isTasks = section === 'collections', query = getQuery(collectionTab + ':' + source.id + (!isTasks && changeScope ? ':' + changeScope : ''));
     const base = (isTasks ? demo.tasks : demo.changes).filter(item => item.source === source.id && (isTasks || !changeScope || item.object === changeScope)).sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
     const rows = queryRows(base, query, item => ({ status: isTasks ? item.state : impacts.progress(item), fields: isTasks ? { keyword: item.id, owner: item.trigger } : { keyword: [demo.changeTarget(item), item.attribute], owner: item.kind } }));
-    const choices = isTasks ? ['手动', '定时', '重试'] : ['新增对象', '新增字段', '类型变化', '字段属性变化', '删除字段', '删除对象', '访问丢失', '身份待核实', '修改注释'];
+    const choices = isTasks ? ['手动', '定时', '重试'] : ['新增对象', '新增字段', '类型变化', '字段属性变化', '删除字段', '删除对象', '访问丢失', '身份待核实', '对象重建', '修改注释'];
     const tools = filters(query, [{ key: 'keyword', label: isTasks ? '采集编号' : '变化对象', placeholder: isTasks ? '采集编号' : '对象名、字段名或变化项' }, { key: 'owner', label: isTasks ? '发起方式' : '变化类型', options: choices.map(value => ({ value, label: value })) }], isTasks ? ['排队中', '采集中', '采集成功', '采集失败', '已取消'] : ['待核实', '待治理', '治理中', '知识处理中', '已完成'], true);
     const tabbar = isTasks ? null : metadataTabs(source);
     if (!isTasks && changeScope) {
@@ -525,8 +525,10 @@
   // 列表和详情共用下一步入口，查看记录不会推进处理阶段。
   function changeAction(change, close) {
     const item = impacts.forChange(change), table = demo.objects(change.source).find(table => objectName(table) === change.object);
+    const forwarded = change.forwardTo && demo.changes.find(row => row.source === change.source && row.id === change.forwardTo);
     let label, open;
-    if (change.fact === '待核实' && allowed('collections.review')) { label = '核实变化'; open = trigger => verifyEditor(change, trigger); }
+    if (forwarded) { label = '查看后续核实'; open = trigger => changeDetail(forwarded, trigger); }
+    else if (change.fact === '待核实' && allowed('collections.review')) { label = '核实变化'; open = trigger => verifyEditor(change, trigger); }
     else if (item && item.state !== '已完成' && table && demo.pendingVerification(table).length) { label = '查看待核实变化'; open = trigger => openChanges(change.source, change.object, trigger, true); }
     else if (item?.state === '知识处理中' && allowed('knowledge.view')) { label = '处理知识更新'; open = () => KnowledgeUpdatePage.open(item); }
     else if (item && item.state !== '已完成' && allowed('governance.view')) { label = item.state === '治理中' ? '继续治理' : '进入治理'; open = trigger => openImpactPage(item, trigger); }
@@ -540,7 +542,9 @@
     showDetail('结构变化 · ' + demo.changeTarget(change), trigger, (body, dialog) => {
       if (pending && change.fact !== '待核实') body.append(note('该对象仍有 ' + pending + ' 项变化待核实，核实后可进入治理。'));
       fields(body, [['变化对象', demo.changeTarget(change), true], ['变化类型', change.kind], ['处理阶段', impacts.progress(change)], ['事实结论', change.fact === '待核实' ? '尚未确认' : change.fact + ' · ' + change.factSource], ...(impacts.progress(change) === '已完成' ? [['完成结果', impacts.completion(change), true]] : [])]);
+      if (change.attribute === '对象身份' && change.resolution && impacts.progress(change) !== '已完成') fields(body, [['身份核实结果', change.resolution, true]]);
       heading(body, '前后差异'); fields(body, [['原值', change.before], ['新值', change.after]]);
+      if (change.identityBaseline) fields(body, [['核实基准对象', change.identityBaseline.identity || '未知'], ['核实基准快照', change.identityBaselineSnapshot]]);
       if (change.fact === '待核实') { heading(body, '需要核实'); body.append(ui.el('p', 'ds-prose', impacts.verificationQuestion(change))); }
       if (table?.readState === '访问丢失' && change.fact !== '待核实') body.append(note('该对象仍无法读取，请恢复读取权限或修正采集范围后重新采集。'));
       if (change.control === '已禁止使用') body.append(note(impacts.blockedUse(change), true));
@@ -568,6 +572,10 @@
     ui.openForm({ title: '核实变化 · ' + demo.changeTarget(change), trigger, note: impacts.verificationQuestion(change), value: { decision: '', reason: '' },
       fields: [{ key: 'decision', label: '核实结论', options: impacts.verificationChoices(change).map(value => ({ value, label: value })), required: true, full: true }, { key: 'reason', label: '核实依据', type: 'textarea', required: true, full: true }],
       saveLabel: '保存核实结论',
+      ...(change.attribute === '对象身份' ? { previewLabel: '核对身份结论', previewTitle: '核对对象身份', preview: data => {
+        const table = demo.objects(change.source).find(table => demo.changesFor(table).includes(change)), rebuilt = data.decision === '确认同名重建';
+        return [{ label: '核实结论', before: '待核实', after: data.decision }, { label: '对象世代', before: '第 ' + table.generation + ' 代', after: '第 ' + (table.generation + (rebuilt ? 1 : 0)) + ' 代' }, { label: '处理结果', before: '身份尚未确认', after: rebuilt ? '原定义及依赖禁止沿用，进入现有治理流程重新审核' : '排除重建；保留世代，其他结构差异继续处理' }];
+      } } : {}),
       save: data => impacts.verify(change, data, ui.currentUser, revision), success: '核实结论已记录', onSaved: () => {
         // 保存只推进事实核实，保留列表任务；进入治理由明确入口触发。
         rememberPosition(trigger); refresh();

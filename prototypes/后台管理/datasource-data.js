@@ -61,6 +61,11 @@
   // 预置变化与当前目录保持一致；这里只对齐示例，不实现真实差异生成。
   tables.find(table => table.source === 'retail' && table.name === 'sale_order').fields.push({ name: 'paid_at', type: 'DATETIME', nullable: '是', default: '无默认值', comment: '支付时间', meaning: '待确认' });
   changes.filter(change => change.kind === '修改注释').forEach(change => { tables.find(table => table.source === change.source && table.name === change.object).comment = change.after; });
+  // 提供可直接核实的同名对象示例；标识变化本身不等于已经确认重建。
+  const identityExample = tables.find(table => table.source === 'retail' && table.name === 'daily_sales_view');
+  const identityBefore = structuredClone(identityExample);
+  identityExample.identity += '-R';
+  changes.unshift({ id: 'CH-016', source: 'retail', taskId: 'CJ-0029', beforeSnapshot: 'S-027', afterSnapshot: 'S-029', object: 'daily_sales_view', field: '', attribute: '对象身份', kind: '身份待核实', before: identityBefore.identity, after: identityExample.identity, beforeObject: identityBefore, afterObject: structuredClone(identityExample), compatible: null, impact: '每日销售汇总的对象定义及字段', affected: 1, control: '未禁止', state: '待复核', at: '2026-11-10 14:03:21', evidence: '同名视图的来源标识发生变化；需结合来源创建记录核实是否重建。', result: '' });
   // 只有实际字段名进入限定路径；注释、可见性等属性单独作为变化项。
   const changeTarget = change => change.field ? change.object + '.' + change.field : change.object;
   // 以同源完整对象名关联，避免 sale_order 与其分区、同名其他源混在一起。
@@ -203,12 +208,19 @@
     const safe = Object.fromEntries(Object.keys(configDefaults).map(key => [key, data[key] ?? configDefaults[key]]));
     safe.schemas = safe.type === 'PostgreSQL' ? [...safe.schemas] : [];
     const scopeChanged = source && collectionScope(source.config) !== collectionScope(safe);
+    // 范围调整只留下复核建议，已有结构、业务定义和审核记录继续保留。
+    const scopeChange = scopeChanged && tables.some(table => table.source === source.id) ? {
+      before: scopeLabel(source), after: scopeLabel({ config: safe }),
+      beforeAddress: source.config.host + ':' + source.config.port, afterAddress: safe.host + ':' + safe.port,
+      at: now(), scopeKey: collectionScope(safe), collected: false
+    } : null;
     if (!source) {
       source = { id: 'source-' + (++sequence), name: data.name.trim(), config: safe, connectionState: '草稿', health: '未测试', collection: '未采集', lastFull: '', lastCollected: '', revision: 0, credentialSet: false, paused: false, knowledge: 0, forbidden: 0, forbiddenKnowledge: [], governed: 0, partialGoverned: 0, history: [], approval: { primary: '', alternate: '', revision: 1, updated: '' } };
       sources.unshift(source);
     }
     source.history.unshift({ revision: source.revision + 1, at: now(), action: enabled ? '测试通过并启用配置' : source.connectionState === '草稿' ? '保存连接草稿' : '测试通过并保存配置', name: data.name.trim(), account: safe.account });
     source.name = data.name.trim(); source.config = safe; source.revision++; source.updated = now();
+    if (scopeChange) source.scopeChange = scopeChange;
     source.credentialSet = source.credentialSet || credentialChanged;
     if (enabled && source.connectionState === '草稿') { source.connectionState = '已启用'; source.health = '正常'; }
     // 旧的完整采集只证明旧范围，范围改变后等待重新采集，历史任务仍保留原结论。
@@ -226,8 +238,8 @@
     const scopeKey = collectionScope(source.config), previous = successfulTask(source.id, scopeKey), current = objects(source.id);
     // 固定示例只表达读取流程；任务结果与当前目录分存，失败不能写入目录。
     const resultObjects = source.config.type === 'PostgreSQL'
-      ? source.config.schemas.flatMap(schema => names.slice(0, 6).map(([name, label], index) => structuredClone(current.find(table => table.schema === schema && table.name === name) || object(source, name, label, index, schema))))
-      : current.length ? structuredClone(current) : names.slice(0, 6).map(([name, label], index) => object(source, name, label, index));
+      ? source.config.schemas.flatMap(schema => names.slice(0, 6).map(([name, label], index) => structuredClone(current.find(table => table.schema === schema && table.name === name) || { ...object(source, name, label, index, schema), governance: '待治理' })))
+      : current.length ? structuredClone(current) : names.slice(0, 6).map(([name, label], index) => ({ ...object(source, name, label, index), governance: '待治理' }));
     const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队中', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + ' · 全部可见对象', scopeKey, schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', beforeSnapshot: previous?.version || '', resultObjects };
     tasks.unshift(task); return { task };
   }
@@ -246,11 +258,13 @@
     source.lastCollected = task.ended; source.collection = task.state;
     if (!collectionSucceeded(task)) return;
     source.lastFull = task.ended;
+    if (source.scopeChange?.scopeKey === task.scopeKey) source.scopeChange.collected = true;
     task.resultObjects.forEach(row => {
       const table = tables.find(table => table.id === row.id);
       if (table) {
         const fields = row.fields.map(field => ({ ...field, meaning: table.fields.find(old => old.name === field.name)?.meaning || field.meaning }));
-        Object.assign(table, row, { fields, governance: table.governance, version: task.version, collected: task.ended, readState: '已读取' });
+        // 对象世代来自人工身份结论，采集开始时的旧副本不能覆盖期间完成的核实。
+        Object.assign(table, row, { fields, generation: table.generation, rebuildReviewPending: table.rebuildReviewPending, governance: table.governance, version: task.version, collected: task.ended, readState: '已读取' });
       } else tables.push({ ...structuredClone(row), version: task.version, collected: task.ended, readState: '已读取' });
     });
     window.GovernanceImpactDemo?.analyzeCollection(task);

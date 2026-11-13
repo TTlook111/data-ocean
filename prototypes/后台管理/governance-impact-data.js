@@ -6,23 +6,24 @@
   const token = item => item.revision;
   const forChange = change => records.find(item => item.kind === '结构变化' && item.originId === change.id);
   const forNote = note => records.filter(item => item.kind === '业务说明' && item.originId === note.id);
-  const progress = change => change.fact === '待核实' ? '待核实' : change.fact === '已排除' ? '已完成' : forChange(change)?.state || '待治理';
-  const completion = change => change.fact === '已排除' ? change.resolution || '已排除结构变化' : forChange(change)?.completion || '—';
+  const progress = change => change.fact === '待核实' ? '待核实' : ['已排除', '已转交'].includes(change.fact) ? '已完成' : forChange(change)?.state || '待治理';
+  const completion = change => ['已排除', '已转交'].includes(change.fact) ? change.resolution || '已排除结构变化' : forChange(change)?.completion || '—';
   function blockedUse(change) {
     if (change.control !== '已禁止使用') return '';
     const target = demo.changeTarget(change);
     // 只列当前源内明确依赖该对象的已禁止知识，不从影响描述推断禁止范围。
-    const knowledge = demo.find(change.source).forbiddenKnowledge.filter(item => item.dependency === target || (change.kind === '删除对象' && item.dependency.startsWith(target + '.')));
+    const knowledge = demo.find(change.source).forbiddenKnowledge.filter(item => item.dependency === target || (['删除对象', '对象重建'].includes(change.kind) && item.dependency.startsWith(target + '.')));
     return target + ' 已禁止使用' + (knowledge.length ? '；已暂停知识：' + knowledge.map(item => item.name).join('、') : '');
   }
-  const verificationChoices = change => change.attribute === '目录可见性' ? ['对象已删除', '对象仍存在'] : ['确认变化', '排除结构变化'];
-  const verificationQuestion = change => change.attribute === '目录可见性' ? '请确认 ' + change.object + ' 是否仍然存在，以及采集账号是否有读取权限、对象是否在采集范围内。' : '请对照来源对象和采集证据，确认本次' + change.attribute + '差异是否真实发生。';
+  const verificationChoices = change => change.attribute === '对象身份' ? ['仍为原对象', '确认同名重建'] : change.attribute === '目录可见性' ? ['对象已删除', '对象仍存在'] : ['确认变化', '排除结构变化'];
+  const verificationQuestion = change => change.attribute === '对象身份' ? '请核对来源对象标识及创建记录，确认 ' + change.object + ' 仍为原对象，还是删除后以同名重新创建。' + (change.identityBaseline ? '核实基准：' + (change.identityBaseline.identity || '未知') + '；当前标识：' + (change.afterObject.identity || '未知') + '。' : '') + '确认重建将递增对象世代，原定义需重新审核。' : change.attribute === '目录可见性' ? '请确认 ' + change.object + ' 是否仍然存在，以及采集账号是否有读取权限、对象是否在采集范围内。' : '请对照来源对象和采集证据，确认本次' + change.attribute + '差异是否真实发生。';
   function checksFor(change) {
     const subject = change.field || change.object;
     if (change.kind === '新增字段') return '确认 ' + subject + ' 的业务含义、取值与空值含义，以及适用的业务时间。';
     if (change.kind === '类型变化') return '核对 ' + subject + ' 的取值范围、精度和单位，确认现有计算与汇总口径是否适用。';
     if (change.kind === '删除字段') return '核对依赖 ' + subject + ' 的业务定义、关联和指标，停用或替换相关引用；删除字段保持禁止使用。';
     if (change.kind === '删除对象') return subject + ' 已删除。确认原业务改从哪里取数，并停用或替换依赖该对象的定义、关联和指标。';
+    if (change.kind === '对象重建') return subject + ' 已确认同名重建，核对新对象的用途、粒度、字段及原关联和指标是否仍然适用。';
     if (['表注释', '视图注释'].includes(change.attribute)) return '对照新旧注释，核对当前用途、一行代表的业务粒度和使用限制是否仍然适用。';
     return '对照本次' + change.attribute + '变化，核对 ' + subject + ' 的业务含义、取值说明和使用限制。';
   }
@@ -37,7 +38,35 @@
     const item = add({ source: change.source, kind: '结构变化', originId: change.id, title: demo.changeTarget(change), targets: change.impact, before: change.before, after: change.after, at: change.at });
     // 仅目录可见性改变不改写业务定义；来源访问与已有知识禁止仍单独保留。
     if (change.attribute === '目录可见性' && change.kind !== '删除对象') Object.assign(item, { state: '已完成', knowledge: '无需更新', completion: '业务定义无需调整；目录访问异常另行处理', governanceResult: '仅完成变更影响判断，未表示来源访问已恢复。' });
-    window.GovernanceDemo?.prepareImpact(item); return item;
+    window.GovernanceDemo?.prepareImpact(item);
+    if (change.kind === '对象重建') bindRebuiltObject(change, item);
+    return item;
+  }
+  // 接入侧确认重建后沿用现有交接，旧定义只保留作核对依据，不能冒充新对象已审核。
+  function bindRebuiltObject(change, item) {
+    const table = demo.objects(change.source).find(table => demo.changesFor(table).includes(change));
+    if (!table || !window.GovernanceDemo) return;
+    const record = GovernanceDemo.get(table);
+    table.fields.forEach(field => {
+      if (!record.items.some(entry => entry.id === 'field:' + field.name)) record.items.push({ id: 'field:' + field.name, kind: 'fields', name: field.name, field: field.name, content: { meaning: '', values: '', usage: '' }, gap: '', revision: 1, review: '待确认', validity: '待复核', publication: '未发布', reviewer: '', reviewedAt: '', basis: '', ai: null, history: [] });
+    });
+    record.items.forEach(entry => {
+      if (!item.bindings.some(binding => binding.table === table.id && binding.entry === entry.id)) item.bindings.push({ table: table.id, entry: entry.id, before: structuredClone(entry.content) });
+      entry.review = '待确认'; entry.reviewer = ''; entry.reviewedAt = ''; entry.blocked = true;
+      entry.validity = '待复核'; entry.ai = null;
+      if (entry.field) {
+        const field = table.fields.find(field => field.name === entry.field);
+        entry.type = field?.type || '已移除'; entry.comment = field?.comment || '';
+        entry.retired = !field;
+        if (!field) { entry.validity = '失效'; entry.gap = ''; }
+      }
+    });
+    // 接入概况和结构页立即反映待审核内容，不能继续显示旧对象的已确认解释。
+    const progress = GovernanceDemo.summary(record);
+    table.governance = progress.state; table.governanceAffected = progress.affected > 0;
+    table.fields.forEach(field => { const entry = record.items.find(entry => entry.field === field.name); field.meaning = entry?.content.meaning ? entry.content.meaning + '（待确认）' : '待确认'; });
+    const source = demo.find(change.source), summary = demo.governanceSummary(change.source);
+    source.governed = summary.confirmed; source.partialGoverned = summary.partial;
   }
   // 只处理成功采集的差异；系统判得清的直接确认，事实不明才交人工。
   function recognizeChange(change) {
@@ -56,37 +85,61 @@
     change.fact = change.needsVerification ? '待核实' : '已确认';
     change.factSource = reviewed ? '人工核实' : change.fact === '已确认' ? '系统判定' : '来源待核实';
     change.verifications = []; delete change.state;
+    // 连续采集的身份疑点由最新记录接续；历史来源不改写，核实基准不能悄悄前移。
+    if (change.attribute === '对象身份' && change.beforeObject) {
+      const previous = demo.changes.find(row => row !== change && row.source === change.source && row.object === change.object && row.attribute === '对象身份' && row.fact === '待核实' && row.afterObject && row.afterObject.identity === change.beforeObject.identity);
+      if (previous) {
+        change.identityBaseline = structuredClone(previous.identityBaseline || previous.beforeObject);
+        change.identityBaselineSnapshot = previous.identityBaselineSnapshot || previous.beforeSnapshot;
+        previous.fact = '已转交'; previous.factSource = '系统判定'; previous.forwardTo = change.id;
+        previous.resolution = '身份疑点已转交 ' + change.id + ' 继续核实，原采集依据保留';
+      }
+    }
     if (change.fact === '已确认') {
       const item = addChange(change);
       if (reviewed) item.events.push({ action: '来源核实', reason: change.result, actor: change.reviewer, at: change.reviewed });
     }
   }
   demo.changes.forEach(recognizeChange);
+  const objectName = table => (table.schema ? table.schema + '.' : '') + table.name;
+  function difference(task, table, field, attribute, kind, before, after, compatible) {
+    return { id: demo.nextId('CH-'), source: task.source, taskId: task.id, beforeSnapshot: task.beforeSnapshot, afterSnapshot: task.version, object: objectName(table), field, attribute, kind, before, after, compatible, control: compatible === false ? '已禁止使用' : '未禁止', impact: '对应业务定义待核对', affected: 1, at: task.ended, evidence: compatible === null ? '本次采集成功；仅凭当前可见清单或名称不足以判定对象删除、重建或权限变化。' : '前后均为成功采集；对象身份已核对，相关结构属性已完整读取。' };
+  }
+  function structureDifferences(task, old, table) {
+    const changes = [], add = (...args) => changes.push(difference(task, table, ...args));
+    if (old.comment !== table.comment) add('', table.type === '视图' ? '视图注释' : '表注释', '修改注释', old.comment, table.comment, true);
+    table.fields.forEach(field => {
+      const prior = old.fields.find(row => row.name === field.name);
+      if (!prior) { add(field.name, '字段定义', '新增字段', '不存在', field.type, true); return; }
+      for (const [key, label] of [['type', '字段类型'], ['nullable', '允许空值'], ['default', '默认值'], ['comment', '字段注释']]) {
+        if (prior[key] !== field[key]) add(field.name, label, key === 'type' ? '类型变化' : '字段属性变化', String(prior[key] ?? ''), String(field[key] ?? ''), key === 'type' ? false : true);
+      }
+    });
+    old.fields.filter(field => !table.fields.some(row => row.name === field.name)).forEach(field => add(field.name, '字段定义', '删除字段', field.type, '不存在', false));
+    return changes;
+  }
+  const registerChanges = changes => changes.forEach(change => { demo.changes.unshift(change); recognizeChange(change); });
   // 仅比较页面内的结构示例，不替代真实适配器、快照一致性或对象身份服务。
   function analyzeCollection(task) {
     if (!demo.collectionSucceeded(task) || task.analysis) return false;
     const previous = demo.tasks.find(item => item.source === task.source && item.version === task.beforeSnapshot && item.scopeKey === task.scopeKey && demo.collectionSucceeded(item));
     if (!previous) { task.analysis = '初始基线已建立'; return true; }
     const before = (previous.resultObjects || []).filter(table => !task.schemas.length || task.schemas.includes(table.schema));
-    const name = table => (table.schema ? table.schema + '.' : '') + table.name;
+    const name = objectName;
     const detected = [];
-    const add = (table, field, attribute, kind, oldValue, newValue, compatible) => detected.push({ id: demo.nextId('CH-'), source: task.source, taskId: task.id, beforeSnapshot: previous.version, afterSnapshot: task.version, object: name(table), field, attribute, kind, before: oldValue, after: newValue, compatible, control: compatible === false ? '已禁止使用' : '未禁止', impact: '对应业务定义待核对', affected: 1, at: task.ended, evidence: compatible === null ? '本次采集成功；仅凭当前可见清单或名称不足以判定对象删除、重建或权限变化。' : '前后均为成功采集；对象标识相同，相关结构属性已完整读取。' });
+    const add = (table, ...args) => { const change = difference(task, table, ...args); detected.push(change); return change; };
     task.resultObjects.forEach(table => {
       const old = before.find(row => name(row) === name(table));
       if (!old) { add(table, '', '对象定义', '新增对象', '未发现', table.type, true); return; }
-      if (!old.identity || old.identity !== table.identity) { add(table, '', '对象身份', '身份待核实', old.identity || '未知', table.identity || '未知', null); return; }
-      if (old.comment !== table.comment) add(table, '', table.type === '视图' ? '视图注释' : '表注释', '修改注释', old.comment, table.comment, true);
-      table.fields.forEach(field => {
-        const prior = old.fields.find(row => row.name === field.name);
-        if (!prior) { add(table, field.name, '字段定义', '新增字段', '不存在', field.type, true); return; }
-        for (const [key, label] of [['type', '字段类型'], ['nullable', '允许空值'], ['default', '默认值'], ['comment', '字段注释']]) {
-          if (prior[key] !== field[key]) add(table, field.name, label, key === 'type' ? '类型变化' : '字段属性变化', String(prior[key] ?? ''), String(field[key] ?? ''), key === 'type' ? false : true);
-        }
-      });
-      old.fields.filter(field => !table.fields.some(row => row.name === field.name)).forEach(field => add(table, field.name, '字段定义', '删除字段', field.type, '不存在', false));
+      if (!old.identity || old.identity !== table.identity) {
+        const change = add(table, '', '对象身份', '身份待核实', old.identity || '未知', table.identity || '未知', null);
+        change.beforeObject = structuredClone(old); change.afterObject = structuredClone(table);
+        return;
+      }
+      detected.push(...structureDifferences(task, old, table));
     });
     before.filter(table => !task.resultObjects.some(row => name(row) === name(table))).forEach(table => add(table, '', '目录可见性', '访问丢失', '目录可见', '本次未发现', null));
-    detected.forEach(change => { demo.changes.unshift(change); recognizeChange(change); });
+    registerChanges(detected);
     task.analysis = detected.length ? '发现 ' + detected.length + ' 项结构变化' : '未发现结构变化';
     return true;
   }
@@ -95,8 +148,29 @@
     if (!demo.collectionSucceeded(demo.tasks.find(task => task.id === change.taskId && task.source === change.source))) return '来源采集尚未成功，不能核实结构变化。';
     if (!demo.changes.includes(change) || change.fact !== '待核实' || change.verifications.length !== revision) return '变化已由其他操作处理，请重新核对。';
     if (!verificationChoices(change).includes(data.decision) || !data.reason?.trim()) return '请选择核实结论并填写依据。';
+    const identity = change.attribute === '对象身份';
+    const table = demo.objects(change.source).find(table => demo.changesFor(table).includes(change));
+    if (identity && (!table || !change.beforeObject || !change.afterObject || table.identity !== change.afterObject.identity)) return '当前对象身份或核实依据已变化，请查看最新采集结果后重新核实。';
     change.verifications.push({ action: data.decision, reason: data.reason.trim(), actor: actor.name, at: demo.now() });
-    change.fact = ['确认变化', '对象已删除'].includes(data.decision) ? '已确认' : '已排除'; change.factSource = '人工核实';
+    change.fact = ['确认变化', '对象已删除', '确认同名重建'].includes(data.decision) ? '已确认' : '已排除'; change.factSource = '人工核实';
+    if (identity) {
+      table.rebuildReviewPending = false;
+      if (data.decision === '仍为原对象') {
+        change.resolution = '已核实仍为原对象，对象世代保持不变';
+        const task = demo.tasks.find(task => task.source === change.source && task.id === change.taskId);
+        const recovered = structureDifferences(task, change.identityBaseline || change.beforeObject, change.afterObject);
+        recovered.forEach(row => { row.identityVerification = change.id; row.beforeSnapshot = change.identityBaselineSnapshot || change.beforeSnapshot; row.evidence += ' 身份依据：' + data.reason.trim(); });
+        registerChanges(recovered);
+        if (recovered.length) {
+          change.resolution += '；另有 ' + recovered.length + ' 项结构差异待治理';
+          task.analysis = '发现 ' + demo.changes.filter(row => row.source === task.source && row.taskId === task.id).length + ' 项结构变化';
+        }
+      } else {
+        change.detectedKind = change.kind; change.kind = '对象重建'; change.control = '已禁止使用';
+        table.generation = (table.generation || 1) + 1;
+        change.resolution = '已确认同名重建，对象更新为第 ' + table.generation + ' 代；原定义待重新审核';
+      }
+    }
     if (data.decision === '对象仍存在') change.resolution = '对象仍存在，已排除结构变化；读取异常待恢复';
     // 只有明确的删除结论才禁用对象并进入治理，历史采集差异保持原样。
     if (data.decision === '对象已删除') {

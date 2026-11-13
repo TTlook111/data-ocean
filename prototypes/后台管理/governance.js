@@ -54,6 +54,17 @@
     const host = el('section', 'gov-context prototype-ui');
     PrototypeUI.mount(host, { data: () => ({ selected: source.id, sources: DataSourceDemo.sources }), methods: { change(id) { DataSourceDemo.selected = id; location.hash = path(id); } }, template: '<label id="gov-source-label">当前数据源</label><el-select v-model="selected" aria-labelledby="gov-source-label" filterable @change="change"><el-option v-for="source in sources" :key="source.id" :label="source.name" :value="source.id"></el-option></el-select>' }); return host;
   }
+  function scopeNotice(source) {
+    const change = source.scopeChange;
+    if (!change) return [];
+    const panel = el('aside', 'ds-notice gov-scope-notice');
+    panel.setAttribute('role', 'note'); panel.setAttribute('aria-label', '采集范围调整');
+    panel.append(el('strong', '', '采集范围已调整，建议复核已有治理结果'));
+    const addressChanged = change.beforeAddress !== change.afterAddress;
+    panel.append(el('p', 'ds-prose', (addressChanged ? change.beforeAddress + ' · ' : '') + change.before + ' → ' + (addressChanged ? change.afterAddress + ' · ' : '') + change.after));
+    panel.append(el('p', 'ds-prose', change.collected ? '已有定义和审核记录已保留，请按需核对业务含义、关联和指标是否仍适用。' : '已有定义和审核记录已保留，建议重新采集成功后按需复核。'));
+    return [panel];
+  }
   function openEntry(record, entry, impact) {
     open(record.table.source, demo.objectName(record.table), { tab: entry.kind, field: entry.field || (entry.id !== 'overview' ? entry.id : ''), impact: impact?.id });
   }
@@ -101,7 +112,7 @@
     const unresolved = GovernanceImpactDemo.records.filter(impact => impact.source === source.id && impact.kind === '业务说明' && impact.state !== '已完成' && !impact.bindings.length);
     const selected = GovernanceImpactDemo.records.find(impact => impact.source === source.id && impact.id === route.params.get('impact'));
     if (selected && !demo.impactTarget(selected).table && !unresolved.includes(selected)) unresolved.unshift(selected);
-    main.replaceChildren(ui.pageHeading('治理工作台'), context(source), ...unresolved.map(impact => unmappedImpact(impact, impact === selected)), filters, panel);
+    main.replaceChildren(ui.pageHeading('治理工作台'), context(source), ...scopeNotice(source), ...unresolved.map(impact => unmappedImpact(impact, impact === selected)), filters, panel);
     restoreList(source, panel);
   }
   function restoreList(source, panel) {
@@ -305,7 +316,7 @@
     else if(originSection==='knowledge-update') buttons.append(button('返回知识更新',()=>{DataSourceDemo.selected=table.source;location.hash=parentHref;}));
     if (allowed('knowledge.generate')) buttons.append(button('生成知识草稿', trigger => draftPreview(record, trigger), false, 'gov-draft'));
     if (allowed('governance.suggest')) buttons.append(button('批量生成 AI 建议', trigger => generate(record, trigger), false, 'gov-generate'));
-    toolbar.append(identity, buttons); shell.append(toolbar);
+    toolbar.append(identity, buttons); shell.append(toolbar, ...scopeNotice(route.source));
     const detailKinds = kinds.map(([key, label]) => { const entries = record.items.filter(entry => entry.kind === key); return [key, key === 'overview' ? '表说明' : key === 'evidence' ? label : label + '（' + entries.length + ' / ' + entries.filter(entry => entry.review === '已确认' && entry.validity === '适用').length + '）']; });
     const tabs = el('div', 'gov-tabs prototype-ui'); PrototypeUI.mount(tabs, { data: () => ({ tab, kinds: detailKinds }), methods: { change: value => select(value) }, template: '<el-tabs v-model="tab" @tab-change="change"><el-tab-pane v-for="kind in kinds" :key="kind[0]" :name="kind[0]" :label="kind[1]"></el-tab-pane></el-tabs>' }); shell.append(tabs);
     const content = el('div', 'gov-content' + (['fields', 'relations', 'metrics'].includes(tab) ? ' has-item-nav' : '')); let currentEntry;

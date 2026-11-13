@@ -110,3 +110,52 @@ test('seeded changes and discovery tasks share the immediately preceding success
     assert.equal(task.beforeSnapshot, previous.version, change.id);
   }
 });
+
+test('scope changes preserve metadata and governance while recommending review separately from progress', () => {
+  const { demo, governance, impacts } = fixture();
+  const source = demo.saveConfig({ ...demo.configDefaults, type: 'PostgreSQL', name: '范围保留核对', host: 'pg.example', database: 'erp', port: 5432, account: 'reader', schemas: ['sales'] }, null, true, true);
+  const first = demo.startTask(source).task; finish(demo, first);
+  const originals = demo.objects(source.id);
+  for (const table of originals) {
+    const record = governance.get(table);
+    for (const entry of record.items) Object.assign(entry, { content: { meaning: '已核定的' + entry.name, values: '既有取值说明', usage: '既有适用约束' }, review: '已确认', reviewer: '核对人', reviewedAt: '2026-11-13 10:00:00', revision: 4, history: [{ action: '人工确认', revision: 4 }] });
+    table.governance = '已治理';
+  }
+  source.governed = originals.length; source.knowledge = 3;
+  const entries = () => JSON.stringify(originals.map(table => governance.get(table).items));
+  const before = entries(), priorImpactCount = impacts.records.length;
+  demo.saveConfig({ ...demo.configuration(source), schemas: ['sales', 'finance'] }, source, true, false);
+  assert.ok(source.scopeChange);
+  assert.equal(source.scopeChange.before, 'erp / sales');
+  assert.equal(source.scopeChange.after, 'erp / sales、finance');
+  assert.equal(source.scopeChange.collected, false);
+  assert.equal(entries(), before);
+  const failed = demo.startTask(source).task; failed.resultObjects[0].indexState = '无权限'; finish(demo, failed);
+  assert.equal(source.scopeChange.collected, false);
+  const cancelled = demo.startTask(source).task; demo.cancelTask(cancelled);
+  assert.equal(source.scopeChange.collected, false);
+  const expanded = demo.startTask(source).task; finish(demo, expanded);
+  assert.equal(source.scopeChange.collected, true);
+  assert.equal(entries(), before);
+  assert.ok(originals.every(table => governance.summary(governance.get(table)).state === '已治理'));
+  assert.ok(demo.objects(source.id).filter(table => table.schema === 'finance').every(table => table.governance === '待治理' && governance.summary(governance.get(table)).confirmed === 0));
+  assert.equal(source.knowledge, 3);
+  assert.equal(impacts.records.length, priorImpactCount);
+  demo.saveConfig({ ...demo.configuration(source), schemas: ['finance'] }, source, true, false);
+  assert.equal(demo.objects(source.id).some(table => table.schema === 'sales'), false);
+  assert.ok(originals.every(table => demo.tables.includes(table)));
+  assert.equal(entries(), before);
+  const shrunk = demo.startTask(source).task; finish(demo, shrunk);
+  demo.saveConfig({ ...demo.configuration(source), schemas: ['finance', 'sales'] }, source, true, false);
+  const restored = demo.startTask(source).task; finish(demo, restored);
+  assert.ok(originals.every(table => demo.objects(source.id).includes(table)));
+  assert.equal(entries(), before);
+});
+
+test('schema reordering and descriptive edits do not create a new scope review recommendation', () => {
+  const { demo } = fixture();
+  const source = demo.saveConfig({ ...demo.configDefaults, type: 'PostgreSQL', name: '提醒边界', host: 'pg.example', database: 'erp', port: 5432, account: 'reader', schemas: ['sales', 'finance'] }, null, true, true);
+  finish(demo, demo.startTask(source).task);
+  demo.saveConfig({ ...demo.configuration(source), schemas: ['finance', 'sales'], purpose: '更新用途' }, source, true, false);
+  assert.equal(source.scopeChange, undefined);
+});

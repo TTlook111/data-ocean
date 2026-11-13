@@ -1,6 +1,9 @@
 /* 沿用后台尺度；字段导航常驻，业务定义与相关证据在右侧阅读。 */
 .gov-context { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:16px 24px; border:1px solid var(--do-line); border-radius:8px; background:#fff; flex:none; }
 .gov-context .el-select { width:280px; max-width:100%; }
+.gov-scope-notice { flex:none; margin:0; padding:14px 20px; }
+.gov-scope-notice .ds-prose { margin:6px 0 0; }
+.gov-shell > .gov-scope-notice { margin:16px 24px 0; }
 .gov-shell { display:flex; flex-direction:column; min-height:440px; flex:1; border:1px solid var(--do-line); border-radius:8px; background:#fff; overflow:hidden; }
 .gov-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:16px 24px; border-bottom:1px solid var(--do-line); flex:none; }
 .gov-identity { display:flex; flex:1; min-width:0; flex-wrap:wrap; align-items:center; gap:8px 24px; line-height:22px; }
