@@ -65,7 +65,7 @@
   // 仅比较页面内的结构示例，不替代真实适配器、快照一致性或对象身份服务。
   function analyzeCollection(task) {
     if (!demo.collectionSucceeded(task) || task.analysis) return false;
-    const previous = demo.tasks.find(item => item.source === task.source && item.version === task.beforeSnapshot && demo.collectionSucceeded(item));
+    const previous = demo.tasks.find(item => item.source === task.source && item.version === task.beforeSnapshot && item.scopeKey === task.scopeKey && demo.collectionSucceeded(item));
     if (!previous) { task.analysis = '初始基线已建立'; return true; }
     const before = (previous.resultObjects || []).filter(table => !task.schemas.length || task.schemas.includes(table.schema));
     const name = table => (table.schema ? table.schema + '.' : '') + table.name;

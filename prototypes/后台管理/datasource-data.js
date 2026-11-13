@@ -8,6 +8,8 @@
   const configDefaults = { type: 'MySQL', version: '', purpose: '', technical: '', business: '', host: '', port: 3306, database: '', schemas: [], account: '', connections: 4, concurrency: 2, retries: 2, taskTimeout: 600, queryTimeout: 30, rowLimit: 1000, syncHours: 24, window: '02:00–05:00' };
   // 连接保护归平台策略；只表达原型默认约束，不提供逐数据源关闭校验的入口。
   const connectionPolicy = Object.freeze({ verifyServerCertificate: true, connectTimeoutSeconds: 15 });
+  // 比较基准须属于相同来源及读取范围；联系人、凭据或 Schema 顺序不改变范围。
+  const collectionScope = config => JSON.stringify([config.type, config.host, Number(config.port), config.database, config.type === 'PostgreSQL' ? [...config.schemas].sort() : []]);
   const initial = [
     { state: '已启用', health: '正常', host: 'retail-db.example', database: 'retail', collection: '采集失败', lastFull: '2026-11-10 14:03:21', knowledge: 8, governed: 16, technical: 'u11', business: 'u02' },
     { state: '已启用', health: '网络异常', host: 'finance-db.example', database: 'finance', collection: '采集失败', lastFull: '2026-11-08 02:04:20', knowledge: 3, governed: 6, technical: 'u11', business: 'u13' },
@@ -90,6 +92,11 @@
   // 最近采集包含失败和取消的尝试；对象本身保留可靠属性的采集时间。
   sources.forEach(source => { const latest = tasks.filter(task => task.source === source.id).sort((a, b) => b.at.localeCompare(a.at))[0]; if (latest) source.lastCollected = latest.ended || latest.at; });
   tasks.push({ ...tasks[1], id: 'CJ-F000', source: 'finance', version: 'S-F000', at: '2026-11-08 02:00:00', ended: '2026-11-08 02:04:20', discovered: 8, total: 8, processed: 8, complete: 8, scope: 'finance · 全部可见对象' });
+  tasks.forEach(task => {
+    const config = sources.find(source => source.id === task.source).config;
+    task.scopeKey = collectionScope(config); task.schemas = [...config.schemas];
+    task.beforeSnapshot = tasks.filter(other => other.source === task.source && other.state === '采集成功' && other.at < task.at).sort((a, b) => b.at.localeCompare(a.at))[0]?.version || '';
+  });
   // 目录只使用成功快照；最新失败尝试中的缺项留在任务内，不覆盖目录。
   sources.forEach(source => {
     const task = tasks.filter(task => task.source === source.id && task.state === '采集成功').sort((a, b) => b.at.localeCompare(a.at))[0];
@@ -195,7 +202,7 @@
     }
     const safe = Object.fromEntries(Object.keys(configDefaults).map(key => [key, data[key] ?? configDefaults[key]]));
     safe.schemas = safe.type === 'PostgreSQL' ? [...safe.schemas] : [];
-    const scopeChanged = source && JSON.stringify([...source.config.schemas].sort()) !== JSON.stringify([...safe.schemas].sort());
+    const scopeChanged = source && collectionScope(source.config) !== collectionScope(safe);
     if (!source) {
       source = { id: 'source-' + (++sequence), name: data.name.trim(), config: safe, connectionState: '草稿', health: '未测试', collection: '未采集', lastFull: '', lastCollected: '', revision: 0, credentialSet: false, paused: false, knowledge: 0, forbidden: 0, forbiddenKnowledge: [], governed: 0, partialGoverned: 0, history: [], approval: { primary: '', alternate: '', revision: 1, updated: '' } };
       sources.unshift(source);
@@ -210,18 +217,18 @@
   }
   // 只有整次采集成功的快照，才可作为结构分析及治理的依据。
   const collectionSucceeded = task => Boolean(task && task.state === '采集成功' && task.enumeration && task.total === task.discovered && task.processed === task.total && task.complete === task.total && !task.partial && !task.failed);
-  const successfulTask = id => tasks.filter(task => task.source === id && collectionSucceeded(task)).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const successfulTask = (id, scopeKey) => tasks.filter(task => task.source === id && collectionSucceeded(task) && (!scopeKey || task.scopeKey === scopeKey)).sort((a, b) => b.at.localeCompare(a.at))[0];
   const canGovern = table => tasks.some(task => task.source === table.source && task.version === table.version && collectionSucceeded(task));
   function startTask(source, parent) {
     if (source.connectionState !== '已启用') return { error: '数据源尚未启用，不能采集。' };
     if (source.config.type === 'PostgreSQL' && !source.config.schemas.length) return { error: '请先核定 Schema 范围。' };
     if (activeTask(source.id)) return { error: '该数据源已有进行中的采集，请先查看当前任务。' };
-    const previous = successfulTask(source.id), current = objects(source.id);
+    const scopeKey = collectionScope(source.config), previous = successfulTask(source.id, scopeKey), current = objects(source.id);
     // 固定示例只表达读取流程；任务结果与当前目录分存，失败不能写入目录。
     const resultObjects = source.config.type === 'PostgreSQL'
       ? source.config.schemas.flatMap(schema => names.slice(0, 6).map(([name, label], index) => structuredClone(current.find(table => table.schema === schema && table.name === name) || object(source, name, label, index, schema))))
       : current.length ? structuredClone(current) : names.slice(0, 6).map(([name, label], index) => object(source, name, label, index));
-    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队中', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + ' · 全部可见对象', schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', beforeSnapshot: previous?.version || '', resultObjects };
+    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队中', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + ' · 全部可见对象', scopeKey, schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', beforeSnapshot: previous?.version || '', resultObjects };
     tasks.unshift(task); return { task };
   }
   function advanceTask(task) {

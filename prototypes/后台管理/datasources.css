@@ -14,8 +14,8 @@
 .ds-change-scope strong { min-width: 0; overflow-wrap: anywhere; }
 .ds-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .ds-record-panel .do-action { white-space: nowrap; }
-/* 四字行操作预留正文宽度，避免固定列中出现逐字换行。 */
-.ds-record-panel td[data-column="actions"] { min-width: 128px; }
+/* 行操作保持横排，列预算包含完整按钮、8px 间隔和单元格留白。 */
+.ds-record-panel td[data-column="actions"] > .ds-actions { flex-wrap: nowrap; gap: 8px; }
 .ds-status-danger { color: #a33232; background: #fdf0ef; }
 .ds-fields { margin: 24px 0 0; }
 /* 长说明整行阅读，连续英文和原有换行不撑开详情。 */
