@@ -1,6 +1,8 @@
 /* 角色页沿用后台列表尺度；配置区只补充按页面浏览功能的结构。 */
 .role-cell-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .role-protected { display: inline-flex; align-items: center; padding: 1px 6px; color: #825b24; background: #fbf3e4; border-radius: 4px; font-size: 12px; line-height: 18px; white-space: nowrap; }
+/* 人数链接保留点击区域，抵消按钮的 8px 内距及 1px 边框以与表头对齐。 */
+.rt-table td[data-column="members"] > .do-action { margin-inline-start: -9px; }
 .role-editor { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .role-editor > .el-form { display: flex; flex: 1; flex-direction: column; gap: 24px; min-width: 0; min-height: 0; }
 .role-editor-info { flex: none; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 24px; padding: 24px; background: #fff; border: 1px solid var(--do-line); border-radius: 8px; }

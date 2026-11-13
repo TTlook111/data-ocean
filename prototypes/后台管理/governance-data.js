@@ -14,7 +14,7 @@
     if (!task || task.events.some(event => event.action === action && event.entryId === entry.id && event.revision === entry.revision)) return;
     task.events.push({ action, actor: actor.name, at: DataSourceDemo.now(), detail: entry.name + ' · 治理修订 ' + entry.revision, entryId: entry.id, revision: entry.revision });
   }
-  const verificationError = record => DataSourceDemo.pendingVerification(record.table).length ? '该对象仍有变化待核实，请先核对结构变化。' : '';
+  const verificationError = record => !DataSourceDemo.canGovern(record.table) ? '该对象尚无成功采集的结构，请先完成元数据采集。' : DataSourceDemo.pendingVerification(record.table).length ? '该对象仍有变化待核实，请先核对结构变化。' : '';
   function get(table) {
     if (records.has(table.id)) return records.get(table.id);
     const started = table.governance !== '待治理';
@@ -31,7 +31,7 @@
       const entry = item('field:' + field.name, 'fields', field.name, { meaning: gap ? '' : field.meaning, values: '', usage: field.name === 'updated_at' ? '来源更新时间不直接等于业务发生时间。' : '' }, started && !gap, gap);
       entry.field = field.name; entry.type = field.type; entry.comment = field.comment;
       const change = DataSourceDemo.changes.find(change => change.fact === '已确认' && change.source === table.source && change.object === objectName(table) && change.field === field.name);
-      if (change) { entry.validity = '待复核'; entry.review = '待确认'; entry.reviewer = ''; entry.reviewedAt = ''; entry.gap = change.kind === '新增字段' ? '需确认新增字段的业务含义与使用时间。' : '结构已变化，需核对新类型、单位与原业务口径。'; entry.blocked = change.control === '已禁止使用'; }
+      if (change) { entry.validity = '待复核'; entry.review = '待确认'; entry.reviewer = ''; entry.reviewedAt = ''; if (change.kind === '新增字段') entry.gap = '需确认新增字段的业务含义与使用时间。'; entry.blocked = change.control === '已禁止使用'; }
       items.push(entry);
     });
     DataSourceDemo.changes.filter(change => change.fact === '已确认' && change.source === table.source && change.object === objectName(table) && change.kind === '删除字段' && !table.fields.some(field => field.name === change.field)).forEach(change => {
@@ -47,12 +47,11 @@
       const entry = item('metric:quantity', 'metrics', '销售数量（未扣退货）', { meaning: '', values: '', usage: '' }, false, '需确认有效单据条件、数量单位和时间归属。');
       entry.proposal = { meaning: '按销售明细汇总销售数量，不含退货扣减。', values: 'SUM(sale_item.quantity)', usage: '不得将不同计量单位直接相加；不能称为净销量。' }; entry.dependencies = ['field:quantity']; items.push(entry);
     }
-    const themes = table.name === 'product' ? ['销售分析', '库存管理'] : table.name.startsWith('inventory') ? ['库存管理'] : /^(purchase|supplier)/.test(table.name) ? ['采购管理'] : ['销售分析'];
-    const record = { table, items, themes: started ? themes : [], themeReview: started ? '已确认' : '待归类', themeSuggestion: null };
+    const record = { table, items };
     records.set(table.id, record);
-    GovernanceImpactDemo.records.filter(impact => impact.kind === '结构变化' && impact.source === table.source && ['待治理', '处理中'].includes(impact.state)).forEach(impact => {
+    GovernanceImpactDemo.records.filter(impact => impact.kind === '结构变化' && impact.source === table.source && ['待治理', '治理中'].includes(impact.state)).forEach(impact => {
       const change = DataSourceDemo.changes.find(change => change.id === impact.originId && change.object === objectName(table));
-      if (change) bindImpact(record, impact, change.field ? 'field:' + change.field : 'overview');
+      if (change) prepareImpact(impact);
     });
     return record;
   }
@@ -60,16 +59,19 @@
     entry.history.unshift({ action, actor: actor.name, at: DataSourceDemo.now(), reason, content: copy(entry.content), revision: entry.revision, review: entry.review, references: copy(entry.references || []) });
   }
   function summary(record) {
+    // 表级进度仅汇总表说明与字段；变化影响独立统计，关联和指标仍逐项审核。
     const necessary = record.items.filter(entry => ['overview', 'fields'].includes(entry.kind));
     const confirmed = necessary.filter(entry => entry.review === '已确认' && entry.validity !== '待复核').length;
-    return { total: necessary.length, confirmed, pending: necessary.length - confirmed, state: necessary.some(entry => entry.validity === '待复核') ? '待复核' : confirmed === necessary.length ? '已确认' : confirmed ? '部分确认' : '待治理' };
+    return { total: necessary.length, confirmed, pending: necessary.length - confirmed, state: confirmed === necessary.length ? '已治理' : confirmed ? '治理中' : '待治理', affected: attention(record).affected.length };
   }
   function sync(record) {
-    record.table.governance = summary(record).state;
+    const progress = summary(record);
+    record.table.governance = progress.state;
+    record.table.governanceAffected = progress.affected > 0;
     record.table.fields.forEach(field => { const entry = record.items.find(entry => entry.id === 'field:' + field.name); if (entry) field.meaning = entry.content.meaning ? entry.content.meaning + (entry.review === '已确认' ? '' : '（待确认）') : '待确认'; });
     const source = DataSourceDemo.find(record.table.source), tables = DataSourceDemo.objects(source.id);
-    source.governed = tables.filter(table => table.governance === '已确认').length;
-    source.partialGoverned = tables.filter(table => table.governance === '部分确认').length;
+    source.governed = tables.filter(table => table.governance === '已治理').length;
+    source.partialGoverned = tables.filter(table => table.governance === '治理中').length;
   }
   function generate(record, kinds, actor, entryId) {
     if (!has(actor, 'governance.view') || !has(actor, 'governance.suggest')) return '当前账号没有生成 AI 建议的权限。';
@@ -87,11 +89,18 @@
       entry.ai = { taskId: task.id, references: copy(task.notes), content: copy(content), gap: entry.gap, at, basis: [record.table.path + (field ? '.' + field.name : '') + ' · ' + record.table.version, field ? '来源注释：' + (field.comment || '无注释') : '来源注释：' + (record.table.comment || '无注释'), task.notes.length ? '业务说明来源：' + task.id + ' · 自动取用 ' + task.notes.length + ' 份有效说明' : '当前源无有效业务说明，业务背景不足的内容保留待确认。', entry.proposal ? '依据结构提出的关联或计算建议，仍需核对业务条件。' : '结合已有定义起草；来源注释不等于业务确认。'] };
       task.outputs.push(copy({ id: entry.id, name: entry.name, kind: entry.kind, content: entry.ai.content, gap: entry.ai.gap }));
       log(entry, '生成 AI 建议', actor);
-      linked(record, entry).filter(impact => impact.state !== '待知识更新').forEach(impact => GovernanceImpactDemo.touch(impact, actor));
+      linked(record, entry).filter(impact => impact.state !== '知识处理中').forEach(impact => GovernanceImpactDemo.touch(impact, actor));
     }
     task.ended = DataSourceDemo.now();
     task.events = [{ action: '自动取用有效业务说明', at, detail: task.notes.length + ' 份资料，绑定各自修订' }, { action: '生成建议', at: task.ended, detail: entries.length + ' 项建议' }, { action: '等待人工核对', at: task.ended, detail: '任务完成不等于治理内容已确认' }];
-    record.themeSuggestion = record.table.name.includes('inventory') ? ['库存管理'] : ['销售分析'];
+  }
+  // 页面与提交共用确认条件，禁用原因不能只在提交后才出现。
+  function confirmIssue(record, entry) {
+    if (entry.retired) return '';
+    if (!entry.content.meaning.trim()) return '请先补齐业务含义。';
+    if (entry.gap) return '请先补齐待确认问题中的业务信息。';
+    if (entry.dependencies?.some(id => { const dependency = record.items.find(item => item.id === id); return !dependency || dependency.review !== '已确认' || dependency.blocked; })) return '依赖字段尚未确认或仍禁止使用，请先处理依赖。';
+    return '';
   }
   function act(record, entry, action, actor, data = {}) {
     const permitted = action === 'confirm' ? has(actor, 'governance.confirm') : action === 'pending' ? has(actor, 'governance.edit') || has(actor, 'governance.supplement') : has(actor, 'governance.edit');
@@ -99,8 +108,7 @@
     if (verificationError(record)) return verificationError(record);
     if (!record.items.includes(entry)) return '治理条目已变化，请重新打开。';
     if (action === 'confirm') {
-      if (!entry.content.meaning.trim() || entry.gap) return '请先补齐业务内容与待确认问题。';
-      if (entry.dependencies?.some(id => { const dependency = record.items.find(item => item.id === id); return !dependency || dependency.review !== '已确认' || dependency.blocked; })) return '依赖字段尚未确认或仍禁止使用，请先处理依赖。';
+      const issue = confirmIssue(record, entry); if (issue) return issue;
       log(entry, '确认前内容', actor); entry.review = '已确认'; entry.reviewer = actor.name; entry.reviewedAt = DataSourceDemo.now();
       if (!entry.retired) entry.validity = '适用';
       // 仅已采用建议的资料来源进入成果引用，单纯生成建议不会冒充人工确认。
@@ -127,15 +135,20 @@
       entry.ai.rejected = data.reason.trim(); log(entry, '不采用 AI 建议', actor, data.reason.trim());
     }
     sync(record);
-    linked(record, entry).forEach(impact => action === 'confirm' ? GovernanceImpactDemo.reviewed(impact, actor) : action !== 'reject' && GovernanceImpactDemo.touch(impact, actor));
+    linked(record, entry).forEach(impact => {
+      if (action === 'confirm') {
+        if (!impactReady(impact)) { impact.state = '治理中'; impact.owner ||= actor.id; }
+        GovernanceImpactDemo.reviewed(impact, actor);
+      } else if (action !== 'reject') GovernanceImpactDemo.touch(impact, actor);
+    });
   }
   const linked = (record, entry) => GovernanceImpactDemo.records.filter(impact => impact.bindings.some(binding => binding.table === record.table.id && binding.entry === entry.id) && impact.state !== '已完成');
-  // 表列表直接定位业务条目；待知识更新只读回看，不再重复审核业务内容。
+  // 表列表直接定位业务条目；知识处理中只读回看，不再重复审核业务内容。
   function attention(record) {
     const impacts = GovernanceImpactDemo.records.filter(impact => impact.state !== '已完成' && impact.bindings.some(binding => binding.table === record.table.id));
     const pending = record.items.filter(entry => entry.review !== '已确认' || entry.validity === '待复核');
     const affected = pending.filter(entry => impacts.some(impact => impact.bindings.some(binding => binding.table === record.table.id && binding.entry === entry.id)));
-    return { pending, affected, knowledge: impacts.filter(impact => impact.state === '待知识更新') };
+    return { pending, affected, knowledge: impacts.filter(impact => impact.state === '知识处理中') };
   }
   function bindImpact(record, impact, entryId) {
     const entry = record.items.find(item => item.id === entryId);
@@ -171,7 +184,29 @@
         entries.forEach(entry => bindImpact(record, impact, entry.id));
       });
     }
-    const { table, entryId } = impactTarget(impact); if (table && entryId) bindImpact(get(table), impact, entryId);
+    const { table, entryId } = impactTarget(impact);
+    const change = DataSourceDemo.changes.find(change => impact.kind === '结构变化' && change.source === impact.source && change.id === impact.originId);
+    if (table && change?.kind === '删除对象') {
+      const record = get(table);
+      record.items.forEach(entry => {
+        Object.assign(entry, { retired: true, blocked: true, validity: '失效', gap: '' });
+        bindImpact(record, impact, entry.id);
+      });
+    } else if (table && entryId) {
+      const record = get(table);
+      if (change?.field) {
+        const field = table.fields.find(field => field.name === change.field);
+        let entry = record.items.find(entry => entry.id === entryId);
+        if (!entry) {
+          entry = { id: entryId, kind: 'fields', name: change.field, field: change.field, content: { meaning: '', values: '', usage: '' }, gap: '', revision: 1, review: '待确认', validity: '待复核', publication: '未发布', reviewer: '', reviewedAt: '', basis: '', ai: null, history: [] };
+          record.items.push(entry);
+        }
+        entry.type = field?.type || '已移除'; entry.comment = field?.comment || '';
+        entry.blocked ||= change.control === '已禁止使用';
+        if (change.kind === '删除字段') Object.assign(entry, { retired: true, validity: '失效', gap: '' });
+      }
+      bindImpact(record, impact, entryId);
+    }
   }
   function associate(impact, targets, actor, revision) {
     if (!has(actor, 'governance.view') || !has(actor, 'governance.edit')) return '当前账号没有关联治理对象的权限。';
@@ -183,7 +218,7 @@
   }
   function impactNeedsKnowledge(impact) {
     const change = DataSourceDemo.changes.find(change => impact.kind === '结构变化' && change.id === impact.originId);
-    return ['新增字段', '删除字段'].includes(change?.kind) || impact.bindings.some(binding => { const entry = records.get(binding.table)?.items.find(entry => entry.id === binding.entry); return entry && (entry.blocked || entry.retired || JSON.stringify(entry.content) !== JSON.stringify(binding.before)); });
+    return ['新增对象', '新增字段', '删除字段', '删除对象'].includes(change?.kind) || impact.bindings.some(binding => { const entry = records.get(binding.table)?.items.find(entry => entry.id === binding.entry); return entry && (entry.blocked || entry.retired || JSON.stringify(entry.content) !== JSON.stringify(binding.before)); });
   }
   function generateDraft(record, actor) {
     if (!has(actor, 'knowledge.generate')) return { error: '当前账号没有生成知识草稿的权限。' };
@@ -194,5 +229,7 @@
     const draft = { id: 'GOV-' + record.table.id, source: record.table.source, table: record.table.id, title: record.table.label + '业务知识', items: copy(included), excluded: record.items.filter(entry => !included.includes(entry)).map(entry => entry.name), at: DataSourceDemo.now() };
     drafts.set(draft.id, draft); return { draft };
   }
-  window.GovernanceDemo = { get, records, drafts, tasks, tasksFor, availableNotes, objectName, summary, attention, generate, act, impactTarget, impactReady, prepareImpact, associate, impactNeedsKnowledge, generateDraft };
+  window.GovernanceDemo = { get, records, drafts, tasks, tasksFor, availableNotes, objectName, summary, attention, generate, confirmIssue, act, impactTarget, impactReady, prepareImpact, associate, impactNeedsKnowledge, generateDraft };
+  // 接入概况、目录和治理工作台共用当前进度，避免访问顺序改变统计口径。
+  DataSourceDemo.tables.forEach(table => sync(get(table)));
 })();

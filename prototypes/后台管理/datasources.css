@@ -131,3 +131,6 @@
   .ds-connection-dialog, .ds-note-dialog { width: calc(100vw - 48px); }
   .ds-test-row { grid-template-columns: 104px 60px minmax(0,1fr); gap: 8px; }
 }
+/* 目录关注项和数量分层排列，各列从同一行起点阅读。 */
+.ds-catalog-panel .rt-table td { vertical-align: top; }
+.ds-catalog-status { display: flex; flex-direction: column; gap: 4px; }

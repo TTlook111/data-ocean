@@ -64,7 +64,8 @@ h2 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
 .record-panel td { height: 64px; }
 /* 操作表头与按钮文字对齐，包含按钮的 8px 内距和 1px 透明边框。 */
 .rt-table th[data-column="actions"] { padding-inline-start: 25px; }
-.rt-table td[data-column="actions"] > .cell-sub { padding-inline-start: 9px; }
+.rt-table td[data-column="actions"] > .cell-sub,
+.rt-table td[data-column="actions"] > :is(.do-actions, .row-actions) > .cell-sub { padding-inline-start: 9px; }
 .cell-title { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: none; font: inherit; color: var(--do-primary); text-align: left; cursor: pointer; }
 .cell-sub { display: block; font-size: 12px; line-height: 16px; color: var(--do-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cell-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

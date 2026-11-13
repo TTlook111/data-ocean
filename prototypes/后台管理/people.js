@@ -16,7 +16,7 @@
     }
   });
   const groups = [
-    ['数据源接入', 'database', [['sources', '数据源管理'], ['catalog', '元数据目录'], ['collections', '采集记录与结构变化'], ['business-notes', '企业业务说明']]],
+    ['数据源接入', 'database', [['sources', '数据源管理'], ['collections', '采集记录'], ['catalog', '元数据目录'], ['business-notes', '企业业务说明']]],
     ['数据治理', 'layers', [['governance', '治理工作台'], ['test-cases', '标准题单与验证']]],
     ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['releases', '发布管理'], ['versions', '版本与回退']]],
     ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
@@ -193,7 +193,7 @@
   const display = value => Array.isArray(value) ? value.join('、') || '无' : value || '无';
   const change = (label, before, after) => ({ label, before: display(before), after: display(after) });
   // 预览只比较表单与示例行；确认前不写入，返回修改和取消均保留原状态。
-  function openForm({ title, trigger, fields, value, note = '', saveLabel = '保存', save, preview, validate, hasChanges = () => true, danger = false, success, previewTitle = '核对变更与影响', previewLabel = '预览变更', previewContentLabel, summary = false, onSaved }) {
+  function openForm({ title, trigger, fields, value, note = '', saveLabel = '保存', save, preview, validate, hasChanges = () => true, protectChanges = false, danger = false, success, previewTitle = '核对变更与影响', previewLabel = '预览变更', previewContentLabel, summary = false, onSaved }) {
     const node = modal(title, trigger), host = el('div'); node.append(host);
     const errorPrefix = 'admin-form-' + (++formSequence) + '-';
     if (fields.some(field => field.type === 'data-access')) node.classList.add('data-access-dialog');
@@ -208,8 +208,17 @@
         ]])) }),
       watch: { model: { deep: true, handler() { this.error = ''; } } },
       computed: { unchanged() { return !hasChanges(this.model); } },
+      mounted() { if (protectChanges) node.closeGuard = () => this.cancel(); },
       methods: {
-        cancel() { node.close(); },
+        cancel() {
+          if (!protectChanges || this.unchanged) { node.close(); return; }
+          if (this.confirmingClose) return;
+          this.confirmingClose = true;
+          ElementPlus.ElMessageBox.confirm('尚有未保存的修改。放弃后将丢失本次输入。', '放弃当前修改？', {
+            confirmButtonText: '继续编辑', cancelButtonText: '放弃修改', distinguishCancelAndClose: true,
+            closeOnClickModal: false, closeOnHashChange: false, appendTo: node, customClass: 'prototype-ui'
+          }).catch(action => { if (action === 'cancel') node.close(); }).finally(() => { this.confirmingClose = false; });
+        },
         validated(prop, valid) {
           // 将组件的就近报错关联到实际输入，清除时只移除本表单添加的描述。
           this.$nextTick(() => {
@@ -846,6 +855,9 @@
     else if (section === 'knowledge' && parts[2] && GovernancePage.renderDraft(main, { el, button, textCell, pageHeading, currentUser,
       setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
     }, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]))) { /* 仅承接本页内生成的知识草稿。 */ }
+    else if (['knowledge', 'releases'].includes(section)) KnowledgeUpdatePage.render(main, { el, button, textCell, pair, pageHeading, openForm, modal, currentUser, notify,
+      setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
+    }, section, decodeURIComponent(parts[1] || ''), decodeURIComponent(parts[2] || ''));
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });

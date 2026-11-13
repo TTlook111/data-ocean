@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 function fixture() {
   const context = vm.createContext({ window: {}, structuredClone });
-  for (const file of ['record-query.js', 'people-data.js', 'role-data.js', 'source-approval-data.js', 'datasource-data.js', 'governance-impact-data.js']) {
+  for (const file of ['record-query.js', 'people-data.js', 'role-data.js', 'source-approval-data.js', 'datasource-data.js', 'governance-impact-data.js', 'governance-data.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../后台管理', file), 'utf8'), context);
     Object.assign(context, context.window);
   }
-  return { demo: context.DataSourceDemo, people: context.PeopleDemo, impacts: context.GovernanceImpactDemo };
+  return { demo: context.DataSourceDemo, people: context.PeopleDemo, impacts: context.GovernanceImpactDemo, governance: context.GovernanceDemo };
 }
 test('connection drafts never persist raw credentials or grant data access', () => {
   const { demo, people } = fixture(), before = JSON.stringify(people.users);
@@ -19,69 +19,140 @@ test('connection drafts never persist raw credentials or grant data access', () 
   assert.equal(JSON.stringify(people.users), before);
   assert.ok(demo.startTask(source).error);
 });
-test('partial enumeration never turns unknown object totals into a complete snapshot', () => {
-  const { demo } = fixture();
-  const failed = demo.tasks.find(task => !task.enumeration && task.state === '失败');
+test('incomplete enumeration remains a failed attempt and a retry reads the full source', () => {
+  const { demo } = fixture(), source = demo.find('retail');
+  const failed = demo.tasks.find(task => !task.enumeration && task.state === '采集失败');
   assert.equal(failed.total, null);
-  const { task } = demo.startTask(demo.find('retail'), failed);
-  assert.equal(task.retryOnly, false);
+  const original = JSON.stringify(failed), { task } = demo.startTask(source, failed);
+  assert.equal(task.state, '排队中');
   assert.equal(task.enumeration, false);
   assert.equal(task.total, null);
-  demo.advanceTask(task);
-  assert.equal(task.state, '进行中');
-  assert.equal(task.enumeration, false);
-});
-test('retrying a subset retains the original task and last verified full collection', () => {
-  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0];
-  const original = JSON.stringify(parent), lastFull = source.lastFull;
-  const { task } = demo.startTask(source, parent);
+  assert.equal(task.scope, demo.scopeLabel(source) + ' · 全部可见对象');
   for (let i = 0; i < 3; i++) demo.advanceTask(task);
-  assert.equal(task.retryOnly, true);
-  assert.equal(task.total, 2);
-  assert.equal(task.state, '部分成功');
-  assert.equal(task.partial, 2);
-  assert.equal(task.failed, 0);
-  assert.equal(source.lastFull, lastFull);
-  assert.equal(JSON.stringify(parent), original);
+  assert.equal(task.state, '采集成功');
+  assert.equal(task.total, 23);
+  assert.equal(JSON.stringify(failed), original);
 });
 
-test('retry with two index gaps reports two partial objects rather than two failed objects', () => {
-  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0];
-  const { task } = demo.startTask(source, parent);
+test('any missing structure fails the task without changing the catalog or starting analysis', () => {
+  const { demo, impacts } = fixture(), source = demo.find('retail');
+  const before = JSON.stringify(demo.tables), changes = JSON.stringify(demo.changes), records = JSON.stringify(impacts.records), full = source.lastFull;
+  const { task } = demo.startTask(source);
+  task.resultObjects[0].fields[0].type = 'VARCHAR(100)';
+  task.resultObjects[1].indexState = '无权限';
   for (let i = 0; i < 3; i++) demo.advanceTask(task);
-  assert.equal(task.processed, 2);
-  assert.equal(task.complete, 0);
-  assert.equal(task.partial, 2);
+  assert.equal(task.state, '采集失败');
+  assert.equal(task.processed, 23);
+  assert.equal(task.complete, 22);
+  assert.equal(task.partial, 1);
   assert.equal(task.failed, 0);
-  assert.deepEqual(Array.from(task.partialObjects), ['supplier', 'legacy_price']);
-  assert.deepEqual(Array.from(task.failures), []);
+  assert.equal(task.analysis, undefined);
+  assert.equal(impacts.analyzeCollection(task), false);
+  assert.equal(JSON.stringify(demo.tables), before);
+  assert.equal(JSON.stringify(demo.changes), changes);
+  assert.equal(JSON.stringify(impacts.records), records);
+  assert.equal(source.lastFull, full);
+  assert.equal(source.collection, '采集失败');
 });
 
-test('task progress reconciles complete partial and failed objects in examples and while running', () => {
+test('task counts reconcile complete incomplete and failed object reads', () => {
   const { demo } = fixture();
   const check = task => {
     assert.equal(task.processed, task.complete + task.partial + task.failed, task.id);
     assert.equal(task.partial, task.partialObjects.length, task.id);
     assert.equal(task.failed, task.failures.length, task.id);
     assert.ok(task.processed <= task.discovered, task.id);
+    if (task.state === '采集成功') assert.equal(demo.collectionSucceeded(task), true);
+    assert.ok(['排队中', '采集中', '采集成功', '采集失败', '已取消'].includes(task.state));
   };
   demo.tasks.forEach(check);
   const { task } = demo.startTask(demo.find('retail'));
+  task.resultObjects[0].readState = '读取失败';
   for (let i = 0; i < 3; i++) { demo.advanceTask(task); check(task); }
+  assert.equal(task.state, '采集失败');
 });
 
-test('retry covers partial objects and becomes complete only after the missing reads are restored', () => {
-  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0], original = JSON.stringify(parent), full = source.lastFull;
-  for (const name of ['supplier', 'legacy_price']) demo.objects(source.id).find(table => table.name === name).indexState = '已读取';
-  const { task } = demo.startTask(source, parent);
+test('the first successful collection establishes a baseline and opens governance without fake changes', () => {
+  const { demo, impacts } = fixture();
+  const source = demo.saveConfig({ ...demo.configDefaults, name: '首次采集', host: 'first.example', database: 'first', account: 'reader' }, null, true, true);
+  const { task } = demo.startTask(source), changes = demo.changes.length;
+  assert.equal(demo.objects(source.id).length, 0);
+  demo.advanceTask(task); demo.advanceTask(task);
+  assert.equal(demo.objects(source.id).length, 0);
+  demo.advanceTask(task);
+  assert.equal(task.state, '采集成功');
+  assert.equal(task.analysis, '初始基线已建立');
+  assert.equal(demo.objects(source.id).length, 6);
+  assert.ok(demo.objects(source.id).every(demo.canGovern));
+  assert.equal(demo.changes.length, changes);
+  assert.equal(impacts.analyzeCollection(task), false);
+});
+
+test('a failed or cancelled first collection creates neither a catalog nor governance work', () => {
+  for (const cancel of [false, true]) {
+    const { demo, impacts } = fixture();
+    const source = demo.saveConfig({ ...demo.configDefaults, name: '首次未完成', host: 'first.example', database: 'first', account: 'reader' }, null, true, true);
+    const { task } = demo.startTask(source), count = impacts.records.length;
+    demo.advanceTask(task); demo.advanceTask(task);
+    if (cancel) demo.cancelTask(task); else { source.health = '网络异常'; demo.advanceTask(task); }
+    assert.equal(demo.objects(source.id).length, 0);
+    assert.equal(impacts.analyzeCollection(task), false);
+    assert.equal(impacts.records.length, count);
+    assert.equal(task.analysis, undefined);
+  }
+});
+
+test('successful unchanged collections reuse the baseline without creating change work', () => {
+  const { demo } = fixture(), source = demo.find('products'), before = demo.changes.length;
+  const { task } = demo.startTask(source);
   for (let i = 0; i < 3; i++) demo.advanceTask(task);
-  assert.equal(task.total, 2);
-  assert.equal(task.complete, 2);
-  assert.equal(task.partial, 0);
-  assert.equal(task.failed, 0);
-  assert.equal(task.state, '完整成功');
-  assert.equal(source.lastFull, full);
-  assert.equal(JSON.stringify(parent), original);
+  assert.equal(task.analysis, '未发现结构变化');
+  assert.equal(demo.changes.length, before);
+  assert.ok(demo.objects(source.id).every(table => table.version === task.version));
+});
+
+test('successful collection confirms clear differences automatically and sends only ambiguous facts to review', () => {
+  const { demo, impacts } = fixture(), source = demo.find('products');
+  const { task } = demo.startTask(source);
+  task.resultObjects.find(table => table.name === 'product').comment = '新的商品注释';
+  task.resultObjects = task.resultObjects.filter(table => table.name !== 'supplier');
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  const changes = demo.changes.filter(change => change.taskId === task.id);
+  assert.equal(changes.length, 2);
+  const clear = changes.find(change => change.kind === '修改注释'), uncertain = changes.find(change => change.kind === '访问丢失');
+  assert.equal(clear.fact, '已确认');
+  assert.equal(clear.factSource, '系统判定');
+  assert.ok(impacts.forChange(clear));
+  assert.equal(uncertain.fact, '待核实');
+  assert.equal(impacts.forChange(uncertain), undefined);
+  assert.equal(demo.pendingVerification(demo.objects(source.id).find(table => table.name === 'supplier')).length, 1);
+  assert.ok(changes.every(change => change.afterSnapshot === task.version && change.beforeSnapshot === task.beforeSnapshot));
+});
+test('new and deleted fields update existing governance entries only after successful collection', () => {
+  const { demo, impacts, governance } = fixture(), source = demo.find('products');
+  const table = demo.objects(source.id).find(table => table.name === 'product'), record = governance.get(table);
+  const overview = JSON.stringify(record.items.find(entry => entry.id === 'overview'));
+  const { task } = demo.startTask(source), result = task.resultObjects.find(row => row.id === table.id);
+  result.fields.push({ name: 'new_code', type: 'VARCHAR(32)', nullable: '是', default: '无默认值', comment: '', meaning: '待确认' });
+  result.fields = result.fields.filter(field => field.name !== 'code');
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  for (const change of demo.changes.filter(change => change.taskId === task.id)) assert.equal(impacts.forChange(change).bindings.length, 1);
+  assert.equal(record.items.find(entry => entry.id === 'field:new_code').review, '待确认');
+  assert.equal(record.items.find(entry => entry.id === 'field:code').retired, true);
+  assert.equal(record.items.find(entry => entry.id === 'field:code').blocked, true);
+  assert.equal(JSON.stringify(record.items.find(entry => entry.id === 'overview')), overview);
+});
+
+test('an ambiguous object identity is reviewed before any business edits', () => {
+  const { demo, governance, people } = fixture(), source = demo.find('products');
+  const { task } = demo.startTask(source), result = task.resultObjects[0];
+  result.identity = 'another-object'; result.fields[0].type = 'VARCHAR(255)';
+  for (let i = 0; i < 3; i++) demo.advanceTask(task);
+  const changes = demo.changes.filter(change => change.taskId === task.id);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].fact, '待核实');
+  const table = demo.objects(source.id).find(table => table.id === result.id);
+  assert.match(governance.generate(governance.get(table), ['fields'], people.users[0]), /待核实/);
 });
 test('one active collection per source, and cancellation cannot later become success', () => {
   const { demo } = fixture(), source = demo.find('retail');
@@ -152,7 +223,7 @@ test('selected schemas determine collection scope and distinguish same-name tabl
   const data = { ...demo.configDefaults, type: 'PostgreSQL', name: 'PG 业务库', host: 'pg.example', database: 'erp', account: 'sample_reader', port: 5432, version: '16.4', schemas: ['sales', 'finance'] };
   const source = demo.saveConfig(data, null, true, true), { task } = demo.startTask(source);
   for (let i = 0; i < 3; i++) demo.advanceTask(task);
-  assert.equal(task.state, '完整成功');
+  assert.equal(task.state, '采集成功');
   assert.ok(task.scope.includes('sales、finance'));
   assert.equal(task.total, 12);
   const rows = demo.objects(source.id), repeated = rows.filter(row => row.name === 'sale_order');
@@ -161,7 +232,7 @@ test('selected schemas determine collection scope and distinguish same-name tabl
   assert.ok(repeated.every(row => row.path.startsWith('erp.')));
   assert.ok(!rows.some(row => row.schema === 'public'));
   demo.saveConfig({ ...data, schemas: ['finance', 'sales'] }, source, true, false);
-  assert.equal(source.collection, '完整成功');
+  assert.equal(source.collection, '采集成功');
   demo.saveConfig({ ...data, schemas: ['sales'] }, source, true, false);
   assert.equal(source.collection, '待重新采集');
   assert.equal(source.lastFull, '');
@@ -211,7 +282,7 @@ test('failed retry records the attempt without downgrading the last full-scope o
   const state = source.collection, full = source.lastFull;
   const { task } = demo.startTask(source, parent);
   source.health = '网络异常'; demo.advanceTask(task); demo.advanceTask(task);
-  assert.equal(task.state, '失败');
+  assert.equal(task.state, '采集失败');
   assert.equal(source.collection, state);
   assert.equal(source.lastCollected, task.ended);
   assert.equal(source.lastFull, full);
@@ -266,38 +337,40 @@ test('ordinary view examples do not claim physical table indexes or generated de
 
 test('catalog examples with unresolved definitions are not reported as fully confirmed', () => {
   const { demo } = fixture();
-  assert.ok(demo.tables.some(table => table.governance === '部分确认'));
-  assert.ok(demo.tables.filter(table => table.governance === '已确认').every(table => table.fields.every(field => !field.meaning.includes('待确认'))));
+  assert.ok(demo.tables.some(table => table.governance === '治理中'));
+  assert.ok(demo.tables.filter(table => table.governance === '已治理').every(table => table.fields.every(field => !field.meaning.includes('待确认'))));
   for (const source of demo.sources) {
-    assert.equal(source.governed, demo.objects(source.id).filter(table => table.governance === '已确认').length);
-    assert.equal(source.partialGoverned, demo.objects(source.id).filter(table => table.governance === '部分确认').length);
+    assert.equal(source.governed, demo.objects(source.id).filter(table => table.governance === '已治理').length);
+    assert.equal(source.partialGoverned, demo.objects(source.id).filter(table => table.governance === '治理中').length);
   }
 });
 
 test('source governance totals partition the same current catalog objects', () => {
   const { demo } = fixture();
   const summary = demo.governanceSummary('retail');
-  assert.deepEqual({ ...summary }, { total: 23, confirmed: 0, partial: 14, pending: 6, review: 3 });
+  assert.deepEqual({ ...summary }, { total: 23, confirmed: 0, partial: 17, pending: 6, affected: 14 });
   for (const source of demo.sources) {
     const value = demo.governanceSummary(source.id);
     assert.equal(value.total, demo.objects(source.id).length);
-    assert.equal(value.total, value.confirmed + value.partial + value.pending + value.review);
+    assert.equal(value.total, value.confirmed + value.partial + value.pending);
+    assert.equal(value.affected, demo.objects(source.id).filter(table => table.governanceAffected).length);
   }
   demo.find('retail').governed = 99; demo.find('retail').partialGoverned = 99;
-  demo.objects('retail').find(table => table.governance === '待治理').governance = '已确认';
+  demo.objects('retail').find(table => table.governance === '待治理').governance = '已治理';
   const updated = demo.governanceSummary('retail');
-  assert.equal(updated.total, 23); assert.equal(updated.confirmed, 1); assert.equal(updated.pending, 5);
+  assert.equal(updated.total, 23); assert.equal(updated.confirmed, summary.confirmed + 1); assert.equal(updated.pending, summary.pending - 1);
 });
 
-test('latest source collection is the actual retry and keeps the full-scope result separate', () => {
-  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0], full = source.lastFull;
+test('retry becomes the latest full-source collection and preserves the failed original', () => {
+  const { demo } = fixture(), source = demo.find('retail'), parent = demo.tasks[0], original = JSON.stringify(parent);
   for (const name of ['supplier', 'legacy_price']) demo.objects(source.id).find(table => table.name === name).indexState = '已读取';
   const { task } = demo.startTask(source, parent); task.at = '2099-01-01 00:00:00';
   for (let i = 0; i < 3; i++) demo.advanceTask(task);
   const order = demo.tasks.map(row => row.id).join(',');
   assert.equal(demo.latestTask(source.id), task);
-  assert.equal(task.state, '完整成功'); assert.equal(task.total, 2);
-  assert.equal(source.collection, '部分成功'); assert.equal(source.lastFull, full);
+  assert.equal(task.state, '采集成功'); assert.equal(task.total, 23);
+  assert.equal(source.collection, '采集成功'); assert.equal(source.lastFull, task.ended);
+  assert.equal(JSON.stringify(parent), original);
   assert.equal(demo.governanceSummary(source.id).total, 23);
   assert.equal(demo.tasks.map(row => row.id).join(','), order);
 });
@@ -315,6 +388,8 @@ test('catalog filters retain missing attributes alongside structural changes wit
   const { demo } = fixture(), rows = demo.objects('retail');
   const legacy = rows.find(item => item.name === 'legacy_price');
   assert.ok(demo.catalogStates(legacy).includes('结构变化'));
+  legacy.indexState = '无权限';
+  rows.find(table => table.name === 'supplier').indexState = '无权限';
   assert.ok(demo.catalogStates(legacy).includes('属性缺失'));
   assert.equal(rows.filter(item => demo.catalogStates(item).includes('属性缺失')).length, 2);
   const system = rows.find(item => item.name === 'sys_config');
@@ -332,7 +407,7 @@ test('change examples refer to the same-source discovery task and a prior reliab
     assert.equal(task.source, change.source);
     assert.equal(task.version, change.afterSnapshot);
     assert.equal(task.ended, change.at);
-    assert.equal(before.state, '完整成功');
+    assert.equal(before.state, '采集成功');
     assert.ok(before.ended < task.at);
   }
 });
@@ -346,7 +421,8 @@ test('current catalog examples agree with discovered fields, comments and succes
     assert.equal(retail.find(table => table.name === change.object).comment, change.after);
   }
   const task = demo.tasks.find(item => item.source === 'products');
-  assert.equal(task.state, '完整成功');
+  assert.equal(task.state, '采集成功');
+  assert.equal(task.analysis, '初始基线已建立');
   assert.ok(demo.objects('products').every(table => table.version === task.version && table.collected === task.ended));
 });
 
@@ -420,7 +496,7 @@ test('restoration is separately permission-controlled and deleted notes reject s
 test('reliable differences are confirmed without treating governance as completed', () => {
   const { demo, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-015');
   assert.equal(change.fact, '已确认');
-  assert.equal(change.factSource, '采集证据');
+  assert.equal(change.factSource, '系统判定');
   assert.equal(impacts.progress(change), '待治理');
   assert.equal(change.control, '已禁止使用');
   assert.equal(impacts.forChange(change).state, '待治理');
@@ -434,20 +510,20 @@ test('unresolved verification is not submitted and confirmed visibility does not
   assert.equal(change.fact, '待核实');
   assert.equal(impacts.progress(change), '待核实');
   assert.equal(impacts.forChange(change), undefined);
-  assert.equal(impacts.verify(change, { decision: '确认变化', reason: '已查明来源可见性变化，未确认删除' }, actor, 0), undefined);
+  assert.equal(impacts.verify(change, { decision: '对象仍存在', reason: '已查明来源可见性变化，未确认删除' }, actor, 0), undefined);
   assert.ok(impacts.verify(change, { decision: '确认变化', reason: '旧窗口' }, actor, 0));
-  assert.equal(change.fact, '已确认');
+  assert.equal(change.fact, '已排除');
   assert.equal(impacts.progress(change), '已完成');
   assert.equal(change.kind, '访问丢失');
-  assert.equal(change.control, '待核实');
+  assert.equal(change.control, '未禁止');
 });
 
 test('excluding a structural change retains evidence and existing access controls', () => {
   const { demo, people, impacts } = fixture(), change = demo.changes.find(item => item.id === 'CH-012');
-  assert.equal(impacts.verify(change, { decision: '排除结构变化', reason: '对象仍存在，是目录账号撤权' }, people.users[0], 0), undefined);
+  assert.equal(impacts.verify(change, { decision: '对象仍存在', reason: '对象仍存在，是目录账号撤权' }, people.users[0], 0), undefined);
   assert.equal(change.fact, '已排除');
   assert.equal(impacts.progress(change), '已完成');
-  assert.equal(change.control, '待核实');
+  assert.equal(change.control, '未禁止');
   assert.equal(impacts.forChange(change), undefined);
   assert.equal(change.verifications.length, 1);
 });
@@ -491,20 +567,38 @@ test('verification scope covers all fields of exactly one source object', () => 
   demo.changes.push({ ...structuredClone(original), id: 'another-source', source: 'finance' });
   demo.changes.push({ ...structuredClone(original), id: 'similar-name', object: 'supplier_archive' });
   assert.equal(demo.pendingVerification(table).length, 2);
-  assert.equal(impacts.verify(original, { decision: '确认变化', reason: '已核对源端权限变化' }, people.users[0], 0), undefined);
+  assert.equal(impacts.verify(original, { decision: '对象仍存在', reason: '已核对源端权限变化' }, people.users[0], 0), undefined);
   assert.equal(demo.pendingVerification(table).length, 1);
   assert.equal(demo.pendingVerification(demo.objects('retail').find(table => table.name === 'sale_order')).length, 0);
 });
 
 test('catalog attention follows outstanding changes and keeps attribute gaps after completion', () => {
   const { demo, impacts } = fixture(), table = demo.objects('retail').find(table => table.name === 'legacy_price');
+  table.indexState = '无权限';
   assert.deepEqual(Array.from(demo.catalogStates(table)), ['结构变化', '属性缺失']);
   const item = impacts.forChange(demo.changesFor(table)[0]);
-  item.state = '待知识更新';
+  item.state = '知识处理中';
   assert.ok(demo.catalogStates(table).includes('结构变化'));
   item.state = '已完成';
   assert.deepEqual(Array.from(demo.catalogStates(table)), ['属性缺失']);
   const order = demo.objects('retail').find(table => table.name === 'sale_order');
   impacts.forChange(demo.changesFor(order)[0]).state = '已完成';
   assert.deepEqual(Array.from(demo.catalogStates(order)), ['已采集']);
+});
+
+test('fact verification never clears lost access; a successful object read does', () => {
+  for (const decision of ['对象仍存在']) {
+    const { demo, impacts, people } = fixture(), actor = people.users[0];
+    const change = demo.changes.find(item => item.id === 'CH-012');
+    const table = demo.objects('retail').find(item => item.name === 'supplier');
+    assert.ok(demo.catalogStates(table).includes('访问丢失'));
+    assert.equal(impacts.verify(change, { decision, reason: '只核实变化事实，来源读取尚未恢复' }, actor, 0), undefined);
+    assert.ok(demo.catalogStates(table).includes('访问丢失'));
+    const { task } = demo.startTask(demo.find('retail'));
+    demo.advanceTask(task); demo.advanceTask(task);
+    assert.ok(demo.catalogStates(table).includes('访问丢失'));
+    demo.advanceTask(task);
+    assert.equal(demo.catalogStates(table).includes('访问丢失'), false);
+    assert.equal(demo.catalogStates(table).includes('属性缺失'), false);
+  }
 });

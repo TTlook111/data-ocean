@@ -11,16 +11,15 @@
       ['create', '新增数据源', '创建连接配置，不自动获得业务查询权。'], ['edit', '编辑连接', '修改连接信息或轮换凭据，凭据不回显。'],
       ['test', '测试连接', '核对连接、读取与采集条件。'], ['enable', '启用数据源', '核对连接和采集条件后启用。'],
       ['pause', '暂停采集', '暂停该源后续采集，保留已有结果。'], ['disable', '停用数据源', '核对使用与依赖影响后停用。'], ['retire', '退役数据源', '核对依赖和历史保留后退役。']]),
+    page('collections', '数据源接入', '采集记录', [
+      ['collect', '发起采集', '从获准数据源只读采集结构信息。'], ['retry', '重新采集', '重新采集当前数据源的完整配置范围，保留原任务。'],
+      ['cancel', '取消采集', '停止当前有权取消的采集任务。'], ['review', '核实变化', '在元数据目录的结构变化页签核对证据并记录结论，不替代业务治理确认。']]),
     page('catalog', '数据源接入', '元数据目录'),
-    page('collections', '数据源接入', '采集记录与结构变化', [
-      ['collect', '发起采集', '从获准数据源只读采集结构信息。'], ['retry', '重试失败对象', '只重试失败部分，保留已有结果。'],
-      ['cancel', '取消采集', '停止当前有权取消的采集任务。'], ['review', '核实变化', '核对结构、注释或可见性变化的证据并记录结论，不替代业务治理确认。']]),
     page('business-notes', '数据源接入', '企业业务说明', [
       ['submit', '提交业务资料', '编写说明或上传业务资料，保存修订。'], ['replace', '替换业务资料', '保存替换修订，已引用正文或附件变化直接关联表治理中的受影响内容。'], ['withdraw', '撤下业务资料', '核对影响后撤下有权管理的资料。'],
       ['restore', '恢复业务资料', '恢复已撤下资料供后续治理取用，保留原修订和操作记录。'], ['delete', '删除未使用资料', '仅删除所有修订均未被任务取用或成果引用的资料。']]),
     page('governance', '数据治理', '治理工作台', [
       ['suggest', '生成 AI 建议', '基于获准资料生成待确认建议。'], ['edit', '编辑治理内容', '维护表字段、关系和指标的业务说明。'],
-      ['classify', '维护主题归类', '确认或调整主题归类，不替代关系确认。'],
       ['confirm', '审核治理内容', '在表治理详情逐项审核业务内容，沿用来源核实结论；不自动发布或授权。'], ['supplement', '要求补充', '记录治理条目缺口，保留待确认状态。'],
       ['forbid', '禁止对象使用', '核对影响后禁止对象参与查询。'], ['allow', '解除对象禁止', '明确确认后解除禁止，仍须核验当前权限和资源状态。']]),
     page('test-cases', '数据治理', '标准题单与验证', [
@@ -67,6 +66,7 @@
     page('my-access', '个人管理', '我的访问范围'),
     page('query', '问数工作台', '问数工作台', [['ask', '发起问数', '对单一获准源发起或重新查询业务问题。'], ['sql', '查看 SQL', '按对应权限查看查询依据中的 SQL。']])
   ];
+  catalog.find(item => item.id === 'collections').operations[0].purpose = '查看获准采集记录及对应结构变化；结构变化在元数据目录中查看。';
   const all = catalog.flatMap(item => item.operations);
   const keysFor = ids => catalog.filter(item => ids.includes(item.id)).flatMap(item => item.operations.filter(op => !op.protectedAbility).map(op => op.id));
   const personal = [...keysFor(['account-info', 'my-requests', 'my-access']), 'query.view', 'query.ask'];
@@ -76,7 +76,7 @@
     ['role-analyst', '数据分析师', '使用问数、元数据目录和本人管理功能。', [...personal, 'catalog.view']],
     ['role-user', '普通用户', '使用本人问数、申请及访问回看功能。', personal],
     ['role-source', '数据源维护员', '维护连接、结构目录与采集记录。', keysFor(['sources', 'catalog', 'collections', 'business-notes']).filter(key => key !== 'sources.approval-config')],
-    ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', [...keysFor(['catalog', 'test-cases']), 'governance.view', 'governance.suggest', 'governance.edit', 'governance.classify']],
+    ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', [...keysFor(['catalog', 'test-cases']), 'governance.view', 'governance.suggest', 'governance.edit']],
     ['role-review', '知识审核员', '核对治理依据和知识文档。', [...keysFor(['knowledge']), 'governance.view', 'governance.confirm', 'governance.supplement', 'governance.forbid', 'governance.allow']],
     ['role-release', '发布管理员', '管理候选构建、发布测试及版本回退。', keysFor(['knowledge', 'releases', 'versions', 'test-cases'])],
     ['role-feedback', '反馈处理员', '核查、分派与处理有权问题。', keysFor(['feedback'])],

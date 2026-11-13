@@ -9,9 +9,9 @@
   // 连接保护归平台策略；只表达原型默认约束，不提供逐数据源关闭校验的入口。
   const connectionPolicy = Object.freeze({ verifyServerCertificate: true, connectTimeoutSeconds: 15 });
   const initial = [
-    { state: '已启用', health: '正常', host: 'retail-db.example', database: 'retail', collection: '部分成功', lastFull: '2026-11-10 14:03:21', knowledge: 8, governed: 16, technical: 'u11', business: 'u02' },
-    { state: '已启用', health: '网络异常', host: 'finance-db.example', database: 'finance', collection: '失败', lastFull: '2026-11-08 02:04:20', knowledge: 3, governed: 6, technical: 'u11', business: 'u13' },
-    { state: '已启用', health: '正常', host: 'products-db.example', database: 'products', collection: '完整成功', lastFull: '2026-11-11 03:01:10', knowledge: 4, governed: 9, technical: 'u11', business: 'u09' },
+    { state: '已启用', health: '正常', host: 'retail-db.example', database: 'retail', collection: '采集失败', lastFull: '2026-11-10 14:03:21', knowledge: 8, governed: 16, technical: 'u11', business: 'u02' },
+    { state: '已启用', health: '网络异常', host: 'finance-db.example', database: 'finance', collection: '采集失败', lastFull: '2026-11-08 02:04:20', knowledge: 3, governed: 6, technical: 'u11', business: 'u13' },
+    { state: '已启用', health: '正常', host: 'products-db.example', database: 'products', collection: '采集成功', lastFull: '2026-11-11 03:01:10', knowledge: 4, governed: 9, technical: 'u11', business: 'u09' },
     { state: '草稿', health: '未测试', host: '', database: '', collection: '未采集', lastFull: '', knowledge: 0, governed: 0 }
   ];
   // 禁止数量与可回看的知识明细使用同一份示例，来源恢复不解除禁止。
@@ -32,8 +32,8 @@
   ];
   const tables = [];
   function object(source, name, label, index, schema = '') {
-    const retail = source.id === 'retail', view = name.endsWith('_view');
-    const row = { id: source.id + ':' + (schema ? schema + ':' : '') + name, source: source.id, schema, name, label, path: [source.config.database, schema, name].filter(Boolean).join('.'), type: view ? '视图' : name.includes('_202611') ? '分区表' : name.startsWith('sys_') ? '系统表' : '普通表', parent: name.includes('_202611') ? 'sale_item' : '', collection: retail && [8, 22].includes(index) ? '属性缺失' : '已采集', governance: index < source.governed ? '部分确认' : '待治理', version: 'S-003', collected: source.lastCollected, indexState: retail && [8, 22].includes(index) ? '无权限' : '已读取', commentState: name === 'sys_config' ? '不支持' : '已读取', identity: 'OBJ-' + source.id + '-' + (schema ? schema + '-' : '') + (index + 1), generation: 1, readState: source.id === 'finance' ? '来源不可用' : '未验证', comment: label, fields: [
+    const view = name.endsWith('_view');
+    const row = { id: source.id + ':' + (schema ? schema + ':' : '') + name, source: source.id, schema, name, label, path: [source.config.database, schema, name].filter(Boolean).join('.'), type: view ? '视图' : name.includes('_202611') ? '分区表' : name.startsWith('sys_') ? '系统表' : '普通表', parent: name.includes('_202611') ? 'sale_item' : '', collection: '已采集', governance: index < source.governed ? '治理中' : '待治理', version: 'S-003', collected: source.lastCollected, indexState: '已读取', commentState: name === 'sys_config' ? '不支持' : '已读取', identity: 'OBJ-' + source.id + '-' + (schema ? schema + '-' : '') + (index + 1), generation: 1, readState: source.id === 'finance' ? '来源不可用' : '未验证', comment: label, fields: [
       { name: name === 'sale_item' ? 'sale_item_id' : 'id', type: 'BIGINT', nullable: '否', default: '由数据库生成', comment: '主键', meaning: '记录编号' },
       { name: 'store_id', type: 'BIGINT', nullable: '否', default: '无默认值', comment: '门店编号', meaning: '业务发生门店' },
       { name: name === 'sale_item' ? 'product_id' : 'code', type: name === 'sale_item' ? 'BIGINT' : 'VARCHAR(64)', nullable: '否', default: '无默认值', comment: name === 'sale_item' ? '商品编号' : '业务编码', meaning: name === 'sale_item' ? '对应商品档案' : '待确认' },
@@ -46,14 +46,14 @@
     return row;
   }
   sources.forEach((source, index) => names.slice(0, [23, 8, 12, 0][index]).forEach(([name, label], i) => tables.push(object(source, name, label, i))));
-  // 本次结构变化与治理复核分别显示；来源同步不覆盖已经确认的业务含义。
-  tables.filter(table => table.source === 'retail' && ['sale_order', 'sale_item', 'legacy_price'].includes(table.name)).forEach(table => { table.collection = '结构变化'; table.governance = '待复核'; });
-  sources.forEach(source => { source.governed = tables.filter(table => table.source === source.id && table.governance === '已确认').length; source.partialGoverned = tables.filter(table => table.source === source.id && table.governance === '部分确认').length; });
+  // 结构变化不替代治理进度；业务定义的影响在治理条目中单独维护。
+  tables.filter(table => table.source === 'retail' && ['sale_order', 'sale_item', 'legacy_price'].includes(table.name)).forEach(table => { table.collection = '结构变化'; table.governance = '治理中'; });
+  sources.forEach(source => { source.governed = tables.filter(table => table.source === source.id && table.governance === '已治理').length; source.partialGoverned = tables.filter(table => table.source === source.id && table.governance === '治理中').length; });
   const changes = [
-    { id: 'CH-015', source: 'retail', taskId: 'CJ-0030', beforeSnapshot: 'S-029', afterSnapshot: 'S-030', object: 'sale_item', field: 'quantity', attribute: '字段类型', kind: '类型变化', before: 'INT', after: 'DECIMAL(12,3)', compatible: false, impact: '净销量、商品销售排行', affected: 2, control: '已禁止使用', state: '待复核', at: '2026-11-11 02:03:21', evidence: '相同来源对象标识；同范围枚举完整，字段类型已读取。', result: '' },
-    { id: 'CH-014', source: 'retail', taskId: 'CJ-0030', beforeSnapshot: 'S-029', afterSnapshot: 'S-030', object: 'sale_order', field: 'paid_at', attribute: '字段定义', kind: '新增字段', before: '不存在', after: 'DATETIME，可空', compatible: true, impact: '销售时间口径待确认', affected: 1, control: '待治理', state: '待复核', at: '2026-11-11 02:03:21', evidence: '相同范围完整枚举，字段为本次新发现。', result: '' },
+    { id: 'CH-015', source: 'retail', taskId: 'CJ-0029', beforeSnapshot: 'S-027', afterSnapshot: 'S-029', object: 'sale_item', field: 'quantity', attribute: '字段类型', kind: '类型变化', before: 'INT', after: 'DECIMAL(12,3)', compatible: false, impact: '净销量、商品销售排行', affected: 2, control: '已禁止使用', state: '待复核', at: '2026-11-10 14:03:21', evidence: '相同来源对象标识；同范围枚举完整，字段类型已读取。', result: '' },
+    { id: 'CH-014', source: 'retail', taskId: 'CJ-0029', beforeSnapshot: 'S-027', afterSnapshot: 'S-029', object: 'sale_order', field: 'paid_at', attribute: '字段定义', kind: '新增字段', before: '不存在', after: 'DATETIME，可空', compatible: true, impact: '销售时间口径待确认', affected: 1, control: '待治理', state: '待复核', at: '2026-11-10 14:03:21', evidence: '相同范围完整枚举，字段为本次新发现。', result: '' },
     { id: 'CH-013', source: 'retail', taskId: 'CJ-0029', beforeSnapshot: 'S-027', afterSnapshot: 'S-029', object: 'legacy_price', field: 'cost_price', attribute: '字段定义', kind: '删除字段', before: 'DECIMAL(12,2)', after: '已确认移除', compatible: false, impact: '历史价格分析', affected: 1, control: '已禁止使用', state: '待复核', at: '2026-11-10 14:03:21', evidence: '同范围枚举完整；来源负责人确认字段已删除。', result: '' },
-    { id: 'CH-012', source: 'retail', taskId: 'CJ-0027', beforeSnapshot: 'S-025', afterSnapshot: 'S-027', object: 'supplier', field: '', attribute: '目录可见性', kind: '访问丢失', before: '目录可见', after: '来源待核实', compatible: null, impact: '供应商资料治理', affected: 1, control: '待核实', state: '待复核', at: '2026-11-09 14:03:21', evidence: '账号权限有变化，不能据此认定对象已删除。', result: '' },
+    { id: 'CH-012', source: 'retail', taskId: 'CJ-0027', beforeSnapshot: 'S-025', afterSnapshot: 'S-027', object: 'supplier', field: '', attribute: '目录可见性', kind: '访问丢失', before: '目录可见', after: '本次未读取到', compatible: null, impact: '供应商资料治理', affected: 1, control: '待核实', state: '待复核', at: '2026-11-09 14:03:21', evidence: '本次未读取到 supplier；现有采集结果不足以区分对象删除、读取权限或采集范围变化。', result: '' },
     ...Array.from({ length: 11 }, (_, i) => ({ id: 'CH-' + String(11 - i).padStart(3, '0'), source: 'retail', taskId: 'CJ-' + String(24 - 2 * Math.floor(i / 3)).padStart(4, '0'), beforeSnapshot: 'S-' + String(23 - 2 * Math.floor(i / 3)).padStart(3, '0'), afterSnapshot: 'S-' + String(24 - 2 * Math.floor(i / 3)).padStart(3, '0'), object: names[i + 2][0], field: '', attribute: '表注释', kind: '修改注释', before: names[i + 2][1], after: names[i + 2][1] + '（业务系统）', compatible: true, impact: '对应对象说明需复核', affected: 1, control: '未禁止', state: i < 2 ? '待复核' : '已复核', at: '2026-11-' + String(8 - Math.floor(i / 3)).padStart(2, '0') + ' 02:03:21', evidence: '来源注释改变，结构未发现不兼容；人工定义保留。', result: i < 2 ? '' : '已核对来源，交治理更新说明。', reviewer: i < 2 ? '' : '杨分析师', reviewed: i < 2 ? '' : '2026-11-' + String(8 - Math.floor(i / 3)).padStart(2, '0') + ' 09:00:00' }))
   ];
   // 预置变化与当前目录保持一致；这里只对齐示例，不实现真实差异生成。
@@ -69,9 +69,11 @@
     const missing = [table.indexState, table.commentState].some(state => ['无权限', '读取失败', '未知', '未读取'].includes(state));
     const related = changesFor(table), progress = window.GovernanceImpactDemo?.progress;
     const active = related.some(change => !progress || progress(change) !== '已完成');
-    const accessPending = pendingVerification(table).some(change => change.kind === '访问丢失');
+    const accessLost = table.readState === '访问丢失';
     let collection = table.collection;
-    if (active) collection = accessPending ? '访问丢失待核实' : '结构变化';
+    if (table.readState === '已确认移除') collection = '已确认移除';
+    else if (accessLost) collection = '访问丢失';
+    else if (active) collection = '结构变化';
     else if (related.length && collection === '结构变化') collection = '已采集';
     const states = [missing && collection === '已采集' ? '属性缺失' : collection];
     if (missing && !states.includes('属性缺失')) states.push('属性缺失');
@@ -81,13 +83,22 @@
   const tasks = Array.from({ length: 15 }, (_, i) => {
     const partialObjects = i === 0 ? ['supplier', 'legacy_price'] : [], failures = i === 2 ? ['purchase_order', 'purchase_item'] : [];
     const processed = i === 2 ? 10 : i === 4 ? 8 : 23;
-    return { id: 'CJ-' + String(30 - i).padStart(4, '0'), source: 'retail', configRevision: 1, trigger: i % 3 ? '定时' : '手动', actor: i % 3 ? '系统调度' : '林管理员', at: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:00:00' : ' 02:00:00'), ended: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:03:21' : ' 02:03:21'), state: i === 0 ? '部分成功' : i === 2 ? '失败' : i === 4 ? '已取消' : '完整成功', enumeration: i !== 2 && i !== 4, total: i === 2 || i === 4 ? null : 23, discovered: i === 2 ? 12 : 23, processed, complete: processed - partialObjects.length - failures.length, partial: partialObjects.length, failed: failures.length, partialObjects, failures, version: 'S-' + String(30 - i).padStart(3, '0'), scope: 'retail · 全部可见对象', account: 'dataocean_reader', reason: i === 0 ? 'supplier、legacy_price 的索引目录无权限；已保留字段等可靠属性。' : i === 2 ? '枚举中途超时，全部数量未知；未据此判断对象删除。' : i === 4 ? '发起人取消，保留已完成范围。' : '', databaseState: '已确认结束', parent: '' };
+    return { id: 'CJ-' + String(30 - i).padStart(4, '0'), source: 'retail', configRevision: 1, trigger: i % 3 ? '定时' : '手动', actor: i % 3 ? '系统调度' : '林管理员', at: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:00:00' : ' 02:00:00'), ended: '2026-11-' + String(11 - Math.ceil(i / 2)).padStart(2, '0') + (i % 2 ? ' 14:03:21' : ' 02:03:21'), state: i === 0 || i === 2 ? '采集失败' : i === 4 ? '已取消' : '采集成功', enumeration: i !== 2 && i !== 4, total: i === 2 || i === 4 ? null : 23, discovered: i === 2 ? 12 : 23, processed, complete: processed - partialObjects.length - failures.length, partial: partialObjects.length, failed: failures.length, partialObjects, failures, version: 'S-' + String(30 - i).padStart(3, '0'), scope: 'retail · 全部可见对象', account: 'dataocean_reader', reason: i === 0 ? '没有索引读取权限，字段和类型已读取。' : i === 2 ? '读取表和视图清单时超时。' : i === 4 ? '发起人取消，保留已完成范围。' : '', databaseState: '已确认结束', parent: '' };
   });
-  tasks.push({ ...tasks[0], id: 'CJ-F001', source: 'finance', at: '2026-11-11 02:00:00', state: '失败', enumeration: false, discovered: 0, total: null, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], scope: 'finance · 全部可见对象', reason: '网络连接超时。请检查连接路径，再重新测试。', failures: [] });
-  tasks.push({ ...tasks[1], id: 'CJ-P001', source: 'products', version: 'S-003', at: '2026-11-11 03:00:00', ended: '2026-11-11 03:01:10', state: '完整成功', enumeration: true, discovered: 12, total: 12, processed: 12, complete: 12, failed: 0, scope: 'products · 全部可见对象', reason: '', failures: [] });
+  tasks.push({ ...tasks[0], id: 'CJ-F001', source: 'finance', at: '2026-11-11 02:00:00', state: '采集失败', enumeration: false, discovered: 0, total: null, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], scope: 'finance · 全部可见对象', reason: '网络连接超时。请检查连接路径，再重新测试。', failures: [] });
+  tasks.push({ ...tasks[1], id: 'CJ-P001', source: 'products', version: 'S-003', at: '2026-11-11 03:00:00', ended: '2026-11-11 03:01:10', state: '采集成功', enumeration: true, discovered: 12, total: 12, processed: 12, complete: 12, failed: 0, scope: 'products · 全部可见对象', reason: '', failures: [] });
   // 最近采集包含失败和取消的尝试；对象本身保留可靠属性的采集时间。
   sources.forEach(source => { const latest = tasks.filter(task => task.source === source.id).sort((a, b) => b.at.localeCompare(a.at))[0]; if (latest) source.lastCollected = latest.ended || latest.at; });
-  tables.filter(table => table.source === 'retail').forEach(table => { table.version = tasks[0].version; });
+  tasks.push({ ...tasks[1], id: 'CJ-F000', source: 'finance', version: 'S-F000', at: '2026-11-08 02:00:00', ended: '2026-11-08 02:04:20', discovered: 8, total: 8, processed: 8, complete: 8, scope: 'finance · 全部可见对象' });
+  // 目录只使用成功快照；最新失败尝试中的缺项留在任务内，不覆盖目录。
+  sources.forEach(source => {
+    const task = tasks.filter(task => task.source === source.id && task.state === '采集成功').sort((a, b) => b.at.localeCompare(a.at))[0];
+    if (!task) return;
+    tables.filter(table => table.source === source.id).forEach(table => { table.version = task.version; table.collected = task.ended; });
+    task.resultObjects = structuredClone(tables.filter(table => table.source === source.id));
+    const count = changes.filter(change => change.taskId === task.id).length;
+    task.analysis = !tasks.some(other => other.source === source.id && other.state === '采集成功' && other.at < task.at) ? '初始基线已建立' : count ? '发现 ' + count + ' 项结构变化' : '未发现结构变化';
+  });
   const noteTitles = ['销售与退货口径', '库存流转与盘点说明', '促销折扣计算规则', '门店与仓库的业务关系', '商品分类维护约定', '采购入库与验收说明', '销售时间与营业日', '会员订单统计口径', '作废单据的处理方式', '线上订单与门店归属', '调拨出入库业务流程', '价格调整说明', '支付渠道与对账规则', '供应商结算说明', '历史系统迁移注意事项'];
   const notes = noteTitles.map((title, i) => ({ id: 'ZL-' + String(15 - i).padStart(3, '0'), source: 'retail', title, content: i === 0 ? '本系统管理超市商品、库存和销售。销售额按实际收款计算，退货需要扣除。作废单据不计入销售。不同门店的营业日以各自关账时间为准，未关账的当天数据可能继续变化。' : title + '。请结合当前有效业务制度核对，尚不明确的技术映射留待治理确认。', files: i % 4 === 1 ? [{ name: title + '.pdf', size: 245760 }] : [], author: i % 3 ? 'u02' : 'u01', revision: 1, status: i === 14 ? '已撤下' : '有效', updated: '2026-11-' + String(11 - Math.floor(i / 2)).padStart(2, '0') + ' 10:00:00', history: [] }));
   // 引用绑定实际修订；历史任务和历史成果仍需保留来源，不能只检查当前版本。
@@ -128,12 +139,12 @@
   }
   const find = id => sources.find(source => source.id === id);
   const objects = id => tables.filter(table => table.source === id && (find(id).config.type !== 'PostgreSQL' || find(id).config.schemas.includes(table.schema)));
-  const activeTask = id => tasks.find(task => task.source === id && ['排队', '进行中'].includes(task.state));
+  const activeTask = id => tasks.find(task => task.source === id && ['排队中', '采集中'].includes(task.state));
   const latestTask = id => tasks.filter(task => task.source === id).sort((a, b) => b.at.localeCompare(a.at))[0];
   // 治理分类和目录数量使用同一组对象，避免把字段数、任务范围或旧汇总混入分母。
   function governanceSummary(id) {
     const rows = objects(id);
-    return { total: rows.length, confirmed: rows.filter(row => row.governance === '已确认').length, partial: rows.filter(row => row.governance === '部分确认').length, pending: rows.filter(row => row.governance === '待治理').length, review: rows.filter(row => row.governance === '待复核').length };
+    return { total: rows.length, confirmed: rows.filter(row => row.governance === '已治理').length, partial: rows.filter(row => row.governance === '治理中').length, pending: rows.filter(row => row.governance === '待治理').length, affected: rows.filter(row => row.governanceAffected).length };
   }
   const configuration = source => ({ ...source.config, schemas: [...source.config.schemas], name: source.name });
   const scopeLabel = source => source.config.database + (source.config.type === 'PostgreSQL' ? ' / ' + (source.config.schemas.join('、') || '尚未选择 Schema') : '');
@@ -197,42 +208,50 @@
     if (scopeChanged && source.lastCollected) { source.collection = '待重新采集'; source.lastFull = ''; }
     return source;
   }
-  const retryTargets = task => [...new Set([...(task.partialObjects || []), ...task.failures])];
+  // 只有整次采集成功的快照，才可作为结构分析及治理的依据。
+  const collectionSucceeded = task => Boolean(task && task.state === '采集成功' && task.enumeration && task.total === task.discovered && task.processed === task.total && task.complete === task.total && !task.partial && !task.failed);
+  const successfulTask = id => tasks.filter(task => task.source === id && collectionSucceeded(task)).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const canGovern = table => tasks.some(task => task.source === table.source && task.version === table.version && collectionSucceeded(task));
   function startTask(source, parent) {
     if (source.connectionState !== '已启用') return { error: '数据源尚未启用，不能采集。' };
     if (source.config.type === 'PostgreSQL' && !source.config.schemas.length) return { error: '请先核定 Schema 范围。' };
     if (activeTask(source.id)) return { error: '该数据源已有进行中的采集，请先查看当前任务。' };
-    const targets = parent ? retryTargets(parent) : [], retry = parent && parent.enumeration && targets.length;
-    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + (retry ? ' · 未完整对象：' + targets.join('、') : ' · 全部可见对象'), schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', retryOnly: Boolean(retry), retryObjects: retry ? targets : [] };
+    const previous = successfulTask(source.id), current = objects(source.id);
+    // 固定示例只表达读取流程；任务结果与当前目录分存，失败不能写入目录。
+    const resultObjects = source.config.type === 'PostgreSQL'
+      ? source.config.schemas.flatMap(schema => names.slice(0, 6).map(([name, label], index) => structuredClone(current.find(table => table.schema === schema && table.name === name) || object(source, name, label, index, schema))))
+      : current.length ? structuredClone(current) : names.slice(0, 6).map(([name, label], index) => object(source, name, label, index));
+    const task = { id: 'CJ-' + (++sequence), source: source.id, configRevision: source.revision, trigger: parent ? '重试' : '手动', actor: '林管理员', at: now(), ended: '', state: '排队中', enumeration: false, total: null, discovered: 0, processed: 0, complete: 0, partial: 0, failed: 0, partialObjects: [], version: 'S-' + String(++snapshotSequence).padStart(3, '0'), scope: scopeLabel(source) + ' · 全部可见对象', schemas: [...source.config.schemas], account: source.config.account, reason: '', databaseState: '尚未开始', failures: [], parent: parent?.id || '', beforeSnapshot: previous?.version || '', resultObjects };
     tasks.unshift(task); return { task };
   }
-  // 简单任务分段仅用于评审进度与取消；不拼接新旧结果，不改写历史任务结论。
   function advanceTask(task) {
-    if (!['排队', '进行中'].includes(task.state)) return;
-    const source = find(task.source), count = task.retryOnly ? task.retryObjects.length : source.config.type === 'PostgreSQL' ? task.schemas.length * 6 : objects(task.source).length || 6;
-    if (task.state === '排队') { task.state = '进行中'; task.databaseState = '采集中'; return; }
-    if (source.health !== '正常') { Object.assign(task, { state: '失败', reason: '网络连接不可用，请先测试并修复连接。', ended: now(), databaseState: '已确认结束' }); source.lastCollected = task.ended; if (!task.retryOnly) source.collection = '失败'; return; }
-    const objectNames = task.retryOnly ? task.retryObjects : objects(source.id).map(table => table.name);
-    const partialFor = names => names.filter(name => objects(source.id).find(table => table.name === name)?.indexState === '无权限');
-    if (!task.enumeration) {
-      const processed = Math.ceil(count / 2), partialObjects = partialFor(objectNames.slice(0, processed));
-      Object.assign(task, { enumeration: true, total: count, discovered: count, processed, complete: processed - partialObjects.length, partial: partialObjects.length, partialObjects }); return;
-    }
-    const partialObjects = partialFor(objectNames);
-    Object.assign(task, { processed: count, complete: count - partialObjects.length, partial: partialObjects.length, partialObjects, failed: 0, failures: [], state: partialObjects.length ? '部分成功' : '完整成功', ended: now(), databaseState: '已确认结束', reason: partialObjects.length ? '索引目录无权限。请数据库负责人核对读取权限，成功属性已保留。' : '' });
-    // 相同表名按 Schema 区分；变更范围后保留旧记录，当前目录只呈现选定范围。
-    if (source.config.type === 'PostgreSQL') task.schemas.forEach(schema => names.slice(0, 6).forEach(([name, label], index) => { const row = object(source, name, label, index, schema); if (!tables.some(table => table.id === row.id)) tables.push(row); }));
-    else if (!objects(source.id).length) names.slice(0, 6).forEach(([name, label], index) => tables.push(object(source, name, label, index)));
-    source.lastCollected = task.ended;
-    // 子范围重试不能把整源目录标为完整；每个对象保留本次结构来源。
-    if (!task.retryOnly) { source.collection = task.state; if (!partialObjects.length) source.lastFull = task.ended; }
-    objects(source.id).filter(table => !task.retryOnly || task.retryObjects.includes(table.name)).forEach(table => { table.collected = task.ended; table.version = task.version; });
+    if (!['排队中', '采集中'].includes(task.state)) return;
+    const source = find(task.source), count = task.resultObjects.length;
+    if (task.state === '排队中') { task.state = '采集中'; task.databaseState = '采集中'; return; }
+    if (source.health !== '正常') { Object.assign(task, { state: '采集失败', reason: '网络连接不可用，请先测试并修复连接。', ended: now(), databaseState: '已确认结束' }); source.lastCollected = task.ended; source.collection = task.state; return; }
+    const attempted = task.enumeration ? task.resultObjects : task.resultObjects.slice(0, Math.ceil(count / 2));
+    const failures = attempted.filter(table => !table.fields || table.readState === '读取失败').map(table => (table.schema ? table.schema + '.' : '') + table.name);
+    const partialObjects = attempted.filter(table => table.fields && table.readState !== '读取失败' && [table.indexState, table.commentState].some(state => ['无权限', '读取失败', '未知', '未读取'].includes(state))).map(table => (table.schema ? table.schema + '.' : '') + table.name);
+    const done = task.enumeration;
+    Object.assign(task, { enumeration: true, total: count, discovered: count, processed: attempted.length, complete: attempted.length - partialObjects.length - failures.length, partial: partialObjects.length, partialObjects, failed: failures.length, failures });
+    if (!done) return;
+    Object.assign(task, { state: partialObjects.length || failures.length ? '采集失败' : '采集成功', ended: now(), databaseState: '已确认结束', reason: partialObjects.length ? '部分结构属性未读取，请检查权限和读取能力后重新采集。' : failures.length ? '部分对象读取失败，请修复后重新采集。' : '' });
+    source.lastCollected = task.ended; source.collection = task.state;
+    if (!collectionSucceeded(task)) return;
+    source.lastFull = task.ended;
+    task.resultObjects.forEach(row => {
+      const table = tables.find(table => table.id === row.id);
+      if (table) {
+        const fields = row.fields.map(field => ({ ...field, meaning: table.fields.find(old => old.name === field.name)?.meaning || field.meaning }));
+        Object.assign(table, row, { fields, governance: table.governance, version: task.version, collected: task.ended, readState: '已读取' });
+      } else tables.push({ ...structuredClone(row), version: task.version, collected: task.ended, readState: '已读取' });
+    });
+    window.GovernanceImpactDemo?.analyzeCollection(task);
   }
   function cancelTask(task, reason = '发起人取消采集') {
-    if (!['排队', '进行中'].includes(task.state)) return false;
+    if (!['排队中', '采集中'].includes(task.state)) return false;
     Object.assign(task, { state: '已取消', ended: now(), databaseState: '已确认结束', reason: reason.trim() || '发起人取消采集' });
-    const source = find(task.source); source.lastCollected = task.ended;
-    if (!task.retryOnly) source.collection = '已取消';
+    const source = find(task.source); source.lastCollected = task.ended; source.collection = '已取消';
     return true;
   }
   function lifecycle(source, action, reason) {
@@ -246,6 +265,6 @@
     if (action === '退役数据源') source.connectionState = '已退役';
     source.updated = now(); source.history.unshift({ revision: source.revision, at: now(), action, reason });
   }
-  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, latestTask, governanceSummary, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, retryTargets, advanceTask, cancelTask, lifecycle,
+  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, latestTask, governanceSummary, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, collectionSucceeded, successfulTask, canGovern, advanceTask, cancelTask, lifecycle,
     get selected() { return selected; }, set selected(value) { if (find(value)) selected = value; }, nextId: prefix => prefix + (++sequence) };
 })();
