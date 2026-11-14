@@ -1,7 +1,7 @@
 /* 三个任务入口共用后台控件；长正文在独立页编辑，发布及恢复操作各自核权。 */
 (() => {
   'use strict';
-  const model = KnowledgeWorkspace, queries = new Map(), origins = new Map();
+  const model = KnowledgeWorkspace, queries = new Map(), origins = new Map(), documentViews = new Map();
   let main, ui, source, section, editor = null, allowNavigation = false, pendingNavigation = null, caseTask = null, caseDocument = null, versionTask = null;
   const el = (tag, cls, text) => ui.el(tag, cls, text);
   const allowed = ability => model.has(ui.currentUser, ability);
@@ -11,7 +11,7 @@
   const currentOrigin = () => history.state?.kwOrigin || origins.get(location.hash);
   function captureView() {
     return { hash: location.hash, previous: currentOrigin() || null, top: main.scrollTop, focus: document.activeElement?.dataset.focus,
-      scrolls: [...main.querySelectorAll('.rt-scroll,.kw-content')].map(node => ({ top: node.scrollTop, left: node.scrollLeft })) };
+      scrolls: [...main.querySelectorAll('.rt-scroll,.kw-content,.kw-editor-pane')].map(node => ({ top: node.scrollTop, left: node.scrollLeft })) };
   }
   function navigate(hash, remember = true, origin) {
     if (hash === location.hash) return;
@@ -25,13 +25,16 @@
   }
   function routeLabel(hash) {
     const [area, , target, detail] = (hash || '').slice(1).split('/');
-    if (area === 'knowledge') return target ? '文档详情' : '知识文档';
+    if (area === 'knowledge') return target === 'plan' ? '生成规划' : target === 'replace' ? '合并拆分' : target ? '文档详情' : '知识文档';
     if (area === 'test-cases') return ['for-task', 'for-document'].includes(target) ? '相关标准题' : target ? '题目详情' : '标准题单';
     if (area === 'releases') return target === 'active' ? detail ? '版本详情' : '当前生效' : target === 'active-batch' ? '本批生效版本' : target && target !== 'tasks' ? '发布任务' : '发布与版本';
     return ({ governance: '治理页面', catalog: '元数据目录', collections: '采集记录', 'business-notes': '企业业务说明' })[area];
   }
   function refresh(focus = '[data-primary]') {
-    window.dispatchEvent(new Event('hashchange')); focusLater(focus);
+    const positions = main?.querySelector('.kw-shell') ? [...main.querySelectorAll('.kw-content,.kw-editor-pane')].map(node => node.scrollTop) : [];
+    window.dispatchEvent(new Event('hashchange'));
+    if (positions.length) requestAnimationFrame(() => main.querySelectorAll('.kw-content,.kw-editor-pane').forEach((node,index) => { node.scrollTop = positions[index] || 0; }));
+    focusLater(focus);
   }
   function refreshTask(view) {
     if (location.hash !== view) return;
@@ -68,7 +71,7 @@
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (location.hash !== target) return;
       main.scrollTop = origin?.top || 0;
-      [...main.querySelectorAll('.rt-scroll,.kw-content')].forEach((node, index) => { node.scrollTop = origin?.scrolls?.[index]?.top || 0; node.scrollLeft = origin?.scrolls?.[index]?.left || 0; });
+      [...main.querySelectorAll('.rt-scroll,.kw-content,.kw-editor-pane')].forEach((node, index) => { node.scrollTop = origin?.scrolls?.[index]?.top || 0; node.scrollLeft = origin?.scrolls?.[index]?.left || 0; });
       (origin?.focus && main.querySelector('[data-focus="' + CSS.escape(origin.focus) + '"]') || main.querySelector('[data-primary],h1'))?.focus({ preventScroll: true });
     }));
   }
@@ -159,67 +162,125 @@
     if (allowNavigation || !editor || location.hash === editor.hash || !editor.dirty()) return;
     const destination = location.hash, current = editor, destinationOrigin = pendingNavigation?.origin ?? history.state?.kwOrigin ?? null;
     event.stopImmediatePropagation(); history.replaceState({ ...history.state, kwOrigin: current.origin }, '', location.pathname + location.search + current.hash); pendingNavigation = null;
-    ElementPlus.ElMessageBox.confirm('尚有未保存的修改。放弃后将丢失本次输入。', '放弃当前修改？', { confirmButtonText: '继续编辑', cancelButtonText: '放弃修改', distinguishCancelAndClose: true, closeOnClickModal: false, closeOnHashChange: false, customClass: 'prototype-ui' })
-      .catch(action => { if (action === 'cancel') { editor = null; allowNavigation = true; navigate(destination, false, destinationOrigin); setTimeout(() => { allowNavigation = false; }, 0); } });
+    ElementPlus.ElMessageBox.confirm('尚有未保存的修改。放弃后将丢失本次输入。', '放弃当前修改？', { confirmButtonText: '继续编辑', cancelButtonText: '放弃修改', distinguishCancelAndClose: true, closeOnClickModal: false, closeOnHashChange: false, appendTo: current.dialog || document.body, customClass: 'prototype-ui' })
+      .catch(action => { if (action === 'cancel') { current.discard?.(); editor = null; allowNavigation = true; navigate(destination, false, destinationOrigin); setTimeout(() => { allowNavigation = false; }, 0); } });
   }, true);
   window.addEventListener('beforeunload', event => { if (editor?.dirty()) { event.preventDefault(); event.returnValue = ''; } });
   function longForm(content, initial, fields, commit) {
     const host = el('div', 'kw-form prototype-ui'), original = JSON.stringify(initial); content.append(host);
+    const groups = [...new Set(fields.map(field => field.group).filter(Boolean))];
     PrototypeUI.mount(host, {
-      data: () => ({ value: structuredClone(initial), fields, error: '', reviewSubmit: false }),
+      data: () => ({ value: structuredClone(initial), fields, error: '', reviewSubmit: false, groups, panel: groups[0] || '' }),
       mounted() { const vm = this; editor = { hash: location.hash, origin: currentOrigin(), dirty: () => JSON.stringify(vm.value) !== original, submit: action => vm.submit(action) }; },
       watch: { value: { deep: true, handler() { this.error = ''; syncSaveAction(); } } },
       methods: { async submit(action) {
-        this.error = ''; this.reviewSubmit = action === 'confirm'; await this.$nextTick(); const valid = await this.$refs.form.validate().catch(() => false);
+        this.error = ''; this.reviewSubmit = action === 'confirm';
+        const missing = fields.find(field => (field.required || this.reviewSubmit && field.reviewRequired) && (Array.isArray(this.value[field.key]) ? !this.value[field.key].length : !String(this.value[field.key] || '').trim()));
+        if (missing?.group) this.panel = missing.group;
+        await this.$nextTick(); const valid = await this.$refs.form.validate().catch(() => false);
         if (!valid) { host.querySelector('.el-form-item.is-error input,.el-form-item.is-error textarea')?.focus(); return; }
         const message = commit(JSON.parse(JSON.stringify(this.value)), action);
         if (message) { this.error = message; await this.$nextTick(); host.querySelector('[role="alert"]')?.focus(); }
       } },
-      template: `<el-form ref="form" :model="value" label-position="top" scroll-to-error @submit.prevent="submit('save')">
+      template: `<div><el-tabs v-if="groups.length" v-model="panel"><el-tab-pane v-for="group in groups" :key="group" :name="group" :label="group"></el-tab-pane></el-tabs><el-form ref="form" :model="value" label-position="top" scroll-to-error @submit.prevent="submit('save')">
         <p v-if="error" role="alert" tabindex="-1" class="ds-notice is-danger">{{error}}</p>
-        <el-form-item v-for="field in fields" :key="field.key" :label="field.label" :prop="field.key" :rules="(field.required || (reviewSubmit && field.reviewRequired)) ? [{required:true,message:'请填写'+field.label,trigger:'blur'}] : []">
-          <el-select v-if="field.options" v-model="value[field.key]" :multiple="field.multiple" :aria-label="field.label" filterable><el-option v-for="option in field.options" :key="option.value" v-bind="option"></el-option></el-select>
+        <el-form-item v-for="field in fields" v-show="(!field.group||field.group===panel)&&(field.key!=='tolerance'||value.type==='数值')" :key="field.key" :label="field.label" :prop="field.key" :rules="(field.required || (reviewSubmit && field.reviewRequired)) ? [{required:true,message:'请填写'+field.label,trigger:'blur'}] : []">
+          <el-select v-if="field.options" v-model="value[field.key]" :multiple="field.multiple" collapse-tags collapse-tags-tooltip :max-collapse-tags="2" :aria-label="field.label" filterable><el-option v-for="option in field.options" :key="option.value" v-bind="option"></el-option></el-select>
           <el-input v-else v-model="value[field.key]" :aria-label="field.label" :type="field.type || 'text'" :rows="field.rows || 3" :maxlength="field.maxlength || 50000" :placeholder="field.placeholder || ''"></el-input>
-        </el-form-item></el-form>`
+        </el-form-item></el-form></div>`
     });
   }
   function documentList() {
-    const rows = [...model.documents.values()].filter(doc => doc.source === source.id).map(doc => ({ ...doc, searchObject: doc.draft.entries.map(entry => entry.object).join(' '),
+    const rows = [...model.documents.values()].filter(doc => doc.source === source.id && !doc.cancelledReplacement).map(doc => ({ ...doc, searchName: doc.title + ' ' + (doc.draft.purpose || ''), searchObject: doc.draft.entries.map(entry => entry.object).join(' '),
       listState: doc.draft.confirmed ? '已确认' : '草稿', listStates: [doc.draft.confirmed ? '已确认' : '草稿', ...(model.needsUpdate(doc) ? ['待更新'] : [])] }));
-    const generate = allowed('knowledge.generate') && button('生成知识文档', trigger => generateDocuments(trigger), true, 'generate');
+    const generate = allowed('knowledge.generate') && button('规划知识文档', trigger => generateDocuments(trigger), true, 'generate');
     if (generate && !model.suggested(source.id).length) { generate.disabled = true; generate.title = '当前数据源暂无可生成的已审核内容'; }
-    listView('documents', rows, [{ key: 'title', label: '文档 / 来源对象', width: 240 }, { key: 'active', label: '正式修订', width: 110 }, { key: 'draft', label: '整理修订', width: 110 },
+    listView('documents', rows, [{ key: 'title', label: '文档 / 用途', width: 240 }, { key: 'active', label: '正式使用', width: 120 }, { key: 'draft', label: '整理修订', width: 110 },
       { key: 'state', label: '整理状态', width: 100 }, { key: 'updated', label: '创建时间', width: 160 }, { key: 'actions', label: '操作', width: 120 }], doc => [
-      stack(doc.title, [...new Set(doc.draft.entries.map(entry => entry.object))].join('、')), model.active.has(doc.id) ? 'r' + model.active.get(doc.id).snapshot.revision : '未发布', 'r' + doc.draft.revision,
+      stack(doc.title, doc.draft.purpose || [...new Set(doc.draft.entries.map(entry => entry.object))].join('、')), model.active.has(doc.id) ? stack('r' + model.active.get(doc.id).snapshot.revision, model.activeState(model.active.get(doc.id))) : '未发布', 'r' + doc.draft.revision,
       doc.listStates.map(tag), doc.at, button('查看文档', () => navigate(route('knowledge', doc.id)), false, 'doc-' + doc.id)
     ], ['草稿', '已确认', '待更新'], [generate],
-    [{ key: 'keyword', label: '文档名称' }, { key: 'object', label: '来源对象' }]);
+    [{ key: 'keyword', label: '文档名称或用途' }, { key: 'object', label: '来源对象' }]);
   }
   function generateDocuments(trigger, selected = []) {
-    const suggestions = model.suggested(source.id);
-    if (!suggestions.length) { main.querySelector('.kw-generation-empty')?.focus(); ui.notify('当前源暂无已审核定义，请先完成治理审核。'); return; }
-    let results;
-    const entryOptions = [...new Map(suggestions.filter(spec => spec.kind === '表说明').flatMap(spec => spec.bindings.map(binding => {
-      const entry = model.live({ ...spec, draft: {} }).entries.find(item => item.table === binding.table && item.id === binding.entry);
-      return [binding.table + '/' + binding.entry, { value: binding.table + '/' + binding.entry, label: entry.object + ' / ' + entry.name }];
-    }))).values()];
-    const chosenSpecs = value => value.selected.map(selected => { const spec = suggestions.find(item => item.key === selected); if (spec.kind !== '表说明' || value.entries.includes('all')) return spec;
-      return { ...spec, automaticScope: false, bindings: spec.bindings.filter(binding => value.entries.includes(binding.table + '/' + binding.entry)) };
-    });
-    ui.openForm({ title: '生成知识文档', trigger, fields: [
-      { key: 'selected', label: '选择文档范围', options: suggestions.map(spec => ({ value: spec.key, label: spec.title + (spec.existing ? ' · 已有文档' : ''), disabled: Boolean(spec.issue) })), multiple: true, required: true, full: true },
-      { key: 'entries', label: '表说明纳入条目', options: [{ value: 'all', label: '全部已审核内容' }, ...entryOptions], multiple: true, required: true, full: true }
-    ], value: { selected, entries: ['all'] },
-      summary: true, previewTitle: '核对文档及依赖', previewLabel: '核对生成范围', saveLabel: '生成草稿', previewContentLabel: '本次内容',
-      validate: value => !value.selected.length ? '请选择至少一项文档范围。' : chosenSpecs(value).some(spec => !spec.bindings.length) ? '所选表说明没有纳入条目，请调整范围。' : '',
-      preview: value => chosenSpecs(value).map(spec => { const scope = model.live(spec.existing || { ...spec, draft: {} }); return { label: spec.title, after: (spec.existing ? '定位已有文档，保留人工内容。\n' : '') + scope.entries.map(entry => entry.object + ' / ' + entry.name + ' r' + entry.revision).join('\n') + (spec.excluded.length ? '\n未纳入：' + spec.excluded.join('；') : '') }; }),
-      save: value => { const specs = chosenSpecs(value); const issue = specs.map(spec => model.live({ ...spec, draft: {} }).issue).find(Boolean); if (issue) return issue; results = specs.map(spec => model.createDocument(spec, ui.currentUser)); return results.find(result => result.error)?.error; },
-      onSaved: () => { if (results?.length === 1) navigate(route('knowledge', results[0].document.id)); }, success: '知识草稿已准备好' });
+    const result = model.createPlan(source.id, ui.currentUser); if (result.error) return ui.notify(result.error);
+    navigate(route('knowledge', 'plan', result.plan.id));
   }
-  function basis(content, entries) {
-    const host = block(content, '治理依据与范围');
-    host.append(RecordTable.render({ caption: '治理依据', columns: [{ key: 'object', label: '来源对象 / 条目', width: 240 }, { key: 'revision', label: '治理修订', width: 100 }, { key: 'reviewer', label: '审核人', width: 130 }, { key: 'actions', label: '操作', width: 120 }], items: entries.map((entry, index) => ({ ...entry, rowId: index })), row: entry => [
-      stack(entry.object + (entry.field ? '.' + entry.field : ''), entry.name), 'r' + entry.revision, entry.reviewer || '—', button('查看依据', trigger => {
+  function planningPage(plan) {
+    const { root, content, header } = shell('生成规划'); const originTag = tag('示例建议'); originTag.title = '当前原型使用样例规划；正式流程在发起规划时由 AI 根据已确认治理成果提出建议。'; header.append(originTag);
+    const host = el('div', 'kw-planning prototype-ui'); content.append(host);
+    const options = DataSourceDemo.objects(source.id).flatMap(table => GovernanceDemo.get(table).items.filter(entry => entry.review === '已确认').map(entry => ({ value: table.id + '/' + entry.id, label: GovernanceDemo.objectName(table) + ' / ' + entry.name })));
+    let controller, saved = JSON.stringify(plan.rows);
+    const sync = vm => { plan.rows = JSON.parse(JSON.stringify(vm.rows)); };
+    PrototypeUI.mount(host, {
+      data: () => ({ rows: structuredClone(plan.rows), selected: [], mergeMode: false, expanded: '', checked: Boolean(plan.checked), result: '', options }),
+      mounted() { controller = this; editor = { hash: location.hash, origin: currentOrigin(), dirty: () => JSON.stringify(this.rows) !== saved }; requestAnimationFrame(() => this.syncActions()); },
+      methods: {
+        syncActions() {
+          const pending = this.rows.filter(row => row.operation !== '暂不处理' && !row.result?.document), ready = pending.filter(row => !row.issue || row.existingId);
+          const added = pending.filter(row => row.operation === '新建').length, existing = pending.length - added;
+          const check = main.querySelector('[data-focus="kw-plan-check"]'), submit = main.querySelector('[data-focus="kw-plan-submit"]');
+          if (check) { check.classList.toggle('is-primary', !this.checked); check.textContent = this.checked ? '重新核对' : '核对范围'; }
+          if (submit) { submit.disabled = !this.checked || !ready.length; submit.title = !this.checked ? '请先核对范围' : !ready.length ? '暂无可办理项目' : ''; submit.classList.toggle('is-primary', this.checked && ready.length > 0); submit.textContent = added && existing ? '生成并处理文档' : existing ? '打开已有文档' : '生成 ' + added + ' 份草稿'; }
+          if (check && submit) check.parentElement.append(this.checked ? submit : check);
+          const summary = main.querySelector('.kw-plan-summary'); if (summary) summary.textContent = '新建 ' + added + ' · 已有 ' + existing + ' · 待补充 ' + pending.filter(row => row.issue).length;
+        },
+        altered(row) { this.checked = false; plan.checked = false; this.result = ''; if (row) row.needsCheck = true; this.syncActions(); },
+        async check() { sync(this); model.checkPlan(plan); plan.rows.forEach(row => { row.needsCheck = false; }); this.rows = structuredClone(plan.rows); saved = JSON.stringify(plan.rows); this.checked = true; plan.checked = true; this.result = ''; this.syncActions(); },
+        async submit() {
+          if (!this.checked) { ui.notify('请先核对本次范围。'); return; }
+          sync(this); const result = model.submitPlan(plan, ui.currentUser); if (result.error) return ui.notify(result.error);
+          this.rows = structuredClone(plan.rows); saved = JSON.stringify(plan.rows); this.result = '已完成 ' + result.success + ' 项' + (result.failed ? '，失败 ' + result.failed + ' 项，可单项重试' : ''); this.syncActions();
+        },
+        merge() { sync(this); const issue = model.mergeSuggestions(plan, this.selected); if (issue) return ui.notify(issue); this.rows = structuredClone(plan.rows); this.selected = []; this.mergeMode = false; this.altered(); },
+        split(row) { sync(this); const issue = model.splitSuggestion(plan, row.id); if (issue) return ui.notify(issue); this.rows = structuredClone(plan.rows); this.altered(); },
+        add() { const row = { id: DataSourceDemo.nextId('ITEM-'), key: DataSourceDemo.nextId('purpose/'), source: source.id, title: '', purpose: '', conditions: '', questions: [], excluded: [], bindings: [], operation: '新建', result: null, ...model.inspectSpec({ source: source.id, bindings: [] }) }; this.rows.push(row); this.expanded = row.id; this.altered(row); },
+        remove(row) { this.rows = this.rows.filter(item => item.id !== row.id); this.altered(); },
+        core(row) { return row.bindings.map(ref => ref.table + '/' + ref.entry); },
+        requiredBy(row, entry) { return row.entries.filter(parent => (parent.dependencies || []).some(value => { const ref = typeof value === 'string' ? { table: parent.table, entry: value } : value; return ref.table === entry.table && ref.entry === entry.id; })).map(parent => parent.name).join('、'); },
+        setCore(row, values) {
+          row.bindings = values.map(value => { const index = value.lastIndexOf('/'); return { table: value.slice(0, index), entry: value.slice(index + 1) }; }); this.altered(row);
+        },
+        open(row) { const docId = row.result?.document || row.existingId; if (docId) navigate(route('knowledge', docId, row.result?.proposal ? 'proposal~' + plan.id + '~' + row.id : row.operation === '核对更新' && model.needsUpdate(model.documents.get(docId)) ? 'merge' : '')); },
+        coverage(row) { return row.operation === '暂不处理' ? '本次不处理' : row.needsCheck ? '待核对' : row.issue ? '待补充' : row.existingId ? '已有文档' : '依据齐全'; }
+      },
+      template: `<div class="kw-plan-tools"><span>{{mergeMode?'选择要合并的建议':'文档建议'}} · {{rows.length}}</span><el-button v-if="!mergeMode" @click="add">补充用途</el-button><el-button v-if="!mergeMode && rows.filter(row=>!row.existingId&&!row.result?.document).length>1" @click="mergeMode=true">合并建议</el-button><template v-if="mergeMode"><el-button @click="mergeMode=false;selected=[]">取消选择</el-button><el-button @click="merge" :disabled="selected.length < 2">合并所选建议</el-button></template></div>
+        <p v-if="result" class="ds-notice" role="status">{{result}}</p>
+        <article v-for="row in rows" :key="row.id" class="kw-plan-row" :class="{'is-skipped':row.operation==='暂不处理'}">
+          <div class="kw-plan-heading"><el-checkbox v-if="mergeMode" v-model="selected" :value="row.id" :disabled="!!row.result?.document||!!row.existingId" :aria-label="'合并'+row.title"></el-checkbox>
+            <div class="kw-plan-identity"><strong>{{row.title}}</strong><p>{{row.purpose || '待明确用途'}}</p></div>
+            <span class="status-tag" :class="{'is-pending':!!row.issue}">{{coverage(row)}}</span>
+            <el-select v-model="row.operation" :aria-label="row.title+'本次操作'" @change="altered(row)" :disabled="!!row.result?.document"><el-option v-for="value in row.existingId?['定位已有','核对更新','暂不处理']:['新建','暂不处理']" :key="value" :value="value" :label="value"></el-option></el-select>
+          </div>
+          <div class="kw-plan-meta"><span>涉及表：{{row.tables.join('、') || '未选择'}}</span><el-button v-if="row.existingId" link @click="open(row)">查看已有文档</el-button><el-button link @click="expanded=expanded===row.id?'':row.id">{{expanded===row.id?'收起':'调整职责与范围'}}</el-button></div>
+          <p v-if="row.issue&&!row.needsCheck" class="ds-notice is-danger" role="status">{{row.issue}}</p>
+          <p v-if="row.controls.length" class="ds-notice">{{row.controls.join('；')}}；草稿整理不解除使用限制。</p>
+          <div v-if="expanded===row.id" class="kw-plan-fields">
+            <el-form label-position="top" @submit.prevent><el-form-item label="文档名称" required><el-input v-model="row.title" @input="altered(row)" :disabled="!!row.result?.document" aria-label="文档名称"></el-input></el-form-item>
+              <el-form-item label="用途" required><el-input v-model="row.purpose" @input="altered(row)" :disabled="!!row.result?.document" aria-label="用途"></el-input></el-form-item>
+              <el-form-item label="适用条件"><el-input v-model="row.conditions" @input="altered(row)" :disabled="!!row.result?.document" aria-label="适用条件"></el-input></el-form-item>
+              <el-form-item label="代表性问题"><el-input :model-value="row.questions.join('\\n')" @input="value=>{row.questions=value.split('\\n').filter(Boolean);altered(row)}" type="textarea" :disabled="!!row.result?.document" aria-label="代表性问题"></el-input></el-form-item>
+              <el-form-item label="不支持的内容"><el-input :model-value="row.excluded.join('\\n')" @input="value=>{row.excluded=value.split('\\n').filter(Boolean);altered(row)}" type="textarea" :disabled="!!row.result?.document" aria-label="不支持的内容"></el-input></el-form-item>
+              <el-form-item label="主动选择条目"><el-select :model-value="core(row)" @update:model-value="value=>setCore(row,value)" multiple filterable :disabled="!!row.result?.document" aria-label="主动选择条目"><el-option v-for="option in options" :key="option.value" v-bind="option"></el-option></el-select></el-form-item>
+            </el-form>
+            <details><summary>表的作用与完整依据 · {{row.entries.length}} 项</summary><div v-for="item in row.tableRoles" :key="item.table" class="kw-dependency-row"><strong>{{item.table}}</strong><span>{{item.role}}</span></div><div v-for="entry in row.entries" :key="entry.table+'/'+entry.id" class="kw-dependency-row"><span>{{entry.object}}{{entry.field?'.'+entry.field:''}} · {{entry.name}}</span><span>{{core(row).includes(entry.table+'/'+entry.id)?'主动选择':'必要依赖：'+requiredBy(row,entry)}} · r{{entry.revision}}</span></div></details>
+            <p v-if="row.dependencies.length" class="kw-dependency-note">必要依赖随所选治理条目补齐。移除需先收窄用途，或返回治理调整依赖定义。</p>
+            <template v-if="!row.result?.document&&!row.existingId"><el-button @click="split(row)">拆分建议</el-button><el-button link @click="remove(row)">移除建议</el-button></template>
+          </div>
+          <div v-if="row.result?.document" class="kw-plan-result"><span>{{row.result.reused?'已定位原文档':'草稿已生成'}}</span><el-button link @click="open(row)">{{row.operation==='核对更新'?'核对更新':'查看文档'}}</el-button></div>
+          <p v-else-if="row.result?.error" role="alert" class="ds-notice is-danger">{{row.result.error}}</p>
+        </article>
+        <div v-if="!rows.length" class="empty-state"><p>当前源暂无已确认用途，请先完成治理定义。</p></div>
+        <p v-if="checked" role="status" class="kw-plan-checked">已核对 {{rows.filter(row=>row.operation!=='暂不处理').length}} 项 · {{rows.filter(row=>row.issue&&row.operation!=='暂不处理').length}} 项待补充</p>`
+    });
+    const actions = footer(root, [button('核对范围', () => controller?.check(), true, 'plan-check'), button('生成草稿', () => controller?.submit(), false, 'plan-submit', '请先核对范围')]);
+    actions.prepend(el('span', 'kw-plan-summary'));
+  }
+  function basis(content, entries, bindings = []) {
+    const host = el('details', 'kw-section kw-section-basis'), roots = new Set(bindings.map(ref => ref.table + '/' + ref.entry));
+    host.append(el('summary', '', '治理依据与范围 · ' + entries.length + ' 项')); content.append(host);
+    host.append(RecordTable.render({ caption: '治理依据', columns: [{ key: 'object', label: '来源对象 / 条目', width: 240 }, { key: 'scope', label: '范围来源', width: 100 }, { key: 'revision', label: '治理修订', width: 100 }, { key: 'reviewer', label: '确认人', width: 130 }, { key: 'actions', label: '操作', width: 120 }], items: entries.map((entry, index) => ({ ...entry, rowId: index })), row: entry => [
+      stack(entry.object + (entry.field ? '.' + entry.field : ''), entry.name), roots.size ? roots.has(model.key(entry)) ? '主动选择' : '必要依赖' : '发布引用', 'r' + entry.revision, entry.reviewer || '—', button('查看依据', trigger => {
         const modal = ui.modal(entry.object + ' / ' + entry.name, trigger, true), body = el('div', 'dialog-body');
         body.append(paragraph(Object.entries(entry.content).filter(([, value]) => value).map(([name, value]) => (GovernanceDemo.contentSections(entry.kind).find(item => item.key === name)?.label || name) + '：' + value).join('\n')));
         (entry.references || []).forEach(ref => { if (allowed('business-notes.view')) body.append(button(ref.title + ' · r' + ref.revision, target => {
@@ -230,48 +291,169 @@
         modal.append(body); modal.showModal();
       }, false, 'basis-' + entry.table + '-' + entry.id)
     ] }));
+    return host;
+  }
+  function replacementForm(doc, trigger) {
+    const candidates = [...model.documents.values()].filter(item => item.source === source.id && item.id !== doc.id && !item.replacedBy && !item.cancelledReplacement && !item.pendingReplacement);
+    const modal = ui.modal('合并或拆分文档', trigger), host = el('div', 'kw-modal-form'); modal.append(host);
+    let controller;
+    const original = JSON.stringify({ mode: 'split', others: [], drafts: { split: [{ title: '', purpose: '' }, { title: '', purpose: '' }], merge: [{ title: '', purpose: '' }] } });
+    PrototypeUI.mount(host, {
+      data: () => ({ ...JSON.parse(original), candidates: candidates.map(doc => ({ value: doc.id, label: doc.title })), error: '', field: '', popupTarget: modal, closing: false }),
+      computed: { targets() { return this.drafts[this.mode]; } },
+      mounted() { controller = this; editor = { hash: location.hash, origin: currentOrigin(), dialog: modal, dirty: () => this.dirty(), discard: () => modal.close() }; },
+      methods: {
+        dirty() { return JSON.stringify({ mode: this.mode, others: this.others, drafts: this.drafts }) !== original; },
+        async cancel() { if (!this.dirty()) { modal.close(); return; } if (this.closing) return; this.closing = true;
+          try { await ElementPlus.ElMessageBox.confirm('尚有未保存的目标文档。', '放弃本次调整？', { confirmButtonText: '继续编辑', cancelButtonText: '放弃修改', distinguishCancelAndClose: true, closeOnClickModal: false, appendTo: modal, customClass: 'prototype-ui' }); }
+          catch(action) { if (action === 'cancel') modal.close(); } finally { this.closing = false; }
+        },
+        async submit() {
+          this.error = ''; this.field = '';
+          if (this.mode === 'merge' && !this.others.length) { this.error = '请选择一同合并的文档。'; this.field = 'others'; }
+          const index = this.targets.findIndex(row => !row.title.trim() || !row.purpose.trim());
+          if (!this.error && index >= 0) { this.error = '请填写每份目标文档的名称和用途。'; this.field = 'target-' + index; }
+          if (this.error) { await this.$nextTick(); host.querySelector('[data-replacement-field="' + this.field + '"] input')?.focus(); return; }
+          const ids = [doc.id, ...(this.mode === 'merge' ? this.others : [])], originals = ids.map(docId => model.documents.get(docId));
+          const bindings = [...new Map(originals.flatMap(item => item.bindings).map(ref => [ref.table + '/' + ref.entry, ref])).values()];
+          const result = model.createReplacement(ids, this.targets.map(row => ({ title: row.title.trim(), purpose: row.purpose.trim(), conditions: '', questions: [], excluded: [], kind: '业务说明', bindings })), ui.currentUser);
+          if (result.error) { this.error = result.error; return; }
+          modal.close(); ui.notify('目标草稿已创建'); navigate(route('knowledge', 'replace', result.replacement.id));
+        }
+      },
+      template: `<div class="dialog-body"><p class="kw-dependency-note">原文档保留，目标草稿核对后同批替代。发布前可取消。</p><p v-if="error" role="alert" class="ds-notice is-danger">{{error}}</p><el-form label-position="top" @submit.prevent="submit"><el-form-item label="处理方式"><el-radio-group v-model="mode" aria-label="处理方式"><el-radio-button value="split">拆分文档</el-radio-button><el-radio-button value="merge" :disabled="!candidates.length">合并文档</el-radio-button></el-radio-group></el-form-item><el-form-item v-if="mode==='merge'" label="一同合并的文档" required data-replacement-field="others" :error="field==='others'?error:undefined"><el-select v-model="others" multiple filterable :append-to="popupTarget" aria-label="一同合并的文档"><el-option v-for="option in candidates" :key="option.value" v-bind="option"></el-option></el-select></el-form-item><section v-for="(target,index) in targets" :key="mode+index" class="kw-target-fields" :data-replacement-field="'target-'+index"><div class="kw-target-heading"><strong>目标文档 {{index+1}}</strong><el-button v-if="mode==='split'&&targets.length>2" link @click="targets.splice(index,1)">移除</el-button></div><el-form-item label="文档名称" required :error="field==='target-'+index&&!target.title.trim()?error:undefined"><el-input v-model="target.title" :aria-label="'目标文档'+(index+1)+'名称'"></el-input></el-form-item><el-form-item label="用途" required :error="field==='target-'+index&&!target.purpose.trim()?error:undefined"><el-input v-model="target.purpose" :aria-label="'目标文档'+(index+1)+'用途'"></el-input></el-form-item></section><el-button v-if="mode==='split'" @click="targets.push({title:'',purpose:''})">增加目标文档</el-button></el-form></div><footer class="kw-modal-actions"><el-button @click="cancel">取消</el-button><el-button type="primary" @click="submit">创建目标草稿</el-button></footer>`
+    });
+    modal.addEventListener('close', () => { if (editor?.dialog === modal) editor = null; }, { once: true });
+    modal.closeGuard = () => controller?.cancel(); modal.showModal();
+  }
+  function replacementPage(replacement) {
+    const { root, content, header } = shell('合并拆分'); header.append(tag(replacement.state));
+    block(content, '来源文档', ...replacement.sources.map(docId => button(model.documents.get(docId).title + ' · 原稿保留', () => navigate(route('knowledge', docId)))));
+    const targets = block(content, '目标草稿');
+    targets.append(RecordTable.render({ caption: '替代目标', columns: [{ key: 'title', label: '文档 / 用途', width: 280 }, { key: 'revision', label: '整理修订', width: 100 }, { key: 'state', label: '确认状态', width: 110 }, { key: 'actions', label: '操作', width: 120 }], items: replacement.targets.map(docId => model.documents.get(docId)), row: doc => [stack(doc.title, doc.draft.purpose), 'r' + doc.draft.revision, tag(doc.draft.confirmed ? '已确认' : '草稿'), button('核对目标', () => navigate(route('knowledge', doc.id)), false, 'replacement-target-' + doc.id)] }));
+    const incoming = model.replacementReferences(replacement), node = incoming.length ? block(content, '引用去向', ...incoming.map(item => paragraph(item.title + ' 引用了原文档'))) : el('div');
+    const host = el('div', 'prototype-ui kw-form'); node.append(host);
+    const redirects = Object.fromEntries(Object.entries(replacement.redirects).map(([key,value]) => [key, Array.isArray(value)?[...value]:value?[value]:[]]));
+    let controller, original = JSON.stringify(redirects), expected = JSON.stringify(replacement.redirects);
+    if (incoming.length) PrototypeUI.mount(host, {
+      data: () => ({ redirects: structuredClone(redirects), sources: replacement.sources.filter(docId => incoming.some(item => item.sources.includes(docId))).map(docId => ({ id: docId, title: model.documents.get(docId).title })), targets: replacement.targets.map(docId => ({ value: docId, label: model.documents.get(docId).title })), editable: replacement.state === '整理中' && allowed('knowledge.edit') }),
+      mounted() { controller = this; editor = { hash: location.hash, origin: currentOrigin(), dirty: () => JSON.stringify(this.redirects) !== original }; },
+      methods: { save() { const issue = model.saveReplacement(replacement, JSON.parse(JSON.stringify(this.redirects)), ui.currentUser, expected); if (issue) { ui.notify(issue); return issue; } original = JSON.stringify(replacement.redirects); expected = original; ui.notify('引用去向已保存'); } },
+      template: `<el-form label-position="top"><el-form-item v-for="item in sources" :key="item.id" :label="item.title+'的引用去向'"><el-select v-model="redirects[item.id]" multiple :aria-label="item.title+'的引用去向'" :disabled="!editable" clearable><el-option v-for="option in targets" :key="option.value" v-bind="option"></el-option></el-select></el-form-item></el-form>`
+    });
+    block(content, '发布范围', paragraph('目标内容全部通过验证后生效，原文档在同批退出。其他文档共享的治理事实继续保留。'));
+    footer(root, replacement.state === '整理中' ? [allowed('knowledge.edit') && button('取消合并拆分', trigger => confirmAction('取消合并拆分', [], {}, () => { const issue = model.cancelReplacement(replacement, ui.currentUser); if (!issue) { editor = null; refresh(); } return issue; }, trigger, { danger: true, note: '原稿及原正式版本保留；目标人工草稿保留供回看。' })), incoming.length && allowed('knowledge.edit') && button('保存引用去向', () => controller?.save()),
+      allowed('releases.build') && button('发起整批发布', () => { if (allowed('knowledge.edit') && controller?.save()) return; const result = model.createTask(source.id, replacement.targets, ui.currentUser); if (result.error) return ui.notify(result.error); editor = null; navigate(route('releases', result.task.id)); }, true)] : []);
+  }
+  // 长文按章节持续编辑；切换章节只换可见区，不重建输入，不把来源变化静默合入人工正文。
+  function documentEditor(doc, mode, root, content) {
+    const proposalParts = mode.split('~'), proposal = proposalParts[0] === 'proposal' && model.plans.get(proposalParts[1])?.rows.find(row => row.id === proposalParts[2] && row.result?.document === doc.id)?.result.proposal;
+    const initialDetails = model.responsibility(doc), details = { ...initialDetails, ...(proposal || {}) }, revision = doc.draft.revision;
+    const originalSections = model.clone(doc.draft.sections?.length ? doc.draft.sections : [{ title: '知识正文', text: doc.draft.note, citations: doc.draft.entries.map(entry => ({ table: entry.table, entry: entry.id })) }]);
+    const initial = { title: details.title, purpose: details.purpose, conditions: details.conditions, questions: details.questions.join('\n'), excluded: details.excluded.join('\n'), bindings: details.bindings.map(ref => ref.table + '/' + ref.entry) };
+    const chapters = originalSections.map(part => ({ title: part.title, text: part.text, citations: part.citations.map(ref => ref.table + '/' + ref.entry) }));
+    const original = JSON.stringify({ value: initial, chapters }), host = el('div', 'kw-editor-layout prototype-ui'); content.classList.add('kw-editor-content'); content.append(host);
+    const coreOptions = DataSourceDemo.objects(source.id).flatMap(table => GovernanceDemo.get(table).items.filter(entry => entry.review === '已确认').map(entry => ({ value: table.id + '/' + entry.id, label: GovernanceDemo.objectName(table) + ' / ' + entry.name })));
+    let controller;
+    PrototypeUI.mount(host, {
+      data: () => ({ value: structuredClone(initial), chapters: structuredClone(chapters), selected: mode === 'merge' ? 'chapter0' : 'info', error: '', errorField: '', scope: null, scopeDirty: true, sourceChanged: mode === 'merge' || model.needsUpdate(doc), sourceBasis: '', suggestions: [], coreOptions,
+        fields: [{ key: 'title', label: '文档名称', required: true }, { key: 'purpose', label: '用途', required: true }, { key: 'conditions', label: '适用条件' }, { key: 'questions', label: '代表性问题', rows: 3 }, { key: 'excluded', label: '不支持的内容', rows: 3 }], proposal: Boolean(proposal) }),
+      mounted() { controller = this; editor = { hash: location.hash, origin: currentOrigin(), dirty: () => this.proposal || JSON.stringify({ value: this.value, chapters: this.chapters }) !== original, submit: action => this.submit(action) }; this.checkScope(false); },
+      methods: {
+        metadata() { return { title: this.value.title.trim(), purpose: this.value.purpose.trim(), conditions: this.value.conditions.trim(), questions: this.value.questions.split('\n').filter(Boolean), excluded: this.value.excluded.split('\n').filter(Boolean), bindings: this.value.bindings.map(value => { const index = value.lastIndexOf('/'); return { table: value.slice(0,index), entry: value.slice(index+1) }; }) }; },
+        changed(scope = false) { this.error = ''; this.errorField = ''; if (scope) this.scopeDirty = true; syncSaveAction(); },
+        async fail(message, panel, field) { this.error = message; this.errorField = field || ''; this.selected = panel; await this.$nextTick(); const node = field && host.querySelector('[data-editor-field="' + field + '"] input,[data-editor-field="' + field + '"] textarea'); (node || host.querySelector('[role="alert"]'))?.focus(); },
+        checkScope(report = true) {
+          const metadata = this.metadata(), current = model.live(doc);
+          this.scope = doc.simulated ? { ...current, basis: model.stamp(current.entries), dependencies: [], controls: [], tables: [] } : model.inspectSpec({ source: doc.source, ...metadata });
+          if (this.scope.issue) { this.scopeDirty = true; if (report) this.fail(this.scope.issue, 'scope'); return false; }
+          this.sourceChanged = this.sourceChanged || model.needsUpdate(doc); this.sourceBasis = model.stamp(current.entries);
+          this.suggestions = model.sectionsFor(this.scope.entries, metadata); this.scopeDirty = false;
+          if (report) { this.error = ''; ui.notify('范围与确切治理修订已核对'); } return true;
+        },
+        adopt(index) { const suggested = this.suggestions.find(part => part.title === this.chapters[index].title); if (suggested) { this.chapters[index].text = suggested.text; this.chapters[index].citations = suggested.citations.map(ref => ref.table + '/' + ref.entry); this.changed(); } },
+        async submit(action) {
+          for (const field of this.fields.filter(field => field.required)) if (!this.value[field.key]?.trim()) return this.fail('请填写' + field.label + '。', 'info', field.key);
+          if (this.scopeDirty || !this.scope) return this.fail('范围已调整，请先核对完整依据。', 'scope');
+          const metadata = this.metadata(), entries = this.scope.entries;
+          for (let index = 0; index < this.chapters.length; index++) {
+            const part = this.chapters[index];
+            if (action === 'confirm' && !part.text.trim()) return this.fail('请补齐本节正文。', 'chapter' + index, 'chapter' + index);
+            if (part.citations.some(ref => !entries.some(entry => model.key(entry) === ref)) || action === 'confirm' && !part.citations.length) return this.fail('请核对本节实际使用的治理依据。', 'chapter' + index, 'refs' + index);
+          }
+          const sections = this.chapters.map(part => ({ title: part.title, text: part.text.trim(), citations: entries.filter(entry => part.citations.includes(model.key(entry))).map(entry => ({ table: entry.table, entry: entry.id, revision: entry.revision, objectId: entry.objectId, generation: entry.generation })) }));
+          const oldPrefix = initialDetails.purpose + '。' + initialDetails.conditions + '\n\n';
+          if (sections[0]?.text.startsWith(oldPrefix)) sections[0].text = metadata.purpose + '。' + metadata.conditions + '\n\n' + sections[0].text.slice(oldPrefix.length);
+          const note = sections.map(part => part.title + '\n' + part.text).join('\n\n'); metadata.sections = sections;
+          let issue;
+          const changed = editor?.dirty();
+          if (this.sourceChanged) issue = model.applyUpdate(doc, note, ui.currentUser, this.sourceBasis, revision, metadata, this.scope.basis);
+          else if (changed) issue = model.saveDocument(doc, note, ui.currentUser, revision, metadata, this.scope.basis);
+          if (!issue && action === 'confirm' && !doc.draft.confirmed) issue = model.confirmDocument(doc, ui.currentUser, true);
+          if (issue) return this.fail(issue, this.selected);
+          ui.notify(action === 'confirm' ? '文档修订已确认' : '草稿已保存'); finishEditing(route('knowledge', doc.id));
+        }
+      },
+      template: `<nav class="kw-editor-nav" aria-label="文档编辑章节"><button type="button" :aria-current="selected==='info'?'page':undefined" :class="{'is-active':selected==='info'}" @click="selected='info'">文档职责</button><button type="button" :aria-current="selected==='scope'?'page':undefined" :class="{'is-active':selected==='scope'}" @click="selected='scope'">治理范围<span v-if="scopeDirty">待核对</span></button><div class="kw-nav-divider"></div><button v-for="(part,index) in chapters" :key="index" type="button" :aria-current="selected==='chapter'+index?'page':undefined" :class="{'is-active':selected==='chapter'+index}" @click="selected='chapter'+index">{{part.title}}</button></nav>
+      <div class="kw-editor-pane"><p v-if="proposal" class="ds-notice">本次带入规划调整，保存前原文档保持原修订。</p><p v-if="error" id="kw-editor-error" role="alert" tabindex="-1" class="ds-notice is-danger">{{error}}</p>
+        <el-form v-if="selected==='info'" label-position="top" @submit.prevent><el-form-item v-for="field in fields" :key="field.key" :label="field.label" :required="field.required" :data-editor-field="field.key" :error="errorField===field.key?error:undefined"><el-input v-model="value[field.key]" :aria-label="field.label" :aria-describedby="errorField===field.key?'kw-editor-error':undefined" :type="field.rows?'textarea':'text'" :rows="field.rows" @input="changed(true)"></el-input></el-form-item></el-form>
+        <section v-else-if="selected==='scope'"><h2>主动选择与必要依赖</h2><el-form label-position="top" @submit.prevent><el-form-item label="主动选择条目" required><el-select v-model="value.bindings" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3" aria-label="主动选择条目" @change="changed(true)"><el-option v-for="option in coreOptions" :key="option.value" v-bind="option"></el-option></el-select></el-form-item></el-form><el-button @click="checkScope()">核对范围</el-button><p v-if="scopeDirty" class="kw-dependency-note">待核对当前范围</p><p v-else class="kw-dependency-note">已固定 {{scope.entries.length}} 项依据 · 必要依赖 {{scope.dependencies.length}} 项</p><div v-if="scope" class="kw-scope-list"><div v-for="entry in scope.entries" :key="entry.table+'/'+entry.id" class="kw-dependency-row"><span>{{entry.object}}{{entry.field?'.'+entry.field:''}} · {{entry.name}}</span><span>{{value.bindings.includes(entry.table+'/'+entry.id)?'主动选择':'必要依赖'}} · r{{entry.revision}}</span></div></div></section>
+        <template v-else><section v-for="(part,index) in chapters" :key="index" v-show="selected==='chapter'+index"><h2>{{part.title}}</h2><details v-if="sourceChanged" class="kw-source-comparison"><summary>查看新治理内容</summary><p class="ds-prose">{{suggestions.find(item=>item.title===part.title)?.text || '当前范围无此章节'}}</p><el-button @click="adopt(index)" :disabled="scopeDirty">采用本节建议</el-button></details><el-form label-position="top" @submit.prevent><el-form-item label="正文" :data-editor-field="'chapter'+index" :error="errorField==='chapter'+index?error:undefined"><el-input v-model="part.text" type="textarea" :rows="12" :aria-label="part.title+'正文'" @input="changed()"></el-input></el-form-item><el-form-item label="本节治理依据" :data-editor-field="'refs'+index" :error="errorField==='refs'+index?error:undefined"><el-select v-model="part.citations" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="2" :aria-label="part.title+'的治理依据'" @change="changed()"><el-option v-for="entry in scope?.entries || []" :key="entry.table+'/'+entry.id" :value="entry.table+'/'+entry.id" :label="entry.object+(entry.field?'.'+entry.field:'')+' / '+entry.name+' r'+entry.revision"></el-option></el-select></el-form-item></el-form></section></template>
+      </div>`
+    });
+    footer(root, [button('取消编辑', () => back(route('knowledge', doc.id))), button('保存草稿', () => controller?.submit('save')), allowed('knowledge.confirm') && button('保存并确认', () => controller?.submit('confirm'), true)]);
+  }
+  function documentReader(doc, content, formal = false) {
+    const snapshot = formal ? model.active.get(doc.id).snapshot : doc.draft, viewKey = doc.id + (formal ? '/formal' : '/draft');
+    if (!documentViews.has(viewKey)) documentViews.set(viewKey, { tab: 'body', chapter: 0 });
+    const view = documentViews.get(viewKey), tabs = el('div', 'kw-document-tabs prototype-ui'), pane = el('div', 'kw-document-view'); content.append(tabs, pane);
+    function render() {
+      pane.replaceChildren(); pane.className = 'kw-document-view' + (view.tab === 'body' ? ' kw-editor-layout' : ' kw-editor-pane');
+      if (view.tab === 'body') {
+        const chapters = snapshot.sections?.length ? snapshot.sections : [{ title: '知识正文', text: snapshot.note, citations: [] }];
+        const navigation = el('nav', 'kw-editor-nav'), reading = el('div', 'kw-editor-pane kw-reading-pane'); navigation.setAttribute('aria-label', '知识正文章节'); pane.append(navigation, reading);
+        const names = [...chapters.map(part => part.title), ...(snapshot.questions?.length ? ['代表性问题'] : []), ...(!formal && allowed('test-cases.view') ? ['相关标准题'] : [])];
+        view.chapter = Math.min(view.chapter, names.length - 1);
+        names.forEach((name, index) => { const control = el('button', index === view.chapter ? 'is-active' : '', name); control.type = 'button'; if (index === view.chapter) control.setAttribute('aria-current', 'page'); control.onclick = () => { view.chapter = index; render(); pane.querySelectorAll('.kw-editor-nav button')[index]?.focus(); }; navigation.append(control); });
+        const part = chapters[view.chapter];
+        if (part) {
+          const node = block(reading, part.title, paragraph(part.text));
+          if (part.citations?.length) { const refs = el('details', 'kw-section-basis'); refs.append(el('summary', '', '本节治理依据 · ' + part.citations.length + ' 项')); part.citations.forEach(ref => { const entry = snapshot.entries.find(entry => model.key(entry) === ref.table + '/' + ref.entry); refs.append(paragraph((entry?.object || ref.table) + ' / ' + (entry?.name || ref.entry) + ' · r' + ref.revision)); }); node.append(refs); }
+        } else if (names[view.chapter] === '代表性问题') block(reading, '代表性问题', ...snapshot.questions.map(paragraph));
+        else { const tests = model.relatedCases([doc.id]); block(reading, '相关标准题', paragraph(tests.length ? tests.length + ' 道题 · 已审核 ' + tests.filter(test => test.review === '已审核' && !model.caseStale(test)).length + ' 道' : '尚无相关标准题'), button('管理相关题单', () => navigate(route('test-cases', 'for-document', doc.id)), true, 'document-cases')); }
+      } else if (view.tab === 'basis') {
+        basis(pane, snapshot.entries, snapshot.bindings || doc.bindings).open = true;
+        if (snapshot.excluded?.length || doc.excluded.length) block(pane, '未纳入内容', paragraph((snapshot.excluded || doc.excluded).join('\n')));
+      } else {
+        if (doc.revisions.length) block(pane, '修订记录', ...doc.revisions.slice().reverse().map(version => button('r' + version.revision + (version.confirmed ? ' · 已确认' : ' · 草稿'), trigger => { const modal = ui.modal('文档修订 r' + version.revision, trigger, true); modal.append(el('div', 'dialog-body kw-history-copy', version.note)); modal.showModal(); })));
+        const related = [...model.tasks.values()].filter(task => task.documents.includes(doc.id));
+        if (related.length) block(pane, '关联发布', ...related.map(task => button(task.id + ' · ' + model.taskFeedback(task).state, () => navigate(route('releases', task.id)))));
+        if (!doc.revisions.length && !related.length) block(pane, '修订与发布', paragraph('当前为首次整理，尚无历史修订或发布任务。'));
+      }
+    }
+    PrototypeUI.mount(tabs, { data: () => ({ selected: view.tab }), methods: { change(value) { view.tab = value; render(); } }, template: '<el-tabs v-model="selected" @tab-change="change"><el-tab-pane name="body" label="正文"></el-tab-pane><el-tab-pane name="basis" label="范围与依据"></el-tab-pane><el-tab-pane name="history" label="修订与发布"></el-tab-pane></el-tabs>' });
+    content.classList.add('kw-reading-content'); render();
   }
   function documentDetail(doc, mode) {
-    const { root, content, header } = shell(doc.title, '知识文档', route('knowledge'));
-    header.append(tag(doc.draft.confirmed ? '已确认 r' + doc.draft.revision : '草稿 r' + doc.draft.revision));
+    const published = model.active.get(doc.id), formal = mode === 'published' && Boolean(published);
+    const { root, content, header } = shell(formal ? published.snapshot.title : doc.title, '知识文档', route('knowledge'));
+    header.append(tag(formal ? '正式 r' + published.snapshot.revision + ' · ' + model.activeState(published) : doc.draft.confirmed ? '已确认 r' + doc.draft.revision : '草稿 r' + doc.draft.revision));
     if (doc.simulated) header.append(tag('流程演示'));
-    if (model.active.has(doc.id)) block(content, '正式使用', paragraph('当前修订 r' + model.active.get(doc.id).snapshot.revision + ' · ' + model.activeState(model.active.get(doc.id))));
+    if (doc.pendingReplacement) block(content, '合并拆分', paragraph('原稿保留，目标草稿待核对。'), button('继续合并拆分', () => navigate(route('knowledge', 'replace', doc.pendingReplacement))));
+    if (doc.replacedBy) content.append(el('p', 'ds-notice', '已被目标文档替代；原正文与历史保留。'));
+    if (published && !['edit', 'merge'].includes(mode) && !mode?.startsWith('proposal~')) {
+      header.append(button(formal ? '查看整理稿 r' + doc.draft.revision : '查看正式 r' + published.snapshot.revision, () => navigate(route('knowledge', doc.id, formal ? '' : 'published')), false, 'document-version'));
+    }
     if (model.needsUpdate(doc) && mode !== 'merge') content.append(el('p', 'ds-notice', '来源依据已变化，请核对差异后更新文档。'));
-    if (mode === 'edit' || mode === 'merge') {
-      const preview = mode === 'merge' ? model.updatePreview(doc) : null, revision = doc.draft.revision;
-      if (preview?.issue) { content.append(el('p', 'ds-notice is-danger', preview.issue)); footer(root, []); return; }
-      if (preview) {
-        const compare = el('div', 'kw-comparison');
-        for (const [label, text] of [['当前正文', preview.before], ['新治理内容', preview.generated]]) { const part = el('section'); part.append(el('h2', '', label), paragraph(text)); compare.append(part); }
-        content.append(compare);
-      }
-      const initial = { note: preview ? (preview.manual ? preview.before : preview.generated) : doc.draft.note };
-      longForm(content, initial, [{ key: 'note', label: preview ? '合并后的知识正文' : '知识正文', type: 'textarea', rows: 18, required: true }], (value, action) => {
-        let issue;
-        if (preview) issue = model.applyUpdate(doc, value.note, ui.currentUser, model.stamp(preview.entries));
-        else if (value.note.trim() !== doc.draft.note) issue = model.saveDocument(doc, value.note, ui.currentUser, revision);
-        if (issue) return issue;
-        if (action === 'confirm') { issue = model.confirmDocument(doc, ui.currentUser); if (issue) return issue; }
-        ui.notify(action === 'confirm' ? '文档已确认' : '草稿已保存'); finishEditing(route('knowledge', doc.id));
-      });
-      footer(root, [button('取消编辑', () => back(route('knowledge', doc.id))), allowed('knowledge.edit') && button('保存草稿', () => editor?.submit('save')),
-        allowed('knowledge.confirm') && button('保存并确认', () => editor?.submit('confirm'), true)]);
-      return;
+    if (mode === 'edit' || mode === 'merge' || mode?.startsWith('proposal~')) {
+      if (!allowed('knowledge.edit')) { content.append(el('p', 'ds-notice is-danger', '当前账号没有编辑文档的操作权限。')); footer(root, [button('返回文档', () => back(route('knowledge', doc.id)))]); return; }
+      return documentEditor(doc, mode, root, content);
     }
-    block(content, '知识正文', paragraph(doc.draft.note)); basis(content, doc.draft.entries);
-    if (doc.excluded.length) block(content, '未纳入内容', paragraph(doc.excluded.join('\n')));
-    if (allowed('test-cases.view')) {
-      const tests = model.relatedCases([doc.id]), related = block(content, '相关标准题', paragraph(tests.length ? tests.length + ' 道题 · 已审核 ' + tests.filter(test => test.review === '已审核' && !model.caseStale(test)).length + ' 道' : '尚未生成相关标准题'));
-      related.append(button('管理相关题单', () => navigate(route('test-cases', 'for-document', doc.id)), false, 'document-cases'));
-    }
-    if (doc.revisions.length) {
-      const history = block(content, '修订记录');
-      doc.revisions.slice().reverse().forEach(version => history.append(button('r' + version.revision + (version.confirmed ? ' · 已确认' : ' · 草稿'), trigger => { const modal = ui.modal('文档修订 r' + version.revision, trigger, true); modal.append(el('div', 'dialog-body kw-history-copy', version.note)); modal.showModal(); })));
-    }
-    const related = [...model.tasks.values()].filter(task => task.documents.includes(doc.id));
-    if (related.length) block(content, '关联发布', ...related.map(task => button(task.id + ' · ' + model.taskFeedback(task).state, () => navigate(route('releases', task.id)))));
+    documentReader(doc, content, formal);
+    if (formal) { footer(root, [button('查看当前版本', () => navigate(route('releases', 'active', doc.id)), true)]); return; }
     const actions = [allowed('knowledge.edit') && button(model.needsUpdate(doc) ? '核对并更新' : '编辑文档', () => navigate(route('knowledge', doc.id, model.needsUpdate(doc) ? 'merge' : 'edit')), !doc.draft.confirmed)];
-    if (!doc.draft.confirmed && allowed('knowledge.confirm')) actions.push(button('确认文档', () => execute(() => model.confirmDocument(doc, ui.currentUser), '当前文档修订已确认'), true, 'confirm-doc', model.needsUpdate(doc) ? '请先核对来源更新。' : ''));
+    if (!doc.draft.confirmed && allowed('knowledge.confirm')) actions.push(button('确认文档', trigger => confirmAction('确认文档与治理依据', [], {}, () => model.confirmDocument(doc, ui.currentUser, true), trigger, { note: '确认已逐节核对正文与确切治理依据，未新增算法、关联或状态含义。', saved: () => refresh(), label: '确认当前修订' }), true, 'confirm-doc', model.needsUpdate(doc) ? '请先核对来源更新。' : ''));
+    if (!doc.pendingReplacement && !doc.replacedBy && !doc.cancelledReplacement && allowed('knowledge.edit') && allowed('knowledge.generate')) actions.push(button('合并或拆分', trigger => replacementForm(doc, trigger)));
     if (doc.draft.confirmed && allowed('releases.build')) {
       const published = model.active.get(doc.id);
       actions.push(published?.snapshot.revision === doc.draft.revision ? button('查看当前生效', () => navigate(route('releases', 'active', doc.id)), true) : button('发起发布', trigger => createTask(trigger, [doc.id]), true, 'publish-doc', model.needsUpdate(doc) ? '请先核对来源更新。' : ''));
@@ -300,6 +482,7 @@
   }
   function caseDetail(test, mode) {
     const isNew = !test, { root, content, header } = shell(isNew ? '新增标准题' : test.question, '标准题单', route('test-cases'));
+    const viewingRevision = test?.revision, viewingDependencies = test && model.questionDependencies(test.documents);
     if (test) header.append(tag(test.review));
     const originParts = currentOrigin()?.hash?.slice(1).split('/') || [], fromTask = originParts[0] === 'test-cases' && originParts[2] === 'for-task' && model.tasks.get(originParts[3]);
     const fromDocument = originParts[0] === 'test-cases' && originParts[2] === 'for-document' && model.documents.get(originParts[3]);
@@ -313,14 +496,14 @@
         { key: 'question', label: '标准问题', type: 'textarea', required: true }, { key: 'documents', label: '关联文档', multiple: true, options: docs.map(doc => ({ value: doc.id, label: doc.title })), required: true },
         { key: 'type', label: '判定方式', options: ['数值', '规则', '说明'].map(value => ({ value, label: value })), required: true }, { key: 'expected', label: '预期行为或答案', type: 'textarea', reviewRequired: true },
         { key: 'basis', label: '答案及数据依据', type: 'textarea', reviewRequired: true }, { key: 'rule', label: '判定规则', type: 'textarea', reviewRequired: true }, { key: 'identity', label: '受控执行身份', reviewRequired: true }, { key: 'tolerance', label: '数值允许误差' }
-      ], (data, action) => {
+      ].map(field => ({ ...field, group: ['question','documents','type'].includes(field.key) ? '问题与范围' : '预期与判定' })), (data, action) => {
         const next = { ...data, source: source.id };
         if (action === 'confirm') { const issue = model.caseIssue(next); if (issue) return issue; }
         const result = model.saveCase(test, next, ui.currentUser, expectedRevision); if (result.error) return result.error;
         if (action === 'confirm') { const issue = model.reviewCase(result.test, ui.currentUser); if (issue) return issue; }
         ui.notify(action === 'confirm' ? '标准题已审核' : '题目草稿已保存'); finishEditing(route('test-cases', result.test.id));
       });
-      const sample = test && model.sampleData(test.documents); if (sample) sampleTable(content, sample);
+      const sample = test && model.sampleData(test.documents); if (sample) header.append(button('查看验证数据', trigger => { const modal = ui.modal('固定验证数据', trigger, true), body = el('div', 'dialog-body'); sampleTable(body, sample); modal.append(body); modal.showModal(); }));
       footer(root, [button('取消', () => back(route('test-cases'))), button('保存草稿', () => editor?.submit('save')), allowed('test-cases.review') && button('保存并审核', () => editor?.submit('confirm'), true)]); return;
     }
     block(content, '问题与预期', paragraph(test.question), paragraph('预期：' + (test.expected || '尚未补充')));
@@ -338,7 +521,7 @@
       modal.append(el('div', 'dialog-body kw-history-copy', candidate.id + ' · ' + run.id + '\n' + result.question + '\n预期：' + result.expected + '\n实际：' + (result.error || String(result.actual ?? '未取得结果')) + '\n判定：' + result.result + '\n依据：' + result.basis)); modal.showModal();
     })));
     footer(root, [allowed('test-cases.edit') && button('修订题目', () => navigate(route('test-cases', test.id, 'edit'))), allowed('test-cases.edit') && test.review !== '已停用' && button('停用', trigger => confirmAction('停用标准题', [{ key: 'reason', label: '停用原因', type: 'textarea', required: true, full: true }], { reason: '' }, value => model.stopCase(test, ui.currentUser, value.reason), trigger, { danger: true, note: '相关发布缺少必要题目时将被阻断。' })),
-      allowed('test-cases.review') && test.review !== '已停用' && (test.review !== '已审核' || model.caseStale(test)) && button('审核题目', () => execute(() => model.reviewCase(test, ui.currentUser), '题目已审核'), true)]);
+      allowed('test-cases.review') && test.review !== '已停用' && (test.review !== '已审核' || model.caseStale(test)) && button('审核题目', () => execute(() => model.reviewCase(test, ui.currentUser, viewingRevision, viewingDependencies), '题目已审核'), true)]);
   }
   function sampleTable(content, sample) {
     const panel = block(content, '固定验证数据 · ' + sample.id + ' r' + sample.revision);
@@ -351,7 +534,7 @@
     node.append(el('p', 'kw-result-preview', value), el('small', 'cell-sub', result.rule));
     if (value.length > 120) node.append(button('查看完整结果', trigger => {
       const modal = ui.modal('实际结果 · ' + result.question, trigger, true);
-      modal.append(el('div', 'dialog-body kw-history-copy', value + '\n\n判定规则：' + result.rule + '\n依据：' + result.basis)); modal.showModal();
+      modal.append(el('div', 'dialog-body kw-history-copy', result.question + '\n\n预期：' + result.expected + '\n\n实际：' + value + '\n\n判定规则：' + result.rule + '\n依据：' + result.basis)); modal.showModal();
     }));
     return node;
   }
@@ -396,7 +579,12 @@
     const scope = block(content, '本批文档与修订');
     scope.append(RecordTable.render({ caption: '本批完整范围', columns: [{ key: 'title', label: '文档', width: 220 }, { key: 'before', label: '发布前', width: 110 }, { key: 'after', label: '目标修订', width: 110 }, { key: 'reason', label: '纳入依据', width: 140 }, { key: 'actions', label: '操作', width: 120 }],
       items: task.documents.map(docId => model.documents.get(docId)), row: doc => { const fixed = current?.documents.find(item => item.id === doc.id), previous = current ? current.baselines[doc.id] : model.active.get(doc.id) ? '/r' + model.active.get(doc.id).snapshot.revision : '';
-        return [doc.title, previous ? 'r' + previous.match(/\/r(\d+)/)?.[1] : '未发布', 'r' + (fixed?.revision || doc.draft.revision), task.selected.includes(doc.id) ? '本次选择' : '必要协同', button('查看文档', () => navigate(route('knowledge', doc.id)), false, 'scope-' + doc.id)]; } }));
+        return [fixed?.title || doc.title, previous ? 'r' + previous.match(/\/r(\d+)/)?.[1] : '未发布', 'r' + (fixed?.revision || doc.draft.revision), task.selected.includes(doc.id) ? '本次选择' : '必要协同', button('查看文档', () => navigate(route('knowledge', doc.id)), false, 'scope-' + doc.id)]; } }));
+    if (task.replacement) {
+      const replacement = current?.replacement || model.replacements.get(task.replacement);
+      const exits = block(content, '同批退出的原文档', ...replacement.sources.map(docId => paragraph(model.documents.get(docId).title + ' → ' + replacement.targets.map(target => model.documents.get(target).title).join('、'))));
+      exits.append(button('核对替代与引用去向', () => navigate(route('knowledge', 'replace', replacement.id))));
+    }
     if (current) {
       scope.append(paragraph('固定候选：' + current.id + ' · 构建' + (current.built ? '已完成' : '尚未完成')));
       const tests = block(content, '候选验证');
@@ -405,9 +593,10 @@
       else {
         tests.append(paragraph(execution.id + ' · ' + execution.at + ' · ' + execution.result));
         tests.append(RecordTable.render({ caption: '逐题结果', columns: [{ key: 'question', label: '标准问题', width: 230 }, { key: 'expected', label: '预期', width: 160 }, { key: 'actual', label: '实际及依据', width: 220 }, { key: 'state', label: '结果', width: 100 }, { key: 'actions', label: '操作', width: 120 }], items: execution.results, row: result => [
-          stack(result.question, result.test + ' · r' + result.revision), result.expected, actualResult(result), tag(result.result), result.result === '待裁定' && allowed('test-cases.judge') ? button('办理裁定', trigger => confirmAction('裁定候选结果', [
+          stack(result.question, result.test + ' · r' + result.revision), el('p', 'kw-result-preview', result.expected), actualResult(result), tag(result.result), result.result === '待裁定' && allowed('test-cases.judge') ? button('办理裁定', trigger => confirmAction('裁定候选结果', [
+            { key: 'question', label: '标准问题', readonly: true, full: true }, { key: 'expected', label: '预期', readonly: true, full: true }, { key: 'actual', label: '实际结果', readonly: true, full: true },
             { key: 'decision', label: '裁定结论', options: ['通过', '未通过'].map(value => ({ value, label: value })), required: true }, { key: 'reason', label: '裁定依据', type: 'textarea', required: true, full: true }
-          ], { decision: '未通过', reason: '' }, value => model.adjudicate(task, result.test, value.decision, value.reason, ui.currentUser), trigger), false, 'judge-' + result.test) : button('查看题目', () => navigate(route('test-cases', result.test)), false, 'test-' + result.test)
+          ], { question: result.question, expected: result.expected, actual: result.error || String(result.actual ?? '未取得结果'), decision: '未通过', reason: '' }, value => model.adjudicate(task, result.test, value.decision, value.reason, ui.currentUser, execution.id), trigger), false, 'judge-' + result.test) : button('查看题目', () => navigate(route('test-cases', result.test)), false, 'test-' + result.test)
         ] }));
       }
       if (current.runs.length > 1) block(content, '以往运行', ...current.runs.slice(0, -1).map(run => paragraph(run.id + ' · ' + run.result + ' · ' + run.at)));
@@ -438,7 +627,7 @@
       if (current?.built && allowed('releases.test') && !issue) actions.push(button(current.runs.length ? '重新运行验证' : '运行验证', () => progress(task, 'run', 'finishRun'), task.stage !== '待发布', 'test'));
       if (allowed('releases.publish') && task.stage === '待发布' && !issue) actions.push(button('确认发布', trigger => confirmAction('确认整批发布', [
         { key: 'scope', label: '本批范围', readonly: true, full: true }, { key: 'candidate', label: '固定候选', readonly: true }, { key: 'result', label: '验证结果', readonly: true }
-      ], { scope: current.documents.map(doc => doc.title + ' r' + doc.revision).join('\n'), candidate: current.id, result: current.runs.at(-1)?.result }, () => {
+      ], { scope: current.documents.map(doc => doc.title + ' r' + doc.revision).join('\n') + (current.replacement ? '\n同批退出：' + current.replacement.sources.map(docId => model.documents.get(docId).title).join('、') : ''), candidate: current.id, result: current.runs.at(-1)?.result }, () => {
         const error = model.publish(task, ui.currentUser); if (error) return error;
         const expectedId = task.currentId, view = location.hash, actor = ui.currentUser;
         setTimeout(() => { model.finishPublish(task, actor, expectedId); refreshTask(view); }, 450);
@@ -453,18 +642,18 @@
     footer(root, actions, busy ? task.stage + '，请稍候。' : issue);
   }
   function activeList() {
-    const rows = [...model.active.values()].filter(row => model.documents.get(row.document)?.source === source.id && (!versionTask || versionTask.documents.includes(row.document))).map(row => ({ ...row, id: row.document, title: model.documents.get(row.document).title,
+    const rows = [...model.active.values()].filter(row => model.documents.get(row.document)?.source === source.id && (!versionTask || versionTask.documents.includes(row.document))).map(row => ({ ...row, id: row.document, title: row.snapshot.title,
       searchObject: row.snapshot.entries.map(entry => entry.object).join(' '), listState: model.activeState(row) }));
     listView('active', rows, [{ key: 'title', label: '文档 / 来源对象', width: 260 }, { key: 'revision', label: '生效修订', width: 100 }, { key: 'release', label: '来源发布', width: 150 }, { key: 'state', label: '当前可用性', width: 120 }, { key: 'actions', label: '操作', width: 120 }], row => [
       stack(row.title, [...new Set(row.snapshot.entries.map(entry => entry.object))].join('、')), 'r' + row.snapshot.revision, row.release, tag(row.listState), button('查看版本', () => navigate(route('releases', 'active', row.document)), false, 'active-' + row.document)
     ], ['正常', '待复核', '部分暂停', '暂停', '来源不可用', '已撤下'], [], [{ key: 'keyword', label: '文档名称' }, { key: 'object', label: '来源对象' }]);
   }
   function activeDetail(row) {
-    const doc = model.documents.get(row.document), { root, content, header } = shell(doc.title + ' · 当前 r' + row.snapshot.revision, '发布与版本', route('releases', 'active'));
+    const doc = model.documents.get(row.document), { root, content, header } = shell(row.snapshot.title + ' · 当前 r' + row.snapshot.revision, '发布与版本', route('releases', 'active'));
     header.append(tag(model.activeState(row)));
-    block(content, '正式版本', paragraph('发布批次：' + row.release), paragraph(row.snapshot.note)); basis(content, row.snapshot.entries);
+    block(content, '正式版本', paragraph(row.snapshot.purpose || row.snapshot.title), paragraph('发布批次：' + row.release), button('阅读正式正文', () => navigate(route('knowledge', doc.id, 'published')), true, 'read-published')); basis(content, row.snapshot.entries, row.snapshot.bindings || doc.bindings);
     const restrictions = model.restrictions(row); if (restrictions.length) block(content, '暂停范围与原因', ...restrictions.map(paragraph));
-    if (row.previous) block(content, '直接上一版', paragraph('r' + row.previous.snapshot.revision + ' · ' + row.previous.release), paragraph(row.previous.snapshot.note));
+    if (row.previous) block(content, '直接上一版', paragraph('r' + row.previous.snapshot.revision + ' · ' + row.previous.release), button('查看上一版正文', trigger => { const modal = ui.modal('上一版 r' + row.previous.snapshot.revision, trigger, true); modal.append(el('div', 'dialog-body kw-history-copy', row.previous.snapshot.note)); modal.showModal(); }));
     else block(content, '直接上一版', paragraph('首次发布，没有可回退的上一版。'));
     const recovery = model.recoveryFeedback(row);
     if (row.recovery) block(content, '恢复验证', tag(recovery.state), paragraph(row.recovery.at), ...(row.recovery.task ? [button('查看验证记录', () => navigate(route('releases', row.recovery.task)))] : []));
@@ -484,14 +673,20 @@
     footer(root, actions, restrictions.length || row.withdrawn ? recovery.issue : '');
   }
   function open(impact) {
-    const doc = [...model.documents.values()].find(item => item.source === impact.source && impact.bindings.every(binding => item.draft.entries.some(entry => model.key(entry) === binding.table + '/' + binding.entry)));
-    navigate('#knowledge/' + impact.source + '/' + (doc?.id || 'impact-' + impact.id));
+    navigate('#knowledge/' + impact.source + '/impact-' + impact.id);
   }
   function impactDetail(impact) {
     const { root, content } = shell(impact.title, '知识文档', route('knowledge'));
     const scope = GovernanceDemo.publicationScope(impact.source, impact.bindings, { allowBlocked: true, allowRetired: true });
     block(content, '已审核的来源范围', ...scope.entries.map(({ table, entry }) => paragraph(GovernanceDemo.objectName(table) + ' / ' + entry.name + ' · r' + entry.revision)));
-    footer(root, [allowed('knowledge.generate') && button('生成更新草稿', () => { const result = model.importImpact(impact, ui.currentUser); if (result.error) return ui.notify(result.error); navigate(route('knowledge', result.document.id)); }, true, 'impact-generate', scope.issues[0] || '')], scope.issues[0] || '');
+    const affected = model.affectedDocuments(impact);
+    if (affected.length) {
+      const host = block(content, '全部受影响文档');
+      affected.forEach(({ document: doc, versions }) => { const row = el('div', 'kw-impact-row'); row.append(stack(doc.title, [...new Set(versions.map(version => version.kind))].join('、')), tag(model.needsUpdate(doc) ? '待核对更新' : model.active.has(doc.id) ? model.activeState(model.active.get(doc.id)) : '草稿'),
+        button('核对文档', () => navigate(route('knowledge', doc.id, model.needsUpdate(doc) ? 'merge' : ''))));
+        if (allowed('knowledge.confirm') && !model.needsUpdate(doc)) row.append(button('核对无影响', trigger => confirmAction('记录无影响核对', [{ key: 'reason', label: '核对依据', required: true, type: 'textarea', full: true }], { reason: '' }, value => model.noImpact(impact, doc, ui.currentUser, value.reason), trigger, { saved: () => refresh() }))); host.append(row); });
+      footer(root, [button('返回知识文档', () => back(route('knowledge')))], impact.knowledge || '分别核对全部实际影响，必要处理完成后回写来源事项。');
+    } else footer(root, [allowed('knowledge.generate') && button('规划知识文档', trigger => generateDocuments(trigger), true, 'impact-generate', scope.issues[0] || '')], scope.issues[0] || '');
   }
   function render(target, controls, area, sourceId, targetId, mode) {
     main = target; ui = controls; section = area; source = DataSourceDemo.find(sourceId || DataSourceDemo.selected);
@@ -501,6 +696,8 @@
     DataSourceDemo.selected = source.id;
     if (area === 'knowledge') {
       if (!targetId) return documentList();
+      if (targetId === 'plan') { const plan = model.plans.get(mode); if (plan?.source === source.id) return planningPage(plan); }
+      if (targetId === 'replace') { const replacement = model.replacements.get(mode); if (replacement?.source === source.id) return replacementPage(replacement); }
       if (targetId.startsWith('impact-')) { const impact = GovernanceImpactDemo.records.find(item => item.id === targetId.slice(7) && item.source === source.id); if (impact) return impactDetail(impact); }
       const doc = model.documents.get(targetId); if (doc?.source === source.id) return documentDetail(doc, mode);
     }

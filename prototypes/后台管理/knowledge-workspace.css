@@ -47,6 +47,72 @@
 .rt-table .kw-empty-actions .kw-action { height:40px; padding:8px 16px; border-color:var(--do-line); background:var(--do-panel); color:var(--do-ink); }
 .rt-table .kw-empty-actions .kw-action.is-primary { border-color:var(--do-primary); background:var(--do-primary); color:#fff; }
 .kw-action:disabled { color:var(--do-muted); border-color:var(--do-line); background:#edf0f4; cursor:not-allowed; }
+/* 规划按业务职责逐项核对，字段与修订只在需要时展开。桌面侧栏和共用底栏保持原尺度。 */
+.kw-planning { width:100%; min-width:0; }
+.kw-plan-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+.kw-plan-tools > span { margin-right:auto; font-weight:600; }
+.kw-plan-row { padding:24px; border:1px solid var(--do-line); border-radius:8px; margin-bottom:16px; background:var(--do-panel,#fff); }
+.kw-plan-row.is-skipped { background:var(--do-canvas); }
+.kw-plan-heading { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.kw-plan-identity { flex:1; min-width:200px; }
+.kw-plan-identity strong { font-size:16px; line-height:24px; }
+.kw-plan-identity p { margin:8px 0 0; color:var(--do-muted); line-height:22px; overflow-wrap:anywhere; }
+.kw-plan-heading > .el-select { width:136px; }
+.kw-plan-meta { display:flex; align-items:center; flex-wrap:wrap; gap:16px; margin:16px 0 0; color:var(--do-muted); }
+.kw-plan-meta > span { margin-right:auto; }
+.kw-plan-fields { max-width:800px; margin:24px 0 0; padding-top:24px; border-top:1px solid var(--do-line); }
+.kw-plan-fields .el-select { width:100%; }
+.kw-plan-fields .el-form-item { margin-bottom:24px; }
+.kw-plan-fields > .el-button { margin-top:16px; }
+.kw-dependency-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 24px; padding:12px 0; border-bottom:1px solid var(--do-line); }
+.kw-dependency-row > span:last-child,.kw-dependency-note { color:var(--do-muted); }
+.kw-dependency-note { line-height:22px; margin:16px 0; }
+.kw-plan-result { display:flex; gap:16px; align-items:center; margin:16px 0 0 36px; }
+.kw-plan-checked { color:var(--do-muted); margin:16px 0 0; }
+.kw-section-basis { margin-top:16px; color:var(--do-muted); }
+.kw-section-basis summary,.kw-plan-fields summary { cursor:pointer; line-height:24px; }
+.kw-section-basis summary:focus-visible,.kw-plan-fields summary:focus-visible { outline:2px solid var(--do-primary); outline-offset:4px; }
+.kw-impact-row { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:16px 0; border-bottom:1px solid var(--do-line); }
+.kw-impact-row > div:first-child { flex:1; min-width:200px; }
+.kw-plan-summary { margin-right:auto; color:var(--do-muted); line-height:24px; }
+/* 章节导航复用治理工作台的桌面分栏，正文与输入保持 800px 阅读宽度。 */
+.kw-editor-content { padding:0; overflow:hidden; }
+.kw-editor-layout { display:grid; grid-template-columns:var(--gov-nav-width,224px) minmax(0,1fr); height:100%; min-height:0; }
+.kw-editor-nav { display:flex; flex-direction:column; align-items:stretch; gap:4px; padding:16px; border-right:1px solid var(--do-line); background:var(--do-canvas); overflow:auto; }
+.kw-editor-nav button { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px; text-align:left; padding:12px; border:0; border-radius:4px; color:var(--do-ink); background:transparent; cursor:pointer; font:inherit; line-height:24px; }
+.kw-editor-nav button:hover { background:var(--do-selected); }
+.kw-editor-nav button.is-active { color:var(--do-primary); background:var(--do-selected); font-weight:600; }
+.kw-editor-nav button > span { font-size:12px; color:var(--do-muted); }
+.kw-nav-divider { border-top:1px solid var(--do-line); margin:12px 0; }
+.kw-editor-pane { min-width:0; min-height:0; overflow:auto; padding:24px; }
+.kw-editor-pane > section,.kw-editor-pane > .el-form { max-width:800px; }
+.kw-editor-pane h2 { margin:0 0 24px; font-size:16px; line-height:24px; }
+.kw-editor-pane .el-form-item { margin-bottom:24px; }
+.kw-editor-pane .el-select { width:100%; }
+.kw-editor-pane .el-textarea__inner { line-height:24px; }
+.kw-source-comparison { padding:16px; margin-bottom:24px; border:1px solid var(--do-line); border-radius:4px; }
+.kw-source-comparison summary { cursor:pointer; }
+.kw-source-comparison .ds-prose { white-space:pre-wrap; max-height:280px; overflow:auto; }
+.kw-modal-form { display:flex; flex-direction:column; min-height:0; max-height:calc(100dvh - 180px); }
+.kw-modal-form > .dialog-body { overflow:auto; }
+.kw-modal-form .el-select { width:100%; }
+.kw-modal-actions { display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--do-line); flex:none; }
+.kw-target-fields { padding:16px; margin:16px 0; border:1px solid var(--do-line); border-radius:4px; }
+.kw-target-heading { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.kw-target-fields .el-form-item:last-child { margin-bottom:0; }
+.kw-reading-pane .ds-prose { max-width:800px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:26px; }
+.kw-reading-content { padding:0; gap:0; overflow:hidden; }
+.kw-document-tabs { padding:0 24px; flex:none; border-bottom:1px solid var(--do-line); }
+.kw-document-tabs .el-tabs__header { margin:0; }
+.kw-document-tabs .el-tabs__nav-wrap::after { height:0; }
+.kw-document-view { min-height:0; flex:1; overflow:auto; }
+.kw-document-view.kw-editor-layout { overflow:hidden; }
+.kw-document-view > .kw-section-basis { color:var(--do-ink); }
+.kw-document-view > .kw-section-basis > summary { margin-bottom:16px; font-weight:600; }
+.kw-shell:has(.kw-document-view) > .gov-page-footer,.kw-shell:has(.kw-editor-content) > .gov-page-footer { padding-left:calc(var(--gov-nav-width) + 24px); padding-right:max(24px,calc(100% - var(--gov-nav-width) - 824px)); }
+.kw-shell:has(> .kw-content > .kw-form) > .gov-page-footer { padding-right:max(24px,calc(100% - 824px)); }
+@media (max-height:720px) { .kw-editor-content,.kw-reading-content { overflow:visible; } .kw-editor-layout { height:auto; min-height:440px; } .kw-editor-nav { align-self:start; position:sticky; top:0; max-height:420px; } .kw-editor-pane,.kw-document-view,.kw-document-view.kw-editor-layout { overflow:visible; } }
+@media (max-width:1100px) { .kw-plan-meta,.kw-plan-fields,.kw-plan-result { margin-left:0; } }
 @media (max-width:1100px) { .kw-comparison { grid-template-columns:1fr; } .kw-steps .el-steps--simple { padding:12px; } }
 @media (max-height:720px) { .kw-shell { overflow:visible; } .kw-content { overflow:visible; flex:none; } .kw-shell .gov-page-footer { position:sticky; bottom:0; z-index:3; } }
 @media (prefers-reduced-motion:reduce) { .kw-shell * { scroll-behavior:auto; transition:none; } }
