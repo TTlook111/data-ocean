@@ -1,0 +1,52 @@
+/* 沿用后台 4px 尺度和桌面表格；长编辑与详情在同一外壳内保留固定操作区。 */
+.kw-context { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:16px 24px; border:1px solid var(--do-line); border-radius:8px; background:#fff; }
+.kw-context .el-select { width:280px; }
+.kw-context-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.kw-task-context { display:flex; align-items:center; flex-wrap:wrap; gap:12px; flex-basis:100%; padding-top:12px; border-top:1px solid var(--do-line); }
+.kw-task-context .kw-action { margin-left:auto; }
+.kw-history-copy { white-space:pre-wrap; overflow-wrap:anywhere; }
+.kw-result-preview { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+.kw-result-actual .cell-sub { display:block; margin-top:8px; }
+.kw-result-actual .kw-action { margin-top:8px; padding-left:0; }
+.kw-status-neutral { color:var(--do-muted); background:var(--do-canvas); }
+.kw-generation-empty { padding:24px; }
+.kw-generation-empty .el-empty { padding:0; }
+.kw-generation-empty .el-empty__description p { color:var(--do-ink); font-size:16px; line-height:24px; font-weight:500; }
+.kw-generation-empty .ds-prose { color:var(--do-muted); margin:12px 0 20px; max-width:480px; text-align:center; }
+.kw-empty-actions { display:flex; justify-content:center; align-items:center; gap:12px; }
+.kw-context-actions .kw-action,.kw-tab-actions .kw-action { text-decoration:none; white-space:nowrap; }
+.kw-tabs { display:flex; align-items:center; flex-wrap:wrap; gap:12px; background:#fff; padding:0 24px; border:1px solid var(--do-line); border-radius:8px; }
+.kw-tabs-control { flex:1; min-width:240px; }
+.kw-tab-actions { display:flex; align-items:center; gap:8px; padding:8px 0; margin-left:auto; }
+.kw-tabs .el-tabs__header { margin:0; }
+.kw-tabs .el-tabs__nav-wrap::after { height:0; }
+.kw-shell { min-height:480px; }
+.kw-content { padding:24px; display:flex; flex-direction:column; gap:24px; }
+.kw-section { min-width:0; padding:0 0 24px; border-bottom:1px solid var(--do-line); }
+.kw-section:last-child { border-bottom:0; padding-bottom:0; }
+.kw-section h2,.kw-comparison h2 { font-size:16px; line-height:24px; font-weight:600; margin:0 0 16px; }
+.kw-section .ds-prose { margin:8px 0; max-width:900px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.kw-section > .admin-button { margin-right:8px; margin-bottom:8px; }
+.kw-section .rt-scroll { min-height:0; max-height:none; flex:none; }
+.kw-section .rt-table td { vertical-align:top; }
+.kw-section .rt-table { font-size:14px; }
+.kw-form { width:100%; max-width:800px; }
+.kw-form .el-select { width:100%; }
+.kw-form .el-textarea__inner { line-height:24px; resize:vertical; }
+.kw-form .el-form-item { margin-bottom:24px; }
+.kw-comparison { display:grid; grid-template-columns:1fr 1fr; gap:24px; padding-bottom:24px; border-bottom:1px solid var(--do-line); }
+.kw-comparison section { min-width:0; }
+.kw-comparison .ds-prose { white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto; }
+.kw-steps .el-step__title { font-size:14px; }
+.kw-shell .gov-toolbar .status-tag { margin-left:auto; }
+.kw-shell .gov-page-footer { gap:8px; }
+.kw-shell .gov-action-issue { flex-basis:100%; margin:0 0 4px; }
+.kw-shell .admin-button { white-space:nowrap; }
+.rt-table .kw-action { height:32px; min-height:32px; padding:4px 8px; border-color:transparent; background:transparent; color:var(--do-primary); white-space:nowrap; }
+.rt-table .kw-action:hover { background:var(--do-selected); }
+.rt-table .kw-empty-actions .kw-action { height:40px; padding:8px 16px; border-color:var(--do-line); background:var(--do-panel); color:var(--do-ink); }
+.rt-table .kw-empty-actions .kw-action.is-primary { border-color:var(--do-primary); background:var(--do-primary); color:#fff; }
+.kw-action:disabled { color:var(--do-muted); border-color:var(--do-line); background:#edf0f4; cursor:not-allowed; }
+@media (max-width:1100px) { .kw-comparison { grid-template-columns:1fr; } .kw-steps .el-steps--simple { padding:12px; } }
+@media (max-height:720px) { .kw-shell { overflow:visible; } .kw-content { overflow:visible; flex:none; } .kw-shell .gov-page-footer { position:sticky; bottom:0; z-index:3; } }
+@media (prefers-reduced-motion:reduce) { .kw-shell * { scroll-behavior:auto; transition:none; } }

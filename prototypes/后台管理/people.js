@@ -3,6 +3,7 @@
   'use strict';
   const { users, departments, dataSources, outputRules, extraRequests } = PeopleDemo;
   const currentUser = users.find(user => user.id === 'u01');
+  KnowledgeWorkspace.seedPrototype(currentUser);
   const main = document.getElementById('admin-main');
   const pageLocation = Vue.reactive({ title: '总览', parent: '', parentHref: '#roles' });
   PrototypeUI.mount(document.getElementById('admin-breadcrumb'), {
@@ -18,7 +19,7 @@
   const groups = [
     ['数据源接入', 'database', [['sources', '数据源管理'], ['collections', '采集记录'], ['catalog', '元数据目录'], ['business-notes', '企业业务说明']]],
     ['数据治理', 'layers', [['governance', '治理工作台']]],
-    ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['test-cases', '标准题单与验证'], ['releases', '发布管理'], ['versions', '版本与回退']]],
+    ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['test-cases', '标准题单'], ['releases', '发布与版本']]],
     ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
     ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
     ['系统配置', 'layers', [['models', '模型配置'], ['model-uses', '用途设置'], ['retrieval', '知识检索配置'], ['diagnostics', '运行诊断']]],
@@ -835,6 +836,7 @@
     document.querySelector('dialog[open]')?.close();
     const parts = location.hash.slice(1).split('/'); const key = parts[0] === 'admin' ? parts[1] : parts[0];
     if(key==='grant-management'){location.replace('#grants');return;}
+    if(key==='versions'){location.replace('#releases/'+DataSourceDemo.selected+'/active');return;}
     const changed = section !== key; section = key || 'dashboard';
     pageLocation.title = titles[section] || '页面不存在';
     pageLocation.parent = '';
@@ -854,9 +856,9 @@
     else if (section === 'governance') GovernancePage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions,
       setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
     });
-    else if (['knowledge', 'releases'].includes(section)) KnowledgeUpdatePage.render(main, { el, button, textCell, pair, pageHeading, openForm, modal, currentUser, notify,
+    else if (['knowledge', 'test-cases', 'releases'].includes(section)) KnowledgeUpdatePage.render(main, { el, button, textCell, pair, pageHeading, openForm, modal, currentUser, notify, moreActions,
       setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
-    }, section, decodeURIComponent(parts[1] || ''), decodeURIComponent(parts[2] || ''));
+    }, section, decodeURIComponent(parts[1] || ''), decodeURIComponent(parts[2] || ''), decodeURIComponent(parts[3] || ''));
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });

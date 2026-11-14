@@ -24,12 +24,11 @@
       ['forbid', '禁止对象使用', '核对影响后禁止对象参与查询。']]),
     page('knowledge', '知识库与发布', '知识文档', [
       ['generate', '生成知识草稿', '使用已确认治理成果生成文档。'], ['edit', '编辑知识草稿', '修改草稿并核对来源。'], ['confirm', '确认知识文档', '确认文档内容，供后续候选构建使用。']]),
-    page('test-cases', '知识库与发布', '标准题单与验证', [
-      ['edit', '维护标准题单', '新增或修订标准问题及预期结果。'], ['run', '运行验证', '执行获准的相关测试并查看结果。']]),
-    page('releases', '知识库与发布', '发布管理', [
-      ['build', '构建候选', '确认范围后构建隔离候选，不直接切换线上知识。'], ['test', '运行发布测试', '核对题单、结果和发布门槛。'], ['publish', '确认发布', '复核通过后整批切换实际发布范围。']]),
-    page('versions', '知识库与发布', '版本与回退', [
-      ['pause', '暂停知识', '说明原因并暂停受影响知识。'], ['rollback', '回退上一版', '整批预检通过后回退上一版本。']]),
+    page('test-cases', '知识库与发布', '标准题单', [
+      ['edit', '维护标准题单', '新增或修订标准问题、数据依据及判定规则。'], ['review', '审核标准题', '确认题目修订、预期答案及执行条件。'],
+      ['judge', '裁定验证结果', '依据当前候选的运行证据处理待裁定结果，不能放行明确错误。']]),
+    page('releases', '知识库与发布', '发布与版本', [
+      ['build', '构建候选', '选择本批完整范围并构建固定候选。'], ['test', '运行验证', '验证当前候选或当前版本的恢复条件。'], ['publish', '确认发布', '复核通过后整批切换实际发布范围。'], ['withdraw', '撤下知识', '核对完整依赖影响后撤下知识，保留版本和审计记录。']]),
     page('feedback', '反馈处理', '问题队列与处理', [
       ['assign', '分派问题', '核对归属后分派，不扩大处理者权限。'], ['process', '记录处理', '记录核查、修订或技术修复依据。'],
       ['verify', '复验', '核对实际修复结果。'], ['close', '结案并回告', '按实际处理结果结案，回告可公开结论。']]),
@@ -66,8 +65,12 @@
     page('my-access', '个人管理', '我的访问范围'),
     page('query', '问数工作台', '问数工作台', [['ask', '发起问数', '对单一获准源发起或重新查询业务问题。'], ['sql', '查看 SQL', '按对应权限查看查询依据中的 SQL。']])
   ];
-  // 解除禁止在知识文档发布后办理；保留独立权限标识，不随发布权限自动授予。
-  catalog.find(item => item.id === 'knowledge').operations.push({ id: 'governance.allow', name: '解除已发布内容禁止', purpose: '知识发布完成后显式核对并解除本次范围的禁止，仍须核验依赖和来源状态。' });
+  // 版本动作归到同一工作区，操作标识保持独立；发布权限不会自动获得恢复权限。
+  catalog.find(item => item.id === 'releases').operations.push(
+    { id: 'versions.pause', name: '暂停知识', purpose: '核对范围和原因后暂停当前知识。' },
+    { id: 'versions.rollback', name: '整批回退上一版', purpose: '完整范围预检通过后切换到直接上一版。' },
+    { id: 'governance.allow', name: '解除禁止与恢复', purpose: '验证通过后显式核对风险和范围，解除对应禁止及暂停。' }
+  );
   catalog.find(item => item.id === 'collections').operations[0].purpose = '查看获准采集记录及对应结构变化；结构变化在元数据目录中查看。';
   const all = catalog.flatMap(item => item.operations);
   const keysFor = ids => catalog.filter(item => ids.includes(item.id)).flatMap(item => item.operations.filter(op => !op.protectedAbility).map(op => op.id));
@@ -79,7 +82,7 @@
     ['role-user', '普通用户', '使用本人问数、申请及访问回看功能。', personal],
     ['role-source', '数据源维护员', '维护连接、结构目录与采集记录。', keysFor(['sources', 'catalog', 'collections', 'business-notes']).filter(key => key !== 'sources.approval-config')],
     ['role-governance', '数据治理员', '整理业务知识并维护治理内容。', [...keysFor(['catalog', 'test-cases']), 'governance.view', 'governance.suggest', 'governance.edit']],
-    ['role-review', '知识审核员', '核对治理依据和知识文档。', [...keysFor(['knowledge']), 'governance.view', 'governance.confirm', 'governance.supplement', 'governance.forbid']],
+    ['role-review', '知识审核员', '核对治理依据和知识文档。', [...keysFor(['knowledge']), 'releases.view', 'governance.allow', 'governance.view', 'governance.confirm', 'governance.supplement', 'governance.forbid']],
     ['role-release', '发布管理员', '管理候选构建、发布测试及版本回退。', keysFor(['knowledge', 'releases', 'versions', 'test-cases']).filter(key => key !== 'governance.allow')],
     ['role-feedback', '反馈处理员', '核查、分派与处理有权问题。', keysFor(['feedback'])],
     ['role-approval', '访问审批员', '核定业务用途、数据源及输出限制。', keysFor(['access-requests', 'output-rules'])],

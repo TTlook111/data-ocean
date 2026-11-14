@@ -440,7 +440,10 @@
   }
   function context(source) {
     const host = el('section', 'gov-context prototype-ui');
-    PrototypeUI.mount(host, { data: () => ({ selected: source.id, sources: DataSourceDemo.sources }), methods: { change(id) { DataSourceDemo.selected = id; location.hash = path(id); } }, template: '<el-select v-model="selected" aria-label="当前数据源" filterable @change="change"><el-option v-for="source in sources" :key="source.id" :label="source.name" :value="source.id"></el-option></el-select>' }); return host;
+    PrototypeUI.mount(host, { data: () => ({ selected: source.id, sources: DataSourceDemo.sources }), methods: { change(id) { DataSourceDemo.selected = id; location.hash = path(id); } }, template: '<el-select v-model="selected" aria-label="当前数据源" filterable @change="change"><el-option v-for="source in sources" :key="source.id" :label="source.name" :value="source.id"></el-option></el-select>' });
+    if (allowed('business-notes.view')) host.append(button('业务说明', () => { location.hash = '#business-notes/' + source.id; }));
+    if (allowed('knowledge.view')) host.append(button('知识文档', () => { location.hash = '#knowledge/' + source.id; }));
+    return host;
   }
   function scopeNotice(source) {
     const change = source.scopeChange;
@@ -758,7 +761,7 @@
     const originSection = route.params.get('from');
     const fromOtherObject = !originSection && origin?.hash.startsWith('#governance/') && origin.hash.split('?')[0].split('/').length > 2;
     const catalogParent = origin?.hash.startsWith('#catalog/') ? '结构详情' : '元数据目录';
-    const parent = originSection === 'catalog' ? catalogParent : originSection === 'collections' ? '结构变化' : originSection === 'business-notes' ? '企业业务说明' : originSection === 'knowledge-update' ? '知识更新' : fromOtherObject ? '上一治理页' : '治理工作台';
+    const parent = originSection === 'knowledge' ? '文档详情' : originSection === 'catalog' ? catalogParent : originSection === 'collections' ? '结构变化' : originSection === 'business-notes' ? '企业业务说明' : originSection === 'knowledge-update' ? '知识更新' : fromOtherObject ? '上一治理页' : '治理工作台';
     const parentHref = origin?.hash || (originSection === 'catalog' ? '#catalog' : originSection === 'collections' ? '#catalog/' + table.source + '/changes/' + encodeURIComponent(demo.objectName(table)) : originSection === 'business-notes' ? '#business-notes' : originSection === 'knowledge-update' ? '#knowledge/' + table.source + '/' + route.params.get('impact') : rootOrigin ? origin.hash : path(table.source));
     ui.setTitle(table.label + ' · ' + demo.objectName(table), parent, parentHref);
     const shell = el('section', 'gov-shell'), toolbar = el('header', 'gov-toolbar'), identity = el('div', 'gov-identity'), buttons = el('div', 'gov-toolbar-actions');
@@ -767,6 +770,7 @@
     if (fromCatalog) buttons.append(button('返回' + catalogParent, () => { DataSourceDemo.selected = table.source; location.hash = origin?.hash || '#catalog'; }));
     else if(['collections','business-notes'].includes(route.params.get('from'))) buttons.append(button(route.params.get('from')==='collections'?'返回结构变化':'返回业务说明',()=>{DataSourceDemo.selected=table.source;location.hash=parentHref;}));
     else if(originSection==='knowledge-update') buttons.append(button('返回知识更新',()=>{DataSourceDemo.selected=table.source;location.hash=parentHref;}));
+    else if(originSection==='knowledge') buttons.append(button('返回文档详情',()=>{DataSourceDemo.selected=table.source;location.hash=parentHref;}));
     else if(fromOtherObject) buttons.append(button('返回上一治理页',()=>{location.hash=origin.hash;requestAnimationFrame(()=>requestAnimationFrame(()=>{
       (origin.panels || []).forEach(key=>{const panel=main.querySelector('details[data-gov-panel="'+CSS.escape(key)+'"]');if(panel)panel.open=true;});
       const reading=readingPane(main);if(reading)reading.scrollTop=origin.readingTop||0;
@@ -778,6 +782,7 @@
       discover.disabled = Boolean(discoveryRuns.get(table.id)?.busy); buttons.append(discover);
     }
     if (['relations', 'metrics'].includes(tab) && allowed('governance.edit')) buttons.append(button('新增' + kindLabel(tab), trigger => createEntry(record, tab, trigger), false, 'gov-create-' + tab));
+    if (allowed('knowledge.view')) buttons.append(button('知识文档', () => { DataSourceDemo.selected = table.source; location.hash = '#knowledge/' + table.source; }, false, 'gov-knowledge'));
     toolbar.append(identity, buttons); shell.append(toolbar, ...scopeNotice(route.source));
     const detailKinds = kinds.map(([key, label]) => { const entries = entriesFor(record, key); return [key, key === 'overview' ? '表说明' : key === 'evidence' ? label : label + '（' + entries.length + ' / ' + entries.filter(demo.isConfirmed).length + '）']; });
     const tabs = el('div', 'gov-tabs prototype-ui'); PrototypeUI.mount(tabs, { data: () => ({ tab, kinds: detailKinds }), methods: { change: value => select(value), beforeLeave: beforeTabLeave }, template: '<el-tabs v-model="tab" :default-value="tab" :before-leave="beforeLeave" @tab-change="change"><el-tab-pane v-for="kind in kinds" :key="kind[0]" :name="kind[0]" :label="kind[1]"></el-tab-pane></el-tabs>' }); shell.append(tabs);

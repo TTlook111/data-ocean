@@ -210,6 +210,12 @@
       body.append(actions(badge(source.connectionState), badge(source.health)));
       if (source.health === '网络异常') body.append(note('网络连接超时。请检查连接路径，再重新测试；已有治理和知识继续保留。', true));
       if (source.paused) body.append(note('定时采集已暂停；已有查询能力不因此停止，结构可能陈旧。'));
+      const paths = ui.el('div', 'ds-detail-links');
+      for (const [key, label] of [['business-notes', '查看业务说明'], ['governance', '查看治理标签'], ['knowledge', '知识文档'], ['catalog', '查看结构目录'], ['collections', '查看采集与变化']]) {
+        if (['governance', 'knowledge'].includes(key) && !allowed(key + '.view')) continue;
+        paths.append(ui.button(label, () => navigate(key + '/' + source.id, source)));
+      }
+      body.append(paths);
       fields(body, [['数据源编号', source.id], ['用途说明', source.config.purpose || '未填写', true], ['技术联系人', person(source.config.technical)], ['业务联系人', person(source.config.business)], ['数据库', source.config.database || '未配置'], ...(source.config.type === 'PostgreSQL' ? [['Schema 范围', source.config.schemas.join('、') || '尚未选择']] : []), ['数据库类型', source.config.type], ['数据库版本', source.config.version || '未识别'], ['连接地址', source.config.host ? source.config.host + ':' + source.config.port : '未配置'], ['只读账号', source.config.account], ['数据库密码', source.credentialSet ? '已设置' : '未设置']]);
       heading(body, '结构目录');
       fields(body, [['目录对象总数', counts.total + ' 个'], ['最近采集结果', task ? task.state : source.collection], ['最近任务时间', task ? task.ended || task.at : '暂无'], ['最近采集成功', source.lastFull || '暂无'], ['最近任务范围', task ? task.scope : '暂无', true], ['定时采集', source.paused ? '已暂停' : '每 ' + source.config.syncHours + ' 小时']]);
@@ -228,9 +234,6 @@
       summary.append(forbidden);
       heading(body, '运行限制');
       fields(body, [['最大连接数', source.config.connections], ['采集并发', source.config.concurrency], ['重试上限', source.config.retries], ['采集任务时限', source.config.taskTimeout + ' 秒'], ['查询时限', source.config.queryTimeout + ' 秒'], ['结果行数上限', source.config.rowLimit], ['采集时段', source.config.window]]);
-      const paths = ui.el('div', 'ds-detail-links');
-      for (const [key, label] of [['catalog', '查看结构目录'], ['collections', '查看采集与变化'], ['business-notes', '查看业务说明']]) paths.append(ui.button(label, () => navigate(key, source)));
-      body.append(paths);
       heading(body, '配置记录');
       fields(body, [['有效配置', '修订 ' + source.revision]]);
       source.history.slice(0, 5).forEach(item => body.append(ui.el('p', 'ds-history', item.at + ' · ' + item.action + ' · 配置修订 ' + item.revision + (item.reason ? ' · ' + item.reason : ''))));
@@ -672,7 +675,11 @@
         body.append(ui.el('p', 'ds-prose', revision.content || '未填写文字说明'));
         if (revision.files.length) { heading(body, '该版附件'); revision.files.forEach(file => body.append(ui.el('p', 'ds-file-name', file.name + ' · ' + Math.ceil(file.size / 1024) + ' KB'))); }
       } else body.append(note('原修订内容暂不可用，请保留该引用记录并联系资料管理人员核对。', true));
-    }, (bar, node) => { if (task && allowed('governance.view')) bar.append(ui.button('查看治理任务', trigger => viewGovernanceTask(main, ui, task, trigger))); });
+    }, (bar, node) => {
+      if (task && allowed('governance.view')) bar.append(ui.button('查看治理任务', trigger => viewGovernanceTask(main, ui, task, trigger)));
+      const table = demo.objects(item.source).find(table => table.id === use.table), entry = table && GovernanceDemo.get(table).items.find(entry => entry.id === use.entryId);
+      if (entry && allowed('governance.view')) bar.append(ui.button('查看当前治理条目', () => { node.close(); GovernancePage.open(item.source, objectName(table), { tab: entry.kind, field: entry.field || entry.id, from: 'business-notes' }); }, 'admin-button is-primary'));
+    });
     const title = dialog.querySelector(':scope > .dialog-heading h2'); title.tabIndex = -1;
     requestAnimationFrame(() => title.focus({ preventScroll: true }));
   }
