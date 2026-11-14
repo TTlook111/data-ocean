@@ -42,6 +42,9 @@
       { name: name === 'sale_item' ? 'quantity' : 'status', type: name === 'sale_item' ? 'DECIMAL(12,3)' : 'SMALLINT', nullable: '否', default: name === 'sale_item' ? '0.000' : '1', comment: name === 'sale_item' ? '销售数量' : '', meaning: name === 'sale_item' ? '销售数量；退货口径需结合已确认定义' : '取值含义待确认' },
       { name: 'updated_at', type: 'DATETIME', nullable: '是', default: '无默认值', comment: '更新时间', meaning: '来源记录更新时间' }
     ] };
+    // 采集示例中的主键与外键是技术事实，治理候选只引用它们，不直接确认业务关系。
+    row.primaryKey = view ? [] : [row.fields[0].name];
+    row.foreignKeys = name === 'sale_item' ? [{ name: 'fk_sale_item_product', fields: ['product_id'], target: schema ? schema + '.product' : 'product', targetFields: ['id'] }] : [];
     // 普通视图按视图属性展示，不继承普通表的物理索引和生成默认值。
     if (view) { row.indexState = '不适用'; row.fields.forEach(field => { field.default = '—'; }); }
     if (row.commentState !== '已读取') row.comment = '';
@@ -113,13 +116,10 @@
   });
   const noteTitles = ['销售与退货口径', '库存流转与盘点说明', '促销折扣计算规则', '门店与仓库的业务关系', '商品分类维护约定', '采购入库与验收说明', '销售时间与营业日', '会员订单统计口径', '作废单据的处理方式', '线上订单与门店归属', '调拨出入库业务流程', '价格调整说明', '支付渠道与对账规则', '供应商结算说明', '历史系统迁移注意事项'];
   const notes = noteTitles.map((title, i) => ({ id: 'ZL-' + String(15 - i).padStart(3, '0'), source: 'retail', title, content: i === 0 ? '本系统管理超市商品、库存和销售。销售额按实际收款计算，退货需要扣除。作废单据不计入销售。不同门店的营业日以各自关账时间为准，未关账的当天数据可能继续变化。' : title + '。请结合当前有效业务制度核对，尚不明确的技术映射留待治理确认。', files: i % 4 === 1 ? [{ name: title + '.pdf', size: 245760 }] : [], author: i % 3 ? 'u02' : 'u01', revision: 1, status: i === 14 ? '已撤下' : '有效', updated: '2026-11-' + String(11 - Math.floor(i / 2)).padStart(2, '0') + ' 10:00:00', history: [] }));
+  // 初始资料是原型示例，必须与使用者后续真实录入的资料区分。
+  notes.forEach(note => { note.origin = '预置示例'; });
   // 引用绑定实际修订；历史任务和历史成果仍需保留来源，不能只检查当前版本。
-  const noteUses = [
-    { id: 'CG-021', noteId: 'ZL-015', revision: 1, kind: '治理成果', name: '销售额与退货扣减口径', state: '已确认', actor: 'u12', at: '2026-11-11 11:20:00', method: '人工治理依据', purpose: '确认销售额、退货扣减和作废单据的统计口径。', excerpt: '销售额按实际收款计算，退货需要扣除。作废单据不计入销售。', result: '销售额按实际收款统计，扣除退货，排除作废单据。', reviewer: 'u11', reviewedAt: '2026-11-11 14:10:00' },
-    { id: 'RW-008', noteId: 'ZL-014', revision: 1, kind: '治理任务', name: '库存与盘点规则核对', state: '进行中', actor: 'u11', at: '2026-11-11 11:30:00', method: 'AI 治理输入', purpose: '将该版正文及附件作为输入，辅助整理库存流转、盘点差异和待确认问题。', result: '正在整理业务规则，尚未形成已确认成果。' },
-    { id: 'RW-006', noteId: 'ZL-013', revision: 1, kind: '治理任务', name: '促销折扣规则识别', state: '已完成', actor: 'u12', at: '2026-11-09 11:00:00', method: 'AI 治理输入', purpose: '依据第 1 版正文识别促销折扣规则和信息缺口。', result: '已生成待人工确认的建议；优惠叠加规则仍需补充。', ended: '2026-11-09 11:08:00' },
-    { id: 'CG-009', noteId: 'ZL-001', revision: 1, kind: '治理成果', name: '历史订单归属说明', state: '已确认', actor: 'u11', at: '2026-11-04 09:00:00', method: '人工治理依据', purpose: '核对历史订单归属说明，保留原业务资料作为确认依据。', result: '技术映射仍按已确认的对象定义核对，不从迁移说明推断关联键。', reviewer: 'u11', reviewedAt: '2026-11-04 09:30:00' }
-  ];
+  const noteUses = [];
   const revisedNote = notes.find(item => item.id === 'ZL-013');
   revisedNote.history.push({ revision: 1, updated: '2026-11-09 10:00:00', title: revisedNote.title, content: '促销折扣按订单记录核对；叠加优惠规则待补充。', files: [] });
   revisedNote.revision = 2;

@@ -17,7 +17,8 @@
     const tag = ui.el('span', 'status-tag', value);
     if (['采集失败', '失败', '网络异常', '认证异常', '已禁止使用'].includes(value)) tag.classList.add('ds-status-danger');
     else if (['采集中', '排队中', '治理中', '业务定义待核对', '未测试', '未验证', '待治理', '待核实', '待治理', '治理中', '知识处理中', '新发现', '结构变化', '属性缺失', '访问丢失', '访问丢失', '进行中', '排队', '未知', '未采集', '待重新采集', '不支持', '无权限'].includes(value)) tag.classList.add('is-pending');
-    else if (['草稿', '已停用', '已退役', '已取消', '已撤下'].includes(value)) tag.classList.add('is-disabled');
+    else if (['草稿', '未生成', '已停用', '已退役', '已取消', '已撤下'].includes(value)) tag.classList.add('is-disabled');
+    if (['建议待审核', '演示建议待审核'].includes(value)) tag.classList.add('is-pending');
     return tag;
   }
   function stack(primary, secondary) { const node = ui.el('div'); node.append(typeof primary === 'string' ? ui.textCell(primary) : primary); if (secondary) node.append(ui.el('small', 'cell-sub', secondary)); return node; }
@@ -144,12 +145,16 @@
       // 次级资料在同一抽屉内钻取，保留已挂载内容，返回时不重置滚动或展开状态。
       const previous = [...node.children], previousLabel = node.getAttribute('aria-labelledby'), previousBack = node.detailBack;
       const previousBody = node.querySelector(':scope > .dialog-body'), top = previousBody.scrollTop;
+      // 生成依据的页签独立滚动，钻取来源前单独保存，返回后恢复实际阅读位置。
+      const panelPositions = [...previousBody.querySelectorAll('.gov-evidence-panel')].map(panel => ({ panel, top: panel.scrollTop, left: panel.scrollLeft }));
       stash = ui.el('div'); stash.hidden = true; node.append(stash); previous.forEach(child => stash.append(child));
       back = () => {
         [...node.children].filter(child => child !== stash).forEach(child => child.remove());
         previous.forEach(child => node.append(child)); stash.remove();
         node.setAttribute('aria-labelledby', previousLabel); node.detailBack = previousBack;
-        previousBody.scrollTop = top; trigger?.focus({ preventScroll: true });
+        previousBody.scrollTop = top;
+        const restorePanels = () => panelPositions.forEach(position => { position.panel.scrollTop = position.top; position.panel.scrollLeft = position.left; });
+        restorePanels(); requestAnimationFrame(restorePanels); trigger?.focus({ preventScroll: true });
       };
       const header = ui.el('header', 'dialog-heading'), close = ui.button('', () => node.close(), 'icon-close');
       close.setAttribute('aria-label', '关闭' + title); close.append(WorkbenchIcon('x'));
@@ -422,7 +427,7 @@
     const fieldScroll = region.querySelector('.rt-scroll'); fieldScroll.tabIndex = 0; fieldScroll.setAttribute('aria-label', objectName(table) + ' 的字段，可横向滚动');
     body.append(region);
     heading(body, ordinaryView ? '业务关系' : '键、关系与索引');
-    fields(body, [...(ordinaryView ? [] : [['主键', table.fields[0].name], ['唯一约束', '已读取：未声明其他唯一约束'], ['来源外键', table.name === 'sale_item' ? 'product_id → product.id（数据库声明）' : '已读取：未声明外键']]), ['业务关系', '需在治理中核对；来源外键不等于已确认业务关系'], ...(ordinaryView ? [] : [['索引读取', table.indexState], ['索引定义', table.indexState === '无权限' ? '未知：账号无索引目录读取权限' : 'PRIMARY (' + table.fields[0].name + ')']])]);
+    fields(body, [...(ordinaryView ? [] : [['主键', (table.primaryKey || []).join('、') || '未声明'], ['唯一约束', '已读取：未声明其他唯一约束'], ['来源外键', (table.foreignKeys || []).map(fk => fk.fields.join('、') + ' → ' + fk.target + '.' + fk.targetFields.join('、') + '（数据库声明）').join('\n') || '已读取：未声明外键']]), ['业务关系', '需在治理中核对；来源外键不等于已确认业务关系'], ...(ordinaryView ? [] : [['索引读取', table.indexState], ['索引定义', table.indexState === '无权限' ? '未知：账号无索引目录读取权限' : 'PRIMARY (' + (table.primaryKey || []).join(', ') + ')']])]);
     if (table.indexState === '无权限') body.append(note('请数据库负责人确认索引目录读取权限。字段等已取得属性保留，不将缺项解释为没有索引。'));
     if (table.type === '视图') { heading(body, '视图来源'); fields(body, [['依赖', 'sale_order、sale_item'], ['定义读取', '已读取；仅同源对象'], ['刷新信息', '普通视图，按查询实时读取']]); }
     const related = demo.changesFor(table);
@@ -685,36 +690,211 @@
     });
     body.append(ui.el('p', 'ds-note-block', '以上 ' + uses.length + ' 条引用需保留来源，不能删除资料。' + (item.status === '有效' ? '撤下可停止后续取用，已有引用保留。' : '资料撤下后，已有引用仍保留。')));
   }
+  function governanceDefinition(body, kind, content) {
+    // 治理工作台的建议与操作回看沿用同一组内容，避免遗漏新增的范围、更新和口径。
+    const definitions = GovernanceDemo.contentSections(kind).map(section => [section.key, section.label]);
+    fields(body, definitions.map(([key, label]) => [label, content?.[key] || '未填写', true]));
+  }
+  function viewGovernanceSuggestion(target, controls, task, entryId, trigger) {
+    main = target; ui = controls;
+    if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理内容的权限。');
+    const output = task.outputs.find(entry => entry.id === entryId), scope = task.entries.find(entry => entry.id === entryId);
+    if (!output) return viewGovernanceTask(target, controls, task, trigger);
+    // 建议、样本和输入资料各自阅读；任务身份固定在顶部，避免长页堆叠和重复警告。
+    showDetail('生成依据 · ' + output.name, trigger, body => {
+      body.classList.add('gov-suggestion-body');
+      const context = ui.el('div', 'gov-evidence-context'), identity = ui.el('div'), meta = ui.el('div');
+      identity.append(ui.el('code', '', scope?.structure?.path || task.object + (scope?.kind === 'fields' ? '.' + output.name : '')));
+      if (task.simulated) identity.append(ui.el('span', 'gov-prototype-badge', '原型演示'));
+      meta.append(ui.el('span', '', task.id), ui.el('time', '', task.ended || task.at)); context.append(identity, meta); body.append(context);
+      if (task.simulated) body.append(ui.el('p', 'gov-evidence-demo', '建议、SQL 和样本为模拟，未调用真实模型或数据库。'));
+      const tabs = ui.el('div', 'gov-evidence-tabs prototype-ui'), panels = ui.el('div', 'gov-evidence-panels'), advice = ui.el('section', 'gov-evidence-panel'), samples = ui.el('section', 'gov-evidence-panel'), materials = ui.el('section', 'gov-evidence-panel');
+      advice.setAttribute('aria-label', '建议与判断'); samples.setAttribute('aria-label', '样本与 SQL'); materials.setAttribute('aria-label', '业务资料');
+      samples.hidden = materials.hidden = true;
+      const layout = ui.el('div', 'gov-evidence-advice'), definitions = ui.el('section', 'gov-evidence-definitions'), reasoning = ui.el('section', 'gov-evidence-reasoning');
+      const sections = GovernanceDemo.contentSections(output.kind), coverage = output.coverage || [];
+      heading(definitions, '生成内容');
+      if (coverage.length) definitions.append(ui.el('p', 'gov-evidence-count', '检查 ' + coverage.length + ' 项 · ' + coverage.filter(section => section.state === '已有建议').length + ' 项有建议 · ' + coverage.filter(section => section.needsSupplement).length + ' 项需人工补充'));
+      sections.forEach(section => {
+        const row = ui.el('div', 'gov-evidence-definition'), header = ui.el('header'), result = coverage.find(item => item.key === section.key), value = output.content?.[section.key];
+        const state = ui.el('span', 'status-tag gov-suggestion-state' + (result?.needsSupplement ? ' is-pending' : !value ? ' is-empty' : ''), result?.conflict ? '资料冲突' : result?.needsSupplement ? '需人工补充' : value ? '已有建议' : '未起草');
+        header.append(ui.el('strong', '', section.label), state); row.append(header, ui.el('p', value ? 'ds-prose' : 'gov-evidence-missing', value || result?.reason || '本次未生成该项建议。')); definitions.append(row);
+      });
+      heading(reasoning, '判断依据'); reasoning.append(ui.el('p', 'ds-prose', output.reasoning || '本次未记录判断说明。'));
+      if (scope?.structure) reasoning.append(link('查看生成时结构 · ' + scope.structure.snapshot, control => viewGovernanceStructure(main, ui, scope.structure, control)));
+      const check = output.checkContext;
+      if (check || output.gap) {
+        const pending = ui.el('section', 'gov-evidence-check'); heading(pending, 'AI 提出的核实问题');
+        if (check?.questions?.length) check.questions.forEach(question => { const item = ui.el('div', 'gov-evidence-question'); item.append(ui.el('strong', '', question.label), ui.el('p', 'ds-prose', question.question), ui.el('p', 'gov-evidence-missing', '提问原因：' + question.reason)); pending.append(item); });
+        else { pending.append(ui.el('p', 'ds-prose', check?.question || output.gap)); if (check?.reason && check.reason !== output.reasoning) pending.append(ui.el('p', 'gov-evidence-missing', check.reason)); }
+        reasoning.append(pending);
+      }
+      if (output.references?.length) {
+        heading(reasoning, '具体资料引用');
+        const groups = new Map();
+        output.references.forEach(ref => { const key = JSON.stringify([ref.source, ref.id, ref.revision]); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(ref); });
+        groups.forEach(group => {
+          if (!allowed('business-notes.view')) return;
+          const ref = group[0]; reasoning.append(link(ref.title + ' · 第 ' + ref.revision + ' 版', control => viewGovernanceReference(main, ui, ref, control)));
+          [...new Set(group.map(ref => ref.excerpt).filter(Boolean))].forEach(excerpt => reasoning.append(ui.el('blockquote', 'gov-evidence-quote', excerpt)));
+        });
+        if (!allowed('business-notes.view')) reasoning.append(ui.el('p', 'gov-evidence-missing', '资料原文查看受限。'));
+      }
+      layout.append(definitions, reasoning); advice.append(layout);
+      if (output.sampling?.count) {
+        const sample = output.sampling, fullRows = Array.isArray(sample.columns), header = ui.el('div', 'gov-evidence-sample-heading');
+        header.append(ui.el('h3', '', (fullRows ? '整行样本' : '字段样本') + ' · ' + sample.count + (fullRows ? ' 行' : ' 条')), ui.el('span', '', '少量样本不能证明完整枚举、唯一性或业务口径。')); samples.append(header);
+        samples.append(ui.el('pre', 'gov-sample-sql', sample.sql));
+        const columns = fullRows ? sample.columns : [sample.column], records = fullRows ? sample.rows : sample.values.map(value => ({ [sample.column]: value }));
+        const table = ui.el('table', 'gov-sample-table' + (fullRows ? ' is-full-record' : '')), head = ui.el('thead'), row = ui.el('tr'); columns.forEach(column => { const cell = ui.el('th', '', column); cell.scope = 'col'; row.append(cell); }); head.append(row); table.append(head);
+        const rows = ui.el('tbody'); records.forEach(record => { const line = ui.el('tr'); columns.forEach(column => { const value = record[column], cell = ui.el('td', value === null ? 'gov-sample-null' : typeof value === 'number' ? 'gov-sample-number' : '', value === null ? 'NULL' : String(value)); line.append(cell); }); rows.append(line); }); table.append(rows);
+        const scroll = ui.el('div', 'gov-sample-scroll'); scroll.tabIndex = 0; scroll.setAttribute('role', 'region'); scroll.setAttribute('aria-label', fullRows ? '整行样本，横向滚动查看全部字段' : '字段样本'); scroll.append(table); samples.append(scroll);
+      } else samples.append(ui.el('p', 'gov-evidence-missing', '本次没有读取样本。'));
+      if (!task.notes.length) materials.append(ui.el('p', 'gov-evidence-missing', '本次未取用业务说明。'));
+      else if (allowed('business-notes.view')) {
+        materials.append(ui.el('p', 'gov-evidence-missing', '以下为当次输入资料；具体结论引用见“建议与判断”。'));
+        task.notes.forEach(ref => { const row = ui.el('div', 'gov-drawer-row'); row.append(ui.el('span', '', ref.title + ' · 第 ' + ref.revision + ' 版'), link('查看当时原文', control => viewGovernanceReference(main, ui, ref, control))); materials.append(row); });
+      } else materials.append(ui.el('p', 'gov-evidence-missing', '资料原文查看需要业务说明权限。'));
+      const views = { advice, samples, materials };
+      PrototypeUI.mount(tabs, { data: () => ({ active: 'advice', count: output.sampling?.count || 0, notes: task.notes.length }), methods: { change(value) { Object.entries(views).forEach(([key, panel]) => { panel.hidden = key !== value; }); } }, template: '<el-tabs v-model="active" @tab-change="change"><el-tab-pane name="advice" label="建议与判断"></el-tab-pane><el-tab-pane name="samples" :label="\'样本与 SQL（\'+count+\'）\'"></el-tab-pane><el-tab-pane name="materials" :label="\'业务资料（\'+notes+\'）\'"></el-tab-pane></el-tabs>' });
+      panels.append(advice, samples, materials); body.append(tabs, panels);
+    });
+  }
+  function viewGovernanceNotes(target, controls, sourceId, trigger) {
+    main = target; ui = controls;
+    if (!allowed('business-notes.view')) return ui.notify('当前账号没有查看业务说明的权限。');
+    const source = demo.find(sourceId), notes = GovernanceDemo.availableNotes(sourceId);
+    showDetail('治理生成参考 · 业务说明', trigger, (body, dialog) => {
+      fields(body, [['数据源', source.name], ['本次可用', notes.length + ' 份']]);
+      if (!notes.length) body.append(note('当前没有实际录入的有效业务说明；预置示例不作为业务依据。'));
+      else {
+        body.append(ui.el('p', 'ds-prose', '表说明和字段生成都会自动纳入这些资料的当前修订。'));
+        notes.forEach(ref => { const row = ui.el('div', 'gov-drawer-row'), text = ui.el('div'); text.append(ui.el('strong', '', ref.title), ui.el('small', 'cell-sub', '第 ' + ref.revision + ' 版 · ' + person(ref.author))); row.append(text, link('查看原文', control => viewGovernanceReference(main, ui, structuredClone(ref), control))); body.append(row); });
+      }
+    }, (bar, dialog) => { if (allowed('business-notes.submit')) bar.append(ui.button('录入业务说明', control => { dialog.close(); addGovernanceNote(main, ui, sourceId, trigger); }, 'admin-button is-primary')); });
+  }
   function viewGovernanceTask(target, controls, task, trigger) {
     main = target; ui = controls;
     if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理内容的权限。');
-    const dialog = showDetail('治理任务 · ' + task.id, trigger, body => {
+    showDetail('生成记录 · ' + task.id, trigger, body => {
       body.append(badge(task.state));
-      fields(body, [['任务名称', task.name, true], ['数据源', demo.find(task.source).name], ['治理对象', task.object], ['发起人', person(task.actor)], ['发起时间', task.at], ['资料取用', '自动取用 ' + task.notes.length + ' 份有效说明'], ['生成范围', task.entries.map(entry => entry.name).join('、'), true]]);
-      heading(body, '取用与生成过程');
-      processEvents(body, task.events.map(event => ({ ...event, actor: event.actor || '系统', reason: event.detail })));
-      heading(body, '当次业务说明（' + task.notes.length + '）');
-      const list = ui.el('div', 'gov-task-notes');
-      task.notes.forEach(snapshot => {
-        const item = demo.notes.find(note => note.id === snapshot.id), use = demo.noteUses.find(use => use.kind === '治理任务' && use.taskId === task.id && use.noteId === snapshot.id);
-        const row = ui.el('div');
-        if (allowed('business-notes.view') && item && use) row.append(link(snapshot.title, trigger => noteReferenceDetail(item, use, trigger)));
-        else row.append(ui.el('span', '', snapshot.title));
-        row.append(ui.el('small', 'cell-sub', '第 ' + snapshot.revision + ' 版' + (snapshot.files.length ? ' · ' + snapshot.files.length + ' 个附件' : ''))); list.append(row);
+      if (task.simulated) body.append(note('原型交互演示，未执行真实模型或数据库读取。'));
+      fields(body, [['数据源', demo.find(task.source).name], ['治理对象', task.object], ['发起人', person(task.actor)], ['发起时间', task.at], ['生成范围', task.entries.map(entry => entry.name).join('、'), true]]);
+      if (task.outputs.length) {
+        heading(body, '生成结果');
+        task.outputs.forEach(output => {
+          const row = ui.el('div', 'gov-drawer-row'), text = ui.el('div'); text.append(ui.el('strong', '', output.name));
+          if (output.gap) text.append(ui.el('small', 'cell-sub', output.gap));
+          row.append(text, link('查看建议与依据', control => viewGovernanceSuggestion(main, ui, task, output.id, control))); body.append(row);
+        });
+      } else body.append(note(task.failure || '本次未取得模型输出。'));
+      if (task.tableContext?.length) {
+        heading(body, '结构输入 · ' + (task.entries[0]?.structure?.snapshot || '未记录快照'));
+        const table = ui.el('table', 'gov-input-table'), head = ui.el('thead'), row = ui.el('tr'); ['字段', '类型', '原注释'].forEach(text => row.append(ui.el('th', '', text))); head.append(row); table.append(head);
+        const rows = ui.el('tbody'); task.tableContext.forEach(field => { const line = ui.el('tr'); [field.name, field.type, field.comment || '—'].forEach(value => line.append(ui.el('td', '', value))); rows.append(line); }); table.append(rows); body.append(table);
+      }
+      if (task.notes.length) {
+        heading(body, '业务说明输入');
+        if (allowed('business-notes.view')) task.notes.forEach(ref => body.append(link(ref.title + ' · 第 ' + ref.revision + ' 版', control => viewGovernanceReference(main, ui, ref, control))));
+        else body.append(note('资料原文查看需要业务说明权限。'));
+      }
+      if (task.events.length) { heading(body, '执行记录'); processEvents(body, task.events.map(event => ({ ...event, actor: event.actor || '系统', reason: event.detail }))); }
+    });
+  }
+  function viewGovernanceDependency(target, controls, owner, definition, ref, trigger) {
+    main = target; ui = controls;
+    if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理记录的权限。');
+    const table = demo.objects(owner.table.source).find(table => table.id === ref.table), record = table && GovernanceDemo.get(table), entry = record?.items.find(entry => entry.id === ref.entry);
+    if (!entry) return ui.notify('当前依赖条目已不可用，请重新核对。');
+    const bound = definition.dependencyRevisions?.find(item => item.table === ref.table && item.entry === ref.entry), history = entry.history.filter(event => event.revision === bound?.revision), previous = history.find(event => event.action === '人工确认') || history.find(event => event.review === '已确认');
+    const dialog = showDetail('依赖修订 · ' + entry.name, trigger, body => {
+      fields(body, [['依赖对象', GovernanceDemo.objectName(table) + ' / ' + entry.name, true], ['原确认引用', bound ? '修订 ' + bound.revision : '尚无确认引用'], ['当前修订', '修订 ' + entry.revision + ' · ' + (entry.validity === '待复核' ? '待复核' : entry.review)]]);
+      if (bound && (bound.objectId !== table.identity || bound.generation !== table.generation)) fields(body, [['原来源对象', bound.objectId + ' · 第 ' + bound.generation + ' 代', true], ['当前来源对象', table.identity + ' · 第 ' + table.generation + ' 代', true]]);
+      const render = (title, value) => { heading(body, title); governanceDefinition(body, entry.kind, value.content); if (value.valueDetails?.unit) fields(body, [['单位', value.valueDetails.unit]]); if (value.valueDetails?.mappings?.length) fields(body, [['编码与含义', value.valueDetails.mappings.map(row => row.code + ' — ' + row.meaning).join('\n'), true]]); };
+      if (previous) render('原确认内容', previous); else body.append(note('当前没有该修订的内容快照，请核实历史依据。'));
+      render('当前内容', entry);
+    }, bar => bar.append(ui.button('查看当前定义', () => { dialog.close(); GovernancePage.open(table.source, GovernanceDemo.objectName(table), { tab: entry.kind, field: entry.field || entry.id }); })));
+  }
+  function viewGovernanceChecks(target, controls, record, entry, questions, trigger) {
+    main = target; ui = controls;
+    if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理记录的权限。');
+    // 核清后正文只保留一份定义；问题和当时结论通过只读来源抽屉回看。
+    const records = questions.filter(question => question.resolved).map(question => ({ ...question }));
+    showDetail('核对记录 · ' + entry.name, trigger, body => {
+      fields(body, [['治理对象', GovernanceDemo.objectName(record.table) + ' / ' + entry.name, true]]);
+      records.forEach(question => {
+        const section = ui.el('section', 'gov-check-record');
+        fields(section, [['核对问题', question.question, true], ['核对结论', question.answer, true], ...(question.answeredBy ? [['核对人', question.answeredBy], ['核对时间', question.answeredAt]] : []), ...(question.reason ? [['提问依据', question.reason, true]] : [])]);
+        body.append(section);
       });
-      if (!task.notes.length) list.append(note('当次没有有效业务说明；业务背景不足的条目仍需补充资料并保留待确认。'));
-      body.append(list); heading(body, '当次生成的建议（' + task.outputs.length + '）');
-      task.outputs.forEach(entry => { const row = ui.el('details', 'gov-task-output'); row.append(ui.el('summary', '', entry.name), ui.el('p', 'ds-prose', Object.values(entry.content).filter(Boolean).join('\n') || '尚缺业务定义')); if (entry.gap) row.append(note(entry.gap)); body.append(row); });
-    }, (bar, node) => bar.append(ui.button('打开当前治理条目', () => { node.close(); rememberPosition(trigger); const entry = task.entries[0]; GovernancePage.open(task.source, task.object, { from: location.hash.startsWith('#business-notes') ? 'business-notes' : '', tab: entry.kind, field: entry.id === 'overview' ? '' : entry.id }); }, 'admin-button is-primary')));
-    const title = dialog.querySelector(':scope > .dialog-heading h2'); title.tabIndex = -1;
-    requestAnimationFrame(() => title.focus({ preventScroll: true }));
+    });
+  }
+  function viewGovernanceOperation(target, controls, record, entry, event, trigger) {
+    main = target; ui = controls;
+    if (!allowed('governance.view')) return ui.notify('当前账号没有查看治理记录的权限。');
+    const labels = { '保存待确认内容': '保存草稿', '人工确认': '确认治理' };
+    showDetail('操作记录 · ' + (labels[event.action] || event.action), trigger, body => {
+      fields(body, [['治理对象', GovernanceDemo.objectName(record.table) + ' / ' + (event.name || entry.name), true], ['操作人', event.actor], ['操作时间', event.at], ['治理修订', String(event.revision)], ['当时状态', event.review]]);
+      if (event.reviewer && event.action !== '人工确认') fields(body, [['当时确认人', event.reviewer], ['当时确认时间', event.reviewedAt]]);
+      governanceDefinition(body, entry.kind, event.content);
+      if (event.valueDetails?.unit) fields(body, [['单位', event.valueDetails.unit, true]]);
+      if (event.valueDetails?.mappings?.length) fields(body, [['编码与含义', event.valueDetails.mappings.map(row => row.code + ' — ' + row.meaning).join('\n'), true]]);
+      if (event.checkContext?.questions?.length) {
+        heading(body, 'AI 提问与人工回答');
+        event.checkContext.questions.forEach(question => { const item = ui.el('section', 'gov-evidence-check'); item.append(ui.el('strong', '', question.label + ' · ' + (question.resolved ? '已回答' : question.deferred ? '暂不确定' : '待回答'))); fields(item, [['AI 的问题', question.question, true], ['提问原因', question.reason, true], ['人工回答', question.answer || question.response || '尚未回答', true], ...(question.basis ? [['历史回答依据', question.basis, true]] : [])]); body.append(item); });
+      } else if (event.checkContext) { heading(body, '当次核对事项'); fields(body, [['需要核实的问题', event.checkContext.question, true], ['核实原因', event.checkContext.reason, true], ['核实后填写', GovernanceDemo.contentSections(entry.kind).filter(section => event.checkContext.targets.includes(section.key)).map(section => section.label).join('、'), true]]); }
+      if (event.reason || (event.basis && !event.checkContext?.questions?.length)) { heading(body, event.checkContext ? '核实结论与依据' : '操作说明'); body.append(ui.el('p', 'ds-prose', event.reason || event.basis)); }
+      // 回看使用当次快照，人工来源与候选引用相同的修订只列一次。
+      const refs = [...new Map([event.manualEvidence, ...(event.references || [])].filter(Boolean).map(ref => [JSON.stringify([ref.source, ref.id, ref.revision, ref.excerpt]), ref])).values()];
+      if (refs.length) {
+        heading(body, '当时引用');
+        if (allowed('business-notes.view')) refs.forEach(ref => body.append(link(ref.title + ' · 第 ' + ref.revision + ' 版', control => viewGovernanceReference(main, ui, ref, control))));
+        else body.append(note('资料原文查看需要业务说明权限。'));
+      }
+      if (event.definitionSource?.structure) body.append(link('查看当时结构', control => viewGovernanceStructure(main, ui, event.definitionSource.structure, control)));
+      if (event.confirmedStructure && JSON.stringify(event.confirmedStructure) !== JSON.stringify(event.definitionSource?.structure)) body.append(link('查看确认时结构', control => viewGovernanceStructure(main, ui, event.confirmedStructure, control)));
+      if (event.dependencies?.length) {
+        heading(body, '当时依赖条目');
+        event.dependencies.forEach(dep => { const ref = typeof dep === 'string' ? { table: record.table.id, entry: dep } : dep, bound = event.dependencyRevisions?.find(row => row.table === ref.table && row.entry === ref.entry); body.append(ui.el('p', 'ds-prose', ref.table + ' / ' + ref.entry + (bound ? ' · 确认引用修订 ' + bound.revision : ''))); });
+      }
+    });
+  }
+  function viewGovernanceReference(target, controls, reference, trigger) {
+    main = target; ui = controls;
+    const item = demo.notes.find(note => note.id === reference.id && note.source === reference.source);
+    if (!allowed('business-notes.view') || !item) return ui.notify('当前无法查看这份来源资料。');
+    showDetail('来源资料 · ' + reference.title, trigger, body => {
+      fields(body, [['资料编号', reference.id], ['数据源', demo.find(reference.source).name], ['资料来源', reference.origin || '来源记录'], ['引用修订', '第 ' + reference.revision + ' 版'], ['提交人', person(reference.author)], ['修订时间', reference.updated]]);
+      if (item.revision !== reference.revision) body.append(note('当前资料为第 ' + item.revision + ' 版；这里回看当时引用的第 ' + reference.revision + ' 版。'));
+      if (reference.excerpt) { heading(body, '引用原文'); body.append(ui.el('blockquote', 'ds-note-excerpt ds-prose', reference.excerpt)); }
+      heading(body, '该修订正文'); body.append(ui.el('p', 'ds-prose', reference.content || '该修订未提供文字正文'));
+      if (reference.files?.length) { heading(body, '该修订附件'); reference.files.forEach(file => body.append(ui.el('p', 'ds-file-name', file.name))); }
+    });
+  }
+  function addGovernanceNote(target, controls, sourceId, trigger) {
+    main = target; ui = controls;
+    const source = demo.find(sourceId);
+    if (!source || !allowed('business-notes.submit')) return ui.notify('当前账号没有录入业务说明的权限。');
+    noteEditor(source, null, trigger);
+  }
+  function viewGovernanceStructure(target, controls, snapshot, trigger) {
+    main = target; ui = controls;
+    if (!allowed('catalog.view')) return ui.notify('当前账号没有查看采集结构的权限。');
+    const collection = demo.tasks.find(task => task.id === snapshot.collectionId && task.source === snapshot.source && task.version === snapshot.snapshot);
+    showDetail('来源结构 · ' + snapshot.path, trigger, body => {
+      fields(body, [['数据源', demo.find(snapshot.source).name], ['来源对象', snapshot.path, true], ['采集快照', snapshot.snapshot], ['采集记录', snapshot.collectionId || '未关联'], ['对象标识', snapshot.objectId], ['对象世代', String(snapshot.generation)], ['原始注释', snapshot.comment || '无注释', true]]);
+      if (snapshot.type) fields(body, [['数据类型', snapshot.type], ['允许空值', snapshot.nullable || '未读取']]);
+      if (snapshot.primaryKey?.length) fields(body, [['采集主键', snapshot.primaryKey.join('、'), true]]);
+      if (snapshot.foreignKeys?.length) fields(body, [['采集外键', snapshot.foreignKeys.map(fk => fk.name + '：' + fk.fields.join('、') + ' → ' + fk.target + '.' + fk.targetFields.join('、')).join('\n'), true]]);
+      body.append(note('采集结构和原注释是技术事实，未说明的业务含义仍需业务资料与人工核对。'));
+    }, bar => { if (collection && allowed('collections.view')) bar.append(ui.button('查看采集记录', trigger => taskDetail(collection, trigger))); });
   }
   function noteDetail(item, trigger) {
     const source = demo.find(item.source);
     showDetail(item.title, trigger, (body, dialog) => {
       body.append(badge(item.status));
       if (item.status === '已撤下') body.append(note('已停止后续治理取用，已有引用保留并需复核。'));
-      fields(body, [['数据源', source.name], ['提交人', person(item.author)], ['更新时间', item.updated], ['当前修订', '第 ' + item.revision + ' 版']]);
+      fields(body, [['数据源', source.name], ['资料来源', item.origin || '来源记录'], ['提交人', person(item.author)], ['更新时间', item.updated], ['当前修订', '第 ' + item.revision + ' 版']]);
       heading(body, '业务说明'); body.append(ui.el('p', 'ds-prose', item.content || '未填写文字说明'));
       if (item.files.length) { heading(body, '附件'); item.files.forEach(file => body.append(ui.el('p', 'ds-file-name', file.name + ' · ' + Math.ceil(file.size / 1024) + ' KB'))); }
       // 引用与变更影响仅在有记录时展示，不作为资料生效流程。
@@ -733,7 +913,7 @@
   function noteEditor(source, item, trigger, fullPage = false) {
     if (!fullPage) return openTask('business-notes/' + encodeURIComponent(source.id) + (item ? '/edit/' + encodeURIComponent(item.id) : '/new'), trigger);
     const back = taskOrigin('#business-notes');
-    const node = taskPage((item ? '编辑业务说明' : '新增业务说明') + ' · ' + source.name, '企业业务说明', back, 'ds-note-page');
+    const node = taskPage((item ? '编辑业务说明' : '新增业务说明') + ' · ' + source.name, back.startsWith('#governance') ? '治理详情' : '企业业务说明', back, 'ds-note-page');
     const host = ui.el('div', 'ds-task-host'); node.append(host);
     const uid = 'ds-note-form-' + (++detailSequence), initialToken = item && demo.noteToken(item);
     PrototypeUI.mount(host, { data: () => ({ model: { title: item?.title || '', content: item?.content || '', files: (item?.files || []).map((file, i) => ({ ...file, uid: i + 1 })) }, error: '', uid, rules: { title: [{ required: true, whitespace: true, message: '请填写资料标题', trigger: 'blur' }] } }), computed: {
@@ -811,5 +991,5 @@
     if (location.hash.startsWith('#catalog') || location.hash.startsWith('#collections')) taskOrigins.set('#' + path, location.hash);
     navigate(path);
   }
-  window.DataSourcesPage = { render, connectionEditor, viewImpactSource, viewGovernanceTask, openChanges, beforeNavigation };
+  window.DataSourcesPage = { render, connectionEditor, viewImpactSource, viewGovernanceTask, viewGovernanceSuggestion, viewGovernanceNotes, viewGovernanceDependency, viewGovernanceChecks, viewGovernanceOperation, viewGovernanceReference, viewGovernanceStructure, addGovernanceNote, openChanges, beforeNavigation };
 })();

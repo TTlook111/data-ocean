@@ -19,6 +19,8 @@
   const verificationQuestion = change => change.attribute === '对象身份' ? '请核对来源对象标识及创建记录，确认 ' + change.object + ' 仍为原对象，还是删除后以同名重新创建。' + (change.identityBaseline ? '核实基准：' + (change.identityBaseline.identity || '未知') + '；当前标识：' + (change.afterObject.identity || '未知') + '。' : '') + '确认重建将递增对象世代，原定义需重新审核。' : change.attribute === '目录可见性' ? '请确认 ' + change.object + ' 是否仍然存在，以及采集账号是否有读取权限、对象是否在采集范围内。' : '请对照来源对象和采集证据，确认本次' + change.attribute + '差异是否真实发生。';
   function checksFor(change) {
     const subject = change.field || change.object;
+    if (change.kind === '主键变化') return '核对行标识、唯一性范围与记录粒度，以及依赖它们的去重、关联和指标。';
+    if (change.kind === '外键变化') return '核对完整业务关联是否仍然成立；外键变化不直接推翻已确认的业务关系。';
     if (change.kind === '新增字段') return '确认 ' + subject + ' 的业务含义、取值与空值含义，以及适用的业务时间。';
     if (change.kind === '类型变化') return '核对 ' + subject + ' 的取值范围、精度和单位，确认现有计算与汇总口径是否适用。';
     if (change.kind === '删除字段') return '核对依赖 ' + subject + ' 的业务定义、关联和指标，停用或替换相关引用；删除字段保持禁止使用。';
@@ -51,6 +53,9 @@
       if (!record.items.some(entry => entry.id === 'field:' + field.name)) record.items.push({ id: 'field:' + field.name, kind: 'fields', name: field.name, field: field.name, content: { meaning: '', values: '', usage: '' }, gap: '', revision: 1, review: '待确认', validity: '待复核', publication: '未发布', reviewer: '', reviewedAt: '', basis: '', ai: null, history: [] });
     });
     record.items.forEach(entry => {
+      const actor = { id: 'system', name: '系统' };
+      GovernanceDemo.markForReview(record, entry, actor, '来源对象已确认同名重建');
+      GovernanceDemo.invalidateDependents(record, entry, actor, '依赖对象已确认同名重建');
       if (!item.bindings.some(binding => binding.table === table.id && binding.entry === entry.id)) item.bindings.push({ table: table.id, entry: entry.id, before: structuredClone(entry.content) });
       entry.review = '待确认'; entry.reviewer = ''; entry.reviewedAt = ''; entry.blocked = true;
       entry.validity = '待复核'; entry.ai = null;
@@ -108,6 +113,11 @@
   function structureDifferences(task, old, table) {
     const changes = [], add = (...args) => changes.push(difference(task, table, ...args));
     if (old.comment !== table.comment) add('', table.type === '视图' ? '视图注释' : '表注释', '修改注释', old.comment, table.comment, true);
+    // 键约束是治理依据的一部分；变化触发定向复核，不自动推翻已有业务关系。
+    const primary = value => JSON.stringify([...(value.primaryKey || [])].sort());
+    const foreign = value => JSON.stringify((value.foreignKeys || []).map(GovernanceDemo.foreignKeyIdentity).sort());
+    if (primary(old) !== primary(table)) add('', '主键', '主键变化', JSON.stringify(old.primaryKey || []), JSON.stringify(table.primaryKey || []), true);
+    if (foreign(old) !== foreign(table)) add('', '外键', '外键变化', JSON.stringify(old.foreignKeys || []), JSON.stringify(table.foreignKeys || []), true);
     table.fields.forEach(field => {
       const prior = old.fields.find(row => row.name === field.name);
       if (!prior) { add(field.name, '字段定义', '新增字段', '不存在', field.type, true); return; }
@@ -203,10 +213,10 @@
     if (!has(actor, note ? 'business-notes.replace' : 'business-notes.submit')) return { error: '当前账号没有保存资料的权限。' };
     if (note && (!demo.notes.includes(note) || demo.noteToken(note) !== revision || note.status !== '有效')) return { error: '资料已变化，请关闭后重新核对。' };
     if (!data.title?.trim() || (!data.content?.trim() && !data.files.length)) return { error: '请填写标题及业务说明或附件。' };
-    const value = { title: data.title.trim(), content: data.content.trim(), files: structuredClone(data.files), updated: demo.now() };
+    const value = { title: data.title.trim(), content: data.content.trim(), files: structuredClone(data.files), origin: note?.origin || '用户录入', updatedBy: actor.id, updated: demo.now() };
     let impact;
     if (note) {
-      const previous = { revision: note.revision, updated: note.updated, title: note.title, content: note.content, files: structuredClone(note.files) };
+      const previous = { revision: note.revision, updated: note.updated, title: note.title, content: note.content, origin: note.origin, files: structuredClone(note.files) };
       const bodyChanged = previous.content !== value.content || data.replacedFile || JSON.stringify(previous.files) !== JSON.stringify(value.files);
       if (previous.title === value.title && !bodyChanged) return { error: '资料内容未变化。' };
       note.history.unshift(previous); Object.assign(note, value, { revision: note.revision + 1 });

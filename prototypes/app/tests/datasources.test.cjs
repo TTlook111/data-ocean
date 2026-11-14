@@ -7,6 +7,7 @@ function fixture() {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../后台管理', file), 'utf8'), context);
     Object.assign(context, context.window);
   }
+  require('./helpers/note-scenarios.cjs')(context.DataSourceDemo);
   return { demo: context.DataSourceDemo, people: context.PeopleDemo, impacts: context.GovernanceImpactDemo, governance: context.GovernanceDemo };
 }
 test('connection drafts never persist raw credentials or grant data access', () => {
@@ -337,7 +338,7 @@ test('ordinary view examples do not claim physical table indexes or generated de
 
 test('catalog examples with unresolved definitions are not reported as fully confirmed', () => {
   const { demo } = fixture();
-  assert.ok(demo.tables.some(table => table.governance === '治理中'));
+  assert.ok(demo.tables.every(table => table.governance === '待治理'));
   assert.ok(demo.tables.filter(table => table.governance === '已治理').every(table => table.fields.every(field => !field.meaning.includes('待确认'))));
   for (const source of demo.sources) {
     assert.equal(source.governed, demo.objects(source.id).filter(table => table.governance === '已治理').length);
@@ -348,7 +349,7 @@ test('catalog examples with unresolved definitions are not reported as fully con
 test('source governance totals partition the same current catalog objects', () => {
   const { demo } = fixture();
   const summary = demo.governanceSummary('retail');
-  assert.deepEqual({ ...summary }, { total: 23, confirmed: 0, partial: 17, pending: 6, affected: 14 });
+  assert.deepEqual({ ...summary }, { total: 23, confirmed: 0, partial: 0, pending: 23, affected: 14 });
   for (const source of demo.sources) {
     const value = demo.governanceSummary(source.id);
     assert.equal(value.total, demo.objects(source.id).length);

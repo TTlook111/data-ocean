@@ -6,9 +6,10 @@ function fixture(id = 'CH-015') {
   for (const file of ['record-query.js','people-data.js','role-data.js','source-approval-data.js','datasource-data.js','governance-impact-data.js','governance-data.js','knowledge-update-data.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname,'../../后台管理',file),'utf8'),context);Object.assign(context,context.window);
   }
+  require('./helpers/governance-scenarios.cjs')(context);
   const data=context.DataSourceDemo, impacts=context.GovernanceImpactDemo, gov=context.GovernanceDemo, updates=context.KnowledgeUpdateDemo, actor=context.PeopleDemo.users[0];
   const change=data.changes.find(change=>change.id===id),impact=impacts.forChange(change),record=impact&&gov.get(gov.impactTarget(impact).table),entry=record?.items.find(entry=>entry.id===(change.field?'field:'+change.field:'overview'));
-  const review=()=>{if(!entry.retired)assert.equal(gov.act(record,entry,'save',actor,{meaning:entry.content.meaning||'业务含义已核对',values:'允许小数，单位随商品核对',usage:'同单位汇总',basis:'已核对来源制度',gap:''}),undefined);assert.equal(gov.act(record,entry,'confirm',actor),undefined);};
+  const review=()=>{if(!entry.retired)assert.equal(gov.act(record,entry,'save',actor,{meaning:entry.content.meaning||'业务含义已核对',values:['time','updated'].includes(gov.fieldProfile(entry))?'北京时间，空值表示尚未产生对应时间。':'允许小数，单位：件',usage:'同单位汇总',basis:'已核对来源制度',gap:''}),undefined);assert.equal(gov.act(record,entry,'confirm',actor),undefined);};
   const draft=()=>{review();const result=updates.start(impact,actor);assert.equal(result.error,undefined);return result.record;};
   const build=record=>{assert.ok(record.note);assert.equal(record.state,'草稿');assert.equal(updates.act(record,'confirm',actor),undefined);assert.equal(updates.act(record,'build',actor),undefined);};
   return {data,impacts,gov,updates,actor,change,impact,record,entry,review,draft,build};
@@ -99,10 +100,10 @@ test('a replaced candidate cannot receive results from an older open form',()=>{
 test('allowance checks current source health and overlapping unfinished changes',()=>{
   const f=fixture(),record=f.draft();f.build(record);f.updates.act(record,'test',f.actor);f.updates.act(record,'publish',f.actor);
   f.data.find('retail').health='网络异常';assert.match(f.updates.act(record,'allow',f.actor),/来源当前不可用/);f.data.find('retail').health='正常';
-  const note=f.data.notes[0],other=f.impacts.saveNote(note,{...note,content:'新的数量说明待核对'},f.actor,f.data.noteToken(note)).impact;
+  const note=f.data.notes[1],other=f.impacts.saveNote(note,{...note,content:'新的数量说明待核对'},f.actor,f.data.noteToken(note)).impact;
   assert.equal(f.gov.associate(other,[{table:f.record.table.id,entry:f.entry.id}],f.actor,f.impacts.token(other)),undefined);
   f.gov.act(f.record,f.entry,'confirm',f.actor);
-  assert.match(f.updates.act(record,'allow',f.actor),/其他变更未完成/);assert.equal(f.entry.blocked,true);
+  assert.match(f.updates.act(record,'allow',f.actor),/治理修订已变化/);assert.equal(f.entry.blocked,true);
 });
 test('a repair revised after publication preserves the old release and requires a fresh candidate',()=>{
   const f=fixture(),record=f.draft();f.build(record);f.updates.act(record,'test',f.actor);f.updates.act(record,'publish',f.actor);
@@ -113,7 +114,7 @@ test('a repair revised after publication preserves the old release and requires 
   assert.equal(record.releases[0].id,release);assert.equal(record.release,undefined);assert.equal(record.currentId,'');assert.equal(record.confirmed,false);assert.ok(old.published);
 });
 test('note-driven knowledge updates follow mapped technical dependencies without matching business names',()=>{
-  const f=fixture();f.review();const note=f.data.notes[0];
+  const f=fixture();f.review();const note=f.data.notes[1];
   const impact=f.impacts.saveNote(note,{...note,content:'数量说明更新，需要核对已引用定义'},f.actor,f.data.noteToken(note)).impact;
   assert.equal(f.gov.associate(impact,[{table:f.record.table.id,entry:f.entry.id}],f.actor,f.impacts.token(impact)),undefined);
   f.gov.act(f.record,f.entry,'confirm',f.actor);

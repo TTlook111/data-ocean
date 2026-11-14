@@ -17,8 +17,8 @@
   });
   const groups = [
     ['数据源接入', 'database', [['sources', '数据源管理'], ['collections', '采集记录'], ['catalog', '元数据目录'], ['business-notes', '企业业务说明']]],
-    ['数据治理', 'layers', [['governance', '治理工作台'], ['test-cases', '标准题单与验证']]],
-    ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['releases', '发布管理'], ['versions', '版本与回退']]],
+    ['数据治理', 'layers', [['governance', '治理工作台']]],
+    ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['test-cases', '标准题单与验证'], ['releases', '发布管理'], ['versions', '版本与回退']]],
     ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
     ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
     ['系统配置', 'layers', [['models', '模型配置'], ['model-uses', '用途设置'], ['retrieval', '知识检索配置'], ['diagnostics', '运行诊断']]],
@@ -273,6 +273,7 @@
           <el-checkbox v-else-if="f.type === 'checkbox'" v-model="model[f.key]">{{f.checkLabel}}</el-checkbox>
           <el-input v-else v-model="model[f.key]" :aria-label="f.label" :type="f.type || 'text'" :show-password="f.type === 'password'" :autocomplete="f.type === 'password' ? 'new-password' : 'off'" :disabled="f.disabled" :maxlength="f.type === 'textarea' ? 300 : 80" :rows="3" :show-word-limit="f.type === 'textarea'" :placeholder="f.placeholder || ''"></el-input>
           <span v-if="f.help" class="field-help">{{f.help}}</span>
+          <el-button v-if="f.action && f.actionLabel" link type="primary" :disabled="f.actionDisabled && f.actionDisabled(model)" @click="f.action(model,$event.currentTarget)">{{f.actionLabel}}</el-button>
           <template #error="{error:message}"><div class="el-form-item__error" :id="errorPrefix+f.key" role="alert">{{message}}</div></template>
         </el-form-item></div>
         <section v-if="reviewing" class="change-preview" :class="{'is-summary':summary}"><h3 class="review-heading" tabindex="-1">{{previewTitle}}</h3>
@@ -829,6 +830,7 @@
     }
   }
   function render() {
+    if (window.GovernancePage?.beforeNavigation()) return;
     if (DataSourcesPage.beforeNavigation()) return;
     document.querySelector('dialog[open]')?.close();
     const parts = location.hash.slice(1).split('/'); const key = parts[0] === 'admin' ? parts[1] : parts[0];
@@ -852,9 +854,6 @@
     else if (section === 'governance') GovernancePage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions,
       setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
     });
-    else if (section === 'knowledge' && parts[2] && GovernancePage.renderDraft(main, { el, button, textCell, pageHeading, currentUser,
-      setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
-    }, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]))) { /* 仅承接本页内生成的知识草稿。 */ }
     else if (['knowledge', 'releases'].includes(section)) KnowledgeUpdatePage.render(main, { el, button, textCell, pair, pageHeading, openForm, modal, currentUser, notify,
       setTitle(title, parent, href) { pageLocation.title = title; pageLocation.parent = parent; pageLocation.parentHref = href; document.title = title + ' · DataOcean 后台管理'; }
     }, section, decodeURIComponent(parts[1] || ''), decodeURIComponent(parts[2] || ''));
