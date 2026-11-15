@@ -546,3 +546,15 @@ test('editing a candidate question beyond the fixed sample produces an execution
   const task = f.w.createTask('products', [doc.id], f.actor).task; f.build(task); f.run(task);
   assert.equal(task.stage, '执行异常'); assert.match(f.w.candidate(task).runs.at(-1).results[0].error, /超出固定样例/); assert.match(f.w.publish(task, f.actor), /阶段/);
 });
+
+test('split product targets retain product verification data after their document identities change', () => {
+  const f = plannedFixture(); f.generate();
+  const product = f.w.documents.get(f.plan.rows[0].result.document), sales = f.w.documents.get(f.plan.rows[1].result.document);
+  const result = f.w.createReplacement([product.id], ['商品编号与编码', '商品当前状态'].map(title => ({ ...f.w.responsibility(product), title })), f.actor);
+  assert.equal(result.error, undefined);
+  const targets = result.replacement.targets.map(id => f.w.documents.get(id)), sample = f.w.sampleData(result.replacement.targets);
+  assert.equal(sample.id, 'SAMPLE-PRODUCT'); assert.equal(sample.products.length, 3); assert.equal(sample.rows, undefined);
+  assert.equal(f.w.sampleData([sales.id, ...result.replacement.targets]).id, 'SAMPLE-PRODUCT-SALES');
+  const task = f.release(targets);
+  assert.equal(f.w.candidate(task).sample.id, 'SAMPLE-PRODUCT'); assert.equal(result.replacement.state, '已切换');
+});

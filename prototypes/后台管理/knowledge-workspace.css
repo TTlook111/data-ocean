@@ -75,6 +75,14 @@
 .kw-impact-row { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:16px 0; border-bottom:1px solid var(--do-line); }
 .kw-impact-row > div:first-child { flex:1; min-width:200px; }
 .kw-plan-summary { margin-right:auto; color:var(--do-muted); line-height:24px; }
+/* 先说明能回答什么及使用边界，依据调整留在同一建议的次级区域。 */
+.kw-plan-capabilities { display:grid; grid-template-columns:72px minmax(0,1fr); gap:8px 16px; margin:20px 0 0; max-width:900px; }
+.kw-plan-capabilities dt { margin:0; font-size:14px; line-height:24px; color:var(--do-muted); }
+.kw-plan-capabilities dd { margin:0; line-height:24px; overflow-wrap:anywhere; }
+.kw-plan-capabilities ul { margin:0; padding:0; list-style:none; }
+.kw-document-state { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.kw-shell .gov-toolbar .kw-document-state .status-tag { margin-left:0; white-space:normal; }
+.kw-row-actions { display:flex; align-items:center; gap:8px; white-space:nowrap; }
 /* 准备缺口与当前验证结果前置；不将提示当作新增审批或自动审核。 */
 .kw-action[hidden] { display:none; }
 .kw-plan-success { color:var(--el-color-success-dark-2,#17653f); background:var(--el-color-success-light-9,#f0f9eb); }
@@ -146,6 +154,7 @@
 .kw-editor-pane { min-width:0; min-height:0; overflow:auto; padding:24px; }
 .kw-editor-pane > section,.kw-editor-pane > .el-form { max-width:800px; }
 .kw-editor-pane h2 { margin:0 0 24px; font-size:16px; line-height:24px; }
+.kw-editor-pane > .ds-notice .el-button { margin-left:16px; color:var(--do-primary); }
 .kw-editor-pane .el-form-item { margin-bottom:24px; }
 .kw-editor-pane .el-select { width:100%; }
 .kw-editor-pane .el-textarea__inner { line-height:24px; }

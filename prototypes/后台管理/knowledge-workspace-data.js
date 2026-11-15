@@ -325,7 +325,8 @@
   }
   function sampleData(docIds) {
     if (!docIds.length || docIds.some(docId => !templatesFor(documents.get(docId)).length)) return null;
-    if (docIds.every(docId => documents.get(docId).key === 'products:product/base')) return { id: 'SAMPLE-PRODUCT', revision: 1, source: 'products', products: [{ id: 101, code: '0001', status: 1 }, { id: 102, code: '0002', status: 0 }, { id: 103, code: '0003', status: 2 }] };
+    // 合并拆分会改变文档身份，验证数据按实际治理内容选择，不能按最初建议的固定键判断。
+    if (docIds.every(docId => !documents.get(docId).draft.entries.some(entry => entry.id === 'metric:sales-quantity'))) return { id: 'SAMPLE-PRODUCT', revision: 1, source: 'products', products: [{ id: 101, code: '0001', status: 1 }, { id: 102, code: '0002', status: 0 }, { id: 103, code: '0003', status: 2 }] };
     return { id: 'SAMPLE-PRODUCT-SALES', revision: 1, source: 'products', rows: clone(reviewSpecs.get('example/sales-quantity').samples) };
   }
   function sampleOutcome(test, current) {
