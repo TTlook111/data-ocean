@@ -42,3 +42,10 @@ test('不替其他门店、时段或分组编造示例结果',()=>{
     const reply=desk.ask(question,origin(1));assert.equal(reply.kind,'notice');assert.equal(reply.result,undefined);
   }assert.equal(desk.list().length,0);
 });
+test('反馈只记录当前评价和核查历史，不改变退货率口径',()=>{
+  const desk=create(),record=desk.register('retail','回答反馈 · QS-1',{threadId:'a',turnId:'b',text:'原问题'},'feedback');
+  desk.reaction(record.caseId,{type:'down',reason:'日期需要核对'}); desk.reaction(record.caseId,{type:'up'}); desk.reaction(record.caseId,null);
+  assert.equal(desk.get(record.caseId).reaction,null); assert.equal(desk.get(record.caseId).events.length,4);
+  desk.simulate(record.caseId,'publish'); desk.simulate(record.caseId,'verify');
+  assert.equal(desk.ask('城南店上周牛奶退货率是多少？',origin(2)).kind,'case');
+});

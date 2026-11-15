@@ -101,6 +101,19 @@
 .qa-summary > svg { transform: rotate(-90deg); }
 .qa-summary:hover, .qa-action:hover { color: #2455a5; background: #edf3fc; }
 .qa-details { min-width: 0; }
+.qa-view-switch { grid-column: 1 / -1; display: flex; gap: 4px; padding: 8px 12px 0; }
+.qa-view-switch + .qa-card-head { padding-top: 4px; }
+.qa-details[hidden] + .qa-meta { grid-column: 1 / -1; }
+.qa-history { margin: 0 0 8px; color: #627084; font-size: 12px; }
+.qa-explanation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: #77571f; font-size: 13px; }
+.qa-explanation-error { color: #a13333; font-size: 13px; }
+.qa-evidence { display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 8px 12px; margin: 16px 0 0; }
+.qa-evidence dt { color: #627084; }
+.qa-evidence dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.qa-sql { margin-top: 12px; }
+.qa-sql summary { cursor: pointer; padding: 8px 0; }
+.qa-sql pre { overflow: auto; white-space: pre-wrap; font: 13px/1.7 Consolas, monospace; }
+.qa-integrity { flex-basis: 100%; }
 .qa-details[open], .qa-details[open] + .qa-meta { grid-column: 1 / -1; }
 .qa-details .qa-when-open, .qa-details[open] .qa-when-closed { display: none; }
 .qa-details[open] .qa-when-open { display: inline; }

@@ -135,7 +135,7 @@
     const card = el('section', 'case-card');
     card.dataset.caseId = item.id;
     card.dataset.caseStatus = item.status;
-    card.setAttribute('aria-label', isAccess ? '输出限制' : '口径治理事项');
+    card.setAttribute('aria-label', isAccess ? '输出限制' : item.type === 'feedback' ? '反馈处理进度' : '口径治理事项');
     const main = el('div', 'case-body');
     const actionError = el('p', 'case-error');
     actionError.setAttribute('aria-live', 'polite');
@@ -157,6 +157,10 @@
       const linked = item.links?.length || 1;
       const reference = item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
       main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
+      if (item.sourceId && item.type !== 'feedback') {
+        const link = el('a', 'case-action', '查看知识处理');
+        link.href = '../后台管理/index.html#knowledge/' + encodeURIComponent(item.sourceId); main.append(link);
+      }
     }
     if (isAccess && item.status === 'blocked') {
       // 带入这张卡片的原问题和已知数据源，申请仍由后台表单核对提交。

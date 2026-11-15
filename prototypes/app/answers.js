@@ -97,6 +97,7 @@
         }
       }
     }
+    if (!totals?.length) return table;
     const foot = table.createTFoot().insertRow();
     const totalHeading = element('th', '', totals[0]);
     totalHeading.scope = 'row';
@@ -168,11 +169,13 @@
     const sales = result.type === 'sales';
     // 只看合计时保留结论和可展开明细，逐日趋势只在实际请求了按天分组时出现。
     const showTrend = sales && result.group === 'day' && result.rows.length > 1;
+    let chart;
     if (showTrend) {
       const top = element('div', 'qa-card-head');
       top.append(element('h3', '', '每日' + metricLabels[result.metric]),
         element('span', 'qa-period', result.period + ' · ' + result.unit));
-      card.append(top, trend(result));
+      chart = trend(result);
+      card.append(top, chart);
     }
     const details = element('details', 'qa-details');
     const summary = element('summary', 'qa-summary');
@@ -184,6 +187,17 @@
     const wrap = element('div', 'qa-table-wrap');
     wrap.append(tableFor(result));
     details.append(summary, wrap);
+    details.open = !showTrend;
+    if (showTrend) {
+      const views = element('div', 'qa-view-switch');
+      const graph = action('趋势图', 'layers'), grid = action('表格', 'file-text');
+      function switchView(showGraph) {
+        chart.hidden = !showGraph; details.hidden = showGraph; details.open = !showGraph;
+        graph.setAttribute('aria-pressed', String(showGraph)); grid.setAttribute('aria-pressed', String(!showGraph));
+      }
+      graph.addEventListener('click', () => switchView(true)); grid.addEventListener('click', () => switchView(false));
+      views.append(graph, grid); card.prepend(views); switchView(true);
+    }
     // 展开较靠下的回答时，把整张核账表带入对话视口，底部输入框仍可续问。
     details.addEventListener('toggle', () => {
       const viewport = details.closest('.transcript');
@@ -198,6 +212,7 @@
     origin.append(window.WorkbenchIcon('store', 13), result.scope);
     if (!showTrend) origin.append(' · ' + result.period);
     footer.append(origin, element('span', '', '查询于 ' + result.stamp + ' · 数据更新时间未知'));
+    if (result.completeness) footer.append(element('span', 'qa-integrity', result.completeness));
     card.append(details, footer);
     return card;
   }
@@ -206,7 +221,7 @@
   function exportCsv(result) {
     const { headings, rows, totals } = valuesFor(result);
     const esc = value => '"' + String(value).replace(/"/g, '""') + '"';
-    const csv = [headings, ...rows, totals].map(row => row.map(esc).join(',')).join('\r\n');
+    const csv = [headings, ...rows, ...(totals?.length ? [totals] : [])].map(row => row.map(esc).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
     const link = element('a');
     link.href = url;
@@ -219,7 +234,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function answerActions(reply, panel) {
+  function answerActions(reply, panel, options) {
     const result = reply.result;
     const bar = element('div', 'qa-actions');
     const basisButton = action('查看依据', 'layers');
@@ -230,6 +245,17 @@
     basis.hidden = true;
     basis.append(element('strong', '', '查询依据'), element('p', '', result.basis),
       element('small', '', '经营数据 · ' + result.scope + ' · ' + result.period));
+    const refs = element('dl', 'qa-evidence');
+    for (const [label, value] of [
+      ['问题与条件', options.question || '按本题已确认条件'],
+      ['口径来源', (result.knowledge || []).map(doc => doc.title + ' · ' + doc.id + ' r' + doc.revision).join('；') || '固定离线样例'],
+      ['治理修订', 'r' + (result.governance || 1)], ['结果范围', result.completeness || '完整样例'],
+      ['业务时间锚点', '2026-11-08 · Asia/Shanghai（固定样例）']
+    ]) refs.append(element('dt', '', label), element('dd', '', value));
+    basis.append(refs);
+    if (options.canSql && result.sql) {
+      const sql = element('details', 'qa-sql'); sql.append(element('summary', '', '查看 SQL（样例）'), element('pre', '', result.sql)); basis.append(sql);
+    }
     basisButton.setAttribute('aria-expanded', 'false');
     basisButton.addEventListener('click', () => {
       basis.hidden = !basis.hidden;
@@ -285,6 +311,7 @@
       feedback.hidden = true;
       dislike.setAttribute('aria-expanded', 'false');
       status.textContent = reply.reaction ? '已点赞' : '已撤销点赞';
+      options.onReaction?.(reply.reaction);
       reflect();
     });
     const undo = element('button', 'qa-undo', '撤销点踩');
@@ -292,6 +319,7 @@
     undo.addEventListener('click', () => {
       reply.reaction = null;
       status.textContent = '已撤销点踩';
+      options.onReaction?.(null);
       closeForm();
       reflect();
     });
@@ -319,21 +347,33 @@
       }
       reply.reaction = { type: 'down', reason: value };
       status.textContent = '反馈已提交';
+      options.onReaction?.(reply.reaction);
       closeForm();
       reflect();
     });
     reflect();
-    bar.append(basisButton, csvButton, status, like, dislike);
+    const requery = action('重新查询', 'square-pen');
+    requery.addEventListener('click', () => options.onRequery?.());
+    bar.append(basisButton, csvButton, requery, status, like, dislike);
     panel.append(bar, basis, feedback);
   }
 
-  function render(reply) {
+  function render(reply, options = {}) {
     const { result } = reply;
     const card = element('article', 'qa-answer');
+    if (options.history) card.append(element('p', 'qa-history', '历史结果 · ' + (result.queryId || '固定样例')));
+    if (options.related) card.append(element('p', 'qa-history', '重新查询 · 关联 ' + options.related));
     card.append(element('h2', 'qa-title', result.title));
-    if (reply.text && reply.text !== result.title) card.append(element('p', 'qa-description', reply.text));
+    if (reply.text && reply.text !== result.title && !['失败', '生成中', '已停止'].includes(reply.explanationStatus)) card.append(element('p', 'qa-description', reply.text));
     card.append(resultCard(result));
-    answerActions(reply, card);
+    if (['失败', '生成中', '已停止'].includes(reply.explanationStatus)) {
+      const explanation = element('div', 'qa-explanation');
+      explanation.append(element('span', '', reply.explanationStatus === '失败' ? '结果已交付，解释生成失败。' : reply.explanationStatus === '生成中' ? '正在生成解释…' : '解释已停止，结果可继续使用。'));
+      const retry = action(reply.explanationStatus === '生成中' ? '停止解释' : '重试解释', 'square-pen');
+      retry.addEventListener('click', () => options.onExplanation?.(reply.explanationStatus === '生成中' ? 'stop' : 'retry'));
+      explanation.append(retry); card.append(explanation);
+    }
+    answerActions(reply, card, options);
     return card;
   }
 

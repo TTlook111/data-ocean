@@ -46,9 +46,29 @@
     // 只恢复本版事项；旧版带门店授权和期限的模拟记录不进入当前页面。
     const records = saved?.version === 2 && Array.isArray(saved.records) ? structuredClone(saved.records).filter(item => publicStatus[item.status]) : [];
     const find = id => records.find(item => item.id === id);
-    const read = item => ({ ...structuredClone(item), statusLabel: publicStatus[item.status][0], summary: item.status === 'processing' && item.events.at(-1)?.action === 'fail' ? item.events.at(-1).text : publicStatus[item.status][1] });
+    const read = item => ({ ...structuredClone(item), statusLabel: publicStatus[item.status][0], summary: item.id.startsWith('QS-')
+      ? item.status === 'processing' ? '已登记，等待负责人核查。' : item.status === 'published' ? '处理已进入复验，尚未确认完成。' : item.receipt?.text
+      : item.status === 'processing' && item.events.at(-1)?.action === 'fail' ? item.events.at(-1).text : publicStatus[item.status][1] });
     const fail = message => ({ ok: false, message }), success = item => ({ ok: true, record: read(item) });
-    const rateReady = () => records.some(item => item.type === 'knowledge' && item.status === 'resolved');
+    const rateReady = () => records.some(item => item.id === 'ZL-001' && item.status === 'resolved');
+    // 知识缺口与评价只登记线索，补充或点赞踩不改变正式口径及访问权限。
+    function register(sourceId, title, origin, type = 'knowledge') {
+      let item = records.find(record => record.sourceId === sourceId && record.title === title && record.type === type && ['processing', 'published'].includes(record.status));
+      if (!item) {
+        item = { id: 'QS-' + (records.length + 1), sourceId, type, title, owner: type === 'feedback' ? '问题核查负责人' : '知识治理负责人', status: 'processing', links: [], notes: [],
+          events: [{ text: type === 'feedback' ? '已收到反馈，待核查与分派。' : '已关联知识治理事项，等待核对口径。' }], receipt: null };
+        records.push(item);
+      }
+      if (!item.links.some(link => link.threadId === origin.threadId && link.turnId === origin.turnId)) item.links.push(cloneOrigin(origin));
+      return { kind: 'case', caseId: item.id };
+    }
+    function cloneOrigin(origin) { return { threadId: origin.threadId, turnId: origin.turnId, text: origin.text }; }
+    function reaction(id, value) {
+      const item = find(id); if (!item || item.type !== 'feedback') return fail('当前反馈记录不可用。');
+      item.reaction = structuredClone(value);
+      item.events.push({ at: now(), text: value?.type === 'down' ? '当前评价：点踩；原因：' + value.reason : value?.type === 'up' ? '当前评价已改为点赞。' : '已撤销评价，保留已发生的核查记录。' });
+      return success(item);
+    }
     function ask(input, { threadId, turnId }) {
       const text = String(input || '').trim();
       // 固定阻断示例只展示所选规则的含义，不解析任意中文规则或假装已执行 SQL。
@@ -88,21 +108,23 @@
       published: { verify: ['resolved', '已按生效版本复验原问题，统计范围与计算通过核对。'], fail: ['processing', '生效版本复验未通过，已退回负责人继续处理。'] }
     };
     function simulate(id, action) {
-      const item = find(id), transition = item?.type === 'knowledge' && transitions[item.status]?.[action];
+      const item = find(id), transition = item?.type !== 'access' && transitions[item?.status]?.[action];
       if (!transition) return fail('当前状态无法模拟该操作。');
       const [next, message] = transition;item.status = next;item.events.push({ action, at: now(), actor: item.owner, text: message });
       if (next === 'resolved' || next === 'explained') item.receipt = {
         key: item.id + ':' + next, completedAt: now(), title: next === 'resolved' ? '退货率口径已通过复验' : '退货率核查已结案',
         text: next === 'resolved' ? '城南店牛奶退货率口径已发布并通过复验，可重新查询原问题。' : publicStatus[next][1], canRetry: next === 'resolved'
       };
+      if (item.id !== 'ZL-001' && item.receipt) Object.assign(item.receipt, { title: next === 'resolved' ? '事项已通过复验' : '核查已结案', text: next === 'resolved' ? '已按生效版本复验原问题，可返回原问重新查询。' : '经核查已按说明结案，未修改业务定义。' });
       return success(item);
     }
     function canView(result) {
       if (result?.type !== 'business') return true;
+      if (['comparison', 'published-products', 'boundary'].includes(result.example)) return true;
       if (result.example === 'return-rate') return rateReady();
       return result.example === 'profit-summary' && JSON.stringify(result.headings) === JSON.stringify(['门店', '毛利额（元）']);
     }
-    return { ask, supplement, simulate, canView, get: id => find(id) ? read(find(id)) : null, list: () => records.map(read), snapshot: () => ({ version: 2, records: structuredClone(records) }) };
+    return { ask, register, reaction, supplement, simulate, canView, get: id => find(id) ? read(find(id)) : null, list: () => records.map(read), snapshot: () => ({ version: 2, records: structuredClone(records) }) };
   }
   window.QueryCases = { create };
 })();

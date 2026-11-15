@@ -7,8 +7,8 @@
   <title>问数工作台 · DataOcean</title>
   <link rel="icon" href="assets/dataocean-mark.png">
   <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
-  <link rel="stylesheet" href="workbench.css?v=prototype-audit-20261110">
-  <link rel="stylesheet" href="answers.css?v=site-consistency-20261111">
+  <link rel="stylesheet" href="workbench.css?v=query-workbench-final-20261115">
+  <link rel="stylesheet" href="answers.css?v=query-workbench-final-20261115">
   <link rel="stylesheet" href="case-view.css?v=prototype-audit-20261110">
   <link rel="stylesheet" href="../后台管理/admin-system.css?v=element-controls-20261108-r3">
   <link rel="stylesheet" href="../后台管理/record-controls.css?v=site-consistency-20261111">
@@ -19,18 +19,19 @@
   <script defer src="../shared/element-adapter.js?v=element-controls-20261108-r3"></script>
   <script defer src="icons.js?v=element-controls-20261108-r3"></script>
   <script defer src="../后台管理/people-data.js?v=output-rules-20261110"></script>
+  <script defer src="../shared/query-knowledge-bridge.js?v=query-workbench-final-20261115"></script>
   <script defer src="dialogue.js?v=element-controls-20261108-r3"></script>
-  <script defer src="answers.js?v=site-consistency-20261111"></script>
-  <script defer src="cases.js?v=prototype-audit-20261110"></script>
-  <script defer src="case-view.js?v=copy-cleanup-20261111"></script>
-  <script defer src="workbench.js?v=copy-cleanup-20261111"></script>
+  <script defer src="query-flow.js?v=query-workbench-final-20261115"></script>
+  <script defer src="answers.js?v=query-workbench-final-20261115"></script>
+  <script defer src="cases.js?v=query-workbench-final-20261115"></script>
+  <script defer src="case-view.js?v=query-workbench-final-20261115"></script>
+  <script defer src="workbench.js?v=query-workbench-final-20261115"></script>
 </head>
 <body>
   <div class="screen" id="manager-page">
     <aside class="side" id="sidebar" aria-label="问数会话">
       <div class="brand">
         <img src="assets/dataocean-mark.png" alt=""><span lang="en">DataOcean</span>
-        <button type="button" class="sidebar-close" aria-label="关闭会话导航"><i data-icon="x"></i></button>
       </div>
       <button type="button" class="new" id="new-chat"><i data-icon="square-pen"></i>新建问数 <span class="key" aria-hidden="true">＋</span></button>
       <button type="button" class="finder" id="find-chat" aria-expanded="false" aria-controls="history-filter"><i data-icon="search"></i>搜索对话</button>
@@ -48,14 +49,12 @@
       </details>
       <details class="prototype-tools" id="prototype-tools" hidden>
         <summary>原型评审</summary>
-        <div><a href="../项目运行图.html">项目运行图</a><a href="../visual-directions/index.html">视觉选稿</a><button type="button" id="reset-demo">重置演示数据</button></div>
+        <div><a href="../项目运行图.html">项目运行图</a><div id="query-review-controls" class="prototype-ui"></div><button type="button" id="review-access">模拟撤回当前源访问</button><button type="button" id="review-sql">收起 SQL 查看权限</button><button type="button" id="review-expire">将当前等待设为到期</button><button type="button" id="review-retention">将当前结果设为到期</button><button type="button" id="reset-demo">重置演示数据</button></div>
       </details>
     </aside>
-    <button class="scrim" type="button" aria-label="收起会话导航" tabindex="-1" hidden></button>
     <main class="main" id="workspace">
       <header class="bar">
         <div class="crumb">
-          <button class="menu-toggle" type="button" aria-label="打开会话导航" aria-expanded="false" aria-controls="sidebar"><i data-icon="menu"></i></button>
           <span>问数工作台</span><i data-icon="chevron-right"></i><b id="thread-title">牛奶净销量</b>
         </div>
         <div class="bar-tools">
@@ -65,11 +64,12 @@
       </header>
       <section class="transcript" id="transcript" aria-label="当前对话记录" tabindex="0"></section>
       <footer class="composer-area">
+        <div id="query-activity" class="query-activity" hidden></div>
         <form class="composer" id="composer">
           <textarea id="message" rows="1" aria-label="提问、补充或修改条件" placeholder="继续提问，也可以补充或修改条件…"></textarea>
           <div class="compose-tools"><button type="submit" class="send" aria-label="发送消息" title="发送消息（Enter）" disabled><i data-icon="arrow-up"></i></button></div>
         </form>
-        <p class="sample" hidden>示例数据 · 城南店经营</p>
+        <p class="sample">离线交互原型 · 固定样例数据</p>
       </footer>
     </main>
   </div>

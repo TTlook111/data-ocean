@@ -130,6 +130,8 @@ input.search-box, .search-box input {
 .history.active, .history[aria-current="page"] {
   background: #e7eef9;
 }
+.history { display: block; }
+.history-source { display: block; margin-top: 2px; color: #65758b; font-size: 11px; line-height: 16px; font-weight: 400; }
 .history-empty {
   margin: 18px 12px;
   color: var(--muted);
@@ -235,6 +237,9 @@ input.search-box, .search-box input {
   align-items: center;
 }
 .crumb { min-width: 0; gap: 11px; color: #68778a; font-size: 13px; }
+.crumb { flex: 1; }
+.crumb > span { flex: none; white-space: nowrap; }
+.crumb > b { min-width: 0; }
 .crumb b, .crumb strong {
   overflow: hidden;
   color: #263347;
@@ -417,6 +422,15 @@ input.search-box, .search-box input {
 .send:hover:enabled { background: #174ba6; }
 .send:disabled { background: #aabbd2; }
 .sample { margin: 6px 0 0; text-align: center; font-size: 11px; color: #6a7584; }
+.query-activity { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; min-height: 36px; color: #596d85; font-size: 13px; }
+.query-activity .choice { flex: none; min-height: 32px; padding-block: 4px; }
+.running-label::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #2f63d5; }
+.feedback-case { margin-top: 12px; }
+.prototype-tools #query-review-controls { padding: 0; }
+.prototype-tools .el-select { width: 100%; }
+.case-action.choice { text-decoration: none; }
+@media (prefers-reduced-motion: no-preference) { .running-label::before { animation: query-pulse 1.2s ease-in-out infinite alternate; } }
+@keyframes query-pulse { to { opacity: .35; } }
 
 @media (max-width: 1000px) {
   :root { --thread-width: calc(100% - 48px); }
@@ -424,64 +438,16 @@ input.search-box, .search-box input {
   .bar { padding: 0 24px; }
 }
 
-/* 小屏只有对话占用主视口；历史栏展开时与遮罩处于同一层级上下文。 */
+/* 桌面缩放仍保留会话导航；窄窗口不切换手机抽屉。 */
 @media (max-width: 720px) {
+  .screen { grid-template-columns: 156px minmax(0, 1fr); }
+  .side { position: static; width: auto; visibility: visible; transform: none; padding: 20px 8px 12px; }
+  .main { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .brand { font-size: 17px; margin-inline: 4px; gap: 5px; }
+  .brand img { width: 22px; }
+  .bar { flex-wrap: wrap; padding: 8px 16px; }
+  .bar-tools { margin-left: auto; }
+  .source-picker #data-source-picker { width: 148px; }
+  .menu-toggle, .sidebar-close { display: none; }
   :root { --thread-width: calc(100% - 32px); }
-  .screen { grid-template-columns: minmax(0, 1fr); }
-  .main { grid-template-rows: 53px minmax(0, 1fr) auto; }
-  .side {
-    position: fixed;
-    z-index: 4;
-    inset: 0 auto 0 0;
-    width: min(290px, calc(100% - 48px));
-    visibility: hidden;
-    transform: translateX(-100%);
-    padding-top: max(20px, env(safe-area-inset-top));
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
-  }
-  body.sidebar-open .side { visibility: visible; transform: translateX(0); }
-  body.sidebar-open .scrim {
-    display: block;
-    position: fixed;
-    z-index: 3;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: #18273a55;
-  }
-  .bar { justify-content: flex-start; gap: 6px; padding: 0 10px 0 4px; }
-  .menu-toggle, .sidebar-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    flex: none;
-    color: #465a73;
-    border-radius: 7px;
-  }
-  .sidebar-close { margin-left: auto; }
-  .menu-toggle:hover, .sidebar-close:hover { background: #e9edf2; }
-  .crumb { flex: 1; gap: 5px; font-size: 12px; }
-  .crumb > span { flex: none; white-space: nowrap; }
-  .crumb b { min-width: 0; }
-  .source-picker { gap: 4px; font-size: 11px; }
-  .bar-tools { gap: 4px; }
-  .receipt-trigger, .receipt-close { min-width: 44px; min-height: 44px; }
-  .receipt-label { display: none; }
-  .receipt-trigger { gap: 3px; padding-inline: 5px; }
-  .receipt-link { min-height: 44px; }
-  .new, .finder, .history, .choice, .prompt { min-height: 44px; }
-  .transcript { padding: 18px 0 15px; }
-  .flow { gap: 13px; }
-  .bubble { max-width: 90%; padding: 9px 13px; }
-  .composer-area { margin: 4px auto max(7px, env(safe-area-inset-bottom)); }
-  .composer { padding: 10px 10px 8px 13px; border-radius: 12px; }
-  .composer textarea { font-size: 16px; }
-  .send { width: 44px; height: 44px; }
-  .sample { margin-top: 3px; font-size: 10px; }
 }
