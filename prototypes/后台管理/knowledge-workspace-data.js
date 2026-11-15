@@ -925,7 +925,10 @@
       else { entry.content.meaning += '\n演示修订：业务说明已补充。'; entry.validity = '适用'; }
     }); log(doc, actor, '演示来源变化', kind);
   }
-  window.KnowledgeWorkspace = { documents, cases, tasks, active, releases, plans, replacements, responsibility, questionDependencies, inspectSpec, createPlan, checkPlan, coverage, submitPlan, mergeSuggestions, splitSuggestion,
+  const navigationMaps={documents,cases,tasks,active,releases,plans,replacements,demoDefinitions,exampleDefinitions,reviewSpecs,bans,prototypeCases};
+  function navigationSnapshot(){return clone({prototypeSeeded,maps:Object.fromEntries(Object.entries(navigationMaps).map(([name,map])=>[name,[...map]]))});}
+  function restoreNavigation(snapshot){Object.entries(navigationMaps).forEach(([name,map])=>{map.clear();snapshot.maps[name].forEach(([key,value])=>map.set(key,value));});prototypeSeeded=snapshot.prototypeSeeded;}
+  window.KnowledgeWorkspace = { documents, cases, tasks, active, releases, plans, replacements,navigationSnapshot,restoreNavigation, responsibility, questionDependencies, inspectSpec, createPlan, checkPlan, coverage, submitPlan, mergeSuggestions, splitSuggestion,
     createReplacement, cancelReplacement, saveReplacement, replacementReferences, affectedDocuments, noImpact, finishImpacts, chunksFor, publishedContext, templatesFor, sectionsFor, suggested, seedPrototype, sampleData, latest, live, needsUpdate, textFor, stamp, key, clone, has, sourceIssue,
     createDocument, saveDocument, confirmDocument, updatePreview, applyUpdate, importImpact, caseIssue, saveCase, suggestCases, reviewCase, stopCase, caseStale, relatedCases, caseReadiness,
     createTask, changeScope, expandDocuments, candidate, prepareIssue, candidateIssue, taskFeedback, releaseStatus, build, finishBuild, run, finishRun, adjudicate, cancel, publish, finishPublish, reconcile,

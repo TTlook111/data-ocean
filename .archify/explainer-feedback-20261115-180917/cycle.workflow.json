@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "反馈处理主流程",
+    "output": "feedback-cycle.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "legend": {"mode":"hidden"}
+  },
+  "lanes": [
+    {"id":"intake","label":"接收与核查"},
+    {"id":"handle","label":"安排修复并验收"},
+    {"id":"finish","label":"按实际结论回告"}
+  ],
+  "mainPath": ["receive","assign","evidence","cause","repair","verify","notify"],
+  "semanticChecks": {
+    "allowedRoots":["receive"],
+    "allowedTerminals":["notify"],
+    "requiredPaths":[{"from":"receive","to":"notify"},{"from":"cause","to":"explain"},{"from":"verify","to":"repair"}]
+  },
+  "nodes": [
+    {"id":"receive","lane":"intake","col":0,"type":"messagebus","label":"反馈入队","icon":"messagebus","width":152,"height":64},
+    {"id":"assign","lane":"intake","col":1,"type":"backend","label":"分派主负责人","icon":"person","width":152,"height":64},
+    {"id":"evidence","lane":"intake","col":2,"type":"security","label":"信息齐备?","icon":"decision","width":152,"height":64},
+    {"id":"supplement","lane":"intake","col":3,"type":"frontend","label":"请用户补充","icon":"person","width":152,"height":64},
+    {"id":"cause","lane":"handle","col":2,"type":"security","label":"需要修复?","icon":"decision","width":152,"height":64},
+    {"id":"repair","lane":"handle","col":3,"type":"backend","label":"安排并完成修复","icon":"briefcase","width":170,"height":64},
+    {"id":"verify","lane":"handle","col":4,"type":"security","label":"验收通过?","icon":"decision","width":152,"height":64},
+    {"id":"explain","lane":"finish","col":2,"type":"backend","label":"说明结案","icon":"briefcase","width":152,"height":64},
+    {"id":"notify","lane":"finish","col":4,"type":"backend","label":"结案并回告","icon":"success","width":152,"height":64}
+  ],
+  "edges": [
+    {"id":"intake-assign","from":"receive","to":"assign"},
+    {"id":"assign-check","from":"assign","to":"evidence","label":"核查"},
+    {"id":"need-supplement","from":"evidence","to":"supplement","label":"不足","role":"branch"},
+    {"id":"supplement-return","from":"supplement","to":"evidence","label":"补齐","role":"return","fromSide":"top","toSide":"top","route":"up-channel"},
+    {"id":"check-cause","from":"evidence","to":"cause","label":"齐备","fromSide":"bottom","toSide":"top"},
+    {"id":"needs-repair","from":"cause","to":"repair","label":"是","role":"main"},
+    {"id":"explain-without-fix","from":"cause","to":"explain","label":"否","role":"branch","fromSide":"bottom","toSide":"top"},
+    {"id":"repair-verify","from":"repair","to":"verify","label":"完成后"},
+    {"id":"verify-return","from":"verify","to":"repair","label":"未通过","role":"return","variant":"dashed","fromSide":"top","toSide":"top","route":"up-channel"},
+    {"id":"verify-notify","from":"verify","to":"notify","label":"通过","variant":"emphasis","fromSide":"bottom","toSide":"top"},
+    {"id":"explain-notify","from":"explain","to":"notify","label":"如实说明"}
+  ]
+}

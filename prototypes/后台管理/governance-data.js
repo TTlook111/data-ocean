@@ -525,7 +525,13 @@
     const bindings = eligible.map(entry => ({ table: record.table.id, entry: entry.id }));
     return { eligible, excluded, bindings, entries: publicationScope(record.table.source, bindings).entries };
   }
-  window.GovernanceDemo = { get, records, tasks, tasksFor, availableNotes, objectName, structureFor, contentSections, unitFromText, normalizedUnit, unresolvedText, fieldProfile, criticalKeys, foreignKeyIdentity, definitionIssues, fieldReferences, referenceIssue, bindDependencyRevisions, dependencyRevisionIssue, markForReview, invalidateDependents, isDismissed, hasConfirmedHistory, isConfirmed, unansweredQuestions, refreshAnswers, confirmAnswer, citations, summary, refreshProgress: sync, attention, generate, confirmIssue, act, relationsFor, addRelation, impactTarget, impactReady, prepareImpact, associate, impactNeedsKnowledge, publicationScope, draftEligibility };
+  function navigationSnapshot(){return copy({records:[...records],tasks});}
+  function restoreNavigation(snapshot){
+    // 还原后必须指向同一份采集对象，不能让治理和目录各持有一份结构副本。
+    records.clear();snapshot.records.forEach(([key,record])=>{record.table=DataSourceDemo.tables.find(table=>table.id===record.table.id);records.set(key,record);});
+    tasks.splice(0,tasks.length,...snapshot.tasks);
+  }
+  window.GovernanceDemo = { get, records, tasks, tasksFor, availableNotes, objectName, structureFor, contentSections, unitFromText, normalizedUnit, unresolvedText, fieldProfile, criticalKeys, foreignKeyIdentity, definitionIssues, fieldReferences, referenceIssue, bindDependencyRevisions, dependencyRevisionIssue, markForReview, invalidateDependents, isDismissed, hasConfirmedHistory, isConfirmed, unansweredQuestions, refreshAnswers, confirmAnswer, citations, summary, refreshProgress: sync, attention, generate, confirmIssue, act, relationsFor, addRelation, impactTarget, impactReady, prepareImpact, associate, impactNeedsKnowledge, publicationScope, draftEligibility,navigationSnapshot,restoreNavigation };
   // 接入概况、目录和治理工作台共用当前进度，避免访问顺序改变统计口径。
   DataSourceDemo.tables.forEach(table => sync(get(table)));
 })();

@@ -38,7 +38,7 @@
   const revokedSources = new Set();
   let canSql = true;
   const timers = new Map();
-  const allowedSource = source => account.active && sourceOptions.some(item => item.id === source) && !revokedSources.has(source);
+  const allowedSource = source => person.status==='正常' && SourceApprovalDemo.hasAbility(person,'query.view') && FeedbackDemo.sourceAccess(person,source) && sourceOptions.some(item => item.id === source) && !revokedSources.has(source);
   const scenarios = [['normal', '正常查询'], ['output-repair', '毛利输出校验后重新生成'], ['explanation', '解释生成失败'], ['connection', '连接失败'], ['unknown', '执行状态未知'], ['permission', '执行前撤权'], ['budget', '资源或预算超限'], ['empty', '空记录'], ['zero', '零值'], ['null', 'NULL 未知值'], ['truncated', '结果截断']];
   PrototypeUI.mount(document.getElementById('query-review-controls'), {
     setup: () => () => Vue.h(ElementPlus.ElSelect, { modelValue: reviewState.scenario, 'aria-label': '下一次查询样例',
@@ -259,6 +259,9 @@
           entry.feedbackCaseId = record.caseId; desk.supplement(record.caseId, reaction.reason);
         }
         if (entry.feedbackCaseId) desk.reaction(entry.feedbackCaseId, reaction);
+        const captured=FeedbackDemo.intake({sourceId:thread.sourceId,type:reaction?.type==='down'?'用户点踩':'评价变更',userId:person.id,
+          threadId:thread.id,turnId:entry.id,answerId:feedbackAnswerId(thread,entry),question:entry.queryText||entry.text,title:'回答核查 · '+(entry.queryText||entry.text),reaction,evidence:feedbackEvidence(entry)},person);
+        if(captured.item&&entry.feedbackCaseId)desk.link(entry.feedbackCaseId,captured.item.id);
         drawFeedback(thread, entry); save();
       },
       onExplanation: action => {
@@ -281,6 +284,25 @@
         }, 700);
       }
     });
+  }
+  function feedbackEvidence(entry){return {revision:1,requestId:entry.request?.id,status:entry.request?.status,queriedAt:entry.reply.result?.queriedAt,
+    knowledge:structuredClone(entry.reply.result?.knowledge||[]),sql:entry.reply.result?.sql||'',database:entry.request?.database};}
+  function feedbackAnswerId(thread,entry){
+    if(entry.feedbackAnswerId)return entry.feedbackAnswerId;
+    const local=desk.get(entry.feedbackCaseId||entry.reply.caseId),backend=local?.backendId&&FeedbackDemo.get(local.backendId);
+    const origin=backend&&FeedbackDemo.origins(FeedbackDemo.root(backend)).find(item=>item.userId===person.id&&item.threadId===thread.id&&item.turnId===entry.id);
+    // 重置问数演示可以重用界面序号，反馈中的真实回答引用仍须唯一。
+    return entry.feedbackAnswerId=origin?.answerId||'ANSWER-'+crypto.randomUUID();
+  }
+  function bindIssue(thread,entry,type){
+    const local=entry.reply.caseId?desk.get(entry.reply.caseId):null;
+    if(local?.type==='access')return;
+    const captured=FeedbackDemo.intake({sourceId:thread.sourceId,type,userId:person.id,threadId:thread.id,turnId:entry.id,answerId:feedbackAnswerId(thread,entry),
+      question:entry.queryText||entry.text,title:local?.title||entry.reply.text,gapKey:thread.sourceId+'/'+(local?.title||entry.reply.text),description:entry.reply.text,evidence:feedbackEvidence(entry)},person);
+    if(captured.item){
+      const caseId=entry.reply.caseId||desk.register(thread.sourceId,entry.reply.text,{threadId:thread.id,turnId:entry.id,text:entry.queryText||entry.text},'failure').caseId;
+      desk.link(caseId,captured.item.id);if(!entry.reply.caseId)entry.feedbackCaseId=caseId;
+    }
   }
 
   function drawFeedback(thread, entry) {
@@ -345,10 +367,16 @@
 
   function drawReceipts() {
     // 同一事项的一次完成只通知店长一次，记录内的每个原问都可以单独回看。
-    const items = desk.list().filter(item => allowedSource(item.sourceId || 'retail'));
-    const records = items.filter(item => item.receipt)
-      .sort((a, b) => b.receipt.completedAt - a.receipt.completedAt);
-    const unread = records.filter(item => !readReceipts.has(item.receipt.key)).length;
+    const items = desk.list().filter(item => allowedSource(item.sourceId || 'retail') || item.receipts?.length);
+    const projected = items.flatMap(item=>(item.receipts||[item.receipt]).filter(Boolean).map(receipt=>{
+      if(!allowedSource(item.sourceId||'retail'))return {...item,title:'反馈处理进度',links:[],receipt:{...receipt,title:'反馈处理完成',text:'该反馈已完成处理，详细结果受当前权限限制。'}};
+      return {...item,receipt};
+    }));
+    // 合并事项在多个原回答卡中出现时，同一接收人与完成轮次仍只显示一次回告。
+    const notices=new Map();
+    for(const item of projected){const previous=notices.get(item.receipt.key);if(!previous)notices.set(item.receipt.key,item);else previous.links=[...new Map([...previous.links,...item.links].map(link=>[link.threadId+'/'+link.turnId,link])).values()];}
+    const records=[...notices.values()].sort((a,b)=>b.receipt.completedAt-a.receipt.completedAt);
+    const unread = records.filter(item => !item.receipt.read&&!readReceipts.has(item.receipt.key)).length;
     const count = document.getElementById('receipt-count');
     count.textContent = String(unread);
     count.hidden = unread === 0;
@@ -363,7 +391,7 @@
     if (!records.length) list.append(element('p', 'receipt-empty', '暂无处理回告。'));
     for (const item of records) {
       const row = element('article', 'receipt-item');
-      if (!readReceipts.has(item.receipt.key)) row.classList.add('unread');
+      if (!item.receipt.read&&!readReceipts.has(item.receipt.key)) row.classList.add('unread');
       const meta = element('div', 'receipt-topic', item.title);
       const completed = new Date(item.receipt.completedAt);
       const time = element('time', '', completed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }));
@@ -373,12 +401,15 @@
       item.links.forEach((link, i) => {
         const button = element('button', 'receipt-link', item.links.length === 1 ? '查看原问题' : '查看提问 ' + (i + 1) + ' · ' + link.text);
         button.type = 'button';
+        const available=threads.some(thread=>thread.id===link.threadId&&thread.turns.some(entry=>entry.id===link.turnId));
+        if(!available){button.disabled=true;button.textContent='原问记录不可用';button.title='当前标签页未保留这条原问记录。';}
         button.append(WorkbenchIcon('chevron-right', 13));
         button.addEventListener('click', () => {
           const thread = threads.find(t => t.id === link.threadId);
           const turn = thread?.flow.querySelector('#' + link.turnId);
           if (!turn) return;
           readReceipts.add(item.receipt.key);
+          if(item.backendId)FeedbackDemo.markRead(item.backendId,item.receipt.key,person);
           receiptDialog.close();
           selectThread(thread);
           turn.tabIndex = -1;
@@ -389,6 +420,9 @@
         });
         row.append(button);
       });
+      if(!item.links.some(link=>threads.some(thread=>thread.id===link.threadId&&thread.turns.some(entry=>entry.id===link.turnId)))&&!item.receipt.read&&!readReceipts.has(item.receipt.key)){
+        const read=element('button','receipt-link','标为已读');read.type='button';read.addEventListener('click',()=>{readReceipts.add(item.receipt.key);if(item.backendId)FeedbackDemo.markRead(item.backendId,item.receipt.key,person);drawReceipts();save();const title=list.querySelector('h3');if(title){title.tabIndex=-1;title.focus();}});row.append(read);
+      }
       list.append(row);
     }
   }
@@ -396,7 +430,7 @@
   receiptButton.addEventListener('click', () => { drawReceipts(); receiptDialog.showModal(); });
   receiptDialog.querySelector('.receipt-close').addEventListener('click', () => receiptDialog.close());
   document.getElementById('reset-demo').addEventListener('click', () => {
-    if (!window.confirm('清除当前标签页的示例对话、事项和回告，重新开始演示？')) return;
+    if (!window.confirm('清除本标签页的问数对话和回告定位，重新开始问数演示？')) return;
     window.removeEventListener('pagehide', save);
     try {
       for (const key of [storageKey, casesKey]) sessionStorage.removeItem(key);
@@ -522,6 +556,7 @@
     const state = request.state, reply = request.reply || { kind: 'notice', text: '' };
     const inheritedQuestion = previous?.waitingUntil && last ? (last.queryText || last.text) + '；补充：' + text : text;
     const entry = { id, text, queryText: inheritedQuestion, state, reply, request };
+    if(reply.kind==='case')bindIssue(thread,entry,'问数知识缺口');
     thread.flow.querySelector('.empty')?.remove();
     thread.flow.append(element('div', 'bubble', text));
     thread.state = state;
@@ -544,6 +579,8 @@
       updateEntry(thread, entry);
       if (entry.request.status === '运行中') schedule(thread, entry);
       else {
+        if(entry.request.status==='技术失败')bindIssue(thread,entry,'技术失败');
+        if(entry.feedbackCaseId)drawFeedback(thread,entry);
         if (entry.request.scenario === 'permission' && entry.request.status === '权限不允许') { revokedSources.add(thread.sourceId); threads.forEach(refreshAccess); drawReceipts(); drawActivity(); }
         status.textContent = entry.reply.result?.title || entry.reply.text || ''; save();
       }
@@ -649,6 +686,7 @@
       thread.draft = data.draft || '';
       if (!thread.turns.length) drawEmpty(thread);
       for (const entry of thread.turns) {
+        if(!entry.feedbackAnswerId&&desk.get(entry.feedbackCaseId||entry.reply.caseId)?.backendId)feedbackAnswerId(thread,entry);
         // 页面恢复不重放尚未确认的执行；已有数据库任务先核查，未提交的请求停止。
         if (entry.request?.status === '运行中') {
           entry.request.status = '技术失败'; entry.request.database = entry.request.executions ? '状态未知' : '未提交';
@@ -675,6 +713,15 @@
   }
   drawReceipts();
   drawActivity();
+  // 后台仅允许当前账号回到本人已有的原问，地址参数不注入回答或切换身份。
+  const feedbackParams=new URLSearchParams(location.search),feedbackThread=threads.find(thread=>thread.id===feedbackParams.get('feedbackThread'));
+  let feedbackLocated=false;
+  if(feedbackThread&&allowedSource(feedbackThread.sourceId)){
+    const turnId=feedbackParams.get('feedbackTurn');const turn=turnId&&feedbackThread.flow.querySelector('#'+CSS.escape(turnId));
+    const entry=feedbackThread.turns.find(entry=>entry.id===turnId),answer=feedbackParams.get('feedbackAnswer');
+    if(turn&&(!answer||entry?.feedbackAnswerId===answer)){selectThread(feedbackThread);turn.tabIndex=-1;turn.focus({preventScroll:true});turn.scrollIntoView({block:'center'});feedbackLocated=true;}
+  }
+  if(feedbackParams.has('feedbackThread')&&!feedbackLocated){const note=element('p','access-ended','原问记录当前不可用，请从历史中选择其他问题。');note.setAttribute('role','status');transcript.prepend(note);}
   setInterval(() => {
     for (const thread of threads) {
       const entry = thread.turns.at(-1);
@@ -685,5 +732,10 @@
   }, 1000);
   showPage();
   window.addEventListener('hashchange', showPage);
+  // 缓存页恢复只更新关联事项和回告，保留原回答及当前对话。
+  window.addEventListener('feedback-prototype-refresh',()=>{
+    threads.forEach(thread=>thread.turns.forEach(entry=>{if(entry.reply?.kind==='case')updateEntry(thread,entry);else if(entry.feedbackCaseId)drawFeedback(thread,entry);}));
+    drawReceipts();save();
+  });
   window.addEventListener('pagehide', save);
 })();

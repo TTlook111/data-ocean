@@ -194,6 +194,8 @@
       finishCovered(record, actor, '知识已更新、验证并发布；已显式解除禁止');
     }
   }
-  window.KnowledgeUpdateDemo = { records, testCases, casesFor, impactFor, entriesFor, current, readiness, signature, resolve, start, generateDraft, actionIssue, act,
+  const navigationSnapshot=()=>copy({records:[...records],documents:[...documents],testCases});
+  function restoreNavigation(snapshot){records.clear();snapshot.records.forEach(([key,value])=>records.set(key,value));documents.clear();snapshot.documents.forEach(([key,value])=>documents.set(key,value));testCases.splice(0,testCases.length,...snapshot.testCases);}
+  window.KnowledgeUpdateDemo = { records, testCases,navigationSnapshot,restoreNavigation, casesFor, impactFor, entriesFor, current, readiness, signature, resolve, start, generateDraft, actionIssue, act,
     list: source => [...GovernanceImpactDemo.records, ...documents.values()].filter(item => item.source === source && (item.state === '知识处理中' || records.has(item.id))) };
 })();

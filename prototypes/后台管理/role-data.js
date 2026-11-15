@@ -30,8 +30,9 @@
     page('releases', '知识库与发布', '发布与版本', [
       ['build', '构建候选', '选择本批完整范围并构建固定候选。'], ['test', '运行验证', '验证当前候选或当前版本的恢复条件。'], ['publish', '确认发布', '复核通过后整批切换实际发布范围。'], ['withdraw', '撤下知识', '核对完整依赖影响后撤下知识，保留版本和审计记录。']]),
     page('feedback', '反馈处理', '问题队列与处理', [
-      ['assign', '分派问题', '核对归属后分派，不扩大处理者权限。'], ['process', '记录处理', '记录核查、修订或技术修复依据。'],
-      ['verify', '复验', '核对实际修复结果。'], ['close', '结案并回告', '按实际处理结果结案，回告可公开结论。']]),
+      ['evidence', '查看原文证据', '结合当前业务访问及输出限制查看原问题和核查明细，SQL 另行核权。'],
+      ['assign', '分派问题', '为事项和处理任务选择负责人，不授予业务数据访问。'], ['process', '记录处理', '办理当前分派给本人的事项与任务，记录获准的核查及处理结果。'],
+      ['verify', '复验', '按当前有效修复和验证依据登记验收结果。'], ['close', '结案并回告', '按实际验收或核查依据结案，回告受控结论。']]),
     page('users', '人员与权限', '人员管理', [
       ['create', '新增人员', '创建登录名、初始密码及人员资料。'], ['edit', '编辑人员', '维护人员资料，不直接改变数据访问。'],
       ['assign', '分配角色', '向个人选择已有角色，不设置时长。'], ['transfer', '调整归属', '调整主部门或兼任关系，核对初始访问来源变化。'],
@@ -72,6 +73,8 @@
     { id: 'governance.allow', name: '解除禁止与恢复', purpose: '验证通过后显式核对风险和范围，解除对应禁止及暂停。' }
   );
   catalog.find(item => item.id === 'collections').operations[0].purpose = '查看获准采集记录及对应结构变化；结构变化在元数据目录中查看。';
+  // 反馈只在此配置功能，业务原文与 SQL 继续沿用既有访问约束。
+  catalog.find(item => item.id === 'feedback').operations[0].purpose = '查看反馈队列基础信息，业务原文和 SQL 另按已有权限核对。';
   const all = catalog.flatMap(item => item.operations);
   const keysFor = ids => catalog.filter(item => ids.includes(item.id)).flatMap(item => item.operations.filter(op => !op.protectedAbility).map(op => op.id));
   const personal = [...keysFor(['account-info', 'my-requests', 'my-access']), 'query.view', 'query.ask'];

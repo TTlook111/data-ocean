@@ -18,7 +18,7 @@
   }
 
   // 来源类型等枚举筛选复用同一控件，并提供与实际用途一致的可访问名称。
-  function filters({ value, statuses, fields, keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, dateBeforeStatus = false, onApply, onReset }) {
+  function filters({ value, statuses, fields, advancedKeys = [], keywordLabel, keywordPlaceholder, statusLabel = '状态', dateLabel = '日期范围', includeDates = true, includeStatus = true, dateBeforeStatus = false, onApply, onReset }) {
     fields = fields || [{ key: 'keyword', label: keywordLabel, placeholder: keywordPlaceholder }];
     const statusInTail = dateBeforeStatus || !includeDates;
     const form = document.createElement('form');
@@ -29,7 +29,7 @@
     return PrototypeUI.mount(form, {
       setup() {
         const state = reactive({ ...Object.fromEntries(fields.map(field => [field.key, value[field.key] || ''])), status: value.status || 'all',
-          dates: value.fromDate && value.toDate ? [value.fromDate, value.toDate] : null, error: '' });
+          advanced:advancedKeys.some(key=>key==='dates'?Boolean(value.fromDate||value.toDate):Boolean(value[key])), dates: value.fromDate && value.toDate ? [value.fromDate, value.toDate] : null, error: '' });
         const current = () => form.isConnected;
         submit = () => {
           if (!current()) return;
@@ -58,7 +58,7 @@
             style: { width: '100%' } }, { default: () => statuses.map(item => h(ElOption, { key: item.value, value: item.value, label: item.label })) })
         ]) : null;
         return () => h('div', { class: 'rl-filter-row' }, [
-          ...fields.map(field => h('div', { class: 'rl-keyword' + (field.options ? ' rl-field-select' : ''), key: field.key }, [
+          ...fields.map(field => h('div', { class: 'rl-keyword' + (field.options ? ' rl-field-select' : ''), key: field.key, style:advancedKeys.includes(field.key)&&!state.advanced?{display:'none'}:undefined }, [
             h('label', { for: uid + '-' + field.key, class: 'sr-only' }, field.label),
             field.options ? h(ElSelect, { id: uid + '-' + field.key, name: field.key, modelValue: state[field.key],
               'onUpdate:modelValue': next => { state[field.key] = next || ''; }, ariaLabel: field.label,
@@ -70,7 +70,7 @@
               onKeydown: event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); submit(); } } })
           ])),
           statusInTail ? null : renderStatus(),
-          h('div', { class: 'rl-filter-tail' + (includeDates ? ' has-dates' : '') + (statusInTail && includeStatus ? ' has-status' : '') }, [includeDates ? h('div', { class: 'rl-dates', role: 'group', 'aria-label': dateLabel,
+          h('div', { class: 'rl-filter-tail' + (includeDates&&(!advancedKeys.includes('dates')||state.advanced) ? ' has-dates' : '') + (statusInTail && includeStatus ? ' has-status' : '') }, [includeDates ? h('div', { class: 'rl-dates', style:advancedKeys.includes('dates')&&!state.advanced?{display:'none'}:undefined, role: 'group', 'aria-label': dateLabel,
             'aria-describedby': uid + '-error', 'aria-invalid': String(Boolean(state.error)) }, [
             h(ElDatePicker, { modelValue: state.dates,
               'onUpdate:modelValue': next => { state.dates = next; state.error = ''; },
@@ -83,6 +83,7 @@
           h('div', { class: 'rl-filter-commands' + (statusInTail && includeStatus ? ' has-status' : '') }, [
             statusInTail ? renderStatus() : null,
             h(ElSpace, { class: 'rl-filter-actions', size: 8 }, { default: () => [
+              ...(advancedKeys.length?[h(ElButton,{nativeType:'button','aria-expanded':String(state.advanced),onClick:()=>{state.advanced=!state.advanced;}},{default:()=>state.advanced?'收起筛选':'更多筛选'})]:[]),
               h(ElButton, { nativeType: 'submit' }, { default: () => '查询' }),
               h(ElButton, { nativeType: 'button', onClick: () => { if (current()) updateWithFocus(form, onReset, '.rl-filters input[name="' + fields[0].key + '"]'); } }, { default: () => '重置' })
             ] })

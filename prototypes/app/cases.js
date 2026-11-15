@@ -42,18 +42,29 @@
     }
     return { kind: 'answer', result, text: type === 'profit' ? '统计范围来自本题指定的城南店。' : '上周退货 ' + result.totals[2] + ' 盒，同期售出 ' + result.totals[1] + ' 盒。' };
   }
-  function create(saved, now = Date.now) {
+  function create(saved, now = Date.now, account) {
+    const actor = window.PeopleDemo?.users.find(user=>user.id===account?.id);
     // 只恢复本版事项；旧版带门店授权和期限的模拟记录不进入当前页面。
     const records = saved?.version === 2 && Array.isArray(saved.records) ? structuredClone(saved.records).filter(item => publicStatus[item.status]) : [];
     const find = id => records.find(item => item.id === id);
-    const read = item => ({ ...structuredClone(item), statusLabel: publicStatus[item.status][0], summary: item.id.startsWith('QS-')
+    const legacyRead = item => ({ ...structuredClone(item), statusLabel: publicStatus[item.status][0], summary: item.id.startsWith('QS-')
       ? item.status === 'processing' ? '已登记，等待负责人核查。' : item.status === 'published' ? '处理已进入复验，尚未确认完成。' : item.receipt?.text
       : item.status === 'processing' && item.events.at(-1)?.action === 'fail' ? item.events.at(-1).text : publicStatus[item.status][1] });
+    const read = item => {
+      const row=legacyRead(item), publicItem=item.backendId&&window.FeedbackDemo?.publicItem(item.backendId,actor);
+      if(item.backendId&&window.FeedbackDemo&&!publicItem)return {...row,externalManaged:true,title:'反馈处理进度',summary:'当前不能查看这条反馈记录。',statusLabel:'不可访问',notes:[],events:[],links:[],receipts:[],receipt:null,canSupplement:false};
+      if(!publicItem)return row;
+      const receipts=publicItem.receipts.map(receipt=>({...receipt,completedAt:receipt.at,title:receipt.restricted?'反馈处理完成':'反馈处理结论',canRetry:publicItem.canRetry}));
+      return {...row,backendId:publicItem.id,externalManaged:true,title:publicItem.title,statusLabel:publicItem.status,summary:publicItem.summary,owner:publicItem.owner,
+        status:publicItem.status==='已解决'?'resolved':publicItem.status==='其他结案'?'explained':'processing',canSupplement:publicItem.canSupplement,
+        notes:publicItem.notes,events:[],receipts,receipt:receipts.at(-1)||null};
+    };
+    function link(id, backendId){const item=find(id);if(item)item.backendId=backendId;}
     const fail = message => ({ ok: false, message }), success = item => ({ ok: true, record: read(item) });
     const rateReady = () => records.some(item => item.id === 'ZL-001' && item.status === 'resolved');
     // 知识缺口与评价只登记线索，补充或点赞踩不改变正式口径及访问权限。
     function register(sourceId, title, origin, type = 'knowledge') {
-      let item = records.find(record => record.sourceId === sourceId && record.title === title && record.type === type && ['processing', 'published'].includes(record.status));
+      let item = records.find(record => record.sourceId === sourceId && record.title === title && record.type === type && ['processing', 'published'].includes(read(record).status));
       if (!item) {
         item = { id: 'QS-' + (records.length + 1), sourceId, type, title, owner: type === 'feedback' ? '问题核查负责人' : '知识治理负责人', status: 'processing', links: [], notes: [],
           events: [{ text: type === 'feedback' ? '已收到反馈，待核查与分派。' : '已关联知识治理事项，等待核对口径。' }], receipt: null };
@@ -90,15 +101,16 @@
       const old = records.find(item => item.type === 'knowledge' && item.links.some(link => link.threadId === threadId && link.turnId === turnId));
       if (old) return { kind: 'case', caseId: old.id };
       if (rateReady()) return answer('knowledge', now());
-      let item = records.find(record => record.type === 'knowledge');
+      let item = records.find(record => /^ZL-001(?:-|$)/.test(record.id) && ['processing','published'].includes(read(record).status));
       if (!item) {
-        item = { id: 'ZL-001', type: 'knowledge', status: 'processing', title: '城南店牛奶退货率口径', owner: '经营口径负责人', links: [], notes: [], events: [{ text: '已自动登记经营口径事项，并关联原问题。' }], receipt: null };
+        item = { id: records.some(record=>record.id==='ZL-001')?'ZL-001-'+records.length:'ZL-001', type: 'knowledge', status: 'processing', title: '城南店牛奶退货率口径', owner: '经营口径负责人', links: [], notes: [], events: [{ text: '已自动登记经营口径事项，并关联原问题。' }], receipt: null };
         records.push(item);
       }
       item.links.push({ threadId, turnId, text });return { kind: 'case', caseId: item.id };
     }
     function supplement(id, content) {
       const item = find(id), text = String(content || '').trim();
+      if(item?.backendId&&window.FeedbackDemo){const error=FeedbackDemo.supplement(item.backendId,text,actor);return error?fail(error):success(item);}
       if (!item || !['processing', 'published'].includes(item.status)) return fail('当前事项已结束或不接受补充。');
       if (!text) return fail('请填写要补充的业务情况。');
       item.notes.push({ text });return success(item);
@@ -108,6 +120,7 @@
       published: { verify: ['resolved', '已按生效版本复验原问题，统计范围与计算通过核对。'], fail: ['processing', '生效版本复验未通过，已退回负责人继续处理。'] }
     };
     function simulate(id, action) {
+      if(find(id)?.backendId)return fail('该事项由后台办理，请进入关联事项。');
       const item = find(id), transition = item?.type !== 'access' && transitions[item?.status]?.[action];
       if (!transition) return fail('当前状态无法模拟该操作。');
       const [next, message] = transition;item.status = next;item.events.push({ action, at: now(), actor: item.owner, text: message });
@@ -124,7 +137,7 @@
       if (result.example === 'return-rate') return rateReady();
       return result.example === 'profit-summary' && JSON.stringify(result.headings) === JSON.stringify(['门店', '毛利额（元）']);
     }
-    return { ask, register, reaction, supplement, simulate, canView, get: id => find(id) ? read(find(id)) : null, list: () => records.map(read), snapshot: () => ({ version: 2, records: structuredClone(records) }) };
+    return { ask, register, link, reaction, supplement, simulate, canView, get: id => find(id) ? read(find(id)) : null, list: () => records.map(read), snapshot: () => ({ version: 2, records: structuredClone(records) }) };
   }
   window.QueryCases = { create };
 })();

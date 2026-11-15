@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "06d96b58-5ca1-43b8-89ed-092673011a04",
+  "status": "current",
+  "command": "deliver",
+  "type": "explainer",
+  "input": "D:\\projects\\DataOcean\\.archify\\explainer-feedback-20261115-180917\\candidate.archify.md",
+  "output": "D:\\projects\\DataOcean\\.archify\\explainer-feedback-20261115-180917\\feedback-flow.html",
+  "specification": {
+    "sha256": "e32c451fd727b6c62cd0860f9be26f1b6484ffc9550820fdf33a9bfde498c240",
+    "bytes": 7859
+  },
+  "artifact": {
+    "sha256": "ce7192c7540e4dbce322172718a5e4c2c8f09ce1567af72c8a6dec5f47bbf736",
+    "bytes": 926691
+  },
+  "explainer": {
+    "preparedSha256": "732818ce125cfccc2865d193334409fd78dfafb6ac599fce96f8f8f0f756b7ce",
+    "dependencies": [
+      {
+        "kind": "diagram-spec",
+        "id": "feedback-cycle",
+        "path": "D:\\projects\\DataOcean\\.archify\\explainer-feedback-20261115-180917\\cycle.workflow.json",
+        "relativePath": "cycle.workflow.json",
+        "sha256": "1868e14e027428801ae482f89bb6833a8d7dfdca22373e5ed8525ce2265645c1",
+        "bytes": 3121
+      },
+      {
+        "kind": "diagram-spec",
+        "id": "repair-location",
+        "path": "D:\\projects\\DataOcean\\.archify\\explainer-feedback-20261115-180917\\paths.workflow.json",
+        "relativePath": "paths.workflow.json",
+        "sha256": "0965f4a4d6b19aa989564567fc846d4ea3aef105260a25acb9f1267f0d26813a",
+        "bytes": 1805
+      }
+    ]
+  }
+}

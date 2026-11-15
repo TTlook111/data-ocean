@@ -1,0 +1,49 @@
+/* 共用后台尺度；列表保留桌面宽表，办理页正文独立滚动、底栏固定可达。 */
+.fb-list-toolbar { padding:0 24px; border-bottom:1px solid var(--do-line); }
+.fb-list-toolbar .el-tabs__header,.fb-tabs .el-tabs__header { margin:0; }
+.fb-list-toolbar .el-tabs__nav-wrap::after,.fb-tabs .el-tabs__nav-wrap::after { display:none; }
+.fb-list [data-column="actions"] .do-action { padding-inline:0;white-space:nowrap; }
+.fb-shell { display:flex;flex-direction:column;flex:1;min-height:420px;overflow:hidden;background:white;border:1px solid var(--do-line);border-radius:8px; }
+.fb-header { flex:none;padding:16px 24px;border-bottom:1px solid var(--do-line); }
+.fb-heading { display:flex;align-items:center;gap:12px;margin-bottom:12px; }
+.fb-fields { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px;margin:0; }
+.fb-fields > div { min-width:0; }
+.fb-fields dt { color:var(--do-muted);font-size:12px;line-height:18px;margin-bottom:4px; }
+.fb-fields dd { margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px; }
+.fb-header .fb-fields { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.fb-tabs { padding:0 24px;border-bottom:1px solid var(--do-line); }
+.fb-body { flex:1;min-height:0;overflow:auto;padding:24px;scrollbar-gutter:stable; }
+.fb-section { margin:0 0 24px;max-width:100%; }
+.fb-section:last-child { margin-bottom:0; }
+.fb-section h2 { font-size:16px;line-height:24px;margin:0 0 16px;font-weight:600; }
+.fb-section h3 { font-size:14px;line-height:22px;margin:0 0 12px; }
+.fb-inline-actions { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:16px; }
+.fb-task,.fb-origin { padding:16px;border:1px solid var(--do-line);border-radius:8px;margin-top:16px; }
+.fb-task .fb-fields + .fb-fields { margin-top:16px;padding-top:16px;border-top:1px solid var(--do-line); }
+.fb-prose { white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0; }
+.fb-muted { color:var(--do-muted);font-size:12px;line-height:18px; }
+.fb-notice { padding:12px 16px;border-left:3px solid #c38d37;background:#fff8eb;color:#76551f;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0 0; }
+.fb-disclosure { margin-top:16px; }
+.fb-disclosure summary { cursor:pointer;color:var(--do-primary);padding:8px 0; }
+.fb-disclosure .fb-fields { margin-top:12px; }
+.fb-footer { flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 24px;border-top:1px solid var(--do-line);background:white; }
+.fb-footer-actions { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto; }
+.fb-timeline { padding-left:20px;margin:0; }
+.fb-timeline li { margin-bottom:20px;padding-left:8px; }
+.fb-timeline strong { display:block;font-size:14px; }
+.fb-timeline small { display:block;margin:4px 0; }
+.fb-review { flex:none;color:var(--do-muted);font-size:12px;padding:0 4px; }
+.fb-review summary { cursor:pointer; }
+.fb-review > div { max-width:220px;margin:8px 0; }
+.fb-return-context { display:flex;align-items:center;justify-content:space-between;gap:16px;flex:none;padding:12px 16px;background:white;border:1px solid var(--do-line);border-radius:8px; }
+.fb-return-context span { min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+.fb-return-context a { flex:none;white-space:nowrap; }
+@media(max-width:1100px){.fb-fields{grid-template-columns:minmax(0,1fr);}.fb-header .fb-fields{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+.fb-list-toolbar { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+.fb-footer-blocker { flex-basis:100%;font-size:12px;line-height:18px;color:#76551f;overflow-wrap:anywhere; }
+.fb-task:focus { outline:2px solid var(--do-primary);outline-offset:3px; }
+.fb-shell .admin-button:disabled { background:#f0f2f5;color:#909399;border-color:#dcdfe6;cursor:not-allowed; }
+
+.fb-footer-actions { justify-content:flex-end;max-width:calc(100% - 110px); }
+.fb-footer-blocker { text-align:right; }

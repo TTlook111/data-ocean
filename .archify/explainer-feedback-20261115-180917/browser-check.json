@@ -1,0 +1,47 @@
+{
+  "stepper": true,
+  "viewports": [
+    {
+      "width": 1440,
+      "rootWidth": 1440,
+      "frameWidth": 1440,
+      "contentWidth": 1425,
+      "selected": "反馈处理",
+      "standalone": "flows/反馈流程.html"
+    },
+    {
+      "width": 1024,
+      "rootWidth": 1024,
+      "frameWidth": 1024,
+      "contentWidth": 1009,
+      "selected": "反馈处理",
+      "standalone": "flows/反馈流程.html"
+    },
+    {
+      "width": 800,
+      "rootWidth": 800,
+      "frameWidth": 800,
+      "contentWidth": 785,
+      "selected": "反馈处理",
+      "standalone": "flows/反馈流程.html"
+    }
+  ],
+  "source": "current working tree and user-provided screenshots",
+  "unchangedBusinessPrototype": true,
+  "nativeViewerOpened": true,
+  "manualVisualReview": [
+    "main flow",
+    "three repair locations",
+    "field explanations",
+    "suggested UI",
+    "project overview at 1440 and 800"
+  ],
+  "businessFormsUnchanged": true,
+  "publishedPage": "prototypes/flows/反馈流程.html",
+  "navigation": "prototypes/项目运行图.html#feedback",
+  "suggestionsNotAdopted": [
+    "source ticket mandatory rule",
+    "data watermark mandatory rule",
+    "business form reordering"
+  ]
+}

@@ -202,13 +202,14 @@
       components: { DataAccessEditor, DataAccessTable, AssignmentPreview: SourceApprovalsPage.AssignmentPreview },
       data: () => ({ model: structuredClone(value), fields, note, error: '', errorPrefix, choiceKeywords: {}, saveLabel, popupTarget: node, reviewing: false, reviewRows: [], danger, previewTitle, previewLabel, previewContentLabel, summary,
         rules: Object.fromEntries(fields.map(f => [f.key, [
-          ...(f.type === 'checkbox' ? [{ required: true, validator: (_, v, done) => done(v ? undefined : new Error('请先完成复核确认')), trigger: 'change' }] : f.required ? [{ required: true, message: f.options ? (f.label.startsWith('选择') ? '请' : '请选择') + f.label : '请填写' + f.label, trigger: f.options ? 'change' : 'blur' }] : []),
+          ...(f.type === 'checkbox' ? [{ required: true, validator: (_, v, done) => done(v ? undefined : new Error(f.validationMessage || '请先完成复核确认')), trigger: 'change' }] : f.required ? [{ required: true, message: f.options ? (f.label.startsWith('选择') ? '请' : '请选择') + f.label : '请填写' + f.label, trigger: f.options ? 'change' : 'blur' }] : []),
           ...(f.key === 'email' ? [{ type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }] : []),
           ...(f.required && !f.options && (!f.type || f.type === 'textarea' || f.type === 'text') ? [{ pattern: /\S/, message: '请填写' + f.label, trigger: 'blur' }] : []),
           ...(f.type === 'data-access' ? [{ validator: (_, v, done) => { const error = f.sourceReadonly && !v[0]?.rules.length ? '请选择至少一条输出限制规则。' : f.singleSource && (v.length !== 1 || !v[0]?.source || !v[0]?.rules.length) ? '请核定数据源并选择至少一条输出限制规则。' : validateAccess(v, Boolean(f.required)); done(error ? new Error(error) : undefined); }, trigger: 'change' }] : [])
         ]])) }),
       watch: { model: { deep: true, handler() { this.error = ''; } } },
-      computed: { unchanged() { return !hasChanges(this.model); } },
+      // 条件字段只在适用阶段挂载，交给组件校验当前可见内容；隐藏时仍保留本次输入。
+      computed: { unchanged() { return !hasChanges(this.model); }, visibleFields() { return this.fields.filter(field=>!field.when||field.when(this.model)); } },
       mounted() { if (protectChanges) node.closeGuard = () => this.cancel(); },
       methods: {
         cancel() {
@@ -258,7 +259,7 @@
       },
       template: `<el-form ref="form" :model="model" :rules="rules" label-position="top" scroll-to-error @validate="validated" @submit.prevent="submit">
         <div class="dialog-body"><p v-if="note" class="form-note">{{note}}</p><p v-if="error" class="form-error" role="alert" tabindex="-1">{{error}}</p>
-        <div v-show="!reviewing" class="form-grid"><el-form-item v-for="f in fields" :key="f.key" :label="f.label" :prop="f.key" :class="{'full-width': f.full}">
+        <div v-show="!reviewing" class="form-grid"><el-form-item v-for="f in visibleFields" :key="f.key" :label="f.label" :prop="f.key" :class="{'full-width': f.full}">
           <div v-if="f.readonly" class="readonly-value">{{model[f.key]}}</div>
           <assignment-preview v-else-if="f.type === 'approval-assignment'" :source-id="model.source" :applicant-id="f.applicantId"></assignment-preview>
           <data-access-table v-else-if="f.type === 'access-summary'" :access="model[f.key]"></data-access-table>
@@ -863,6 +864,9 @@
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });
     else if (section === 'audit') AuditPage.render(main, { el, button, pair, textCell, pageHeading, modal, currentUser, viewRequest: (request, trigger) => requestDetail(request, trigger, true) });
+    else if (section === 'feedback') FeedbackPage.render(main,{el,button,pair,textCell,pageHeading,modal,currentUser,openForm,notify,moreActions,
+      setTitle(title,parent='',href='#feedback'){pageLocation.title=title;pageLocation.parent=parent;pageLocation.parentHref=href;document.title=title+' · DataOcean 后台管理';}
+    },decodeURIComponent(parts[1]||''));
     else if (section === 'output-rules') OutputRulesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, actor: currentUser.name });
     else if (section === 'roles') RolesPage.render(main, { el, button, textCell, status, modal, pair, pageHeading, notify, openForm, moreActions,
       setTitle(title, editor) { pageLocation.title = title; pageLocation.parent = editor ? '角色与功能权限' : ''; document.title = title + ' · DataOcean 后台管理'; } });
@@ -875,6 +879,7 @@
       if (!titles[section]) { const back = el('a', 'admin-button', '返回总览'); back.href = '#dashboard'; panel.append(back); }
       main.replaceChildren(pageHeading(titles[section] || '页面不存在'), panel);
     }
+    const feedbackContext=window.FeedbackPage?.context(section);if(feedbackContext)main.prepend(feedbackContext);
     if (changed) {
       main.scrollTop = 0; main.querySelector('h1')?.focus({ preventScroll: true });
       // 菜单独立滚动时，当前页也必须留在可见区域。
@@ -887,6 +892,8 @@
     main.replaceChildren(pageHeading('总览'), panel);
   }
   buildNav(); window.addEventListener('hashchange', render); render();
+  // 浏览器后退复用页面时，重新展示已同步的反馈状态，其他后台模块保持当前上下文。
+  window.addEventListener('feedback-prototype-refresh',()=>{if(section==='feedback')render();});
   if (section === 'my-requests' && new URLSearchParams(location.search).has('requestData')) {
     applyExtraAccess(main.querySelector('[data-focus="apply-data-access"]'));
     const url = new URL(location.href); url.searchParams.delete('requestData'); url.searchParams.delete('requestSource'); window.history.replaceState(null, '', url);

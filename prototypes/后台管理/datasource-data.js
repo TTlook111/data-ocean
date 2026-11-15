@@ -286,6 +286,12 @@
     if (action === '退役数据源') source.connectionState = '已退役';
     source.updated = now(); source.history.unshift({ revision: source.revision, at: now(), action, reason });
   }
-  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, latestTask, governanceSummary, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, collectionSucceeded, successfulTask, canGovern, advanceTask, cancelTask, lifecycle,
+  // 仅供同标签页跨页面往返交接；恢复数组原引用及编号游标，避免资料引用断开或新记录重号。
+  function navigationSnapshot(){return structuredClone({sources,tables,tasks,notes,noteUses,noteEvents,changes,sequence,snapshotSequence,selected});}
+  function restoreNavigation(snapshot){
+    for(const [key,rows] of Object.entries({sources,tables,tasks,notes,noteUses,noteEvents,changes}))rows.splice(0,rows.length,...snapshot[key]);
+    sequence=snapshot.sequence;snapshotSequence=snapshot.snapshotSequence;selected=snapshot.selected;
+  }
+  window.DataSourceDemo = { sources, tables, tasks, notes, noteUses, noteEvents, noteUsesFor, noteToken, noteDeleteBlock, changeNote, changes, changeTarget, changesFor, pendingVerification, catalogStates, now, find, objects, activeTask, latestTask, governanceSummary, configuration, configDefaults, connectionPolicy, scopeLabel, scopeError, inspectConnection, nameError, error, testResults, canEnable, configChanged, saveConfig, startTask, collectionSucceeded, successfulTask, canGovern, advanceTask, cancelTask, lifecycle,navigationSnapshot,restoreNavigation,
     get selected() { return selected; }, set selected(value) { if (find(value)) selected = value; }, nextId: prefix => prefix + (++sequence) };
 })();

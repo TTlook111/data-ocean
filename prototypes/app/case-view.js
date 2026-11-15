@@ -135,7 +135,7 @@
     const card = el('section', 'case-card');
     card.dataset.caseId = item.id;
     card.dataset.caseStatus = item.status;
-    card.setAttribute('aria-label', isAccess ? '输出限制' : item.type === 'feedback' ? '反馈处理进度' : '口径治理事项');
+    card.setAttribute('aria-label', isAccess ? '输出限制' : item.externalManaged ? '问题处理进度' : item.type === 'feedback' ? '反馈处理进度' : '口径治理事项');
     const main = el('div', 'case-body');
     const actionError = el('p', 'case-error');
     actionError.setAttribute('aria-live', 'polite');
@@ -150,25 +150,26 @@
     const title = el('h2', 'case-title', item.title);
     title.tabIndex = -1;
     header.append(symbol, title, el('span', 'case-status', item.statusLabel));
-    const summary = item.receipt?.text || item.summary;
+    const summary = item.externalManaged ? item.summary : item.receipt?.text || item.summary;
     main.append(header, el('p', 'case-summary', summary));
 
     if (!isAccess) {
       const linked = item.links?.length || 1;
-      const reference = item.id + (linked > 1 ? '（' + linked + ' 次提问）' : '');
+      const reference = (item.backendId || item.id) + (linked > 1 ? '（' + linked + ' 次提问）' : '');
       main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
-      if (item.sourceId && item.type !== 'feedback') {
+      if(item.externalManaged&&window.SourceApprovalDemo?.hasAbility(PeopleDemo.users.find(user=>user.id==='u01'),'feedback.view')){
+        const link=el('a','case-action','查看后台事项');link.href='../后台管理/index.html#feedback/'+encodeURIComponent(item.backendId);main.append(link);
+      } else if (!item.externalManaged && item.sourceId && item.type !== 'feedback') {
         const link = el('a', 'case-action', '查看知识处理');
         link.href = '../后台管理/index.html#knowledge/' + encodeURIComponent(item.sourceId); main.append(link);
       }
     }
     if (isAccess && item.status === 'blocked') {
       // 带入这张卡片的原问题和已知数据源，申请仍由后台表单核对提交。
-      const apply = el('a', 'case-action case-primary', '申请访问');
-      apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(item.originalQuestion || item.links?.[0]?.text || item.title)
-        + (item.sourceId ? '&requestSource=' + encodeURIComponent(item.sourceId) : '') + '#my-requests';
+      const apply = el('a', 'case-action case-primary', '查看访问来源与限制');
+      apply.href = '../后台管理/index.html#my-access';
       main.append(apply);
-    } else if (!isAccess && ['processing', 'published'].includes(item.status)) {
+    } else if (!isAccess && (item.externalManaged ? item.canSupplement : ['processing', 'published'].includes(item.status))) {
       main.append(entryForm(item, onAction, previous));
     } else if (item.receipt?.canRetry) {
       const retry = button('重新查询原问题', 'retry', true);
@@ -181,7 +182,7 @@
     if (item.purpose || item.notes?.length || item.events?.length) {
       card.append(records(item, previous));
     }
-    const transitions = !isAccess && simulation[item.status];
+    const transitions = !isAccess && !item.externalManaged && simulation[item.status];
     if (transitions && document.documentElement.dataset.prototypeReview === 'true') {
       const sim = disclosure('case-sim', '模拟负责人处理', previous);
       const buttons = el('div', 'case-sim-buttons');

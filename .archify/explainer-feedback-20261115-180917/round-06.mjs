@@ -1,0 +1,8 @@
+const task=await taskSpace(27),page=task.page('p3');await page.click('text="下一步 →"');console.log(await page.evaluate(()=>({stepAdvanced:document.body.textContent.includes('2 / 7')})));await page.click('text="结束"');
+const overview=await task.newPage();await overview.goto('http://127.0.0.1:4173/prototypes/%E9%A1%B9%E7%9B%AE%E8%BF%90%E8%A1%8C%E5%9B%BE.html#feedback');await overview.waitForFunction(()=>document.querySelector('iframe')?.contentDocument?.querySelector('h1')?.textContent==='反馈处理流程说明');
+const results=[];
+for(const [width,height] of [[1440,1000],[1024,768],[800,600]]){
+ await overview.cdp('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await overview.screenshot({path:`D:/projects/DataOcean/.archify/explainer-feedback-20261115-180917/integration-${width}.png`});
+ results.push(await overview.evaluate(()=>{const frame=document.querySelector('iframe');return {width:innerWidth,rootWidth:document.documentElement.scrollWidth,frameWidth:frame.clientWidth,contentWidth:frame.contentDocument.documentElement.scrollWidth,selected:document.querySelector('nav [aria-current="page"]').textContent,standalone:document.querySelector('#open').getAttribute('href')};}));
+}
+console.log({integrationPage:overview.label,results});const fs=await import('node:fs/promises');await fs.writeFile('D:/projects/DataOcean/.archify/explainer-feedback-20261115-180917/browser-check.json',JSON.stringify({stepper:true,viewports:results,source:'current working tree and user-provided screenshots',unchangedBusinessPrototype:true},null,2));await overview.cdp('Emulation.clearDeviceMetricsOverride');

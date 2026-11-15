@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "explainer",
+  "quality": "showcase",
+  "specification": {
+    "path": "D:\\projects\\DataOcean\\.archify\\explainer-feedback-20261115-180917\\candidate.archify.md",
+    "sha256": "e32c451fd727b6c62cd0860f9be26f1b6484ffc9550820fdf33a9bfde498c240",
+    "bytes": 7859
+  },
+  "artifact": {
+    "path": "D:\\projects\\DataOcean\\prototypes\\flows\\反馈流程.html",
+    "sha256": "7514dbf49d4774309b3413f5a97d0315fea0243f1f37a82479d09cbf61206e66",
+    "bytes": 927012
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "not-run"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "D:\\projects\\DataOcean\\prototypes\\flows\\反馈流程.finalize.json",
+    "summaryReceipt": "D:\\projects\\DataOcean\\prototypes\\flows\\反馈流程.finalize-summary.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-10T11:13:33.372Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2102,
+  "browserCheck": {
+    "requested": false,
+    "ran": false
+  }
+}
