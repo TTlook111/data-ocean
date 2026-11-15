@@ -310,6 +310,19 @@
     return [...(doc.draft.entries.some(entry => entry.id === 'metric:sales-quantity') ? prototypeCases.get('products:sale_item/metric:sales-quantity') || [] : []),
       ...(doc.draft.entries.some(entry => entry.field === 'status') ? prototypeCases.get('products:product/base') || [] : [])];
   }
+  // 发布准备与候选校验共用题目覆盖判断；只读提示缺项，不自动生成或审核。
+  function caseReadiness(docIds) {
+    return [...new Set(docIds)].map(docId => {
+      const doc = documents.get(docId), related = relatedCases([docId]).filter(test => test.review !== '已停用');
+      const reviewed = related.filter(test => test.review === '已审核' && !caseStale(test));
+      const templates = templatesFor(doc), matches = (test, template) => test.sampleCheck === template.sampleCheck;
+      const missing = templates.length ? templates.filter(template => !related.some(test => matches(test, template))).map(template => template.question) : related.length ? [] : ['业务含义与使用边界'];
+      const issue = related.some(test => test.review === '已审核' && caseStale(test)) ? '相关标准题依据已变化，请先复核并审核题目。' :
+        !reviewed.length ? (doc?.title || docId) + '缺少相关已审核题，请补题并审核。' :
+        templates.some(template => !reviewed.some(test => matches(test, template))) ? doc.title + '的关键能力或使用边界缺少已审核题，不能删题绕过覆盖。' : '';
+      return { document: docId, title: doc?.title || docId, reviewed: reviewed.length, pending: related.length - reviewed.length, missing, issue, ready: !issue };
+    });
+  }
   function sampleData(docIds) {
     if (!docIds.length || docIds.some(docId => !templatesFor(documents.get(docId)).length)) return null;
     if (docIds.every(docId => documents.get(docId).key === 'products:product/base')) return { id: 'SAMPLE-PRODUCT', revision: 1, source: 'products', products: [{ id: 101, code: '0001', status: 1 }, { id: 102, code: '0002', status: 0 }, { id: 103, code: '0003', status: 2 }] };
@@ -442,12 +455,8 @@
     }
     if (current.caseStamp !== caseStamp(task.documents)) return task.kind === '恢复验证' ? '相关已审核题单已变化，请重新发起恢复验证。' : '相关已审核题单已变化，请重新构建并验证。';
     if (Object.entries(current.referenceBaselines || {}).some(([docId, value]) => token(docId) !== value)) return '被引用文档的基础版本已变化，请重新构建并验证。';
-    const tests = relatedCases(task.documents).filter(test => test.review === '已审核' && !caseStale(test));
-    if (relatedCases(task.documents).some(test => test.review === '已审核' && caseStale(test))) return '相关标准题依据已变化，请先复核并审核题目。';
-    const missing = task.documents.find(docId => !tests.some(test => test.documents.includes(docId)));
-    if (missing) return documents.get(missing).title + '缺少相关已审核题，请补题并审核。';
-    const uncovered = task.documents.find(docId => templatesFor(documents.get(docId)).some(template => !tests.some(test => test.documents.includes(docId) && test.sampleCheck === template.sampleCheck)));
-    if (uncovered) return documents.get(uncovered).title + '的关键能力或使用边界缺少已审核题，不能删题绕过覆盖。';
+    const readiness = caseReadiness(task.documents), caseIssue = readiness.find(row => row.issue);
+    if (caseIssue) return caseIssue.issue;
     if (current.replacement) {
       const replacement = replacements.get(current.replacement.id);
       if (JSON.stringify(replacement.redirects) !== JSON.stringify(current.replacement.redirects)) return '引用去向已变化，请重新构建验证。';
@@ -917,7 +926,7 @@
   }
   window.KnowledgeWorkspace = { documents, cases, tasks, active, releases, plans, replacements, responsibility, questionDependencies, inspectSpec, createPlan, checkPlan, coverage, submitPlan, mergeSuggestions, splitSuggestion,
     createReplacement, cancelReplacement, saveReplacement, replacementReferences, affectedDocuments, noImpact, finishImpacts, chunksFor, publishedContext, templatesFor, sectionsFor, suggested, seedPrototype, sampleData, latest, live, needsUpdate, textFor, stamp, key, clone, has, sourceIssue,
-    createDocument, saveDocument, confirmDocument, updatePreview, applyUpdate, importImpact, caseIssue, saveCase, suggestCases, reviewCase, stopCase, caseStale, relatedCases,
+    createDocument, saveDocument, confirmDocument, updatePreview, applyUpdate, importImpact, caseIssue, saveCase, suggestCases, reviewCase, stopCase, caseStale, relatedCases, caseReadiness,
     createTask, changeScope, expandDocuments, candidate, prepareIssue, candidateIssue, taskFeedback, releaseStatus, build, finishBuild, run, finishRun, adjudicate, cancel, publish, finishPublish, reconcile,
     restrictions, activeState, pause, withdrawalScope, withdraw, recoveryIssue, recoveryFeedback, createRecoveryTask, restartRecovery, verifyRecovery, recover, rollbackIssue, rollback, seedReview, simulateChange };
 })();

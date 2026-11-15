@@ -142,6 +142,11 @@
       const commands = el('div', 'kw-empty-actions');
       if (!available && allowed('governance.view')) commands.append(button('前往治理', () => navigate('#governance/' + source.id), true));
       empty.append(commands);
+    } else if (kind === 'cases' && !rows.length && (caseTask || caseDocument)) {
+      const preparation = model.caseReadiness(caseTask?.documents || [caseDocument.id]);
+      empty.append(WorkbenchIcon('file-text'), paragraph('尚无相关标准题'), paragraph('待补充 ' + preparation.reduce((count, item) => count + item.missing.length, 0) + ' 道能力与边界题'));
+      const questions = el('ul', 'kw-empty-questions'); preparation.flatMap(item => item.missing).forEach(question => questions.append(el('li', '', question))); empty.append(questions);
+      if (allowed('test-cases.edit')) { const commands = el('div', 'kw-empty-actions'); commands.append(button('生成题目草稿', trigger => suggestCase(trigger, caseTask), true, 'empty-cases')); empty.append(commands); }
     } else empty.append(WorkbenchIcon('file-text'), paragraph(rows.length ? '没有匹配的记录' : '暂无记录'));
     panel.append(RecordTable.render({ caption: titleOf(section), columns, items: filtered.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), row, empty }),
       RecordControls.pager({ ...query, total: filtered.length }, page => { query.page = page; refresh(); }, size => { query.pageSize = size; query.page = 1; refresh(); }));
@@ -152,6 +157,23 @@
     PrototypeUI.mount(host, { data: () => ({ value: current }), methods: { change(value) { navigate(route('releases', value === 'active' ? 'active' : ''), false); } },
       template: '<el-tabs v-model="value" @tab-change="change"><el-tab-pane name="tasks" label="发布任务"></el-tab-pane><el-tab-pane name="active" label="当前生效"></el-tab-pane></el-tabs>' });
     const commands = el('div', 'kw-tab-actions'); actions.forEach(action => commands.append(action)); if (actions.length) outer.append(commands); return outer;
+  }
+  const pendingCase = test => test.review !== '已停用' && (test.review !== '已审核' || model.caseStale(test));
+  const readinessText = row => [row.reviewed ? '已审核 ' + row.reviewed + ' 道' : '', row.pending ? '待审核 ' + row.pending + ' 道' : '', row.missing.length ? '缺题 ' + row.missing.length + ' 道' : ''].filter(Boolean).join(' · ');
+  function casePreparation(docIds, actions = true) {
+    const panel = el('section', 'kw-case-preparation'); panel.setAttribute('aria-label', '标准题准备情况');
+    for (const row of model.caseReadiness(docIds)) {
+      const item = el('div', 'kw-preparation-row'), text = el('div');
+      text.append(el('strong', '', docIds.length === 1 ? '发布准备' : row.title), el('span', 'kw-preparation-state', readinessText(row)));
+      item.append(text, tag(row.ready ? '标准题已就绪' : '标准题待准备'));
+      if (actions && allowed('test-cases.view')) item.append(button(row.ready ? '查看相关题单' : row.pending ? '审核相关题单' : '补充标准题', () => navigate(route('test-cases', 'for-document', row.document)), false, 'prepare-cases-' + row.document));
+      panel.append(item);
+      if (row.missing.length) {
+        const missing = el('details', 'kw-preparation-missing'); missing.append(el('summary', '', '待补充的能力与边界 · ' + row.missing.length));
+        row.missing.forEach(question => missing.append(paragraph(question))); panel.append(missing);
+      }
+    }
+    return panel;
   }
   function confirmAction(title, fields, value, save, trigger, options = {}) {
     ui.openForm({ title, fields, value, save, trigger, saveLabel: options.label || '确认', danger: Boolean(options.danger), note: options.note || '',
@@ -213,7 +235,7 @@
     let controller, saved = JSON.stringify(plan.rows);
     const sync = vm => { plan.rows = JSON.parse(JSON.stringify(vm.rows)); };
     PrototypeUI.mount(host, {
-      data: () => ({ rows: structuredClone(plan.rows), selected: [], mergeMode: false, expanded: '', checked: Boolean(plan.checked), result: '', options }),
+      data: () => ({ rows: structuredClone(plan.rows), selected: [], mergeMode: false, expanded: '', checked: Boolean(plan.checked), result: '', resultFailed: false, options }),
       mounted() { controller = this; editor = { hash: location.hash, origin: currentOrigin(), dirty: () => JSON.stringify(this.rows) !== saved }; requestAnimationFrame(() => this.syncActions()); },
       methods: {
         syncActions() {
@@ -221,16 +243,23 @@
           const added = pending.filter(row => row.operation === '新建').length, existing = pending.length - added;
           const check = main.querySelector('[data-focus="kw-plan-check"]'), submit = main.querySelector('[data-focus="kw-plan-submit"]');
           if (check) { check.classList.toggle('is-primary', !this.checked); check.textContent = this.checked ? '重新核对' : '核对范围'; }
-          if (submit) { submit.disabled = !this.checked || !ready.length; submit.title = !this.checked ? '请先核对范围' : !ready.length ? '暂无可办理项目' : ''; submit.classList.toggle('is-primary', this.checked && ready.length > 0); submit.textContent = added && existing ? '生成并处理文档' : existing ? '打开已有文档' : '生成 ' + added + ' 份草稿'; }
+          const completed = this.rows.filter(row => row.result?.document), completedOnly = !pending.length && completed.length > 0;
+          if (check) check.hidden = completedOnly;
+          if (submit) { submit.disabled = !completedOnly && (!this.checked || !ready.length); submit.title = completedOnly ? '' : !this.checked ? '请先核对范围' : !ready.length ? '暂无可办理项目' : ''; submit.classList.toggle('is-primary', completedOnly || this.checked && ready.length > 0); submit.textContent = completedOnly ? '核对生成的草稿' : ready.length && pending.some(row => row.result?.error) ? '重试未完成项' : !pending.length ? '暂无待生成项' : added && existing ? '生成并处理文档' : existing ? '打开已有文档' : '生成 ' + added + ' 份草稿'; }
           if (check && submit) check.parentElement.append(this.checked ? submit : check);
-          const summary = main.querySelector('.kw-plan-summary'); if (summary) summary.textContent = '新建 ' + added + ' · 已有 ' + existing + ' · 待补充 ' + pending.filter(row => row.issue).length;
+          const summary = main.querySelector('.kw-plan-summary'); if (summary) summary.textContent = (completed.length ? '已完成 ' + completed.length + ' 篇' + (pending.length ? ' · ' : '') : '') + (pending.length || !completed.length ? '新建 ' + added + ' · 已有 ' + existing + ' · 待补充 ' + pending.filter(row => row.issue).length : '');
         },
         altered(row) { this.checked = false; plan.checked = false; this.result = ''; if (row) row.needsCheck = true; this.syncActions(); },
         async check() { sync(this); model.checkPlan(plan); plan.rows.forEach(row => { row.needsCheck = false; }); this.rows = structuredClone(plan.rows); saved = JSON.stringify(plan.rows); this.checked = true; plan.checked = true; this.result = ''; this.syncActions(); },
         async submit() {
+          // 完成态只定位本批草稿，不能再次提交生成；部分失败仍保留逐项结果。
+          const completed = this.rows.filter(row => row.result?.document);
+          if (completed.length && !this.rows.some(row => row.operation !== '暂不处理' && !row.result?.document)) {
+            this.open(completed.find(row => !model.documents.get(row.result.document)?.draft.confirmed) || completed[0]); return;
+          }
           if (!this.checked) { ui.notify('请先核对本次范围。'); return; }
           sync(this); const result = model.submitPlan(plan, ui.currentUser); if (result.error) return ui.notify(result.error);
-          this.rows = structuredClone(plan.rows); saved = JSON.stringify(plan.rows); this.result = '已完成 ' + result.success + ' 项' + (result.failed ? '，失败 ' + result.failed + ' 项，可单项重试' : ''); this.syncActions();
+          this.rows = structuredClone(plan.rows); saved = JSON.stringify(plan.rows); this.resultFailed = Boolean(result.failed); this.result = '已完成 ' + result.success + ' 项' + (result.failed ? '，失败 ' + result.failed + ' 项，可单项重试' : ''); this.syncActions();
         },
         merge() { sync(this); const issue = model.mergeSuggestions(plan, this.selected); if (issue) return ui.notify(issue); this.rows = structuredClone(plan.rows); this.selected = []; this.mergeMode = false; this.altered(); },
         split(row) { sync(this); const issue = model.splitSuggestion(plan, row.id); if (issue) return ui.notify(issue); this.rows = structuredClone(plan.rows); this.altered(); },
@@ -245,7 +274,7 @@
         coverage(row) { return row.operation === '暂不处理' ? '本次不处理' : row.needsCheck ? '待核对' : row.issue ? '待补充' : row.existingId ? '已有文档' : '依据齐全'; }
       },
       template: `<div class="kw-plan-tools"><span>{{mergeMode?'选择要合并的建议':'文档建议'}} · {{rows.length}}</span><el-button v-if="!mergeMode" @click="add">补充用途</el-button><el-button v-if="!mergeMode && rows.filter(row=>!row.existingId&&!row.result?.document).length>1" @click="mergeMode=true">合并建议</el-button><template v-if="mergeMode"><el-button @click="mergeMode=false;selected=[]">取消选择</el-button><el-button @click="merge" :disabled="selected.length < 2">合并所选建议</el-button></template></div>
-        <p v-if="result" class="ds-notice" role="status">{{result}}</p>
+        <p v-if="result" class="ds-notice" :class="{'kw-plan-success':!resultFailed}" role="status">{{result}}</p>
         <article v-for="row in rows" :key="row.id" class="kw-plan-row" :class="{'is-skipped':row.operation==='暂不处理'}">
           <div class="kw-plan-heading"><el-checkbox v-if="mergeMode" v-model="selected" :value="row.id" :disabled="!!row.result?.document||!!row.existingId" :aria-label="'合并'+row.title"></el-checkbox>
             <div class="kw-plan-identity"><strong>{{row.title}}</strong><p>{{row.purpose || '待明确用途'}}</p></div>
@@ -449,6 +478,7 @@
       if (!allowed('knowledge.edit')) { content.append(el('p', 'ds-notice is-danger', '当前账号没有编辑文档的操作权限。')); footer(root, [button('返回文档', () => back(route('knowledge', doc.id)))]); return; }
       return documentEditor(doc, mode, root, content);
     }
+    if (!formal && doc.draft.confirmed && allowed('test-cases.view')) content.append(casePreparation([doc.id]));
     documentReader(doc, content, formal);
     if (formal) { footer(root, [button('查看当前版本', () => navigate(route('releases', 'active', doc.id)), true)]); return; }
     const actions = [allowed('knowledge.edit') && button(model.needsUpdate(doc) ? '核对并更新' : '编辑文档', () => navigate(route('knowledge', doc.id, model.needsUpdate(doc) ? 'merge' : 'edit')), !doc.draft.confirmed)];
@@ -465,7 +495,7 @@
     const rows = [...model.cases.values()].filter(test => test.source === source.id && (!caseTask || test.documents.some(docId => caseTask.documents.includes(docId))) && (!caseDocument || test.documents.includes(caseDocument.id))).map(test => ({ ...test, searchObject: test.documents.map(docId => model.documents.get(docId)?.title).join(' '), listState: model.caseStale(test) && test.review === '已审核' ? '待复核' : test.review }));
     if (caseTask) rows.sort((a, b) => Number(a.listState === '已审核') - Number(b.listState === '已审核'));
     listView('cases', rows, [{ key: 'title', label: '标准问题', width: 270 }, { key: 'object', label: '关联文档', width: 200 }, { key: 'revision', label: '修订', width: 80 }, { key: 'state', label: '审核状态', width: 100 }, { key: 'actions', label: '操作', width: 120 }], test => [
-      stack(test.question, test.id), test.searchObject, 'r' + test.revision, tag(test.listState), button('查看题目', () => navigate(route('test-cases', test.id)), false, 'case-' + test.id)
+      stack(test.question, test.id), test.searchObject, 'r' + test.revision, tag(test.listState), button(pendingCase(test) && allowed('test-cases.review') ? '审核题目' : '查看题目', () => navigate(route('test-cases', test.id, pendingCase(test) && allowed('test-cases.review') ? 'review' : '')), false, 'case-' + test.id)
     ], ['草稿', '已审核', '待复核', '已停用'], [allowed('test-cases.edit') && button('新增标准题', () => navigate(route('test-cases', 'new')), true),
       allowed('test-cases.edit') && button('生成候选题', trigger => suggestCase(trigger, caseTask))], [{ key: 'keyword', label: '标准问题' }, { key: 'object', label: '关联文档' }]);
   }
@@ -480,12 +510,23 @@
       else { ui.notify('已生成 ' + result.tests.length + ' 道候选题，请逐题核对并审核'); refresh(); }
     }, trigger, { label: '生成草稿' });
   }
+  // 连续审核保留最初题单及其任务范围，切题不累加返回层级，也不自动审核下一题。
+  function caseReviewContext() {
+    let origin = currentOrigin();
+    while (origin) {
+      const parts = origin.hash?.slice(1).split('/') || [];
+      if (parts[0] === 'test-cases' && (!parts[2] || ['for-task', 'for-document'].includes(parts[2]))) {
+        return { origin, task: parts[2] === 'for-task' ? model.tasks.get(parts[3]) : null, document: parts[2] === 'for-document' ? model.documents.get(parts[3]) : null };
+      }
+      origin = origin.previous;
+    }
+    return {};
+  }
   function caseDetail(test, mode) {
     const isNew = !test, { root, content, header } = shell(isNew ? '新增标准题' : test.question, '标准题单', route('test-cases'));
     const viewingRevision = test?.revision, viewingDependencies = test && model.questionDependencies(test.documents);
     if (test) header.append(tag(test.review));
-    const originParts = currentOrigin()?.hash?.slice(1).split('/') || [], fromTask = originParts[0] === 'test-cases' && originParts[2] === 'for-task' && model.tasks.get(originParts[3]);
-    const fromDocument = originParts[0] === 'test-cases' && originParts[2] === 'for-document' && model.documents.get(originParts[3]);
+    const reviewContext = caseReviewContext(), fromTask = reviewContext.task, fromDocument = reviewContext.document;
     const docIds = fromTask?.documents || (fromDocument ? [fromDocument.id] : null);
     const docs = [...model.documents.values()].filter(doc => doc.source === source.id && (!isNew || !docIds || docIds.includes(doc.id)));
     if (isNew || mode === 'edit') {
@@ -501,27 +542,49 @@
         if (action === 'confirm') { const issue = model.caseIssue(next); if (issue) return issue; }
         const result = model.saveCase(test, next, ui.currentUser, expectedRevision); if (result.error) return result.error;
         if (action === 'confirm') { const issue = model.reviewCase(result.test, ui.currentUser); if (issue) return issue; }
-        ui.notify(action === 'confirm' ? '标准题已审核' : '题目草稿已保存'); finishEditing(route('test-cases', result.test.id));
+        ui.notify(action === 'confirm' ? '标准题已审核' : '题目草稿已保存'); finishEditing(route('test-cases', result.test.id, currentOrigin()?.hash?.endsWith('/review') ? 'review' : ''));
       });
       const sample = test && model.sampleData(test.documents); if (sample) header.append(button('查看验证数据', trigger => { const modal = ui.modal('固定验证数据', trigger, true), body = el('div', 'dialog-body'); sampleTable(body, sample); modal.append(body); modal.showModal(); }));
       footer(root, [button('取消', () => back(route('test-cases'))), button('保存草稿', () => editor?.submit('save')), allowed('test-cases.review') && button('保存并审核', () => editor?.submit('confirm'), true)]); return;
     }
-    block(content, '问题与预期', paragraph(test.question), paragraph('预期：' + (test.expected || '尚未补充')));
-    block(content, '判定依据', paragraph(test.basis || '尚未填写数据依据'), paragraph('判定方式：' + test.type + '\n规则：' + (test.rule || '尚未填写') + '\n执行身份：' + (test.identity || '尚未填写') + '\n允许误差：' + (test.tolerance || 0)));
-    const sample = model.sampleData(test.documents); if (sample) sampleTable(content, sample);
-    block(content, '关联文档', ...test.documents.map(docId => button(model.documents.get(docId)?.title || docId, () => navigate(route('knowledge', docId)))));
-    if (model.caseStale(test)) content.append(el('p', 'ds-notice', '关联依据已变化，请复核预期和判定规则。'));
-    if (test.events.length) { const history = block(content, '审核与修订记录'); test.events.forEach(event => history.append(paragraph(event.action + ' · ' + event.actor + ' · ' + event.at + '\n' + event.reason))); }
-    if (test.history.length) block(content, '以往题目修订', ...test.history.map(version => button('r' + version.revision + ' · ' + version.review, trigger => {
+    let reading = content, reviewRows = [];
+    if (mode === 'review') {
+      reviewRows = [...model.cases.values()].filter(item => item.source === source.id && (!docIds || item.documents.some(id => docIds.includes(id))));
+      const pending = reviewRows.filter(pendingCase), queue = el('nav', 'kw-editor-nav kw-case-queue'); queue.setAttribute('aria-label', '待审核题目');
+      queue.append(el('strong', 'kw-queue-count', '待审核 ' + pending.length + ' 道'));
+      for (const item of reviewRows.filter(item => pendingCase(item) || item.id === test.id)) {
+        const choice = button(item.question, () => navigate(route('test-cases', item.id, 'review'), false, reviewContext.origin), false, 'review-' + item.id);
+        choice.className = 'kw-case-choice' + (item.id === test.id ? ' is-active' : ''); choice.setAttribute('aria-current', item.id === test.id ? 'true' : 'false');
+        choice.append(el('span', '', item.review === '已审核' && model.caseStale(item) ? '待复核' : item.review)); queue.append(choice);
+      }
+      const layout = el('div', 'kw-editor-layout'); reading = el('div', 'kw-editor-pane kw-case-reading'); layout.append(queue, reading); content.classList.add('kw-editor-content'); content.append(layout);
+    }
+    block(reading, '问题与预期', paragraph(test.question), paragraph('预期：' + (test.expected || '尚未补充')));
+    block(reading, '判定依据', paragraph(test.basis || '尚未填写数据依据'), paragraph('判定方式：' + test.type + '\n规则：' + (test.rule || '尚未填写') + '\n执行身份：' + (test.identity || '尚未填写') + (test.type === '数值' ? '\n允许误差：' + (test.tolerance || 0) : '')));
+    const sample = model.sampleData(test.documents); if (sample) sampleTable(reading, sample);
+    block(reading, '关联文档', ...test.documents.map(docId => button(model.documents.get(docId)?.title || docId, () => navigate(route('knowledge', docId)))));
+    if (model.caseStale(test)) reading.append(el('p', 'ds-notice', '关联依据已变化，请复核预期和判定规则。'));
+    if (test.events.length) { const history = block(reading, '审核与修订记录'); test.events.forEach(event => history.append(paragraph(event.action + ' · ' + event.actor + ' · ' + event.at + '\n' + event.reason))); }
+    if (test.history.length) block(reading, '以往题目修订', ...test.history.map(version => button('r' + version.revision + ' · ' + version.review, trigger => {
       const modal = ui.modal('标准题修订 r' + version.revision, trigger, true); modal.append(el('div', 'dialog-body kw-history-copy', version.question + '\n预期：' + version.expected + '\n依据：' + version.basis + '\n规则：' + version.rule)); modal.showModal();
     })));
     const executions = [...model.tasks.values()].flatMap(task => task.candidates.flatMap(candidate => candidate.runs.filter(run => run.results.some(row => row.test === test.id)).map(run => ({ task, candidate, run }))));
-    if (executions.length) block(content, '关联运行记录', ...executions.map(({ task, candidate, run }) => button(task.id + ' / ' + candidate.id + ' / ' + run.id + ' · ' + run.result, trigger => {
+    if (executions.length) block(reading, '关联运行记录', ...executions.map(({ task, candidate, run }) => button(task.id + ' / ' + candidate.id + ' / ' + run.id + ' · ' + run.result, trigger => {
       const modal = ui.modal('标准题运行记录', trigger, true), result = run.results.find(row => row.test === test.id);
       modal.append(el('div', 'dialog-body kw-history-copy', candidate.id + ' · ' + run.id + '\n' + result.question + '\n预期：' + result.expected + '\n实际：' + (result.error || String(result.actual ?? '未取得结果')) + '\n判定：' + result.result + '\n依据：' + result.basis)); modal.showModal();
     })));
-    footer(root, [allowed('test-cases.edit') && button('修订题目', () => navigate(route('test-cases', test.id, 'edit'))), allowed('test-cases.edit') && test.review !== '已停用' && button('停用', trigger => confirmAction('停用标准题', [{ key: 'reason', label: '停用原因', type: 'textarea', required: true, full: true }], { reason: '' }, value => model.stopCase(test, ui.currentUser, value.reason), trigger, { danger: true, note: '相关发布缺少必要题目时将被阻断。' })),
-      allowed('test-cases.review') && test.review !== '已停用' && (test.review !== '已审核' || model.caseStale(test)) && button('审核题目', () => execute(() => model.reviewCase(test, ui.currentUser, viewingRevision, viewingDependencies), '题目已审核'), true)]);
+    const reviewable = allowed('test-cases.review') && pendingCase(test), nextCase = reviewRows.find(item => item.id !== test.id && pendingCase(item));
+    const review = () => model.reviewCase(test, ui.currentUser, viewingRevision, viewingDependencies);
+    const actions = [allowed('test-cases.edit') && button('修订题目', () => navigate(route('test-cases', test.id, 'edit'))),
+      allowed('test-cases.edit') && test.review !== '已停用' && button('停用', trigger => confirmAction('停用标准题', [{ key: 'reason', label: '停用原因', type: 'textarea', required: true, full: true }], { reason: '' }, value => model.stopCase(test, ui.currentUser, value.reason), trigger, { danger: true, note: '相关发布缺少必要题目时将被阻断。' })),
+      reviewable && button('审核题目', () => execute(review, '题目已审核'), mode !== 'review')];
+    if (mode === 'review' && reviewable) actions.push(button(nextCase ? '审核并下一题' : '审核并返回题单', () => {
+      const issue = review(); if (issue) return ui.notify(issue);
+      ui.notify('题目已审核');
+      if (nextCase) navigate(route('test-cases', nextCase.id, 'review'), false, reviewContext.origin);
+      else back(route('test-cases'));
+    }, true, 'review-next'));
+    footer(root, actions);
   }
   function sampleTable(content, sample) {
     const panel = block(content, '固定验证数据 · ' + sample.id + ' r' + sample.revision);
@@ -543,8 +606,12 @@
     if (!docs.length) return ui.notify('请先确认依赖完整的知识文档。');
     let task;
     ui.openForm({ title: changing ? '调整发布范围' : '创建发布任务', trigger, value: { documents: selected }, fields: [{ key: 'documents', label: '本次发布文档', options: docs.map(doc => ({ value: doc.id, label: doc.title + ' · r' + doc.draft.revision })), multiple: true, required: true, full: true }],
-      summary: true, previewTitle: '核对本批完整范围', previewLabel: '核对范围', saveLabel: changing ? '确认调整' : '创建任务', previewContentLabel: '目标修订',
-      validate: value => value.documents.length ? '' : '请选择至少一份文档。', preview: value => model.expandDocuments(value.documents).map(docId => { const doc = model.documents.get(docId), current = model.active.get(docId); return { label: doc.title, after: (current ? 'r' + current.snapshot.revision + ' → ' : '首次发布 → ') + 'r' + doc.draft.revision }; }),
+      summary: true, previewTitle: '核对本批完整范围', previewLabel: '核对范围', saveLabel: changing ? '确认调整' : '创建任务', previewContentLabel: '核对结果',
+      validate: value => value.documents.length ? '' : '请选择至少一份文档。', preview: value => {
+        const ids = model.expandDocuments(value.documents);
+        return [...ids.map(docId => { const doc = model.documents.get(docId), current = model.active.get(docId); return { label: doc.title, after: (current ? 'r' + current.snapshot.revision + ' → ' : '首次发布 → ') + 'r' + doc.draft.revision }; }),
+          ...model.caseReadiness(ids).map(row => ({ label: row.title + ' · 标准题', after: readinessText(row) + (row.ready ? ' · 已就绪' : ' · 需补齐后验证') }))];
+      },
       save: value => { if (changing) { const issue = model.changeScope(changing, value.documents, ui.currentUser); task = changing; return issue; } const result = model.createTask(source.id, value.documents, ui.currentUser); task = result.task; return result.error; }, onSaved: () => navigate(route('releases', task.id)), success: changing ? '范围已调整，请重新构建' : '发布任务已创建' });
   }
   function taskList() {
@@ -560,9 +627,17 @@
     model[finish](task, actor, expectedId); refreshTask(view);
     if (autoTest && task.stage === '待验证' && !model.candidateIssue(task)) progress(task, 'run', 'finishRun');
   }
+  function adjudicateResult(task, result, execution, trigger) {
+    confirmAction('裁定候选结果', [
+      { key: 'question', label: '标准问题', readonly: true, full: true }, { key: 'expected', label: '预期', readonly: true, full: true }, { key: 'actual', label: '实际结果', readonly: true, full: true },
+      { key: 'decision', label: '裁定结论', options: ['通过', '未通过'].map(value => ({ value, label: value })), required: true }, { key: 'reason', label: '裁定依据', type: 'textarea', required: true, full: true }
+    ], { question: result.question, expected: result.expected, actual: result.error || String(result.actual ?? '未取得结果'), decision: '未通过', reason: '' }, value => model.adjudicate(task, result.test, value.decision, value.reason, ui.currentUser, execution.id), trigger);
+  }
   function taskDetail(task) {
     const { root, content, header } = shell(task.id, '发布与版本', route('releases'));
-    const feedback = model.taskFeedback(task), current = model.candidate(task);
+    const feedback = model.taskFeedback(task), current = model.candidate(task), execution = current?.runs.at(-1);
+    const pendingResults = execution?.results.filter(result => result.result === '待裁定') || [];
+    const preparationReady = model.caseReadiness(task.documents).every(row => row.ready);
     header.append(tag(feedback.state));
     if (task.stage === '已发布') {
       const states = [...new Set(task.documents.map(docId => model.releaseStatus(task, docId).state))];
@@ -576,6 +651,13 @@
       const phaseIndex = phase ?? ({ '准备中': 0, '构建中': 1, '验证中': 2, '待发布': 3, '被阻断': current ? 2 : 0 }[task.stage] || 0);
       PrototypeUI.mount(steps, { data: () => ({ index: phaseIndex, stages, process: feedback.issue || ['构建失败', '验证未通过', '执行异常'].includes(task.stage) ? 'error' : 'process' }), template: '<el-steps :active="index" :process-status="process" finish-status="success" simple><el-step v-for="stage in stages" :key="stage" :title="stage"></el-step></el-steps>' }); content.append(steps);
     } else block(content, '任务已取消', paragraph(task.events.findLast(event => event.action === '取消发布任务')?.reason || '本任务已取消，未切换正式入口。'));
+    // 先呈现当前要处理的结果；显示顺序不改写冻结的题单或运行记录。
+    if (execution && !['已发布', '已取消'].includes(task.stage)) {
+      const summary = el('section', 'kw-validation-summary'); summary.setAttribute('aria-label', '验证结果汇总');
+      ['通过', '未通过', '待裁定', '执行异常'].forEach(state => { const count = execution.results.filter(result => result.result === state).length; summary.append(count ? tag(state + ' ' + count) : el('span', 'status-tag kw-status-neutral', state + ' 0')); });
+      content.append(summary);
+    }
+    if (!current && task.stage !== '已取消' && allowed('test-cases.view')) content.append(casePreparation(task.documents, false));
     const scope = block(content, '本批文档与修订');
     scope.append(RecordTable.render({ caption: '本批完整范围', columns: [{ key: 'title', label: '文档', width: 220 }, { key: 'before', label: '发布前', width: 110 }, { key: 'after', label: '目标修订', width: 110 }, { key: 'reason', label: '纳入依据', width: 140 }, { key: 'actions', label: '操作', width: 120 }],
       items: task.documents.map(docId => model.documents.get(docId)), row: doc => { const fixed = current?.documents.find(item => item.id === doc.id), previous = current ? current.baselines[doc.id] : model.active.get(doc.id) ? '/r' + model.active.get(doc.id).snapshot.revision : '';
@@ -588,15 +670,12 @@
     if (current) {
       scope.append(paragraph('固定候选：' + current.id + ' · 构建' + (current.built ? '已完成' : '尚未完成')));
       const tests = block(content, '候选验证');
-      const execution = current.runs.at(-1);
       if (!execution) tests.append(paragraph('尚未运行验证'));
       else {
         tests.append(paragraph(execution.id + ' · ' + execution.at + ' · ' + execution.result));
-        tests.append(RecordTable.render({ caption: '逐题结果', columns: [{ key: 'question', label: '标准问题', width: 230 }, { key: 'expected', label: '预期', width: 160 }, { key: 'actual', label: '实际及依据', width: 220 }, { key: 'state', label: '结果', width: 100 }, { key: 'actions', label: '操作', width: 120 }], items: execution.results, row: result => [
-          stack(result.question, result.test + ' · r' + result.revision), el('p', 'kw-result-preview', result.expected), actualResult(result), tag(result.result), result.result === '待裁定' && allowed('test-cases.judge') ? button('办理裁定', trigger => confirmAction('裁定候选结果', [
-            { key: 'question', label: '标准问题', readonly: true, full: true }, { key: 'expected', label: '预期', readonly: true, full: true }, { key: 'actual', label: '实际结果', readonly: true, full: true },
-            { key: 'decision', label: '裁定结论', options: ['通过', '未通过'].map(value => ({ value, label: value })), required: true }, { key: 'reason', label: '裁定依据', type: 'textarea', required: true, full: true }
-          ], { question: result.question, expected: result.expected, actual: result.error || String(result.actual ?? '未取得结果'), decision: '未通过', reason: '' }, value => model.adjudicate(task, result.test, value.decision, value.reason, ui.currentUser, execution.id), trigger), false, 'judge-' + result.test) : button('查看题目', () => navigate(route('test-cases', result.test)), false, 'test-' + result.test)
+        const rank = result => result.result === '待裁定' ? 0 : result.result === '通过' ? 2 : 1;
+        tests.append(RecordTable.render({ caption: '逐题结果', columns: [{ key: 'question', label: '标准问题', width: 230 }, { key: 'expected', label: '预期', width: 160 }, { key: 'actual', label: '实际及依据', width: 220 }, { key: 'state', label: '结果', width: 100 }, { key: 'actions', label: '操作', width: 120 }], items: [...execution.results].sort((a, b) => rank(a) - rank(b)), row: result => [
+          stack(result.question, result.test + ' · r' + result.revision), el('p', 'kw-result-preview', result.expected), actualResult(result), tag(result.result), result.result === '待裁定' && allowed('test-cases.judge') ? button('办理裁定', trigger => adjudicateResult(task, result, execution, trigger), false, 'judge-' + result.test) : button('查看题目', () => navigate(route('test-cases', result.test)), false, 'test-' + result.test)
         ] }));
       }
       if (current.runs.length > 1) block(content, '以往运行', ...current.runs.slice(0, -1).map(run => paragraph(run.id + ' · ' + run.result + ' · ' + run.at)));
@@ -621,10 +700,12 @@
         navigate(route('releases', result.task.id));
       }, true, 'restart-recovery'));
     }
+    if (!current && !issue && !finished && !busy && !preparationReady && allowed('test-cases.view')) actions.push(button('准备相关题单', () => openTaskCases(task), true, 'task-cases'));
     if (!finished && !busy && task.stage !== '结果待核实') {
       if (allowed('releases.build') && task.kind !== '恢复验证') actions.push(button('调整范围', trigger => createTask(trigger, task.selected, task)));
-      if (allowed('releases.build') && task.kind !== '恢复验证' && (!current || feedback.next === 'build' || !issue)) actions.push(button(current ? '重新构建候选' : '构建候选', () => progress(task, 'build', 'finishBuild', true), !current || feedback.next === 'build' || task.stage === '构建失败', 'build', model.prepareIssue(task)));
-      if (current?.built && allowed('releases.test') && !issue) actions.push(button(current.runs.length ? '重新运行验证' : '运行验证', () => progress(task, 'run', 'finishRun'), task.stage !== '待发布', 'test'));
+      if (allowed('releases.build') && task.kind !== '恢复验证' && (!current || feedback.next === 'build' || !issue)) actions.push(button(current ? '重新构建候选' : '构建候选', () => progress(task, 'build', 'finishBuild', true), (!current && (preparationReady || !allowed('test-cases.view'))) || feedback.next === 'build' || task.stage === '构建失败', 'build', model.prepareIssue(task)));
+      if (current?.built && allowed('releases.test') && !issue) actions.push(button(current.runs.length ? '重新运行验证' : '运行验证', () => progress(task, 'run', 'finishRun'), task.stage !== '待发布' && !pendingResults.length, 'test'));
+      if (pendingResults.length && !issue && allowed('test-cases.judge')) actions.push(button('处理 ' + pendingResults.length + ' 道待裁定题', trigger => adjudicateResult(task, pendingResults[0], execution, trigger), true, 'judge-next'));
       if (allowed('releases.publish') && task.stage === '待发布' && !issue) actions.push(button('确认发布', trigger => confirmAction('确认整批发布', [
         { key: 'scope', label: '本批范围', readonly: true, full: true }, { key: 'candidate', label: '固定候选', readonly: true }, { key: 'result', label: '验证结果', readonly: true }
       ], { scope: current.documents.map(doc => doc.title + ' r' + doc.revision).join('\n') + (current.replacement ? '\n同批退出：' + current.replacement.sources.map(docId => model.documents.get(docId).title).join('、') : ''), candidate: current.id, result: current.runs.at(-1)?.result }, () => {

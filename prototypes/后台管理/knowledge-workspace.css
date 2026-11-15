@@ -75,6 +75,24 @@
 .kw-impact-row { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:16px 0; border-bottom:1px solid var(--do-line); }
 .kw-impact-row > div:first-child { flex:1; min-width:200px; }
 .kw-plan-summary { margin-right:auto; color:var(--do-muted); line-height:24px; }
+/* 准备缺口与当前验证结果前置；不将提示当作新增审批或自动审核。 */
+.kw-action[hidden] { display:none; }
+.kw-plan-success { color:var(--el-color-success-dark-2,#17653f); background:var(--el-color-success-light-9,#f0f9eb); }
+.kw-case-preparation { padding:16px 24px; border:1px solid var(--do-line); border-radius:6px; flex:none; }
+.kw-reading-content > .kw-case-preparation { border:0; border-bottom:1px solid var(--do-line); border-radius:0; }
+.kw-preparation-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+.kw-preparation-row + .kw-preparation-row { margin-top:16px; }
+.kw-preparation-row > div:first-child { flex:1; min-width:200px; }
+.kw-preparation-state { display:block; margin-top:4px; color:var(--do-muted); line-height:22px; }
+.kw-preparation-missing { margin-top:8px; color:var(--do-muted); }
+.kw-preparation-missing summary { cursor:pointer; }
+.kw-preparation-missing .ds-prose { margin:8px 0; }
+.kw-validation-summary { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; padding:16px; background:var(--do-canvas); border-radius:6px; }
+.kw-empty-questions { max-width:560px; text-align:left; margin:0 0 16px; padding-left:20px; color:var(--do-muted); line-height:24px; }
+.kw-queue-count { padding:8px 12px 12px; }
+.kw-case-queue .kw-case-choice { flex-direction:column; align-items:flex-start; gap:8px; overflow-wrap:anywhere; }
+.kw-case-reading > .kw-section { margin-bottom:24px; max-width:800px; }
+.kw-case-reading .ds-prose { white-space:pre-wrap; overflow-wrap:anywhere; line-height:26px; }
 /* 章节导航复用治理工作台的桌面分栏，正文与输入保持 800px 阅读宽度。 */
 .kw-editor-content { padding:0; overflow:hidden; }
 .kw-editor-layout { display:grid; grid-template-columns:var(--gov-nav-width,224px) minmax(0,1fr); height:100%; min-height:0; }

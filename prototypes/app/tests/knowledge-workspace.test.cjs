@@ -28,6 +28,41 @@ function plannedFixture() {
   return f;
 }
 
+test('publication preparation distinguishes missing questions, drafts and reviewed coverage before construction', () => {
+  const f = plannedFixture(); f.generate();
+  const docs = f.plan.rows.map(row => f.w.documents.get(row.result.document));
+  assert.deepEqual(Array.from(f.w.caseReadiness(docs.map(doc => doc.id)), row => row.missing.length), [1, 4]);
+  docs.forEach(doc => f.w.suggestCases(doc, f.actor));
+  const drafts = f.w.caseReadiness(docs.map(doc => doc.id));
+  assert.deepEqual(Array.from(drafts, row => row.pending), [1, 4]);
+  assert.ok(drafts.every(row => !row.ready && row.missing.length === 0));
+  [...f.w.cases.values()].forEach(testCase => f.w.reviewCase(testCase, f.actor));
+  assert.ok(f.w.caseReadiness(docs.map(doc => doc.id)).every(row => row.ready));
+  assert.equal(f.w.tasks.size, 0);
+});
+
+test('preparation and candidate validation agree when a necessary boundary question is stopped', () => {
+  const f = plannedFixture(); f.generate();
+  const doc = f.w.documents.get(f.plan.rows[1].result.document);
+  f.w.confirmDocument(doc, f.actor); const tests = f.w.suggestCases(doc, f.actor).tests;
+  tests.forEach(testCase => f.w.reviewCase(testCase, f.actor));
+  f.w.stopCase(tests[1], f.actor, '替换此边界题');
+  const preparation = f.w.caseReadiness([doc.id])[0];
+  assert.equal(preparation.ready, false); assert.equal(preparation.missing.length, 1);
+  const task = f.w.createTask('products', [doc.id], f.actor).task; f.build(task);
+  assert.equal(f.w.candidateIssue(task), preparation.issue);
+});
+
+test('preparation counts stale reviewed questions as pending instead of allowing obsolete coverage', () => {
+  const f = plannedFixture(); f.generate();
+  const doc = f.w.documents.get(f.plan.rows[1].result.document), tests = f.w.suggestCases(doc, f.actor).tests;
+  tests.forEach(testCase => f.w.reviewCase(testCase, f.actor));
+  f.w.saveDocument(doc, doc.draft.note, f.actor, doc.draft.revision, { purpose: '核对商品原销售数量及其关联边界' });
+  const preparation = f.w.caseReadiness([doc.id])[0];
+  assert.equal(preparation.ready, false); assert.equal(preparation.reviewed, 0); assert.equal(preparation.pending, 4);
+  assert.match(preparation.issue, /复核/);
+});
+
 test('audit: responsibility edits invalidate reviewed question dependencies even with the same governance basis', () => {
   const f = plannedFixture(); f.generate(); const doc = f.w.documents.get(f.plan.rows[0].result.document);
   const question = f.w.suggestCases(doc, f.actor).tests[0]; f.w.reviewCase(question, f.actor);
