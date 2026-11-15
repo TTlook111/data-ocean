@@ -30,24 +30,26 @@
     if (area === 'releases') return target === 'active' ? detail ? '版本详情' : '当前生效' : target === 'active-batch' ? '本批生效版本' : target && target !== 'tasks' ? '发布任务' : '发布与版本';
     return ({ governance: '治理页面', catalog: '元数据目录', collections: '采集记录', 'business-notes': '企业业务说明' })[area];
   }
-  function refresh(focus = '[data-primary]') {
-    const positions = main?.querySelector('.kw-shell') ? [...main.querySelectorAll('.kw-content,.kw-editor-pane')].map(node => node.scrollTop) : [];
+  function refresh(focus = '[data-primary]', resetScroll = false) {
+    const positions = !resetScroll && main?.querySelector('.kw-shell') ? [...main.querySelectorAll('.kw-content,.kw-editor-pane')].map(node => node.scrollTop) : [];
     window.dispatchEvent(new Event('hashchange'));
     if (positions.length) requestAnimationFrame(() => main.querySelectorAll('.kw-content,.kw-editor-pane').forEach((node,index) => { node.scrollTop = positions[index] || 0; }));
+    if (resetScroll) requestAnimationFrame(() => { main.scrollTop = 0; main.querySelectorAll('.kw-content,.kw-editor-pane').forEach(node => { node.scrollTop = 0; }); });
     focusLater(focus);
   }
-  function refreshTask(view) {
+  function refreshTask(view, resetScroll = false) {
     if (location.hash !== view) return;
     const dialog = document.querySelector('dialog[open]');
     // 后台阶段完成不打断正在填写的确认表单，也不抢走其他页面的焦点。
     if (dialog) {
+      if (resetScroll) dialog.dataset.kwResetScroll = 'true';
       if (!dialog.dataset.kwPendingRefresh) {
         dialog.dataset.kwPendingRefresh = 'true';
-        dialog.addEventListener('close', () => requestAnimationFrame(() => { if (location.hash === view) refresh(); }), { once: true });
+        dialog.addEventListener('close', () => requestAnimationFrame(() => { if (location.hash === view) refresh(undefined, dialog.dataset.kwResetScroll === 'true'); }), { once: true });
       }
       return;
     }
-    refresh();
+    refresh(undefined, resetScroll);
   }
   function execute(fn, message = '处理结果已更新', focus) {
     const result = fn(); if (typeof result === 'string' && result) { ui.notify(result); return result; }
@@ -628,13 +630,70 @@
     if (autoTest && task.stage === '待验证' && !model.candidateIssue(task)) progress(task, 'run', 'finishRun');
   }
   function adjudicateResult(task, result, execution, trigger) {
-    confirmAction('裁定候选结果', [
-      { key: 'question', label: '标准问题', readonly: true, full: true }, { key: 'expected', label: '预期', readonly: true, full: true }, { key: 'actual', label: '实际结果', readonly: true, full: true },
-      { key: 'decision', label: '裁定结论', options: ['通过', '未通过'].map(value => ({ value, label: value })), required: true }, { key: 'reason', label: '裁定依据', type: 'textarea', required: true, full: true }
-    ], { question: result.question, expected: result.expected, actual: result.error || String(result.actual ?? '未取得结果'), decision: '未通过', reason: '' }, value => model.adjudicate(task, result.test, value.decision, value.reason, ui.currentUser, execution.id), trigger);
+    const modal = ui.modal('裁定候选结果', trigger), host = el('div', 'kw-adjudication-host'); modal.classList.add('kw-adjudication-dialog'); modal.append(host);
+    let controller;
+    // 阅读区独立滚动，裁定输入始终可达；提交仍绑定打开时的运行，不沿用后来的重测结果。
+    PrototypeUI.mount(host, {
+      data: () => ({ question: result.question, expected: result.expected, actual: result.error || String(result.actual ?? '未取得结果'), rule: result.rule, basis: result.basis,
+        run: execution.id, value: { decision: '未通过', reason: '' }, error: '', closing: false,
+        rules: { decision: [{ required: true, message: '请选择裁定结论', trigger: 'change' }], reason: [{ required: true, pattern: /\S/, message: '请填写裁定依据', trigger: 'blur' }] } }),
+      mounted() {
+        controller = this; editor = { hash: location.hash, origin: currentOrigin(), dialog: modal, dirty: () => this.dirty(), discard: () => modal.close() };
+        // 复用连接编辑的原窗确认方式，Esc 返回裁定输入，不穿透关闭原生弹窗。
+        modal.addEventListener('keydown', event => { if (event.key === 'Escape' && this.closing) { event.preventDefault(); event.stopImmediatePropagation(); this.resume(); } }, true);
+      },
+      watch: { value: { deep: true, handler() { this.error = ''; if (this.value.reason.trim()) { this.$refs.form?.clearValidate('reason'); this.validated('reason', true); } } } },
+      methods: {
+        dirty() { return Boolean(this.value.reason) || this.value.decision !== '未通过'; },
+        cancel() { if (!this.dirty()) { modal.close(); return; } if (this.closing) { this.resume(); return; } this.closing = true; this.$nextTick(() => host.querySelector('[data-continue-adjudication]')?.focus()); },
+        resume() { this.closing = false; this.$nextTick(() => host.querySelector('textarea')?.focus()); },
+        discard() { modal.close(); },
+        scrollCopy(event) {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          const node = event.currentTarget, page = Math.max(24, node.clientHeight - 24);
+          const top = { ArrowDown: node.scrollTop + 24, ArrowUp: node.scrollTop - 24, PageDown: node.scrollTop + page, PageUp: node.scrollTop - page, Home: 0, End: node.scrollHeight }[event.key];
+          if (top === undefined) return;
+          // 将阅读按键限定在当前栏，触底时也不把外层裁定输入滚出视口。
+          event.preventDefault(); node.scrollTop = top;
+        },
+        validated(prop, valid) {
+          if (prop !== 'reason') return;
+          this.$nextTick(() => { const input = host.querySelector('textarea'); input.setAttribute('aria-invalid', String(!valid)); if (valid) input.removeAttribute('aria-describedby'); else input.setAttribute('aria-describedby', 'kw-adjudication-reason-error'); });
+        },
+        async submit() {
+          if (this.closing) return;
+          this.error = ''; const valid = await this.$refs.form.validate().catch(() => false);
+          if (!valid) { await this.$nextTick(); host.querySelector('.el-form-item.is-error textarea,.el-form-item.is-error input')?.focus(); return; }
+          const issue = model.adjudicate(task, result.test, this.value.decision, this.value.reason, ui.currentUser, execution.id);
+          if (issue) { this.error = issue; await this.$nextTick(); host.querySelector('[data-adjudication-error]')?.focus(); return; }
+          modal.close(); ui.notify('已完成本题裁定'); refresh();
+        }
+      },
+      template: `<el-form ref="form" class="kw-adjudication-form" :model="value" :rules="rules" label-position="top" @validate="validated" @submit.prevent="submit">
+        <div class="kw-adjudication-question"><strong>{{question}}</strong><span>{{run}}</span></div>
+        <div class="kw-adjudication-compare"><section><h3>预期与判定依据</h3><div class="kw-adjudication-copy" tabindex="0" role="region" aria-label="预期与判定依据" @keydown="scrollCopy"><p>{{expected}}</p><h4>判定规则</h4><p>{{rule}}</p><h4>答案依据</h4><p>{{basis}}</p></div></section>
+          <section><h3>实际结果</h3><div class="kw-adjudication-copy" tabindex="0" role="region" aria-label="完整实际结果" @keydown="scrollCopy">{{actual}}</div></section></div>
+        <p v-if="closing" class="kw-adjudication-close-warning" role="alert">放弃本次裁定？已填写内容将丢失。</p>
+        <p v-else-if="error" class="form-error kw-adjudication-error" role="alert" tabindex="-1" data-adjudication-error>{{error}}</p>
+        <div class="kw-adjudication-decision"><el-form-item label="裁定结论" prop="decision"><el-radio-group v-model="value.decision" :disabled="closing" aria-label="裁定结论"><el-radio-button value="通过">通过</el-radio-button><el-radio-button value="未通过">未通过</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="裁定依据" prop="reason"><el-input v-model="value.reason" :disabled="closing" type="textarea" :rows="2" :maxlength="300" show-word-limit aria-label="裁定依据"></el-input><template #error="{error:message}"><div id="kw-adjudication-reason-error" class="el-form-item__error" role="alert">{{message}}</div></template></el-form-item></div>
+        <footer class="dialog-footer"><template v-if="closing"><el-button @click="discard">放弃修改</el-button><el-button type="primary" data-continue-adjudication @click="resume">继续裁定</el-button></template><template v-else><el-button @click="cancel">取消</el-button><el-button type="primary" native-type="submit">确认裁定</el-button></template></footer></el-form>`
+    });
+    modal.addEventListener('close', () => { if (editor?.dialog === modal) editor = null; }, { once: true });
+    modal.closeGuard = () => controller?.cancel(); modal.showModal();
+  }
+  function publicationResult(content, task, current) {
+    const release = model.releases.get(task.id), result = block(content, '本次发布结果'); result.classList.add('kw-publication-result'); result.setAttribute('aria-label', '本次发布结果');
+    if (release) result.append(paragraph(release.at + ' · ' + release.actor));
+    // 历史名称和发布修订取冻结快照；当前版本、暂停及禁止按实际入口分别回看。
+    const rows = task.documents.map(docId => ({ id: docId, title: current?.documents.find(item => item.id === docId)?.title || model.documents.get(docId).title, ...model.releaseStatus(task, docId) }));
+    result.append(RecordTable.render({ caption: '本次发布与当前生效', columns: [{ key: 'title', label: '文档', width: 220 }, { key: 'published', label: '本次发布', width: 100 }, { key: 'active', label: '当前生效', width: 100 }, { key: 'state', label: '当前状态', width: 150 }, { key: 'actions', label: '操作', width: 120 }],
+      items: rows, row: status => { const active = model.active.get(status.id); return [status.title, 'r' + status.revision, status.current ? 'r' + status.current : '暂无', [tag(status.state), el('small', 'cell-sub', active ? '当前可用性：' + model.activeState(active) : '暂无生效内容')], active ? button('查看当前版本', () => navigate(route('releases', 'active', status.id)), false, 'published-' + status.id) : '—']; } }));
+    const restricted = rows.flatMap(status => { const active = model.active.get(status.id); if (!active || model.activeState(active) === '正常') return []; const reasons = model.restrictions(active); return [paragraph(status.title + '：' + (reasons.length ? reasons.join('；') : model.activeState(active)))]; });
+    if (restricted.length) { const limits = el('div', 'kw-publication-restrictions'); limits.append(el('h3', '', '当前限制'), ...restricted); result.append(limits); }
   }
   function taskDetail(task) {
-    const { root, content, header } = shell(task.id, '发布与版本', route('releases'));
+    const { root, content: workspace, header } = shell(task.id, '发布与版本', route('releases')); let content = workspace;
     const feedback = model.taskFeedback(task), current = model.candidate(task), execution = current?.runs.at(-1);
     const pendingResults = execution?.results.filter(result => result.result === '待裁定') || [];
     const preparationReady = model.caseReadiness(task.documents).every(row => row.ready);
@@ -645,6 +704,11 @@
     }
     if (feedback.expired) header.append(tag('验证依据已失效'));
     if (task.kind === '恢复验证') header.append(tag('恢复验证'));
+    if (task.stage === '已发布') {
+      publicationResult(content, task, current);
+      const process = el('details', 'kw-publish-process'); process.append(el('summary', '', '发布过程与验证记录'));
+      content = el('div', 'kw-publish-process-body'); process.append(content); workspace.append(process);
+    }
     const steps = el('div', 'kw-steps prototype-ui'), stages = task.kind === '恢复验证' ? ['条件核对', '隔离验证', '验证完成'] : ['范围核对', '候选构建', '相关验证', '发布检查', '切换完成'];
     const phase = task.kind === '恢复验证' ? task.stage === '验证已完成' ? 3 : task.stage === '待验证' ? 0 : 1 : { '构建失败': 1, '待验证': 2, '待裁定': 2, '验证未通过': 2, '执行异常': 2, '切换中': 3, '结果待核实': 3, '已发布': 5 }[task.stage];
     if (task.stage !== '已取消') {
@@ -682,11 +746,6 @@
       if (current.sample) sampleTable(content, current.sample);
     }
     const issue = feedback.issue;
-    if (task.stage === '已发布') {
-      const result = block(content, '发布结果与当前版本');
-      result.append(RecordTable.render({ caption: '本次发布与当前生效', columns: [{ key: 'title', label: '文档', width: 220 }, { key: 'published', label: '本次发布', width: 110 }, { key: 'active', label: '当前生效', width: 110 }, { key: 'state', label: '后续状态', width: 140 }],
-        items: task.documents.map(docId => ({ id: docId, ...model.releaseStatus(task, docId) })), row: status => [model.documents.get(status.id).title, 'r' + status.revision, status.current ? 'r' + status.current : '暂无', tag(status.state)] }));
-    }
     if (task.stage === '验证已完成') block(content, '恢复验证结果', paragraph(feedback.expired ? '本次运行曾通过；当前依据已变化，需要重新核验后才能恢复。' : '隔离验证已通过，生产限制仍保持，等待有权人员显式恢复。'));
     if (task.candidates.length > 1) block(content, '历史候选', ...task.candidates.filter(item => item !== current).map(item => paragraph(item.id + ' · ' + item.documents.map(doc => doc.title + ' r' + doc.revision).join('、') + ' · ' + (item.runs.at(-1)?.result || '未验证'))));
     const history = block(content, '处理记录'); task.events.forEach(event => history.append(paragraph(event.action + ' · ' + event.actor + ' · ' + event.at + '\n' + event.reason)));
@@ -711,7 +770,7 @@
       ], { scope: current.documents.map(doc => doc.title + ' r' + doc.revision).join('\n') + (current.replacement ? '\n同批退出：' + current.replacement.sources.map(docId => model.documents.get(docId).title).join('、') : ''), candidate: current.id, result: current.runs.at(-1)?.result }, () => {
         const error = model.publish(task, ui.currentUser); if (error) return error;
         const expectedId = task.currentId, view = location.hash, actor = ui.currentUser;
-        setTimeout(() => { model.finishPublish(task, actor, expectedId); refreshTask(view); }, 450);
+        setTimeout(() => { model.finishPublish(task, actor, expectedId); refreshTask(view, task.stage === '已发布'); }, 450);
       }, trigger, { label: '确认发布', note: '本批整体切换；仍存在的禁止与暂停保持生效。' }), true, 'publish', issue));
       if (allowed('releases.build')) actions.unshift(button('取消任务', trigger => confirmAction('取消发布任务', [{ key: 'reason', label: '取消原因', type: 'textarea', required: true, full: true }], { reason: '' }, value => model.cancel(task, ui.currentUser, value.reason), trigger, { danger: true })));
     }
