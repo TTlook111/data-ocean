@@ -1,0 +1,22 @@
+/* 模型列表与节点列表复用后台24/16/8px尺度；窄PC窗口保留桌面表格。 */
+.sm-tabs{display:flex;align-items:center;gap:16px;min-height:48px;flex:none;padding:0 16px;background:var(--do-panel);border:1px solid var(--do-line);border-radius:8px;}.sm-tabs-nav{flex:1;min-width:0;}.sm-tabs>.admin-button{flex:none;margin-left:auto;}.sm-tabs .el-tabs__header{margin:0;}.sm-tabs .el-tabs__nav-wrap::after{display:none;}
+.sm-list-tools{display:flex;align-items:flex-start;gap:16px;flex:none;flex-wrap:wrap;}.sm-list-tools>form{flex:1;min-width:240px;}.sm-list-tools>.admin-button{margin-left:auto;}
+.sm-record-panel{min-height:280px;}.sm-record-panel [data-column="actions"] .do-action{white-space:nowrap;padding-inline:0;}
+.sm-assignment .el-select{width:100%;}.sm-assignment .cell-sub{margin-top:4px;}
+.sm-node-name{display:block;white-space:normal;overflow-wrap:anywhere;line-height:22px;}.sm-node-description{margin:0;white-space:normal;overflow-wrap:anywhere;line-height:22px;}.sm-node-warning{display:block;margin-top:4px;color:#8b651b;font-size:12px;line-height:18px;}.sm-index-state{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;}.sm-index-state>.cell-sub,.sm-index-state>small{flex-basis:100%;}.sm-index-state .el-button{min-height:24px;height:auto;padding:2px 0;font-size:12px;}.sm-review-actions{flex-wrap:wrap;margin-top:12px;}
+.sm-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;margin:0;}.sm-facts>div{min-width:0;}.sm-facts dt{font-size:12px;line-height:18px;color:var(--do-muted);margin-bottom:4px;}.sm-facts dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px;}
+.sm-disclosure{margin-top:24px;padding-top:16px;border-top:1px solid var(--do-line);}.sm-disclosure summary{cursor:pointer;color:var(--do-primary);margin-bottom:16px;}.sm-disclosure .sm-facts+.sm-facts{margin-top:16px;}
+.sm-prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px;}.sm-notice{padding:12px 16px;background:#fff8eb;border-left:3px solid #c38d37;color:#76551f;line-height:22px;}.sm-prototype-hint{flex:none;color:var(--do-muted);font-size:12px;line-height:18px;margin:0;}
+@media(max-width:900px){.sm-facts{grid-template-columns:minmax(0,1fr);}}
+/* 窄PC仍保留三列表格，让说明实际可读，模型列不再覆盖说明。 */
+@media(max-width:1100px){
+  .sm-nodes-panel .rt-table{min-width:0!important;width:100%;}
+  .sm-nodes-panel col[data-column="node"]{width:24%!important;}
+  .sm-nodes-panel col[data-column="description"]{width:40%!important;}
+  .sm-nodes-panel col[data-column="model"]{width:36%!important;}
+  .sm-nodes-panel td[data-column="model"]{position:static;box-shadow:none;}
+  .sm-nodes-panel th[data-column="model"]{right:auto;box-shadow:none;}
+  .sm-nodes-panel td{padding-inline:12px;}
+  .sm-nodes-panel td:first-child{padding-inline-start:16px;}
+  .sm-nodes-panel td:last-child{padding-inline-end:16px;}
+}
