@@ -63,10 +63,12 @@
       header.append(heading, el('h2', '', selected.reason));
       const metadata = el('dl', 'approval-metadata'); metadata.append(pair('申请人', applicant(selected).name + '（' + applicant(selected).login + '）'), pair('所属部门', department(selected)), pair('提交时间', selected.submitted)); header.append(metadata);
       const body = el('div', 'approval-document-body'), request = el('section', 'approval-section');
-      const requestFields = el('dl', 'approval-request-fields'); requestFields.append(pair('需要的数据', selected.requestedScope || selected.reason), pair('已知数据源', (selected.sourceIds || []).map(demo.sourceName).join('、') || '由负责人核定'));
+      const requestFields = el('dl', 'approval-request-fields'); requestFields.append(pair('需要的数据', part.application?.requestedScope || selected.requestedScope || selected.reason), pair('已知数据源', (selected.sourceIds || []).map(demo.sourceName).join('、') || '由负责人核定'));
+      if(part.application)requestFields.append(pair('本次业务用途',part.application.reason),pair('补充说明',part.application.supplement));
       request.setAttribute('aria-label', '申请资料'); request.append(requestFields);
       const decision = el('section', 'approval-section'), parts = el('div', 'prototype-ui approval-item-tabs');
       const decisionHeading = el('div', 'approval-decision-heading'); decisionHeading.append(el('h3', '', '核定与审批'));
+      if(!demo.structureBlocked(selected,currentUser))decisionHeading.append(button('拆分与联合设置',trigger=>structure(selected,trigger),'do-action','request-structure'));
       if (demo.open(part) && part.status !== '待分流' && !['已撤回','已驳回','需补充'].includes(selected.status) && SourceApprovalDemo.hasAbility(currentUser, 'access-requests.route')) decisionHeading.append(button('重新核定数据源', trigger => assign(selected, part, trigger), 'do-action', 'reassign-source'));
       decision.append(decisionHeading);
       if (selected.approvalItems.length > 1) {
@@ -124,6 +126,15 @@
     queue.scrollTop = previous.queue;
     queue.querySelector('.is-current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     if (selected && previous.id === selected.id) document.querySelector('.approval-document-body').scrollTop = previous.body;
+    function structure(request,trigger){
+      const revision=request.revision,initial={sourceIds:request.approvalItems.map(part=>part.source).filter(Boolean),mode:request.mode,basis:''};
+      openForm({title:'调整审批子项与联合组合',trigger,value:initial,protectChanges:true,hasChanges:data=>JSON.stringify(data)!==JSON.stringify(initial),
+        fields:[{key:'sourceIds',label:'审批数据源子项',required:true,multiple:true,full:true,options:PeopleDemo.dataSources.map(source=>({value:source.id,label:source.name}))},{key:'mode',label:'办理方式',required:true,full:true,options:[{value:'independent',label:'独立办理：各子项通过即生效'},{value:'joint',label:'联合办理：全部必要子项通过后一起生效'}]},{key:'basis',label:'拆分或联合使用的业务依据',type:'textarea',required:true,full:true}],
+        validate:data=>data.mode==='joint'&&data.sourceIds.length<2?'联合组合至少需要两个数据源子项。':undefined,
+        previewTitle:'核对审批范围与办理方式',previewLabel:'核对设置',saveLabel:'确认调整',summary:true,
+        preview:data=>[{label:'调整前',after:request.approvalItems.map(part=>demo.sourceName(part.source)).join('、')},{label:'调整后',after:data.sourceIds.map(demo.sourceName).join('、')},{label:'办理方式',after:data.mode==='joint'?'联合办理，全部必要审批通过后整组生效':'独立办理，各子项通过即生效'},{label:'调整依据',after:data.basis},{label:'当前负责人',after:data.sourceIds.map(source=>demo.sourceName(source)+'：'+(SourceApprovalDemo.resolve(source,request.user).reviewer?SourceApprovalDemo.names(SourceApprovalDemo.resolve(source,request.user).reviewer):'待分流')).join('\n')}],
+        save:data=>demo.restructure(request,data,currentUser,revision),success:'审批子项与组合已调整',onSaved:()=>{state.lastResult={id:request.id,partId:request.approvalItems[0].id,actor:currentUser.id,kind:'routing'};render(main,ui);viewResult(request,main.querySelector('[data-focus="approval-view-result"]'));}});
+    }
     function decide(request, part, action, trigger) {
       const blocked = demo.blocked(request, part, currentUser, action); if (blocked) { notify(blocked); return; }
       const approve = action === 'approve', label = { approve: '批准', supplement: '要求补充', reject: '驳回' }[action], revision = request.revision;

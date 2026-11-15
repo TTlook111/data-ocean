@@ -17,10 +17,10 @@
     }
   });
   const groups = [
-    ['数据源接入', 'database', [['sources', '数据源管理'], ['collections', '采集记录'], ['catalog', '元数据目录'], ['business-notes', '企业业务说明']]],
-    ['数据治理', 'layers', [['governance', '治理工作台']]],
-    ['知识库与发布', 'file-text', [['knowledge', '知识文档'], ['test-cases', '标准题单'], ['releases', '发布与版本']]],
-    ['反馈处理', 'inbox', [['feedback', '问题队列与处理']]],
+    ['数据源接入', 'database', [['sources-dashboard', '接入概览'], ['sources', '数据源管理'], ['collections', '采集记录'], ['catalog', '元数据目录'], ['business-notes', '企业业务说明']]],
+    ['数据治理', 'layers', [['governance-dashboard', '治理概览'], ['governance', '治理工作台']]],
+    ['知识库与发布', 'file-text', [['knowledge-dashboard', '知识概览'], ['knowledge', '知识文档'], ['test-cases', '标准题单'], ['releases', '发布与版本']]],
+    ['反馈处理', 'inbox', [['feedback-dashboard', '反馈概览'], ['feedback', '问题队列与处理']]],
     ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
     ['系统配置', 'layers', [['models', '模型配置'], ['model-uses', '用途设置'], ['retrieval', '知识检索配置'], ['diagnostics', '运行诊断']]],
     ['个人管理', 'user-round', [['account-info', '账号信息'], ['my-requests', '我的申请'], ['my-access', '我的访问范围']]]
@@ -271,6 +271,7 @@
           <el-select v-else-if="f.options" v-model="model[f.key]" :aria-label="f.label" :multiple="f.multiple" :disabled="f.disabled" :clearable="!f.required" :append-to="popupTarget" filterable :placeholder="f.placeholder || (f.label.startsWith('选择') ? '请'+f.label : '请选择'+f.label)">
             <el-option v-for="o in f.options" :key="o.value" :value="o.value" :label="o.label" :disabled="o.disabled"></el-option>
           </el-select>
+          <el-input-number v-else-if="f.type === 'number'" v-model="model[f.key]" :aria-label="f.label" :min="f.min" :max="f.max" :step="f.step || 1" :precision="f.precision" controls-position="right"></el-input-number>
           <data-access-editor v-else-if="f.type === 'data-access'" v-model="model[f.key]" @update:model-value="clearAccessError(f.key)" :popup-target="popupTarget" :single-source="f.singleSource" :source-readonly="f.sourceReadonly"></data-access-editor>
           <el-checkbox v-else-if="f.type === 'checkbox'" v-model="model[f.key]">{{f.checkLabel}}</el-checkbox>
           <el-input v-else v-model="model[f.key]" :aria-label="f.label" :type="f.type || 'text'" :show-password="f.type === 'password'" :autocomplete="f.type === 'password' ? 'new-password' : 'off'" :disabled="f.disabled" :maxlength="f.type === 'textarea' ? 300 : 80" :rows="3" :show-word-limit="f.type === 'textarea'" :placeholder="f.placeholder || ''"></el-input>
@@ -508,6 +509,11 @@
         if(review){section.append(el('p','',review.label+'：'+review.identity));if(review.timeLabel)section.append(el('p','cell-sub',review.timeLabel+'：'+review.time));}
         if (AccessRequestDemo.open(item) && AccessRequestDemo.inProgress(request) && item.routeReason) section.append(el('p', 'form-note', item.routeReason));
         if (item.reason) section.append(el('p', '', item.reason));
+        if (item.application) {
+          if(item.application.reason!==request.reason)section.append(el('p','','本次业务用途：'+item.application.reason));
+          if(item.application.requestedScope!==request.requestedScope)section.append(el('p','','需要的数据：'+item.application.requestedScope));
+          section.append(el('p','','补充说明：'+item.application.supplement),el('p','cell-sub','本次补充时间：'+item.application.submitted));
+        }
         if (AccessRequestDemo.decisionOf(item) === '已批准' && item.rules.length) { const names = el('p', 'access-rule-names', '输出限制规则：' + item.rules.map(rule => rule.name).join('、')); names.title = names.textContent; section.append(names); }
         if (item.revokedAt) section.append(el('p', 'cell-sub', item.revokedAt + ' · ' + item.revokedBy), el('p', '', item.revokedReason));
         reviewed.append(section);
@@ -515,17 +521,28 @@
       body.append(el('h3', '', '办理情况'), reviewed);
       if (request.mode === 'joint' && request.approvalItems.some(item => item.status === '已批准')) body.append(el('p', 'form-note', AccessRequestDemo.inProgress(request) ? '等待其他必要子项审批。' : '本组合未通过，当前未生效。'));
     }
-    if (adminResult && request.history.length) {
+    if (request.history.length) {
       const history = el('ol', 'approval-history');
       for (const entry of request.history) { const item = el('li'); item.append(el('small', '', entry.time + ' · ' + entry.actor), el('strong', '', entry.action), el('p', '', entry.content)); history.append(item); }
       body.append(el('h3', '', '处理记录'), history);
     }
     if (request.result) body.append(el('h3', '', '处理说明'), el('p', '', request.result));
     const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
+    if (!adminResult && AccessRequestDemo.canResubmit(request, currentUser)) footer.append(button('补充并重新提交', () => { node.close(); resubmitRequest(request, trigger); }, 'admin-button is-primary'));
     if(adminResult&&section==='access-requests'&&SourceApprovalDemo.hasAbility(currentUser,'grants.view')&&GrantDemo.records(currentUser,{origin:request.id}).some(record=>record.request?.id===request.id))footer.append(button('查看授权',()=>{node.close();GrantsPage.openOrigin(request.id);}));
     if (!adminResult && AccessRequestDemo.inProgress(request)) footer.append(button(request.access.length ? '撤回未处理子项' : '撤回申请', () => { const revision = request.revision; node.close(); confirmChange({ title: request.access.length ? '撤回未处理子项' : '撤回申请', trigger, danger: true,
       description: '撤回“' + request.id + '”的未处理子项。', preview: () => [change('申请状态', request.status, request.access.length ? '部分已生效' : '已撤回')], save: () => AccessRequestDemo.withdraw(request, currentUser, revision) }); }, 'admin-button is-danger'));
     node.append(body, footer); node.showModal(); return node;
+  }
+  function resubmitRequest(request, trigger) {
+    const revision=request.revision,affected=request.mode==='joint'?request.approvalItems:request.approvalItems.filter(part=>part.status==='需补充');
+    const initial={reason:affected[0]?.application?.reason||request.reason,requestedScope:affected[0]?.application?.requestedScope||request.requestedScope||'',supplement:'',requirement:request.approvalItems.filter(part=>part.status==='需补充').map(part=>AccessRequestDemo.sourceName(part.source)+'：'+part.reason).join('\n')};
+    openForm({title:'补充并重新提交 · '+request.id,trigger,value:initial,protectChanges:true,hasChanges:data=>JSON.stringify(data)!==JSON.stringify(initial),
+      note:request.mode==='joint'?'本次联合组合全部子项将重新审批。':'本次只重提需补充子项。',
+      fields:[{key:'requirement',label:'需补充内容',readonly:true,full:true},{key:'requestedScope',label:'需要的数据',type:'textarea',required:true,full:true},{key:'reason',label:'业务用途',type:'textarea',required:true,full:true},{key:'supplement',label:'本次补充说明',type:'textarea',required:true,full:true}],
+      previewTitle:'核对重新提交内容',previewLabel:'核对申请',saveLabel:'重新提交',summary:true,
+      preview:data=>[{label:'重新审批范围',after:affected.map(part=>AccessRequestDemo.sourceName(part.source)).join('、')},{label:'需要的数据',after:data.requestedScope},{label:'业务用途',after:data.reason},{label:'补充说明',after:data.supplement},{label:'提交后',after:'重新匹配当前审批责任，等待核定与审批'}],
+      save:data=>AccessRequestDemo.resubmit(request,data,currentUser,revision),success:'补充已提交，等待重新审批',onSaved:()=>requestDetail(request,main.querySelector('.request-detail-action'))});
   }
   // 管理回看保留逐笔来源；本人访问范围另按数据源合并当前有效限制。
   function accessRecords(user) {
@@ -588,7 +605,7 @@
       items: records.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), empty,
       row: request => { const title = el('div'); title.append(button(request.reason, trigger => requestDetail(request, trigger), 'cell-title'), el('span', 'cell-sub', request.id));
         const sources=(request.sourceIds||request.access.map(item=>item.source)).map(id=>dataSources.find(source=>source.id===id)?.name||'数据源不可用').join('、')||'待核定';
-        return [title, textCell(sources), textCell(request.submitted), status(request.status), button('查看详情', trigger => requestDetail(request, trigger), 'do-action is-primary request-detail-action')]; }
+        return [title, textCell(sources), textCell(request.submitted), status(request.status), button(AccessRequestDemo.canResubmit(request,currentUser)?'补充重提':'查看详情', trigger => AccessRequestDemo.canResubmit(request,currentUser)?resubmitRequest(request,trigger):requestDetail(request, trigger), 'do-action is-primary request-detail-action')]; }
     }), RecordControls.pager({ total: records.length, ...q }, page => { q.page = page; renderMyRequests(); }, size => { q.pageSize = size; q.page = 1; renderMyRequests(); }));
     main.replaceChildren(pageHeading('我的申请'), tools, panel);
   }
@@ -848,6 +865,7 @@
       else link.removeAttribute('aria-current');
     }
     if (section === 'dashboard') renderDashboard();
+    else if (window.ModuleDashboardProfiles?.[section]) DashboardPage.render(main, { el, pageHeading, currentUser }, section);
     else if (section === 'users') renderUsers();
     else if (section === 'departments') renderDepartments();
     else if (section === 'sources') SourceApprovalsPage.render(main, { el, button, textCell, status, pair, pageHeading, openForm, modal, currentUser, notify, moreActions });
@@ -887,9 +905,8 @@
     }
   }
   function renderDashboard() {
-    // 尚未制作的看板沿用清楚的占位，不用重复菜单的卡片模拟已有内容。
-    const panel = el('section', 'planned-page'); panel.append(WorkbenchIcon('layers'), el('h2', '', '待制作'));
-    main.replaceChildren(pageHeading('总览'), panel);
+    // 统计样例与其他业务原型隔离，图表只承担展示和日期筛选。
+    DashboardPage.render(main, { el, pageHeading, currentUser });
   }
   buildNav(); window.addEventListener('hashchange', render); render();
   // 浏览器后退复用页面时，重新展示已同步的反馈状态，其他后台模块保持当前上下文。

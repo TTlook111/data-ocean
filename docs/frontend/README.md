@@ -15,7 +15,7 @@
 
 ## 前端技术选型
 
-当前 HTML 原型使用本地 Vue 3 和 Element Plus，版本与许可见[组件资源](../../prototypes/shared/vendor/README.md)。这是原型工具选择；正式前端技术栈待原型确认后确定，不从旧系统或原型依赖自动推定。
+当前 HTML 原型使用本地 Vue 3、Element Plus 及总览图表所需的 ECharts，版本与许可见[组件资源](../../prototypes/shared/vendor/README.md)。负责人已确定未来正式前端使用 React；组件体系及其余实现选择仍待确认。当前继续原型评审，这一方向决定不授权迁移原型或开始正式重构，原型依赖也不自动成为正式选型。
 
 ## 内容归属
 

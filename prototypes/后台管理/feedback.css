@@ -47,3 +47,13 @@
 
 .fb-footer-actions { justify-content:flex-end;max-width:calc(100% - 110px); }
 .fb-footer-blocker { text-align:right; }
+
+/* 模块内导航复用页签，配置列表仍使用统一桌面查询和分页。 */
+.fb-module-tabs { flex:none;padding:0 16px;background:var(--do-panel);border:1px solid var(--do-line);border-radius:8px; }
+.fb-module-tabs .el-tabs__header { margin:0; }
+.fb-module-tabs .el-tabs__nav-wrap::after { display:none; }
+.fb-insight-tools { display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;flex:none; }
+.fb-insight-tools > form { flex:1;min-width:240px; }
+.fb-insight-tools > .admin-button { margin-left:auto; }
+.form-grid .el-input-number { width:100%; }
+.fb-insight-tools + .record-panel [data-column="actions"] .do-action { white-space:nowrap;padding-inline:0; }

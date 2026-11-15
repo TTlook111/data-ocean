@@ -26,22 +26,24 @@
     ['u04', '核对月度回款', '核对本月回款与应收差额。', ['finance'], 'independent', '需补充'],
     ['u02', '查看商品基础目录', '查看在售商品名称与分类。', ['products'], 'independent', '已生效'],
     ['u14', '查询员工个人资料', '需要员工联系信息。', ['retail'], 'independent', '已驳回'],
-    ['u05', '核对历史采购记录', '申请人已撤回本次数据访问申请。', ['products'], 'independent', '已撤回']
+    ['u05', '核对历史采购记录', '申请人已撤回本次数据访问申请。', ['products'], 'independent', '已撤回'],
+    ['u01', '补充月度费用核对范围', '需要核对月度费用汇总，具体月份待补充。', ['finance'], 'independent', '需补充']
   ];
   for (const [index, [user, reason, requestedScope, sources, mode = 'independent', status = '待审批']] of seeds.entries()) {
     const request = { id: 'SQ-REVIEW-' + String(index + 1).padStart(3, '0'), user, department: person(user).department, reason, requestedScope,
       sourceIds: sources.filter(Boolean), mode, status, revision: 1, access: [], submitted: '2026-11-10 ' + String(10 - Math.floor(index / 4)).padStart(2, '0') + ':' + String(50 - index).padStart(2, '0'),
       approvalItems: sources.map((source, i) => item(source, i, status)), history: [] };
     if (status !== '待审批') {
-      request.approvalItems[0].reviewer = 'u01';
+      const historicalReviewer = user === 'u01' ? person('u13') : person('u01');
+      request.approvalItems[0].reviewer = historicalReviewer.id;
       request.approvalItems[0].decision = status === '已生效' ? '已批准' : status;
-      if (status !== '已撤回') Object.assign(request.approvalItems[0], { reviewedById: 'u01', reviewedBy: person('u01').name, reviewedLogin: person('u01').login, reviewedAt: request.submitted });
+      if (status !== '已撤回') Object.assign(request.approvalItems[0], { reviewedById: historicalReviewer.id, reviewedBy: historicalReviewer.name, reviewedLogin: historicalReviewer.login, reviewedAt: request.submitted });
       request.approvalItems[0].reason = status === '需补充' ? '请补充具体核对月份及所需汇总指标。' : status === '已驳回' ? '当前业务用途不足以支持所申请的个人联系信息。' : status === '已撤回' ? '本次工作已取消。' : '已批准查看商品基础资料。';
       if (status === '已生效') {
         request.approvalItems[0].activatedAt = request.submitted;
         request.access = [{ source: sources[0], rules: structuredClone(request.approvalItems[0].rules) }];
       }
-      request.history.push({ time: request.submitted, actor: status === '已撤回' ? person(user).name : '林管理员', action: request.approvalItems[0].decision,
+      request.history.push({ time: request.submitted, actor: status === '已撤回' ? person(user).name : historicalReviewer.name, action: request.approvalItems[0].decision,
         content: request.approvalItems[0].reason + (status === '已生效' ? '访问已生效。' : '') });
     }
     extraRequests.push(request);
@@ -178,5 +180,42 @@
     refresh(request, false); request.revision += 1;
     request.history.push({ time: timestamp(), actor: actor.name, action: '核定与分派', content: sourceName(part.source) + '：' + (part.reviewer ? routing.names(part.reviewer) + (part.routeReason ? '；' + part.routeReason : '') : part.routeReason) });
   }
-  window.AccessRequestDemo = { records, ensure, blocked, decide, withdraw, effectiveAccess, aggregate, decisionOf, reviewIdentity, reviewInfo, sourceName, open, inProgress, partsFor, inbox, triageReason, refreshSource, reassign };
+  const canResubmit = (request, actor) => request.user === actor?.id && actor.status === '正常' && routing.hasAbility(actor, 'my-requests.apply') && request.approvalItems.some(part => part.status === '需补充') && !(request.mode === 'joint' && request.approvalItems.some(part => ['已生效','已撤销','已驳回','已撤回'].includes(part.status)));
+  // 原办理结论留在修订快照中；独立项只重提需补充部分，联合组合必须整组重新核定。
+  function resubmit(request, data, actor, revision) {
+    ensure(request);
+    if (!canResubmit(request, actor)) return '只有申请人可补充本人需补充的申请。';
+    if (request.revision !== revision) return '申请已变化，请重新核对当前修订。';
+    if (!data.reason?.trim() || !data.requestedScope?.trim() || !data.supplement?.trim()) return '请填写业务用途、需要的数据及本次补充说明。';
+    const affected = request.mode === 'joint' ? request.approvalItems : request.approvalItems.filter(part => part.status === '需补充');
+    request.submissions ||= [];
+    request.submissions.push({ revision:request.revision, reason:request.reason, requestedScope:request.requestedScope, items:structuredClone(request.approvalItems), time:timestamp() });
+    const time = timestamp();
+    for (const part of affected) {
+      // 受影响的旧批准不能随新业务信息复用；已生效独立项不在本次范围内。
+      for (const key of ['decision','reason','reviewedAt','reviewedById','reviewedBy','reviewedLogin','routeKey','activatedAt']) delete part[key];
+      Object.assign(part, { status:'待审批', rules:[], application:{ reason:data.reason.trim(), requestedScope:data.requestedScope.trim(), supplement:data.supplement.trim(), submitted:time } });
+    }
+    if (affected.length === request.approvalItems.length) Object.assign(request, { reason:data.reason.trim(), requestedScope:data.requestedScope.trim() });
+    request.revision++; request.status = '待审批'; refresh(request, false); aggregate(request);
+    request.history.push({ time, actor:actor.name, action:'补充后重新提交', content:affected.map(part=>sourceName(part.source)).join('、')+'；业务用途：'+data.reason.trim()+'；需要的数据：'+data.requestedScope.trim()+'；补充说明：'+data.supplement.trim() });
+  }
+  const structureBlocked = (request, actor) => !routing.hasAbility(actor, 'access-requests.route') ? '当前账号没有核定与分派权限。' : !inProgress(request) || request.approvalItems.some(part=>!open(part)) ? '已有办理结论的申请不能调整子项或联合组合。需补充内容请由申请人修改重提。' : '';
+  function restructure(request, data, actor, revision) {
+    refresh(request);
+    const error = structureBlocked(request, actor); if (error) return error;
+    if (revision !== request.revision) return '申请已变化，请重新核对当前修订。';
+    if (!['independent','joint'].includes(data.mode) || !Array.isArray(data.sourceIds) || !data.sourceIds.length || new Set(data.sourceIds).size !== data.sourceIds.length || data.sourceIds.some(id=>!dataSources.some(source=>source.id===id))) return '请选择不重复的有效数据源。';
+    if (data.mode === 'joint' && data.sourceIds.length < 2) return '联合组合至少需要两个数据源子项。';
+    if (!data.basis?.trim()) return '请说明拆分或联合使用的业务依据。';
+    if (request.mode === data.mode && JSON.stringify(request.approvalItems.map(part=>part.source).sort()) === JSON.stringify([...data.sourceIds].sort())) return '审批子项与办理方式没有变化。';
+    request.submissions ||= [];
+    request.submissions.push({ revision:request.revision, mode:request.mode, items:structuredClone(request.approvalItems), time:timestamp() });
+    let serial = request.nextItem || request.approvalItems.length;
+    request.approvalItems = data.sourceIds.map(source=>request.approvalItems.find(part=>part.source===source) || { ...item(source, serial++), rules:[] });
+    request.nextItem = serial; request.sourceIds = [...data.sourceIds]; request.mode = data.mode; request.revision++;
+    refresh(request, false);
+    request.history.push({ time:timestamp(), actor:actor.name, action:'调整审批子项与组合', content:(data.mode==='joint'?'联合办理：':'独立办理：')+data.sourceIds.map(sourceName).join('、')+'；依据：'+data.basis.trim() });
+  }
+  window.AccessRequestDemo = { records, ensure, blocked, decide, withdraw, effectiveAccess, aggregate, decisionOf, reviewIdentity, reviewInfo, sourceName, open, inProgress, partsFor, inbox, triageReason, refreshSource, reassign, canResubmit, resubmit, structureBlocked, restructure };
 })();

@@ -273,3 +273,56 @@ test('invalid approval leaves the pending request unchanged without a successful
   assert.equal(typeof demo.decide(request,part.id,'approve',{access:[{source:part.source,rules:[]}],reason:''},actor,request.revision),'string');
   assert.equal(JSON.stringify(request),before);
 });
+
+test('supplement resubmission is applicant-only, revision checked and preserves the previous decision',()=>{
+  const {demo,rows,people,actor}=fixture(),request=rows.find(row=>row.id==='SQ-REVIEW-015'),data={reason:'核对十月费用',requestedScope:'2026年10月各费用科目汇总',supplement:'已明确月份及汇总指标'};
+  assert.match(demo.resubmit(request,data,people.users[1],request.revision),/申请人/);
+  assert.match(demo.resubmit(request,data,actor,0),/修订/);
+  const previous=JSON.stringify(request.approvalItems);
+  assert.equal(demo.resubmit(request,data,actor,request.revision),undefined);
+  assert.equal(request.status,'待审批');assert.equal(request.access.length,0);assert.equal(JSON.stringify(request.submissions[0].items),previous);
+  assert.equal(request.approvalItems[0].reviewedById,undefined);assert.equal(request.approvalItems[0].rules.length,0);
+  assert.equal(request.approvalItems[0].reviewer,'u13');assert.equal(request.approvalItems[0].application.supplement,data.supplement);
+  assert.match(demo.resubmit(request,data,actor,request.revision),/需补充/);
+});
+
+test('independent resubmission leaves effective grants and unrelated pending items unchanged',()=>{
+  const {demo,rows,people,actor}=fixture(),request=rows.find(row=>row.id==='SQ-REVIEW-006'),[first,second]=request.approvalItems;
+  demo.decide(request,second.id,'approve',approval(second),actor,request.revision);
+  demo.decide(request,first.id,'supplement',{reason:'请明确商品状态'},people.users.find(user=>user.id===first.reviewer),request.revision);
+  const effective=JSON.stringify(second),access=JSON.stringify(request.access),applicant=people.users.find(user=>user.id===request.user);
+  assert.equal(demo.resubmit(request,{reason:'核对状态',requestedScope:'在售商品目录',supplement:'只需要当前在售商品'},applicant,request.revision),undefined);
+  assert.equal(JSON.stringify(second),effective);assert.equal(JSON.stringify(request.access),access);assert.equal(first.status,'待审批');
+  assert.equal(request.status,'部分已生效');
+});
+
+test('joint supplement resets the complete unactivated group and never reuses a previous approval',()=>{
+  const {demo,rows,people,actor}=fixture(),request=rows.find(row=>row.mode==='joint'),[first,second]=request.approvalItems;
+  demo.decide(request,first.id,'approve',approval(first),actor,request.revision);
+  demo.decide(request,second.id,'supplement',{reason:'补充对账日期'},people.users.find(user=>user.id===second.reviewer),request.revision);
+  assert.equal(first.status,'已批准');
+  assert.equal(demo.resubmit(request,{reason:'联合对账',requestedScope:'十月销售及回款',supplement:'两源均使用十月日期'},people.users.find(user=>user.id===request.user),request.revision),undefined);
+  assert.ok(request.approvalItems.every(part=>part.status==='待审批'&&!part.decision));assert.equal(request.access.length,0);
+});
+
+test('manual split and joint membership changes reroute without granting and freeze after any decision',()=>{
+  const {demo,rows,actor}=fixture(),request=rows.find(row=>row.id==='SQ-REVIEW-007'),initial=request.approvalItems[0].id;
+  const data={sourceIds:['retail','finance'],mode:'joint',basis:'同一业务对账必须联合使用'};
+  assert.equal(demo.restructure(request,data,actor,request.revision),undefined);
+  assert.equal(request.mode,'joint');assert.equal(request.approvalItems.length,2);assert.equal(request.access.length,0);
+  assert.notEqual(request.approvalItems[0].id,initial);assert.notEqual(request.approvalItems[0].id,request.approvalItems[1].id);
+  const first=request.approvalItems[0];first.rules=fixture().people.outputRules.slice(0,1);
+  demo.decide(request,first.id,'approve',approval(first),actor,request.revision);
+  assert.match(demo.restructure(request,{...data,mode:'independent'},actor,request.revision),/办理结论/);
+  assert.equal(request.access.length,0);assert.equal(first.status,'已批准');
+});
+
+test('structure rejects unauthorized, duplicate, stale, unchanged and single-item joint edits atomically',()=>{
+  const {demo,rows,people,actor}=fixture(),request=rows.find(row=>row.id==='SQ-REVIEW-003'),before=JSON.stringify(request),base={sourceIds:['retail','products'],mode:'independent',basis:'两个独立工作'};
+  assert.match(demo.restructure(request,base,people.users[3],request.revision),/权限/);
+  assert.match(demo.restructure(request,base,actor,0),/修订/);
+  assert.match(demo.restructure(request,{...base,sourceIds:['retail','retail']},actor,request.revision),/不重复/);
+  assert.match(demo.restructure(request,{...base,sourceIds:['retail'],mode:'joint'},actor,request.revision),/至少/);
+  assert.match(demo.restructure(request,{...base,sourceIds:['retail']},actor,request.revision),/没有变化/);
+  assert.equal(JSON.stringify(request),before);
+});
