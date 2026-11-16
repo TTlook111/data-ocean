@@ -123,10 +123,10 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-height: 0;
   overflow: auto;
-  padding: 16px 10px;
+  padding: 20px 12px;
 }
 
 .admin-domain-nav__group {
@@ -138,12 +138,12 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 46px;
+  min-height: 44px;
   padding: 0 12px;
   border-radius: var(--do-radius-md);
   color: var(--do-ink);
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 550;
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
 }
 
@@ -151,17 +151,17 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__item:hover,
 .admin-domain-nav__item.active {
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
+  color: var(--do-ink);
+  background: #e9ece5;
 }
 
 .admin-domain-nav__item.active {
-  box-shadow: inset 3px 0 var(--do-primary-strong);
+  box-shadow: inset 2px 0 var(--do-primary);
 }
 
 .admin-domain-nav__item:focus-visible,
 .admin-domain-nav__workspace-item:focus-visible {
-  outline: 3px solid rgba(77, 143, 220, .24);
+  outline: 3px solid var(--do-primary);
   outline-offset: 2px;
 }
 
@@ -170,7 +170,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   gap: 2px;
   margin: 0 0 4px 14px;
   padding: 3px 0 3px 13px;
-  border-left: 1px solid rgba(77, 143, 220, .26);
+  border-left: 1px solid var(--do-line-strong);
 }
 
 .admin-domain-nav__workspace-group {
@@ -185,8 +185,8 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 .admin-domain-nav__workspace-group-label {
   padding: 2px 10px 1px;
   color: var(--do-muted);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 500;
   letter-spacing: .08em;
   opacity: .78;
 }
@@ -207,7 +207,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 .admin-domain-nav__workspace-item:hover,
 .admin-domain-nav__workspace-item.active {
   color: var(--do-primary-strong);
-  background: rgba(77, 143, 220, .1);
+  background: var(--do-primary-soft);
 }
 
 .admin-domain-nav__workspace-dot {

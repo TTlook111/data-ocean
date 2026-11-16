@@ -47,6 +47,8 @@ questions 按 questionIds 保存批次预期和完成情况；中断始终保留
 - `{"flow":"smoke"}`：20 个模块读取入口冒烟。
 - `{"flow":"setup-actors"}`、`actors-captcha`、`actor-login:<reader或no_data>:<当前验证码>`、`actors-check`：在隔离应用库新建合成查询角色和两个账号，按正常首次登录改密及重新登录后核对跨角色/任务归属。凭据只保存在运行目录旁的私有文件；结束用 actors-logout。
 - `{"flow":"sources"}`：显式在已核实且正在运行的 MySQL 内创建固定第二合成库和专用只读账号，通过正式 API 登记、采集草稿快照并检查同名表读取隔离。不创建容器/服务，不改已有业务数据，不自动发布第二源或授予其问数权限。
+反馈流程从已核实的当前 published 合成上下文解析 unit_price，不固定机器采集 ID；保存 source/snapshot/column，续跑发现漂移时在写入前拒绝。若任务拥有者与治理管理员分离，调用器应显式提供 `api.query_api`，提问、任务读取和反馈归拥有者，管理审核归管理员；不为验收给管理员补数据授权。
+
 - `feedback-start` → `feedback-revise` → business/publish/build → 原 Q03 重放 → `feedback-close`：合成反馈修订闭环。修订前固定在途旧来源，核对明确知识失效原因和尝试记录；新修订有业务分类及精确复查后才进入待验证，实际重放结果与原预期一致后执行测试确认。
 - `{"flow":"resume-completed"}`：完成任务的恢复请求应被拒绝，执行尝试和审计计数不增加。
 

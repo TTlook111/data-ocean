@@ -20,6 +20,7 @@ import {
   confirmRagBuild,
   generateFromSnapshot,
   listKnowledgeDocs,
+  getKnowledgeDoc, listSourceSnapshots,
   listRagBuilds,
   rejectDoc,
   type RagIndexBuildSummary,
@@ -34,6 +35,9 @@ import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admi
 import { knowledgeStatusLabel } from '../../../utils/enumLabels'
 import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavigation'
 import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { pendingKnowledgeWrites, trackKnowledgeWrite } from '../../../composables/knowledgeWriteTracker'
 import { useIamS1Store } from '../../../stores/iamS1'
 import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -50,7 +54,7 @@ const router = useRouter()
 const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
 const context = useAdminContextStore()
 
-const iamS1 = useIamS1Store()
+const iamS1 = useIamS1Store(),auth=useAuthStore()
 
 /**
  * 知识文档的四个功能码都属于「源」范围，同一绑定上必须同时有功能与该文档数据源的负责范围。
@@ -62,9 +66,7 @@ const iamS1 = useIamS1Store()
 const canManage = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
 )
-const canApprove = computed(
-  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:approve').length > 0,
-)
+
 const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
 const PUBLISH_HINT = '没有“发布知识文档”能力：需要角色拥有 knowledge:publish 并负责目标数据源。'
@@ -135,11 +137,103 @@ let publishedRequestId = 0
 let ragRequestId = 0
 let snapshotRequestId = 0
 let generationRequestId = 0
-onBeforeUnmount(() => { disposed = true; scopeEpoch++; requestId++; snapshotRequestId++; generationRequestId++ })
+onBeforeUnmount(() => { closeOwnedConfirm(); closeBuild(); disposed = true; scopeEpoch++; requestId++; snapshotRequestId++; generationRequestId++ })
 
 const datasourceId = computed(() => context.datasourceId)
+const KNOWLEDGE_VIEW_DENIED = '没有当前数据源的knowledge:view。'
+const scopeError=computed(()=>{
+  if(iamS1.errorMessage)return iamS1.errorMessage
+  const raw=route.query.datasourceId
+  if(raw!=null && (typeof raw!=='string' || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0 || Number(raw)!==datasourceId.value))return '指定数据源尚未核验，未改用其他范围。'
+  if(iamS1.loaded && datasourceId.value && !iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:view').includes(datasourceId.value))return KNOWLEDGE_VIEW_DENIED
+  return ''
+})
+const scopeReady=computed(()=>iamS1.loaded && !scopeError.value && !context.routeSyncing && !context.loading)
+const actionError=ref(''),reviewComment=ref('')
+const confirmVisible=ref(false),confirmClass=`knowledge-list-confirm-${Math.random().toString(36).slice(2)}`
+let confirmSequence=0,actionSequence=0,readinessSequence=0,datasourceSequence=0,buildSequence=0
+function closeOwnedConfirm(){confirmSequence++;document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click();confirmVisible.value=false}
+function scopeTicket(){return {epoch:scopeEpoch,identity:auth.token}}
+function current(t:ReturnType<typeof scopeTicket>){return !disposed && t.epoch===scopeEpoch && auth.token===t.identity && scopeReady.value}
+const currentScope=current
+function canOn(code:string,source:number){return scopeReady.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction(code).includes(source))}
+function canReviewDoc(item:KnowledgeDocItem){return canOn('knowledge:approve',item.datasourceId)}
+const buildVisible=ref(false),buildSnapshotId=ref<number>(),buildSource=ref<number>()
+const buildOptions=ref<{id:number;label:string}[]>([]),buildOptionsLoading=ref(false),buildOptionsError=ref('')
+const unknownBuild=computed(()=>pendingKnowledgeWrites.value.find(x=>x.identity===auth.token && x.source===(buildVisible.value ? buildSource.value : datasourceId.value) && x.kind==='rag-build'))
+const currentBuild=computed(()=>ragBuilds.value.find(x=>x.status==='ACTIVE'))
+const selectedBuildId = ref<string>(), buildSelectionExplicit = ref(false), buildListOpen = ref(false)
+const selectedBuild = computed(() => buildSelectionExplicit.value ? ragBuilds.value.find(row => row.buildId === selectedBuildId.value) : currentBuild.value)
+function selectBuild(row: RagIndexBuildSummary) { selectedBuildId.value = row.buildId; buildSelectionExplicit.value = true; buildListOpen.value = false }
+function buildSourceVersion(row: RagIndexBuildSummary) {
+  const published = publishedSnapshot.value
+  if (!published || published.datasourceId !== datasourceId.value || published.snapshotId !== row.sourceSnapshotId) return undefined
+  return published.snapshotVersion
+}
+watch(ragBuilds, rows => { if (buildSelectionExplicit.value && !rows.some(row => row.buildId === selectedBuildId.value)) { selectedBuildId.value = undefined; buildSelectionExplicit.value = false } })
+async function openBuild(row?:DatasourceReadiness){
+  const source=row?.datasourceId || datasourceId.value
+  if(!source || !canOn('knowledge:publish',source) || ragBuildActionDatasourceId.value!=null)return
+  const t=scopeTicket(),seq=++buildSequence;buildSource.value=source;buildSnapshotId.value=row?.publishedSnapshotId || (publishedSnapshot.value?.datasourceId===source ? publishedSnapshot.value.snapshotId : undefined);buildVisible.value=true;buildOptions.value=[];buildOptionsError.value='';buildOptionsLoading.value=true
+  try{
+    // The visible document page/filter is not the complete set of build sources.
+    const candidates=new Map<number,KnowledgeDocItem>()
+    let sourcePage=1
+    while(true){
+      const result=await listKnowledgeDocs({datasourceId:source,status:'PUBLISHED',page:sourcePage,pageSize})
+      if(!current(t) || seq!==buildSequence || !buildVisible.value)return
+      const records=result.data?.records || [],total=result.data?.total || 0
+      const previousSize=candidates.size
+      for(const doc of records)if(doc.datasourceId===source && doc.status==='PUBLISHED')candidates.set(doc.id,doc)
+      if(sourcePage*pageSize>=total)break
+      if(candidates.size===previousSize)throw new Error('已发布文档来源分页未完整返回，请重试或核对精确来源ID。')
+      sourcePage++
+    }
+    const results=await Promise.all([...candidates.values()].map(d=>listSourceSnapshots(d.id)))
+    if(!current(t) || seq!==buildSequence || !buildVisible.value)return
+    const options=new Map<number,string>()
+    for(const r of results)for(const value of r.data || [])if(['PUBLISHED','EXPIRED'].includes(value.status || ''))options.set(value.snapshotId,`快照 #${value.snapshotId} · v${value.snapshotVersion} · ${value.status==='EXPIRED'?'曾发布历史来源':'已发布'}`)
+    buildOptions.value=[...options].map(([id,label])=>({id,label}))
+  }catch(cause){if(current(t) && seq===buildSequence)buildOptionsError.value=apiError(cause,'已发布文档来源读取失败；可核对后填写精确来源ID')}
+  finally{if(current(t) && seq===buildSequence)buildOptionsLoading.value=false}
+}
+async function confirmBuild(){
+  const source=buildSource.value,snapshot=buildSnapshotId.value
+  if(!buildVisible.value || !source || !snapshot || !Number.isSafeInteger(snapshot) || snapshot<=0 || !canOn('knowledge:publish',source) || ragBuildActionDatasourceId.value!=null || unknownBuild.value)return
+  const t=scopeTicket(),seq=++buildSequence;ragBuildActionDatasourceId.value=source;actionError.value=''
+  try{
+    // 构建确认固定来源；未知写保留共享记录，旧活动索引不能充当本次成功回执。
+    await trackKnowledgeWrite({identity:t.identity,source,snapshotId:snapshot,kind:'rag-build',started:Date.now()},()=>confirmRagBuild(source,snapshot))
+    if(!current(t) || seq!==buildSequence)return
+    buildVisible.value=false;ElMessage.success('构建请求已接受；仅新build核验通过后才切换，旧build资格由后端判断。');await Promise.all([loadRagBuilds(),loadReadiness()])
+  }catch(cause){if(current(t) && seq===buildSequence){
+    const status=(cause as {response?:{status?:number}})?.response?.status
+    console.warn('[知识索引构建确认未完成]',{stage:'RAG_BUILD_CONFIRM',datasourceId:source,snapshotId:snapshot,httpStatus:Number.isInteger(status)?status:null})
+    actionError.value=apiError(cause,'构建请求未完成')+'；请重读构建记录核对原来源；旧build不证明本次成功，结果未知不自动重发。'
+  }}
+  finally{if(current(t) && seq===buildSequence)ragBuildActionDatasourceId.value=null}
+}
+function closeBuild(){buildSequence++;buildVisible.value=false;buildOptionsLoading.value=false;buildOptions.value=[]}
+
 const canGenerateSnapshot = computed(() => canGenerateForDatasource(datasourceId.value))
-const activeRagCount = computed(() => readinessList.value.filter((row) => Boolean(row.ragBuildId)).length)
+// A single-source count uses the same authorized records shown below, not datasource:view readiness.
+const activeIndexSummary = computed(() => {
+  if (scopeError.value) return { value: iamS1.errorMessage ? '读取失败' : scopeError.value===KNOWLEDGE_VIEW_DENIED ? '无权查看' : '范围不可用', hint: scopeError.value }
+  if (!datasourceId.value) return { value: '未汇总', hint: '选择单个数据源，查看该来源的活动索引。' }
+  if (!scopeReady.value) return { value: '核验中', hint: '正在核验知识查看范围。' }
+  if (ragBuildsLoading.value) return { value: '读取中', hint: '正在读取当前来源的构建记录。' }
+  if (ragBuildError.value) return { value: '读取失败', hint: '活动索引状态未知，请刷新构建记录。' }
+  return { value: String(ragBuilds.value.filter(row => row.status === 'ACTIVE').length), hint: '按当前来源可见的构建记录统计；活动状态不代表所有业务口径已验证。' }
+})
+const buildBlockedReason = computed(() => {
+  if (scopeError.value) return scopeError.value
+  if (!scopeReady.value) return '正在核验知识范围，暂不能准备构建。'
+  if (!datasourceId.value) return '请先选择一个数据源。'
+  if (!canPublishForDatasource(datasourceId.value)) return '需要当前数据源的 knowledge:publish（发布知识文档）能力；可继续查看已授权的构建记录。'
+  if (unknownBuild.value) return '已有构建请求执行中或结果未知，请刷新构建记录核对，不能重复提交。'
+  if (ragBuildActionDatasourceId.value != null) return '正在提交构建请求。'
+  return ''
+})
 const datasourceName = (id: number) => datasources.value.find((item) => item.id === id)?.name || `数据源 #${id}`
 const readinessAction = (row: DatasourceReadiness) => {
   const reason = row.blockReasons?.[0]
@@ -183,7 +277,9 @@ function selectTab(tab: string) {
 }
 
 async function loadDocs() {
+  if(!scopeReady.value){docs.value=[];total.value=0;loading.value=false;return}
   const current = ++requestId
+  const scope=scopeTicket()
   loading.value = true
   error.value = ''
   try {
@@ -194,11 +290,11 @@ async function loadDocs() {
       page: page.value,
       pageSize,
     })
-    if (disposed || current !== requestId) return
+    if (!currentScope(scope) || current !== requestId) return
     docs.value = result.data?.records || []
     total.value = result.data?.total || 0
   } catch (cause) {
-    if (disposed || current !== requestId) return
+    if (!currentScope(scope) || current !== requestId) return
     docs.value = []
     error.value = apiError(cause, '知识文档加载失败')
   } finally {
@@ -208,11 +304,11 @@ async function loadDocs() {
 
 /** 各状态全量计数：分别按状态取 total，避免用当前分页数据推断全局 */
 async function loadStats() {
-  if (disposed) return
+  if (disposed || !scopeReady.value) {statsLoading.value=false;return}
   const sequence = ++statsRequestId
   const epoch = scopeEpoch
   const source = datasourceId.value
-  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === statsRequestId
+  const current = () => !disposed && scopeReady.value && epoch === scopeEpoch && source === datasourceId.value && sequence === statsRequestId
   statsLoading.value = true
   statsError.value = ''
   try {
@@ -242,11 +338,14 @@ async function loadStats() {
 }
 
 async function loadDatasources() {
+  const seq=++datasourceSequence,epoch=scopeEpoch
   datasourcesError.value = ''
   try {
     await context.initialize()
+    if(disposed || seq!==datasourceSequence || epoch!==scopeEpoch)return
     datasources.value = context.datasources
   } catch (cause) {
+    if(disposed || seq!==datasourceSequence || epoch!==scopeEpoch)return
     datasources.value = []
     datasourcesError.value = apiError(cause, '数据源列表加载失败')
   }
@@ -255,6 +354,8 @@ async function loadDatasources() {
 
 /** 批量取各数据源的知识就绪度；知识准备情况总览的数据来源 */
 async function loadReadiness() {
+  const seq=++readinessSequence,t=scopeTicket()
+  const accept=()=>current(t) && seq===readinessSequence
   if (!readinessDatasources.value.length) {
     readinessList.value = []
     readinessError.value = ''; readinessWarning.value = ''; readinessLoading.value = false
@@ -265,14 +366,17 @@ async function loadReadiness() {
   readinessWarning.value = ''
   try {
     const result = await getBatchDatasourceReadiness(readinessDatasources.value.map((item) => item.id))
+    if(!accept())return
     readinessList.value = result.data
     if (result.failedDatasourceIds.length) {
       readinessWarning.value = `部分数据源就绪度加载失败：${result.failedDatasourceIds.join('、')}`
     }
   } catch (cause) {
+    if(!accept())return
     readinessList.value = []
     readinessError.value = cause instanceof Error ? cause.message : '数据源知识准备情况加载失败'
   } finally {
+    if(!accept())return
     readinessLoading.value = false
   }
 }
@@ -283,7 +387,7 @@ async function loadPublishedSnapshot() {
   const sequence = ++publishedRequestId
   const epoch = scopeEpoch
   const source = datasourceId.value
-  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === publishedRequestId
+  const current = () => !disposed && scopeReady.value && epoch === scopeEpoch && source === datasourceId.value && sequence === publishedRequestId
   publishedSnapshotError.value = ''
   if (!source || (!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('metadata:release:view').includes(source))) { publishedSnapshot.value = null; publishedSnapshotLoading.value = false; return }
   publishedSnapshotLoading.value = true
@@ -304,9 +408,9 @@ async function loadRagBuilds() {
   const sequence = ++ragRequestId
   const epoch = scopeEpoch
   const source = datasourceId.value
-  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === ragRequestId
+  const current = () => !disposed && scopeReady.value && epoch === scopeEpoch && source === datasourceId.value && sequence === ragRequestId
   ragBuildError.value = ''
-  if (!source) { ragBuilds.value = []; ragBuildsLoading.value = false; return }
+  if (!source || !canOn('knowledge:view',source)) { ragBuilds.value = []; ragBuildsLoading.value = false; return }
   ragBuildsLoading.value = true
   try {
     const result = await listRagBuilds(source)
@@ -320,32 +424,8 @@ async function loadRagBuilds() {
   }
 }
 
-async function confirmBuild(row: DatasourceReadiness) {
-  if (!canPublishForDatasource(row.datasourceId)) {
-    ElMessage.warning(PUBLISH_HINT)
-    return
-  }
-  if (!row.publishedSnapshotId) {
-    ElMessage.warning('当前没有已发布元数据快照，不能构建 RAG')
-    return
-  }
-  try {
-    await ElMessageBox.confirm(
-      `确认从元数据快照 v${row.snapshotVersion ?? '—'} 构建该数据源的新 RAG？系统会在隔离索引中切分、向量化和核验；全部通过后才切换活动 build。旧 build 会等在途查询结束后清理，MySQL 知识文档和审核历史会保留。`,
-      '明确确认 RAG 构建',
-      { confirmButtonText: '确认构建', cancelButtonText: '取消', type: 'warning' },
-    )
-    ragBuildActionDatasourceId.value = row.datasourceId
-    await confirmRagBuild(row.datasourceId, row.publishedSnapshotId)
-    ElMessage.success('已创建构建任务；旧索引仍可继续服务，验证通过后自动切换')
-    await Promise.all([loadRagBuilds(), loadReadiness()])
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, 'RAG 构建确认失败'))
-  } finally {
-    ragBuildActionDatasourceId.value = null
-  }
-}
 
+function ragStatusLabel(status:string){return ({ACTIVE:'活动中',QUEUED:'已排队',BUILDING:'构建中',VALIDATING:'核验中',FAILED:'构建失败',VERIFIED:'核验通过',CLEANUP_PENDING:'已替换，待引用结束后清理',FAILED_CLEANUP_PENDING:'失败，待清理',CLEANED:'已清理',SUPERSEDED:'已被更新代际替代'} as Record<string,string>)[status] || status}
 const visibleDocs = computed(() => {
   if (activeTab.value === 'review') return docs.value
   const keyword = filters.keyword.trim().toLowerCase()
@@ -360,7 +440,8 @@ const emptyMessage = computed(() => {
   if (!datasourceId.value) return '还没有任何知识文档。选择数据源后可以从快照生成知识。'
   if (!canGenerateSnapshot.value) return '当前筛选条件下没有知识文档。有维护能力时可手动新建；按快照生成还需要元数据查看能力。'
   if (publishedSnapshotError.value) return '已发布快照状态加载失败，暂时无法判断是否可以生成知识。'
-  if (!publishedSnapshot.value) return '当前数据源还没有正式发布的快照。语义知识必须基于已发布快照生成。'
+  if(!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('metadata:release:view').includes(datasourceId.value!))return '当前账号不能读取正式快照摘要；这不代表没有快照。可手动新建或在生成窗口明确选择有权快照。'
+  if (!publishedSnapshot.value) return '当前数据源还没有正式发布的快照。按快照生成需要已发布来源。'
   return '当前筛选条件下没有知识文档。'
 })
 
@@ -368,13 +449,13 @@ const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
   if (!canGenerateSnapshot.value) return canManage.value ? '手动新建文档' : ''
   if (publishedSnapshotError.value) return ''
-  if (!publishedSnapshot.value && datasourceId.value) return '去元数据版本'
+  if (!publishedSnapshot.value && datasourceId.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('metadata:release:view').includes(datasourceId.value))) return '去元数据版本'
   return '生成快照目录'
 })
 
 function handleEmptyAction() {
   if (!canGenerateSnapshot.value) { if (canManage.value) goCreate(); return }
-  if (!publishedSnapshot.value && datasourceId.value) {
+  if (!publishedSnapshot.value && datasourceId.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('metadata:release:view').includes(datasourceId.value))) {
     router.push({ path: '/admin/releases', query: { datasourceId: String(datasourceId.value) } })
     return
   }
@@ -382,7 +463,7 @@ function handleEmptyAction() {
 }
 
 function goDetail(id: number) {
-  router.push({ name: 'admin-semantic-knowledge-detail', params: { id } })
+  router.push({ name: 'admin-semantic-knowledge-detail', params: { id }, query:{datasourceId:docs.value.find(x=>x.id===id)?.datasourceId} })
 }
 
 function goCreate() {
@@ -395,39 +476,23 @@ function goAsk() {
   router.push('/query')
 }
 
-async function approve(doc: KnowledgeDocItem) {
-  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
-  try {
-    await ElMessageBox.confirm(`通过「${doc.title}」的审核？发布文档后还需要有权人员单独确认数据源级 RAG build。`, '审核通过')
-    actionLoading.value = true
-    await approveDoc(doc.id)
-    ElMessage.success('审核已通过；请先发布文档，满足来源与覆盖要求后再显式确认 RAG 构建')
-    await Promise.all([loadDocs(), loadStats()])
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '审核通过失败'))
-  } finally {
-    actionLoading.value = false
-  }
+async function reviewDocument(item:KnowledgeDocItem,rejecting:boolean){
+  if(actionLoading.value || !canReviewDoc(item) || item.status!=='PENDING_REVIEW' || pendingKnowledgeWrites.value.some(x=>x.identity===auth.token && x.docId===item.id))return
+  const t=scopeTicket(),seq=++actionSequence,value={...item},confirm=++confirmSequence;actionLoading.value=true;confirmVisible.value=true;actionError.value=''
+  try{
+    if(rejecting){const result=await ElMessageBox.prompt(`请说明驳回「${value.title}」的原因`,'审核驳回',{confirmButtonText:'确认驳回',cancelButtonText:'取消',inputValue:reviewComment.value,inputValidator:v=>!!v?.trim() || '驳回原因不能为空',cancelButtonClass:confirmClass});if(current(t))reviewComment.value=result.value}
+    else await ElMessageBox.confirm(`确认审核已保存的「${value.title}」v${value.currentVersion}？发布与构建仍独立。`,'审核通过',{confirmButtonText:'确认',cancelButtonText:'取消',cancelButtonClass:confirmClass})
+    if(!current(t) || seq!==actionSequence || !canReviewDoc(value))return
+    const latest=(await getKnowledgeDoc(value.id)).data
+    if(!current(t) || seq!==actionSequence || !canReviewDoc(value))return
+    if(!latest || latest.id!==value.id || latest.datasourceId!==value.datasourceId || latest.version!==value.version || latest.currentVersion!==value.currentVersion || latest.status!=='PENDING_REVIEW'){actionError.value='已保存文档版本发生变化，请重读后审核；本次未执行。';return}
+    await trackKnowledgeWrite({identity:t.identity,source:value.datasourceId,docId:value.id,version:value.version,kind:rejecting?'reject':'approve',started:Date.now()},()=>rejecting?rejectDoc(value.id,reviewComment.value):approveDoc(value.id))
+    if(current(t) && seq===actionSequence)await Promise.all([loadDocs(),loadStats()])
+  }catch(cause){if(cause!=='cancel' && cause!=='close' && current(t) && seq===actionSequence)actionError.value=apiError(cause,'审核未完成')+'；原意见保留，不会自动重试，结果未知请核对原文档。'}
+  finally{if(current(t) && seq===actionSequence)actionLoading.value=false;if(confirm===confirmSequence)confirmVisible.value=false}
 }
-
-async function reject(doc: KnowledgeDocItem) {
-  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
-  try {
-    const result = await ElMessageBox.prompt(`请说明驳回「${doc.title}」的原因`, '审核驳回', {
-      inputValidator: (value) => Boolean(value?.trim()) || '驳回原因不能为空',
-      confirmButtonText: '确认驳回',
-      cancelButtonText: '取消',
-    })
-    actionLoading.value = true
-    await rejectDoc(doc.id, result.value)
-    ElMessage.success('已驳回，文档回到草稿状态')
-    await Promise.all([loadDocs(), loadStats()])
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '驳回失败'))
-  } finally {
-    actionLoading.value = false
-  }
-}
+async function approve(item:KnowledgeDocItem){return reviewDocument(item,false)}
+async function reject(item:KnowledgeDocItem){return reviewDocument(item,true)}
 
 /* ---------------- 快照目录生成 ---------------- */
 
@@ -436,6 +501,7 @@ const generateLoading = ref(false)
 const generationReady = ref(false)
 const generateForm = reactive<{ datasourceId?: number; snapshotId?: number }>({})
 const snapshots = ref<SnapshotItem[]>([])
+const unknownGeneration=computed(()=>pendingKnowledgeWrites.value.find(x=>x.identity===auth.token && x.source===generateForm.datasourceId && x.snapshotId===generateForm.snapshotId && x.kind==='generate-group'))
 const generatedDocs = ref<Array<{ id: number; title: string; tableNames: string[] }>>([])
 
 function openGenerateDialog() {
@@ -465,8 +531,8 @@ watch(generateDialogVisible, (visible) => {
 
 async function loadSnapshots(id: number) {
   if (disposed) return
-  const sequence = ++snapshotRequestId
-  const current = () => !disposed && generateDialogVisible.value && sequence === snapshotRequestId && generateForm.datasourceId === id
+  const sequence = ++snapshotRequestId,epoch=scopeEpoch
+  const current = () => !disposed && epoch===scopeEpoch && generateDialogVisible.value && sequence === snapshotRequestId && generateForm.datasourceId === id
   snapshotsError.value = ''
   if (!canViewSnapshots(id)) { snapshots.value = []; snapshotsLoading.value = false; snapshotsError.value = GENERATE_HINT; return }
   snapshotsLoading.value = true
@@ -489,6 +555,7 @@ function onGenerateDatasourceChange(id?: number) {
 }
 
 async function runGenerate() {
+  if(generateLoading.value || unknownGeneration.value)return
   if (!canGenerateForDatasource(generateForm.datasourceId)) { ElMessage.warning(GENERATE_HINT); return }
   if (!generateForm.datasourceId || !generateForm.snapshotId) {
     ElMessage.warning('请选择数据源和快照')
@@ -496,11 +563,11 @@ async function runGenerate() {
   }
   const source = generateForm.datasourceId
   const snapshot = generateForm.snapshotId
-  const sequence = ++generationRequestId
-  const current = () => !disposed && generateDialogVisible.value && source === generateForm.datasourceId && snapshot === generateForm.snapshotId && sequence === generationRequestId
+  const sequence = ++generationRequestId,epoch=scopeEpoch,identity=auth.token
+  const current = () => !disposed && epoch===scopeEpoch && identity===auth.token && generateDialogVisible.value && source === generateForm.datasourceId && snapshot === generateForm.snapshotId && sequence === generationRequestId
   generateLoading.value = true
   try {
-    const result = await generateFromSnapshot(source, snapshot)
+    const result = await trackKnowledgeWrite({identity,source,snapshotId:snapshot,kind:'generate-group',started:Date.now()},()=>generateFromSnapshot(source, snapshot))
     if (!current()) return
     generatedDocs.value = result.data || []
     ElMessage.success(`已生成 ${generatedDocs.value.length} 份完整快照知识目录草稿`)
@@ -520,15 +587,15 @@ onMounted(async () => {
   await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
 })
 
-watch(datasourceId, async () => {
-  scopeEpoch++
-  requestId++
-  publishedSnapshot.value = null
-  ragBuilds.value = []
-  Object.assign(stats, { total: 0, published: 0, indexing: 0, pending: 0, draft: 0 })
-  page.value = 1
-  await Promise.all([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
-}, { flush: 'sync' })
+watch(()=>[datasourceId.value,route.query.datasourceId,auth.token,iamS1.snapshot,iamS1.loaded,iamS1.errorMessage,context.routeSyncing,context.loading],async()=>{
+  scopeEpoch++;requestId++;statsRequestId++;publishedRequestId++;ragRequestId++;readinessSequence++;datasourceSequence++;actionSequence++;closeOwnedConfirm();closeBuild();selectedBuildId.value=undefined;buildSelectionExplicit.value=false;buildListOpen.value=false
+  Object.assign(stats,{total:0,published:0,indexing:0,pending:0,draft:0});statsError.value='';publishedSnapshotError.value='';ragBuildError.value='';readinessError.value='';readinessWarning.value='';publishedSnapshotLoading.value=false;ragBuildsLoading.value=false;readinessLoading.value=false;snapshotsLoading.value=false
+  generateDialogVisible.value=false;generateLoading.value=false;actionLoading.value=false;ragBuildActionDatasourceId.value=null;docs.value=[];total.value=0;publishedSnapshot.value=null;ragBuilds.value=[];readinessList.value=[];page.value=1;actionError.value='';reviewComment.value=''
+  if(!scopeReady.value){loading.value=false;statsLoading.value=false;return}
+  datasources.value=context.datasources
+  await Promise.all([loadDocs(),loadStats(),loadPublishedSnapshot(),loadRagBuilds(),loadReadiness()])
+},{flush:'sync'})
+useAdminScrollLock(()=>generateDialogVisible.value || buildVisible.value || confirmVisible.value)
 
 watch(() => route.query.tab, (value) => {
   const next = String(value || 'documents')
@@ -551,29 +618,37 @@ watch(() => route.query.page, (value) => {
 <template>
   <div class="admin-page knowledge-page">
     <TaskPageHeader
-      title="语义知识"
-      description="准备并审核业务知识，让用户更准确地问数。文档发布后，需单独确认知识索引构建。"
+      eyebrow="语义中心"
+      :title="activeTab === 'index' ? '构建与索引' : '知识文档'"
+      :description="activeTab === 'index' ? '核对当前活动来源与构建记录；准备和最终确认分开。' : '整理业务知识，分别完成审核、发布与显式索引构建。'"
     >
       <template #actions>
-        <el-button @click="router.push({path:'/admin/semantics/business-knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">业务知识治理</el-button>
-        <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
-        <el-button :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
-        <el-button type="primary" :icon="Sparkles" :disabled="!canGenerateSnapshot" :title="canGenerateSnapshot ? '' : GENERATE_HINT" @click="openGenerateDialog">生成快照目录</el-button>
+        <el-button v-if="activeTab!=='index'" @click="router.push({path:'/admin/semantics/business-knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">业务知识治理</el-button>
+        <el-button :icon="RefreshCw" :loading="activeTab==='index' ? ragBuildsLoading : loading" @click="activeTab==='index' ? loadRagBuilds() : (loadDocs(), loadStats(), loadReadiness())">刷新</el-button>
+        <el-button v-if="activeTab!=='index'" :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
+        <el-button v-if="activeTab!=='index'" type="primary" :icon="Sparkles" :disabled="!canGenerateSnapshot" :title="canGenerateSnapshot ? '' : GENERATE_HINT" @click="openGenerateDialog">生成快照目录</el-button>
       </template>
     </TaskPageHeader>
 
-    <ErrorState v-if="statsError" :message="statsError" @retry="loadStats" />
+    <ol v-if="activeTab!=='index'" class="knowledge-journey" aria-label="知识准备流程"><li><strong>整理主题</strong></li><li><strong>审核依据</strong></li><li><strong>发布文档</strong></li><li><strong>确认构建</strong></li></ol>
+    <p v-if="scopeError" role="alert" class="knowledge-write-notice">{{ scopeError }}</p>
+    <section v-if="actionError" role="alert" class="knowledge-write-notice">{{ actionError }}<p v-if="reviewComment">保留意见：{{ reviewComment }}</p></section>
+    <template v-if="activeTab!=='index'">
+    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验账号与知识范围…" />
+    <ErrorState v-else-if="statsError" :message="statsError" @retry="loadStats" />
     <LoadingState v-else-if="statsLoading" text="正在读取知识统计..." />
-    <section v-else class="knowledge-page__stats">
+    <section v-else-if="scopeReady" class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ !readinessDatasources.length || readinessLoading || readinessError || datasourcesError || readinessWarning ? '—' : activeRagCount }}</strong></div>
+      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><small>{{ activeIndexSummary.hint }}</small></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
 
+    </template>
+
     <!-- 每个数据源的知识准备情况（开发指导 §7.11） -->
-    <section v-if="readinessDatasources.length" class="knowledge-page__readiness">
+    <details v-if="readinessDatasources.length && activeTab!=='index'" class="knowledge-page__readiness"><summary>数据源准备情况 · 按需核对连接与发布摘要</summary>
       <div class="knowledge-page__readiness-heading">
         <div class="knowledge-page__section-title">
           <TitleHelp label="数据源知识准备情况" text="对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。" />
@@ -633,46 +708,25 @@ watch(() => route.query.page, (value) => {
               :disabled="!row.publishedSnapshotId || !canPublishForDatasource(row.datasourceId)"
               :loading="ragBuildActionDatasourceId === row.datasourceId"
               :title="canPublishForDatasource(row.datasourceId) ? '' : PUBLISH_HINT"
-              @click="confirmBuild(row)"
+              @click="openBuild(row)"
             >{{ row.ragBuildId ? '更新索引' : '确认构建索引' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-    </section>
-
-    <details v-if="datasourceId" class="knowledge-page__readiness knowledge-page__details">
-      <summary>知识索引构建记录 · 展开查看</summary>
-      <div class="knowledge-page__readiness-heading">
-        <div>
-          <div class="knowledge-page__section-title"><TitleHelp label="知识索引构建记录" text="只有经过授权人员明确确认的构建会排队；旧索引在新索引通过数量核验并切换前保持活动。" /><h3>知识索引构建记录 · {{ datasourceName(datasourceId) }}</h3></div>
-        </div>
-        <el-button :icon="RefreshCw" :loading="ragBuildsLoading" @click="loadRagBuilds">刷新构建记录</el-button>
-      </div>
-      <ErrorState v-if="ragBuildError" :message="ragBuildError" @retry="loadRagBuilds" />
-      <el-table v-else :data="ragBuilds" stripe size="small">
-        <el-table-column label="来源快照" width="110">
-          <template #default="{ row }">{{ row.sourceSnapshotId }}</template>
-        </el-table-column>
-        <el-table-column prop="embeddingModel" label="Embedding" min-width="170" />
-        <el-table-column label="向量核验" width="150">
-          <template #default="{ row }">{{ row.actualVectorCount }} / {{ row.expectedChunkCount }}</template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="170" />
-        <el-table-column prop="confirmedAt" label="确认时间" min-width="180" />
-        <el-table-column prop="errorMessage" label="错误信息" min-width="220" show-overflow-tooltip />
-      </el-table>
     </details>
 
-    <LoadingState v-if="publishedSnapshotLoading" variant="skeleton" :rows="2" />
-    <ErrorState v-else-if="publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
-    <p v-else-if="!datasourceId" class="knowledge-page__scope-note">
+
+
+    <LoadingState v-if="activeTab!=='index' && publishedSnapshotLoading" variant="skeleton" :rows="2" />
+    <ErrorState v-else-if="activeTab!=='index' && publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
+    <p v-else-if="activeTab!=='index' && !datasourceId" class="knowledge-page__scope-note">
       当前未限定数据源，列表展示全部知识文档。使用顶部的数据源范围可以聚焦到单个数据源。
     </p>
-    <p v-else-if="publishedSnapshot" class="knowledge-page__scope-note is-ok">
+    <p v-else-if="activeTab!=='index' && publishedSnapshot" class="knowledge-page__scope-note is-ok">
       当前数据源已发布快照 v{{ publishedSnapshot.snapshotVersion }}。先审核并发布知识文档，再单独确认知识索引构建。
     </p>
 
-    <details v-if="datasourceId && publishedSnapshot?.snapshotId && canViewManualJoins" class="knowledge-page__details">
+    <details v-if="activeTab!=='index' && datasourceId && publishedSnapshot?.snapshotId && canViewManualJoins" class="knowledge-page__details">
       <summary>表关联配置 · 展开管理</summary>
       <ManualJoinPathPanel
       :datasource-id="datasourceId"
@@ -696,6 +750,7 @@ watch(() => route.query.page, (value) => {
           <el-input v-model="filters.keyword" placeholder="按标题或覆盖表过滤本页" clearable style="width: 240px" />
         </div>
       </el-tab-pane>
+      <el-tab-pane label="构建与索引" name="index" />
       <el-tab-pane label="审核队列" name="review">
         <p class="knowledge-page__tab-note">
           审核队列只列出 PENDING_REVIEW 文档。通过后仍需发布文档，再在知识列表显式确认 RAG 构建；符合来源与覆盖要求且构建生效后才可用于检索。
@@ -703,15 +758,59 @@ watch(() => route.query.page, (value) => {
       </el-tab-pane>
     </el-tabs>
 
-    <ErrorState v-if="error" :message="error" @retry="loadDocs" />
-    <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
+    <section v-if="activeTab==='index'" class="knowledge-index-workspace">
+      <header class="knowledge-index-heading">
+        <div><h2>当前活动索引与构建记录</h2><p>准备后核对来源，并单独确认；新索引核验后才切换。</p></div>
+        <div class="knowledge-build-action"><el-button type="primary" :disabled="!!buildBlockedReason" aria-describedby="rag-build-reason" @click="openBuild()">准备构建</el-button><p v-if="buildBlockedReason" id="rag-build-reason" role="status">{{ buildBlockedReason }}</p></div>
+      </header>
+      <p v-if="unknownBuild" role="alert" class="knowledge-write-notice">快照 #{{ unknownBuild.snapshotId }} 的构建请求执行中或结果未知。请刷新记录核对；旧build不证明本次成功，不会自动重发。</p>
+      <LoadingState v-if="!scopeReady && !scopeError" text="正在核验知识范围…" />
+      <EmptyState v-else-if="!datasourceId" message="请先选择一个数据源，再查看当前活动索引。" />
+      <ErrorState v-else-if="ragBuildError" :message="ragBuildError+' · 活动索引状态未知'" @retry="loadRagBuilds" />
+      <LoadingState v-else-if="ragBuildsLoading" text="正在读取构建记录…" />
+      <div v-else-if="scopeReady" class="knowledge-index-split" :class="{'show-build-list':buildListOpen || !selectedBuild}">
+        <button class="rag-mobile-toggle" @click="buildListOpen=!buildListOpen">{{ buildListOpen ? '返回当前构建详情' : '选择构建记录' }}</button>
+        <nav class="rag-record-list" aria-label="构建记录">
+          <h3>构建记录 · {{ datasourceName(datasourceId) }}</h3>
+          <p v-if="!ragBuilds.length">当前没有可见的构建记录。</p>
+          <button v-for="row in ragBuilds" :key="row.buildId" :data-build-id="row.buildId" :aria-pressed="selectedBuild?.buildId===row.buildId" :class="{selected:selectedBuild?.buildId===row.buildId}" @click="selectBuild(row)">
+            <strong>{{ ragStatusLabel(row.status) }}</strong><span>来源快照 #{{ row.sourceSnapshotId }}<template v-if="buildSourceVersion(row)"> · v{{ buildSourceVersion(row) }}</template></span><time>{{ row.confirmedAt || '确认时间未提供' }}</time>
+          </button>
+        </nav>
+        <article v-if="selectedBuild" class="rag-build-card rag-build-detail" data-testid="selected-rag-build">
+          <header><div><p class="knowledge-page__eyebrow">{{ selectedBuild.status==='ACTIVE' ? '当前活动记录' : '选中历史 / 非活动记录' }}</p><h3>来源快照 #{{ selectedBuild.sourceSnapshotId }}<template v-if="buildSourceVersion(selectedBuild)"> · v{{ buildSourceVersion(selectedBuild) }}</template></h3></div><BusinessStatusBadge :status="selectedBuild.status" :label="ragStatusLabel(selectedBuild.status)" /></header>
+          <dl class="rag-build-facts"><div><dt>状态</dt><dd>{{ ragStatusLabel(selectedBuild.status) }}</dd></div><div><dt>来源快照</dt><dd>#{{ selectedBuild.sourceSnapshotId }}</dd></div><div><dt>向量核验</dt><dd>{{ selectedBuild.actualVectorCount ?? '未提供' }} / {{ selectedBuild.expectedChunkCount ?? '未提供' }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div></dl>
+          <p v-if="selectedBuild.errorMessage" role="alert" class="knowledge-write-notice">{{ selectedBuild.errorMessage }}</p>
+          <p class="knowledge-index-explanation">活动状态与数量核验不代表所有业务口径已验证；实际使用仍需检查来源及授权。新请求与当前活动记录分别核对。</p>
+          <details><summary>技术详情与确认时间</summary><dl><div><dt>Embedding</dt><dd>{{ selectedBuild.embeddingModel || '未提供' }}</dd></div><div><dt>精确 build</dt><dd>{{ selectedBuild.buildId }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div><div><dt>生效时间</dt><dd>{{ selectedBuild.activatedAt || '未提供' }}</dd></div></dl></details>
+        </article>
+        <EmptyState v-else message="当前没有活动索引。可选择已有构建查看详情；准备新构建仍需单独确认。" />
+      </div>
+      <details class="knowledge-index-overview"><summary>文档发布概况 · 与索引状态独立</summary>
+    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验账号与知识范围…" />
+    <ErrorState v-else-if="statsError" :message="statsError" @retry="loadStats" />
+    <LoadingState v-else-if="statsLoading" text="正在读取知识统计..." />
+    <section v-else-if="scopeReady" class="knowledge-page__stats">
+      <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
+      <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
+      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><small>{{ activeIndexSummary.hint }}</small></div>
+      <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
+      <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
+    </section>
+
+      </details>
+    </section>
+
+    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验文档查看范围…" />
+    <ErrorState v-else-if="activeTab!=='index' && error" :message="error" @retry="loadDocs" />
+    <LoadingState v-else-if="activeTab!=='index' && loading" variant="skeleton" :rows="6" />
     <EmptyState
-      v-else-if="!visibleDocs.length"
+      v-else-if="scopeReady && activeTab!=='index' && !visibleDocs.length"
       :message="emptyMessage"
       :action-text="emptyAction"
       @action="handleEmptyAction"
     />
-    <section v-else class="knowledge-page__card">
+    <section v-else-if="activeTab!=='index'" class="knowledge-page__card">
       <el-table :data="visibleDocs" v-loading="actionLoading" stripe>
         <el-table-column v-if="activeTab === 'review'" type="expand">
           <template #default="{ row }"><pre class="knowledge-page__review-content">{{ row.content || '文档正文为空' }}</pre></template>
@@ -746,8 +845,8 @@ watch(() => route.query.page, (value) => {
           <template #default="{ row }">
             <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
             <template v-if="activeTab === 'review' && row.status === 'PENDING_REVIEW'">
-              <el-button link type="success" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
-              <el-button link type="danger" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
+              <el-button link type="success" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
+              <el-button link type="danger" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
             </template>
             <el-button v-else-if="row.status === 'PUBLISHED' && iamS1.queryUse" link @click="goAsk()">
               <MessageSquareText :size="14" />去问数
@@ -769,21 +868,31 @@ watch(() => route.query.page, (value) => {
       @current-change="(value: number) => router.replace({ query: { ...route.query, page: value } })"
     />
 
-    <el-dialog v-model="generateDialogVisible" title="从快照生成完整知识目录" width="580px" :close-on-click-modal="!generateLoading">
+    <el-dialog v-model="buildVisible" title="明确确认数据源级 RAG 构建" class="knowledge-build-dialog" width="min(680px,94vw)" :close-on-click-modal="ragBuildActionDatasourceId==null" :close-on-press-escape="ragBuildActionDatasourceId==null" :show-close="ragBuildActionDatasourceId==null">
+      <p>数据源：{{ buildSource ? datasourceName(buildSource) : '未选择' }}。明确固定来源快照，构建将固定符合条件的文档版本、来源与完整依赖，并核对整组覆盖。</p>
+      <p>当前发布或曾发布的历史快照均需核对审核、来源与覆盖条件；可与最新采集版本不同。旧活动索引不会因打开此窗口失效。</p>
+      <ErrorState v-if="buildOptionsError" :message="buildOptionsError" />
+      <el-select v-if="buildOptions.length" v-model="buildSnapshotId" aria-label="从文档来源选择构建快照" placeholder="从已发布文档来源选择" :disabled="ragBuildActionDatasourceId!=null"><el-option v-for="item in buildOptions" :key="item.id" :value="item.id" :label="item.label" /></el-select>
+      <label class="knowledge-build-snapshot">精确来源快照 ID <el-input-number v-model="buildSnapshotId" aria-label="构建来源快照ID" :min="1" :step="1" :precision="0" :disabled="ragBuildActionDatasourceId!=null" /></label>
+      <p v-if="!buildOptions.length">未获取到可选文档来源时，请从已核对的文档来源记录填写精确ID；不会调用无权的元数据或数据源接口。</p>
+      <p v-if="actionError || unknownBuild" role="alert" class="knowledge-write-notice">{{ actionError || '请求结果待确认，停止重发。' }}</p>
+      <template #footer><el-button :disabled="ragBuildActionDatasourceId!=null" @click="closeBuild">取消</el-button><el-button type="primary" :disabled="!buildSnapshotId || !!unknownBuild" :loading="ragBuildActionDatasourceId!=null" @click="confirmBuild">确认构建</el-button></template>
+    </el-dialog>
+    <el-dialog v-model="generateDialogVisible" :show-close="!generateLoading" :close-on-press-escape="!generateLoading" title="从快照生成完整知识目录" width="min(680px,94vw)" class="knowledge-build-dialog" :close-on-click-modal="!generateLoading">
+      <p v-if="unknownGeneration" role="alert" class="knowledge-write-notice">此来源生成请求执行中或结果待确认，请重读文档列表核对，不能重复创建同组草稿。</p>
       <template v-if="!generatedDocs.length">
         <p class="generate-hint">
-          按所选 snapshotId 确定性列出该快照的全部表和字段，标出字段来源、治理状态、已确认关系与血缘。
-          缺少可靠释义时保留“待确认”。草稿仍需人工审核、发布，再单独确认数据源级 RAG build。
+          按所选快照生成完整目录；缺少可靠释义时保留“待确认”。草稿仍需审核、发布，索引另行确认构建。
         </p>
         <el-form label-width="88px">
           <el-form-item label="数据源">
-            <el-select v-model="generateForm.datasourceId" placeholder="选择数据源" style="width: 100%" @change="onGenerateDatasourceChange">
+            <el-select v-model="generateForm.datasourceId" aria-label="目录生成数据源" :disabled="generateLoading" placeholder="选择数据源" style="width: 100%" @change="onGenerateDatasourceChange">
               <el-option v-for="ds in generatableDatasources" :key="ds.id" :label="ds.name" :value="ds.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="快照">
             <ErrorState v-if="snapshotsError" :message="snapshotsError" @retry="generateForm.datasourceId && loadSnapshots(generateForm.datasourceId)" />
-            <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%" :disabled="!generateForm.datasourceId || snapshotsLoading" :loading="snapshotsLoading" loading-text="正在加载快照">
+            <el-select v-model="generateForm.snapshotId" aria-label="目录生成来源快照" placeholder="选择元数据快照" style="width: 100%" :disabled="generateLoading || !generateForm.datasourceId || snapshotsLoading" :loading="snapshotsLoading" loading-text="正在加载快照">
               <el-option v-for="item in snapshots" :key="item.id" :label="`v${item.snapshotVersion} · ${item.status}`" :value="item.id" />
             </el-select>
           </el-form-item>
@@ -805,8 +914,8 @@ watch(() => route.query.page, (value) => {
       </template>
 
       <template #footer>
-        <el-button @click="generateDialogVisible = false">{{ generatedDocs.length ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" :disabled="!canManage || !generationReady" @click="runGenerate">
+        <el-button :disabled="generateLoading" @click="generateDialogVisible = false">{{ generatedDocs.length ? '关闭' : '取消' }}</el-button>
+        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" :disabled="!canManage || !generationReady || !!unknownGeneration" @click="runGenerate">
           <Sparkles :size="15" style="margin-right: 6px" />开始生成
         </el-button>
       </template>
@@ -815,6 +924,33 @@ watch(() => route.query.page, (value) => {
 </template>
 
 <style scoped>
+.stat small { display:block; margin-top:6px; color:var(--do-muted); font-size:11px; line-height:1.5; max-width:24em; }
+.rag-build-records { min-width:0; width:100%; max-width:100%; }
+.knowledge-index-heading { min-width:0; max-width:100%; }
+.knowledge-index-heading > div:first-child { min-width:0; flex:1 1 420px; overflow-wrap:anywhere; }
+.knowledge-build-action { max-width:320px; min-width:0; flex:0 1 280px; }
+.knowledge-build-action p,.knowledge-build-action small { display:block; margin:8px 0 0; color:var(--do-muted); font-size:12px; line-height:1.6; }
+.rag-build-cards { display:none; }
+@media(max-width:720px) {
+  .rag-build-table { display:none; }
+  .rag-build-cards { display:grid; gap:12px; }
+  .rag-build-card { min-width:0; padding:14px; border:1px solid var(--do-line); border-radius:10px; background:var(--do-surface); }
+  .rag-build-card > strong { display:block; color:var(--do-ink); margin-bottom:6px; }
+  .rag-build-card > strong.is-active { color:var(--do-success); }
+  .rag-build-card p,.rag-build-card span,.rag-build-card dl { font-size:13px; }
+  .rag-build-card summary { min-height:36px; display:list-item; cursor:pointer; font-size:12px; color:var(--do-primary-strong); }
+  .rag-build-card summary:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; }
+  .rag-build-card dl { margin:0; overflow-wrap:anywhere; }
+  .rag-build-card dt { margin-top:8px; color:var(--do-muted); }
+  .rag-build-card dd { margin:3px 0; }
+  .knowledge-build-action { max-width:100%; flex-basis:100%; }
+}
+
+.knowledge-page__eyebrow{margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
+.knowledge-journey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;padding:12px 0;list-style:none;margin:0;border-block:1px solid var(--do-line);}.knowledge-journey li{border-left:2px solid var(--do-line);padding-left:14px;}.knowledge-journey li:first-child{border-color:var(--do-primary);}.knowledge-journey strong{font-size:13px;}
+.knowledge-index-heading{display:flex;justify-content:space-between;gap:20px;align-items:start;flex-wrap:wrap;}.knowledge-index-heading h2{margin:6px 0;}.knowledge-index-heading p{max-width:80ch;color:var(--do-muted);font-size:13px;line-height:1.6;}.knowledge-build-snapshot{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:18px 0;}.knowledge-write-notice{border-left:3px solid var(--do-warning);padding:12px;background:var(--do-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
+@media(max-width:760px){.knowledge-page :deep(.task-page-header__actions){width:100%;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:8px;}.knowledge-page :deep(.task-page-header__actions .el-button){margin-left:0;}.knowledge-page :deep(.el-table-fixed-column--right){position:static!important;}.knowledge-journey{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 8px;}}
+
 .knowledge-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .knowledge-page > * { min-width: 0; }
 .knowledge-page__section-title { position: relative; width: fit-content; max-width: 100%; padding-right: 14px; }
@@ -903,4 +1039,28 @@ watch(() => route.query.page, (value) => {
 @media (max-width: 1180px) {
   .knowledge-page__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.knowledge-index-workspace{border:1px solid var(--do-line);border-radius:8px;background:var(--do-surface);overflow:hidden;min-width:0;}
+.knowledge-index-workspace>.knowledge-index-heading{padding:20px 24px;border-bottom:1px solid var(--do-line);display:flex;align-items:start;justify-content:space-between;gap:20px;}
+.knowledge-index-heading h2{margin:0;font-size:17px;}.knowledge-index-heading p{font-size:12px;color:var(--do-muted);line-height:1.7;margin:7px 0 0;}
+.knowledge-build-action{max-width:310px;flex-shrink:0;}.knowledge-build-action small{display:block;margin-top:7px;font-size:11px;color:var(--do-muted);}
+.knowledge-index-split{display:grid;grid-template-columns:260px minmax(0,1fr);min-width:0;}
+.rag-record-list{padding:18px 12px;background:var(--do-soft);border-right:1px solid var(--do-line);display:flex;flex-direction:column;gap:9px;min-width:0;}
+.rag-record-list h3{font-size:12px;margin:0 7px 8px;color:var(--do-muted);overflow-wrap:anywhere;}
+.rag-record-list button{border:1px solid transparent;border-radius:5px;background:transparent;display:grid;gap:8px;text-align:left;padding:13px;font:inherit;color:var(--do-ink);cursor:pointer;min-width:0;}
+.rag-record-list button.selected{border-color:var(--do-line-strong);border-left:3px solid var(--do-primary);background:var(--do-surface);}
+.rag-record-list strong{font-size:13px;}.rag-record-list span,.rag-record-list time{font-size:12px;color:var(--do-muted);overflow-wrap:anywhere;}
+.rag-record-list button:focus-visible{outline:2px solid var(--do-primary);outline-offset:2px;}
+.rag-build-detail{border:0!important;border-radius:0!important;padding:22px 24px!important;min-width:0;}
+.rag-build-detail>header{display:flex;justify-content:space-between;gap:16px;align-items:start;}.rag-build-detail h3{margin:0;font-size:20px;}
+.rag-build-facts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0;padding:18px 0;border-block:1px solid var(--do-line);}
+.rag-build-facts dt{font-size:11px;color:var(--do-muted);margin-bottom:6px;}.rag-build-facts dd{font-size:14px;font-weight:600;margin:0;overflow-wrap:anywhere;}
+.knowledge-index-explanation{font-size:13px;line-height:1.8;color:var(--do-muted);}
+.rag-build-detail details{margin-top:20px;border-top:1px solid var(--do-line);padding-top:14px;}
+.rag-build-detail summary,.knowledge-index-overview summary{cursor:pointer;font-size:12px;color:var(--do-muted);min-height:28px;}
+.rag-build-detail details dd{overflow-wrap:anywhere;margin:5px 0 14px;}.rag-build-detail details dt{font-size:12px;color:var(--do-muted);}
+.knowledge-index-overview{padding:16px 24px;border-top:1px solid var(--do-line);}
+.rag-mobile-toggle{display:none;}
+@media(max-width:760px){.knowledge-index-workspace>.knowledge-index-heading{display:grid;padding:17px;gap:13px;}.knowledge-build-action{max-width:none;width:100%;}.knowledge-build-action>.el-button{width:100%;min-height:44px;}.knowledge-index-split{grid-template-columns:minmax(0,1fr);}.rag-record-list{border-right:0;border-bottom:1px solid var(--do-line);}.rag-record-list button{min-height:44px;}.rag-build-detail{padding:17px!important;}.knowledge-index-overview{padding:15px 17px;}.rag-build-detail>header{flex-wrap:wrap;}}
+@media(max-width:760px){.rag-mobile-toggle{display:block;min-height:44px;margin:14px 17px 0;border:1px solid var(--do-line);background:var(--do-surface);border-radius:5px;font:inherit;color:var(--do-primary-strong);}.knowledge-index-split:not(.show-build-list)>.rag-record-list{display:none;}.knowledge-index-split.show-build-list>.rag-build-detail{display:none;}}
 </style>

@@ -1,6 +1,6 @@
 # 003 元数据采集与资产目录
 
-> 状态：现行模块说明；整理日期：2026-10-29。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
+> 状态：现行模块说明；整理日期：2026-11-01。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 配套功能定位
 
@@ -10,11 +10,11 @@
 | --- | --- | --- |
 | 自动采集计划 | [SyncScheduleController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/system/controller/SyncScheduleController.java)：`getSchedule`、`updateSchedule` | 全局计划，不是单数据源计划；更新后刷新调度器。 |
 
-SyncSchedule.vue → SyncScheduleController → sys_config → AutoSyncScheduler。修改计划影响全部启用数据源，更新同时要求受保护 S1 系统管理员；运行方法见开发指南。已有 [Batch6ControllerAuthorizationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/permission/s1/aspect/Batch6ControllerAuthorizationTest.java) 的 `globalScheduleWriteIsRejectedForNonSystemAdmin` 覆盖非系统管理员拒绝写入；它不覆盖非法 cron、关闭及刷新调度，后者仍需补核。血缘图谱入口见[查询审计与血缘](011-audit-lineage.md#实体血缘与图谱)。
+SyncSchedule.vue → SyncScheduleController → sys_config → AutoSyncScheduler。修改计划影响全部启用数据源，更新同时要求受保护 S1 系统管理员；运行方法见开发指南。前端只给系统管理员保存入口；`running` 表示调度已注册，不能解释为正在采集。预设不能无损表示的自定义 Cron 保留原串，空时间不发送无效表达式。已有 [Batch6ControllerAuthorizationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/permission/s1/aspect/Batch6ControllerAuthorizationTest.java) 的 `globalScheduleWriteIsRejectedForNonSystemAdmin` 覆盖非系统管理员拒绝写入；它不覆盖非法 cron、关闭及刷新调度，后者仍需补核。血缘图谱入口见[查询审计与血缘](011-audit-lineage.md#实体血缘与图谱)。
 
 ## 修改定位
 
-先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-27；不代表运行验收。
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-11-01；不代表运行验收。
 
 | 修改意图 | 文件与定位符号 | 关联影响 |
 | --- | --- | --- |
@@ -68,3 +68,27 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 ## 修改与验证
 
 采集器变更检查标识符、动态 SQL、空值/采样和故障传播；目录变更检查 SQL 级范围及分页。发布、过期与 buildId 约束转到版本与 RAG 模块，不能在采集完成回调里自行切换知识索引。
+
+### 采集编排诊断与代码注释
+
+`SchemaCollectionServiceImpl` 的任务创建、开始执行与完成使用 INFO，通过 `datasourceId`、`taskId` 关联，完成和失败记录任务耗时；事务内快照写入使用 DEBUG，补充 `snapshotId` 与表、字段、关系数量并标注“等待事务提交”。索引序列化异常使用 WARN，任务失败使用 ERROR，记录异常类型及已有原因异常类型，不记录原始异常、连接地址、库名、凭据或采集到的业务内容。
+
+任务创建只表示已有可供前端轮询的任务身份；完成日志须等采集事务返回且 `SUCCESS` 状态写入返回后再记录。注释说明任务、事务、审核发布和 RAG 构建之间的业务边界，不能把采集完成写成已发布或索引已生效。诊断补充不改变任务错误持久化、失败传播与重试合同。
+
+日志与失败状态回归入口：[SchemaCollectionObservabilityTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/metadata/service/impl/SchemaCollectionObservabilityTest.java)。Mock 回归不证明 JDBC 采集、真实事务或数据库迁移已经验收。
+
+## 前端 V2 范围与保护
+
+采集页的教学流程按需展开，任务状态、失败原因与生成快照入口仍在主表。同步计划保留全局影响提示；保存失败持续显示在表单中并保留当前设置，可由用户明确重试，输入变化或账号/能力范围失效时清理旧提示。读取和保存故障日志只记录阶段、请求代次与 HTTP 状态，不记录 Cron、令牌或响应正文；刷新迟到不覆盖新草稿，未重新读取前仍沿用原保存门禁。
+
+采集任务的动作与跨区入口分别按目标源能力显示；发起后展示任务编号，有任务查看权时定位该源，否则交接有权人员。页面列表不是全源运行任务锁，后端继续裁决并发。正式目录/结构共用独立数据源范围区，显式无权源不回退偏好源，有权源可正常同步；历史快照URL不被公共初始化偏好覆盖。快照列表失败重试继续读取结构。
+
+目录、结构和详情的返回身份以及账号/能力/范围代次均核验；对象取消标签确认和finally绑定原操作，防止同实体刷新后旧回调影响新写入。合成浏览器/测试证据及真实后端限制见[采集与对象证据](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d3)。
+
+| 正式入口／组件 | 保留工作面与范围 |
+| --- | --- |
+| `/admin/collections`／`SyncTask.vue` | 服务端任务分页、状态/错误、轮询、重试、结果快照；查看与执行分别核对同源collect:view/run。重试创建新任务，没有取消/恢复任务接口。统计采集默认关闭，不因前端发现无运行行而推定服务端无并发。 |
+| 同页`tab=schedule`／`SyncSchedule.vue` | 全局每日/每周/Cron、已保存与未保存预览；切Tab保稿，自定义Cron无损保留。`running`只表示注册，保存额外要求系统管理员。 |
+| `/admin/assets`／`AssetsView.vue` | 已发布对象与快照结构分开，目录搜索仅过滤已返回集合（大小写不敏感的部分匹配，覆盖表名/中文名/技术路径/说明/所属表；空格分隔的多关键词需同时命中）；列表在前端对已返回集合分页（每页 10/20/50/100，默认 20），不虚构服务端分页；完整路径复制/展开、正式版本和目录同步状态保留。 |
+| `view=tables&snapshotId=…`／`TableExplorer.vue` | 精确历史结构、表搜索、字段顺序、主键/可空及统计缺失；首批50条外可精确读取，失败不回退最新版，重试继续结构读取。数据表搜索支持多关键词同时命中；字段列表在前端对已取回集合分页（每页10/20/50/100，默认20），宽屏下由外层填充布局让表列表与字段表在各自区域内滚动，不虚构服务端分页。 |
+| `/admin/assets/entities/:entityId`／`AssetEntityDetailView.vue` | 字段、术语、标签、引用、血缘、下游及原始技术信息；FORBIDDEN/ERROR/UNAVAILABLE不转零。字段入口传精确来源快照、表及columnMetaId，血缘传datasourceId＋entityId，两类ID不互换。 |

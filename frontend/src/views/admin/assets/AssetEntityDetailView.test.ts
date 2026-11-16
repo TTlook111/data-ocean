@@ -24,6 +24,8 @@ vi.mock('vue-router', async () => {
   }
 })
 
+const identity = vi.hoisted(() => ({ current: null as unknown as { token: string } }))
+vi.mock('../../../stores/auth', async () => { const { reactive } = await import('vue'); identity.current = reactive({ token: 'synthetic-auth' }); return { useAuthStore: () => identity.current } })
 const api = vi.hoisted(() => ({
   getEntityOverview: vi.fn(),
   unconfirmEntityTag: vi.fn(),
@@ -249,7 +251,7 @@ function overview(id: number, name: string, extra: Partial<CatalogEntityOverview
 
 function columnOverview(extra: Partial<CatalogEntityOverview> = {}): CatalogEntityOverview {
   const column: OverviewColumn = {
-    entityId: 101, columnMetaId: 21, name: 'amount', displayName: '金额',
+    entityId: 1, columnMetaId: 21, name: 'amount', displayName: '金额',
     dataType: 'DECIMAL(10,2)', nullable: true, primaryKey: false,
     comment: '金额', governanceStatus: 'NORMAL', tableName: 'orders', ordinalPosition: 1,
     usageLimits: [],
@@ -257,7 +259,7 @@ function columnOverview(extra: Partial<CatalogEntityOverview> = {}): CatalogEnti
   return overview(1, 'orders', {
     entityType: 'COLUMN',
     entity: {
-      id: 101, entityType: 'COLUMN', entityUuid: 'uuid-col', fqn: 'ds.db.orders.amount',
+      id: 1, entityType: 'COLUMN', entityUuid: 'uuid-col', fqn: 'ds.db.orders.amount',
       name: 'amount', displayName: '金额', version: 1,
     },
     table: { tableName: 'orders', displayName: '订单', comment: '', governanceStatus: 'NORMAL', tableType: 'BASE TABLE' },
@@ -309,6 +311,7 @@ function activeTab(wrapper: VueWrapper) {
 }
 
 beforeEach(() => {
+  identity.current.token = 'synthetic-auth'
   api.getEntityOverview.mockReset()
   api.unconfirmEntityTag.mockReset().mockResolvedValue({ data: null })
   iam.canOnDatasource.mockReset().mockReturnValue(true)
@@ -725,7 +728,7 @@ describe('field explanation location', () => {
   })
 
   it('does not require tag management permission to open field explanations', async () => {
-    iam.canOnDatasource.mockImplementation((code: string) => code === 'governance:field:view')
+    iam.canOnDatasource.mockImplementation((code: string) => code === 'metadata:view' || code === 'governance:field:view')
     api.getEntityOverview.mockResolvedValue({ data: columnOverview() })
 
     const wrapper = mountView()
@@ -739,7 +742,7 @@ describe('field explanation location', () => {
   })
 
   it('disables the entry and explains the missing view capability', async () => {
-    iam.canOnDatasource.mockReturnValue(false)
+    iam.canOnDatasource.mockImplementation(code => code === 'metadata:view')
     api.getEntityOverview.mockResolvedValue({ data: columnOverview() })
 
     const wrapper = mountView()
@@ -754,7 +757,7 @@ describe('field explanation location', () => {
   })
 
   it('opens the lineage workspace with only datasourceId and entityId', async () => {
-    iam.canOnDatasource.mockImplementation((code: string) => code === 'lineage:view')
+    iam.canOnDatasource.mockImplementation((code: string) => code === 'metadata:view' || code === 'lineage:view')
     api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders') })
 
     const wrapper = mountView()
@@ -770,7 +773,7 @@ describe('field explanation location', () => {
   })
 
   it('disables the lineage workspace entry without lineage:view', async () => {
-    iam.canOnDatasource.mockReturnValue(false)
+    iam.canOnDatasource.mockImplementation(code => code === 'metadata:view')
     api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders') })
 
     const wrapper = mountView()
@@ -944,5 +947,61 @@ describe('desktop fixed scrolling layout', () => {
     expect(observers.length).toBeGreaterThan(0)
     observers.forEach((observer) => expect(observer.disconnect).toHaveBeenCalled())
     expect(removeListener).toHaveBeenCalledWith('resize', expect.any(Function))
+  })
+})
+
+describe('对象与账号身份合同', () => {
+  it('换账号后旧对象响应不覆盖新读取', async () => {
+    let resolve!: (value: unknown) => void
+    api.getEntityOverview.mockReturnValueOnce(new Promise(r => { resolve = r })).mockResolvedValueOnce({ data: overview(1, 'NEW IDENTITY') })
+    const wrapper = mountView()
+    await flushPromises()
+    identity.current.token = 'new-identity'
+    await flushPromises()
+    resolve({ data: overview(1, 'OLD IDENTITY') })
+    await flushPromises()
+    expect(wrapper.text()).toContain('NEW IDENTITY')
+    expect(wrapper.text()).not.toContain('OLD IDENTITY')
+  })
+  it('对象ID不匹配时不展示返回内容', async () => {
+    api.getEntityOverview.mockResolvedValue({ data: overview(2, 'WRONG OBJECT') })
+    const wrapper = mountView(); await flushPromises()
+    expect(wrapper.text()).toContain('对象来源与当前请求不一致')
+    expect(wrapper.text()).not.toContain('WRONG OBJECT')
+  })
+  it('显式源无权时不请求实体聚合', async () => {
+    holders.route.query = { datasourceId: '2' }
+    iam.canOnDatasource.mockImplementation((_code, id) => id === 1)
+    const wrapper = mountView(); await flushPromises()
+    expect(api.getEntityOverview).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('没有当前数据源')
+  })
+  it('取消标签确认期间换账号不能发送旧DELETE', async () => {
+    let resolve!: (value: unknown) => void
+    vi.mocked(ElMessageBox.confirm).mockImplementationOnce(() => new Promise(r => { resolve = r }) as never)
+    api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders', { tags: { status: 'OK', items: [{ id: 1, name: 'trusted', kind: 'CONFIRMED', source: 'MANUAL', confirmed: true }] } }) })
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === '取消关联')!.trigger('click')
+    identity.current.token = 'new-identity'; await flushPromises()
+    resolve('confirm'); await flushPromises()
+    expect(api.unconfirmEntityTag).not.toHaveBeenCalled()
+  })
+})
+
+describe('标签操作完成回调归属', () => {
+  it('同实体刷新后，旧DELETE的finally不能解锁新DELETE', async () => {
+    let resolveOld!: (value: unknown) => void, resolveNew!: (value: unknown) => void
+    api.unconfirmEntityTag.mockReturnValueOnce(new Promise(r => { resolveOld = r })).mockReturnValueOnce(new Promise(r => { resolveNew = r }))
+    api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders', { tags: { status: 'OK', items: [{ id: 1, name: 'trusted', kind: 'CONFIRMED', source: 'MANUAL', confirmed: true }] } }) })
+    const wrapper = mountView(); await flushPromises()
+    const cancel = () => wrapper.findAll('button').find(b => b.text() === '取消关联')!
+    await cancel().trigger('click'); await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === '刷新')!.trigger('click'); await flushPromises()
+    await cancel().trigger('click'); await flushPromises()
+    expect(api.unconfirmEntityTag).toHaveBeenCalledTimes(2)
+    resolveOld({ data: null }); await flushPromises()
+    expect(cancel().attributes('disabled')).toBeDefined()
+    await cancel().trigger('click'); expect(api.unconfirmEntityTag).toHaveBeenCalledTimes(2)
+    resolveNew({ data: null }); await flushPromises()
   })
 })

@@ -1,6 +1,6 @@
 # 002 数据源与就绪检查
 
-> 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
+> 状态：现行模块说明；整理日期：2026-11-01。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 配套功能定位
 
@@ -16,7 +16,7 @@ DataSourcesView/DataSourceDetailView → datasource API → DatasourceAdminContr
 
 ## 修改定位
 
-先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-11-01；不代表运行验收。
 
 | 修改意图 | 文件与定位符号 | 关联影响 |
 | --- | --- | --- |
@@ -34,9 +34,25 @@ DataSourcesView/DataSourceDetailView → datasource API → DatasourceAdminContr
 
 ## 主流程
 
-注册/测试连接 → 采集快照 → 质量处理与审核发布 → 文档审核发布 → 显式 RAG build → 当前用户数据授权与就绪检查 → 问数。
+建议准备路径：注册/测试连接 → 采集快照 → 质量处理与审核发布 → 文档审核发布与显式 RAG build；问数另按当前用户授权与服务端就绪检查执行。这是任务分工，不是前端新增的一组串行门禁。
+
+当前实现的 `askable` 只要求连接、已发布快照、无当前阻断问题和有效授权，不包含 `knowledgeReady`。`knowledgeReady` 实际表示存在活动 RAG build；无活动索引或索引来源落后可以与可问数并存。后台 `permissionReady` 表示已有有效数据授权配置，不代表查看该页的管理员本人拥有查询权；普通问数使用当前用户入口单独核验。
 
 readiness 汇总连接、快照、阻断问题、知识/活动构建及权限相关条件，前端直接展示后端阻断原因。不在前端自算就绪状态，不为了截图改变授权。阻断问题口径与发布门禁共用 `OPEN/CONFIRMED/REOPENED`，门禁的审核/发布判定由[版本模块](005-metadata-versioning.md)维护。
+
+## 数据源页面 V2
+
+列表先解释连接、采集、治理、发布、索引、问数的分工，再展示各源真实阶段、采集/正式版本与活动索引状态。详情将当前首要原因、协作角色和有权下一步放在前面，准备路径逐项解释事实；最近知识文档不冒充整组发布，治理布尔值不冒充字段释义已全部审核。
+
+- [DataSourcesView.vue](../../frontend/src/views/admin/datasource/DataSourcesView.vue)：服务端筛选/分页、连接表单、启停删除；旧列表/测试响应按请求代次和账号接纳，编辑深链可精确读取非首屏目标。连接测试只绑定当时配置；未改连接的编辑允许沿用密码，新建后刷新能力决定是否能进入详情，不自动授予负责源或数据权。
+- [DataSourceDetailView.vue](../../frontend/src/views/admin/datasource/DataSourceDetailView.vue)：按路由源、账号与能力隔离请求和操作；只按本源独立能力读取快照、采集、知识与治理问题，缺权与请求失败分别显示。首要动作保留后端原因顺序，无采集/已有未发布快照依据 readiness 事实分流。
+- [DatasourcePreparation.vue](../../frontend/src/components/admin/DatasourcePreparation.vue)、[datasourcePreparation.ts](../../frontend/src/utils/datasourcePreparation.ts)：六项事实和有权工作区链接，不负责重新裁定 askable。
+
+连接窗口保留分区校验、测试与保存；后台外层滚动锁定，长表单正文内滚动。确认框仅关闭当前实例拥有的框，账号/页面改变后不继续旧写入；创建后的能力刷新也不能覆盖新草稿或筛选意图。
+
+服务端搜索、启用/连接过滤和分页的总量不从当前页推算。启停、删除和已保存连接测试仍在对象上下文；禁用确认后重新核验本源能力，数据源先禁用才可删除。最近一篇已发布知识文档仅是该篇的证据；最新采集、正式元数据与活动索引各自显示，不互相推导。共享壳、面包屑和公共范围按[前端规范](../development/前端开发规范.md#导航与上下文)维护，不在本模块复制一份导航合同。
+
+实际前端与合成 API 浏览器成绩见[第二阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d2)，不能由此推定真实数据库、模型或新 UI 真实后端联调通过。
 
 持久化对象位于 `entity.po`，列表查询使用 `entity.query.DatasourceQuery` 继承公共 `PageQuery`。分页、别名及排序字段白名单见[架构说明](../技术栈与模块职责.md#java-对象目录与分页查询)。可见数据源范围仍在 SQL 分页前过滤。
 
@@ -58,5 +74,15 @@ readiness 汇总连接、快照、阻断问题、知识/活动构建及权限相
 ## 异步与变更注意
 
 定时批量健康检查由 DatasourceHealthCheckScheduler 提交给专用执行器，不占用公共 ForkJoinPool；不能用这一点推断所有手动连接测试接口都会异步返回。执行器饱和时的调用方回退边界见[技术栈与模块职责](../技术栈与模块职责.md#54-执行约束)。数据源变更与 Python 连接池通知沿用现有客户端；不能把 SSE 或健康检查套成盲目重试。授权变更走 IAM 修订与当前权限复查，不新增旧授权 CRUD。
+
+### 运行诊断与代码注释
+
+数据源列表的准备流程默认折叠，真实行状态、阻断和版本信息保留。启用/连接筛选有独立可访问名称，刷新显示读取状态；当前请求读取失败仅记录阶段、请求代次和 HTTP 状态，不输出筛选词或连接配置。
+
+`DatasourceConnectionServiceImpl` 的连接探测以 `datasourceId`、`checkType` 关联，开始与通过阶段使用 DEBUG，失败使用 WARN 并记录实际耗时和异常类型。新建表单探测尚无数据源 ID，不以连接地址代替关联键。运行日志不得输出连接地址、库名、账号、凭据或 JDBC 异常原文与堆栈；接口错误和健康检查记录仍沿用各自原有合同。
+
+`DatasourceServiceImpl` 的创建、更新、软删除与启停写入日志使用 INFO，方法内仍处在事务中，明确标注“等待事务提交”，不能作为已提交证明。代码注释解释连接、准备条件、授权和事务边界：连接探测通过只代表本次连接可用，不代表已可问数，不逐行复述赋值操作。
+
+日志边界回归入口：[DatasourceConnectionServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/datasource/service/impl/DatasourceConnectionServiceImplTest.java)。该测试不替代真实数据源连通性验收。
 
 修改就绪判断时验证缺失条件、无权、部分失败和正常分支。真实环境使用[本机开发规则](../development/本地开发与验证.md)，不自动重建或重置基础设施。

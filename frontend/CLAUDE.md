@@ -8,7 +8,7 @@
 - 读取 IAM-SIMPLE-1 能力摘要；不恢复旧 roles/permissions 判权、meta.permission 或旧权限 API。
 - 七域两级侧栏、高亮 meta 和上下文白名单遵循 router/adminNavigation.ts；不恢复内容区工作区栏。
 - 账号在侧栏左下角；普通说明在标题右上角问号，状态、错误与对象标识直接显示。
-- 沿用共用组件、Lucide 与 CSS 令牌；当前海蓝风格和用户后续修正优先于旧指南色值与图稿。
+- 沿用共用组件、Lucide 与 CSS 令牌；暖白、墨色与铜橙工作区及原品牌 Logo 遵循前端规范，工作台和治理总览采用已批准的 V3 合同。
 - readiness、发布、RAG build 及任务结果来自后端，不为了截图改变数据或授权。
 - Loading、空、失败、无权与部分成功必须区分；保留键盘、焦点和窄屏行为。
 

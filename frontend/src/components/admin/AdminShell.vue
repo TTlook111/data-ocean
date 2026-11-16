@@ -5,29 +5,22 @@ import { useRoute, useRouter } from 'vue-router'
 import type { DropdownInstance } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
 import { useIamS1Store } from '../../stores/iamS1'
-import {
-  getUnreadNotificationCount,
-  listNotifications,
-  markNotificationAsRead,
-  markNotificationsBatchAsRead,
-  type NotificationItem,
-} from '../../api/notification'
+import {useAdminNotifications} from '../../composables/useAdminNotifications'
 import { findWorkspace, type AdminContextMode } from '../../router/adminNavigation'
 import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
 import ScopeBar from './ScopeBar.vue'
+import brandMark from '../../assets/brand/dataocean-mark.png'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const iamS1 = useIamS1Store()
 const collapsed = ref(false)
-const notifications = ref<NotificationItem[]>([])
-const notificationLoading = ref(false)
-const unreadCount = ref(0)
+const {notifications,notificationLoading,notificationWriting,unreadCount,notificationError,notificationCountError,notificationVisible,fetchNotifications,readNotification,readAllVisible}=useAdminNotifications()
+const logoutLoading=ref(false)
 const userMenuVisible = ref(false)
 const userDropdown = ref<DropdownInstance>()
-let notificationTimer: number | undefined
 let narrowScreen: MediaQueryList | undefined
 function adaptSidebar(event: MediaQueryListEvent) { if (event.matches) collapsed.value = true }
 
@@ -60,45 +53,12 @@ async function handleUserCommand(command: string) {
   if (command === 'query' && iamS1.queryUse) router.push('/query')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
-  if (command === 'logout') {
-    await auth.logout()
-    await router.push('/login')
+  if (command === 'logout' && !logoutLoading.value) {
+    const token=auth.token
+    logoutLoading.value=true
+    try {await auth.logout();if(!auth.token || auth.token===token)await router.push('/login')}
+    finally {logoutLoading.value=false}
   }
-}
-
-async function fetchUnreadCount() {
-  try {
-    const result = await getUnreadNotificationCount()
-    unreadCount.value = result.data?.count ?? 0
-  } catch {
-    unreadCount.value = 0
-  }
-}
-
-async function fetchNotifications() {
-  notificationLoading.value = true
-  try {
-    const result = await listNotifications({ page: 1, pageSize: 8 })
-    notifications.value = result.data?.records ?? []
-    await fetchUnreadCount()
-  } finally {
-    notificationLoading.value = false
-  }
-}
-
-async function readNotification(item: NotificationItem) {
-  if (item.isRead) return
-  await markNotificationAsRead(item.id)
-  item.isRead = true
-  unreadCount.value = Math.max(0, unreadCount.value - 1)
-}
-
-async function readAllVisible() {
-  const unread = notifications.value.filter((item) => !item.isRead)
-  if (!unread.length) return
-  await markNotificationsBatchAsRead(unread.map((item) => item.id))
-  unread.forEach((item) => { item.isRead = true })
-  unreadCount.value = 0
 }
 
 function notificationTime(value: string) {
@@ -110,22 +70,19 @@ onMounted(() => {
   narrowScreen = window.matchMedia('(max-width: 640px)')
   if (narrowScreen.matches) collapsed.value = true
   narrowScreen.addEventListener('change', adaptSidebar)
-  fetchUnreadCount()
-  notificationTimer = window.setInterval(fetchUnreadCount, 60_000)
 })
 
 onBeforeUnmount(() => {
   narrowScreen?.removeEventListener('change', adaptSidebar)
-  if (notificationTimer) window.clearInterval(notificationTimer)
 })
 </script>
 
 <template>
   <div class="admin-shell" :class="{ 'is-collapsed': collapsed }">
-    <aside class="admin-shell__sidebar do-glass-shell">
+    <aside class="admin-shell__sidebar">
       <div class="admin-shell__brand">
         <RouterLink to="/admin" class="admin-shell__brand-link" aria-label="DataOcean 后台">
-          <span class="admin-shell__brand-mark notranslate" aria-hidden="true" translate="no">DO</span>
+          <img class="admin-shell__brand-mark" :src="brandMark" alt="" width="28" height="44" />
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>
             <small>数据查询治理平台</small>
@@ -163,7 +120,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="admin-shell__main">
-      <header class="admin-shell__topbar do-glass-panel">
+      <header class="admin-shell__topbar">
         <nav class="admin-shell__title" aria-label="当前位置">
           <template v-for="(item, index) in breadcrumbs" :key="item.key">
             <span v-if="index" aria-hidden="true">/</span>
@@ -178,10 +135,10 @@ onBeforeUnmount(() => {
         </nav>
 
         <div class="admin-shell__topbar-actions">
-          <el-popover placement="bottom-end" width="360" trigger="click" @show="fetchNotifications">
+          <el-popover v-model:visible="notificationVisible" popper-class="admin-notifications-popper" placement="bottom-end" width="360" trigger="click" @show="fetchNotifications">
             <template #reference>
-              <button class="admin-shell__icon-button" type="button" aria-label="通知">
-                <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+              <button class="admin-shell__icon-button" type="button" aria-label="通知" :title="notificationCountError ? '未读数量尚未确认' : undefined">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0 || unreadCount === undefined" :max="99">
                   <Bell :size="18" />
                 </el-badge>
               </button>
@@ -189,10 +146,14 @@ onBeforeUnmount(() => {
             <div v-loading="notificationLoading" class="admin-shell__notification-panel">
               <div class="admin-shell__notification-header">
                 <strong>通知中心</strong>
-                <button type="button" :disabled="!hasUnread" @click="readAllVisible">全部已读</button>
+                <button type="button" :disabled="!hasUnread || notificationWriting || notificationLoading" @click="readAllVisible">当前列表已读</button>
               </div>
-              <el-empty v-if="!notifications.length" description="暂无通知" :image-size="56" />
-              <button v-for="item in notifications" :key="item.id" type="button" class="admin-shell__notification" :class="{ unread: !item.isRead }" @click="readNotification(item)">
+              <p v-if="notificationCountError" class="notification-count-error" role="status">未读数量尚未确认。{{notificationCountError}}</p>
+              <p v-if="notificationError" class="notification-error" role="alert">{{notificationError}}</p>
+              <button v-if="notificationError || notificationCountError" type="button" :disabled="notificationLoading || notificationWriting" @click="fetchNotifications">重读通知</button>
+              <p v-if="notificationLoading" role="status">正在读取通知…</p>
+              <el-empty v-else-if="!notificationError && !notifications.length" description="暂无通知" :image-size="56" />
+              <button v-for="item in notifications" :key="item.id" type="button" class="admin-shell__notification" :disabled="notificationWriting || notificationLoading || item.isRead" :class="{ unread: !item.isRead }" @click="readNotification(item)">
                 <span>{{ item.title }}</span>
                 <small>{{ notificationTime(item.createdAt) }}</small>
                 <p>{{ item.content }}</p>
@@ -220,16 +181,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .admin-shell {
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  gap: 10px;
-  padding: 10px;
+  gap: 0;
+  padding: 0;
   overflow: hidden;
-  background: transparent;
+  color: var(--do-ink);
+  background: var(--do-bg);
 }
 
 .admin-shell.is-collapsed {
@@ -242,8 +204,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 16px;
-  background: transparent;
+  border-right: 1px solid var(--do-line);
+  border-radius: 0;
+  background: var(--do-sidebar);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -252,6 +215,7 @@ onBeforeUnmount(() => {
 /* Bound the glass layer while leaving menus, shadows and content unclipped. */
 .admin-shell__sidebar::before,
 .admin-shell__topbar::before {
+  display: none;
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -302,7 +266,6 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.admin-shell__brand-mark,
 .admin-shell__avatar {
   display: grid;
   place-items: center;
@@ -314,8 +277,9 @@ onBeforeUnmount(() => {
 
 .admin-shell__brand-mark {
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 44px;
+  object-fit: contain;
   overflow: hidden;
   font-size: 13px;
   line-height: 1;
@@ -354,7 +318,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-md);
-  color: var(--do-primary-strong);
+  color: var(--do-muted);
   background: var(--do-surface);
   cursor: pointer;
 }
@@ -389,11 +353,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 62px;
+  min-height: 64px;
   padding: 0 24px;
-  border-radius: 15px;
-  border-color: var(--do-glass-border);
-  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 0;
+  background: var(--do-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -452,7 +417,8 @@ onBeforeUnmount(() => {
 .admin-shell__avatar {
   width: 36px;
   height: 36px;
-  background: var(--do-primary);
+  color: var(--do-ink);
+  background: #e1e5dc;
   font-size: 12px;
 }
 
@@ -466,11 +432,11 @@ onBeforeUnmount(() => {
 
 .admin-shell__content {
   width: 100%;
-  max-width: 1600px;
+  max-width: 1480px;
   min-height: 0;
   flex: 1 1 0;
   margin: 0 auto;
-  padding: 44px 22px 28px;
+  padding: 32px 32px 28px;
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
@@ -481,7 +447,7 @@ onBeforeUnmount(() => {
 .admin-shell__content::-webkit-scrollbar { width: 6px; }
 .admin-shell__content::-webkit-scrollbar-track { background: transparent; }
 .admin-shell__content::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 20%, transparent); }
-.admin-shell__content--compact { padding-top: 20px; }
+.admin-shell__content--compact { padding-top: 28px; }
 
 .admin-shell__notification-panel {
   min-height: 80px;
@@ -547,8 +513,8 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell.is-collapsed .admin-shell__brand-mark {
-  width: 32px;
-  height: 32px;
+  width: 25px;
+  height: 38px;
 }
 
 .admin-shell.is-collapsed .admin-domain-nav__item {
@@ -642,3 +608,5 @@ onBeforeUnmount(() => {
 }
 .admin-account-actions-popper .el-dropdown-menu__item--divided { margin: 6px 0 0; border-top-color: var(--do-line); }
 </style>
+
+<style>.admin-notifications-popper.el-popper {max-width:calc(100vw - 24px);}.notification-error {color:var(--do-danger);font-size:12px;line-height:1.6}.notification-count-error {color:var(--do-muted);font-size:12px;line-height:1.6}</style>

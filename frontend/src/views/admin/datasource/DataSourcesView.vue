@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Ban, ChevronDown, CircleCheck, Database, Pencil, PlugZap, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
@@ -7,6 +7,7 @@ import {
   createDatasource,
   deleteDatasource,
   getDatasourceReadiness,
+  getDatasource,
   listDatasources,
   testDatasourceConnection,
   updateDatasource,
@@ -22,10 +23,14 @@ import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { getHttpErrorMessage } from '../../../utils/httpError'
 
 const router = useRouter()
 const route = useRoute()
 const iamS1 = useIamS1Store()
+const auth = useAuthStore()
 const canView = computed(() => iamS1.hasGlobal('datasource:view'))
 const canCreate = computed(() => iamS1.hasGlobal('datasource:manage'))
 const VIEW_HINT = '没有查看数据源的权限。'
@@ -41,9 +46,16 @@ const readiness = reactive<Record<number, DatasourceReadiness | undefined>>({})
 const total = ref(0)
 const loading = ref(true)
 const error = ref('')
+// 列表工作区填充基线：宽屏且窗口高度足够时表格铺满内容区并在自身区域内滚动，
+// 少量数据时空白留在表体内部；窄屏或矮窗口退回页面滚动。
+let fillMedia: MediaQueryList | undefined
+const fillMediaMatches = ref(false)
+const fillLayout = computed(() => fillMediaMatches.value)
+function syncFillLayout() { fillMediaMatches.value = fillMedia?.matches ?? false }
 const dialogVisible = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const rowActionBusy = ref(false)
 const editingId = ref<number>()
 const testedOk = ref(false)
 const connectionDirty = ref(false)
@@ -52,6 +64,33 @@ const testError = ref('')
 // 不写入列表、路由、Store 或持久化存储。
 const lastTestedPassword = ref<string | null>(null)
 const formRef = ref<FormInstance>()
+let listRequest = 0, dialogGeneration = 0, testRequest = 0, connectionRevision = 0, formRevision = 0, alive = true
+let navigationIntent = 0
+let confirmationGeneration = 0, ownsConfirmation = false
+const confirmationBusy = ref(false)
+const confirmationCancelClass = `datasource-cancel-${Math.random().toString(36).slice(2)}`
+function closeOwnedConfirmation() {
+  confirmationGeneration++
+  if (ownsConfirmation) document.querySelector<HTMLButtonElement>(`.${confirmationCancelClass}`)?.click()
+  ownsConfirmation = false; confirmationBusy.value = false
+}
+async function confirmAction(message: string, title: string, type: 'warning' | 'error', confirmButtonText: string) {
+  if (confirmationBusy.value) return false
+  const ticket = ++confirmationGeneration
+  ownsConfirmation = true; confirmationBusy.value = true
+  try {
+    await ElMessageBox.confirm(message, title, { type, confirmButtonText, cancelButtonText: '取消', cancelButtonClass: confirmationCancelClass })
+    return alive && ticket === confirmationGeneration
+  } catch { return false }
+  finally { if (ticket === confirmationGeneration) { ownsConfirmation = false; confirmationBusy.value = false } }
+}
+useAdminScrollLock(() => dialogVisible.value)
+onScopeDispose(() => { alive = false; navigationIntent++; closeOwnedConfirmation(); listRequest++; dialogGeneration++; testRequest++; lastTestedPassword.value = null; form.password = ''; fillMedia?.removeEventListener('change', syncFillLayout); fillMedia = undefined })
+const preparationStages = [
+  { title: '连接', text: '配置并测试只读连接' }, { title: '采集', text: '取得表与字段结构' },
+  { title: '治理', text: '核对问题与业务含义' }, { title: '发布', text: '审核并发布版本' },
+  { title: '索引', text: '显式构建知识索引' }, { title: '问数', text: '按当前授权执行' },
+]
 
 const query = reactive<DatasourceQuery>({
   name: typeof route.query.name === 'string' ? route.query.name : undefined,
@@ -116,8 +155,7 @@ const testStatusTone = computed(() => {
 })
 
 function apiError(error: unknown, fallback: string) {
-  const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-  return message || (error instanceof Error ? error.message : fallback)
+  return getHttpErrorMessage(error, fallback)
 }
 
 function sourceLabel(row: DatasourceItem) {
@@ -135,6 +173,7 @@ function healthLabel(status?: string) {
 }
 
 function resetForm() {
+  dialogGeneration++; testRequest++; testing.value = false; saving.value = false
   editingId.value = undefined
   testedOk.value = false
   connectionDirty.value = false
@@ -160,16 +199,22 @@ function resetForm() {
   formRef.value?.clearValidate()
 }
 
-function loadReadiness(row: DatasourceItem) {
+function loadReadiness(row: DatasourceItem, ticket = listRequest, token = auth.token) {
   return getDatasourceReadiness(row.id)
-    .then((result) => { readiness[row.id] = result.data })
-    .catch(() => { readiness[row.id] = undefined })
+    .then((result) => {
+      if (result.data.datasourceId !== row.id) throw new Error('准备状态的数据源范围不一致')
+      if (alive && ticket === listRequest && token === auth.token) readiness[row.id] = result.data
+    })
+    .catch(() => { if (alive && ticket === listRequest && token === auth.token) readiness[row.id] = undefined })
 }
 
 async function load() {
+  const ticket = ++listRequest, token = auth.token, params = { ...query }
+  const current = () => alive && ticket === listRequest && token === auth.token
   loading.value = true
   error.value = ''
   await iamS1.load()
+  if (!current()) return
   if (!canView.value) {
     rows.value = []
     total.value = 0
@@ -180,32 +225,42 @@ async function load() {
   try {
     const filters = { ...route.query }
     for (const key of ['name', 'status', 'healthStatus', 'page'] as const) {
-      const value = query[key]
+      const value = params[key]
       if (value === undefined || value === '' || (key === 'page' && value === 1)) delete filters[key]
       else filters[key] = String(value)
     }
     await router.replace({ query: filters })
-    const result = await listDatasources(query)
+    if (!current()) return
+    const result = await listDatasources(params)
+    if (!current()) return
     rows.value = result.data.records
     total.value = result.data.total
-    await Promise.all(rows.value.map(loadReadiness))
+    for (const id of Object.keys(readiness)) delete readiness[Number(id)]
+    await Promise.all(rows.value.map(row => loadReadiness(row, ticket, token)))
   } catch (cause) {
+    if (!current()) return
+    // 只诊断当前列表读取；筛选词、连接配置和 Axios 错误对象都可能带业务或凭据信息。
+    const status = (cause as { response?: { status?: unknown } } | null)?.response?.status
+    console.warn('[数据源列表读取失败]', { phase: 'list', requestId: ticket, httpStatus: typeof status === 'number' ? status : undefined })
     rows.value = []
     total.value = 0
     error.value = apiError(cause, '数据源加载失败，请稍后重试')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 function openCreate() {
   if (!canCreate.value) { ElMessage.warning(CREATE_HINT); return }
+  navigationIntent++
   resetForm()
   dialogVisible.value = true
 }
 
 function openEdit(row: DatasourceItem) {
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
+  navigationIntent++
+  resetForm()
   editingId.value = row.id
   testedOk.value = true
   connectionDirty.value = false
@@ -228,13 +283,18 @@ function openEdit(row: DatasourceItem) {
     charset: row.charset || 'utf8mb4',
     username: row.username || '',
   })
+  testedOk.value = true
+  connectionDirty.value = false
   dialogVisible.value = true
 }
 
 async function testConnection() {
+  if (testing.value || saving.value) return
+  const generation = dialogGeneration, revision = connectionRevision, ticket = ++testRequest, identity = auth.token
+  const current = () => alive && dialogVisible.value && generation === dialogGeneration && ticket === testRequest && identity === auth.token
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validateField(['host', 'port', 'databaseName', 'charset', 'username', 'password']).catch(() => false)
-  if (valid === false) return
+  if (valid === false || !current() || revision !== connectionRevision) return
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   if (editingId.value && !form.password) {
     ElMessage.warning('测试连接需要填写密码；若不修改连接配置，编辑保存可以留空密码')
@@ -244,14 +304,16 @@ async function testConnection() {
   testing.value = true
   testError.value = ''
   try {
-    const result = await testDatasourceConnection({
+    const payload = {
       host: form.host,
       port: form.port,
       databaseName: form.databaseName,
       charset: form.charset,
       username: form.username,
       password: form.password || '',
-    })
+    }
+    const result = await testDatasourceConnection(payload)
+    if (!current() || revision !== connectionRevision || !canWriteForm.value) return
     if (!result.data.success) {
       testedOk.value = false
       testError.value = '连接失败：' + result.data.message
@@ -259,26 +321,25 @@ async function testConnection() {
     }
     testedOk.value = true
     connectionDirty.value = false
-    Object.assign(originalConnection, {
-      host: form.host,
-      port: form.port,
-      databaseName: form.databaseName,
-      charset: form.charset,
-      username: form.username,
-    })
-    lastTestedPassword.value = form.password ?? ''
+    Object.assign(originalConnection, { host: payload.host, port: payload.port, databaseName: payload.databaseName, charset: payload.charset, username: payload.username })
+    lastTestedPassword.value = payload.password
     ElMessage.success('连接测试成功')
   } catch (cause) {
+    if (!current() || revision !== connectionRevision) return
     testedOk.value = false
     testError.value = apiError(cause, '连接测试失败，请检查配置')
   } finally {
-    testing.value = false
+    if (current()) testing.value = false
   }
 }
 
 async function save() {
+  if (saving.value || testing.value) return
+  const generation = dialogGeneration, revision = formRevision, identity = auth.token, id = editingId.value, intent = navigationIntent
+  const current = () => alive && dialogVisible.value && generation === dialogGeneration && identity === auth.token
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validate().catch(() => false)
+  if (!current() || revision !== formRevision || saving.value || testing.value) return
   if (!valid || !canSave.value) {
     if (!canSave.value) ElMessage.warning(saveHint.value)
     return
@@ -290,11 +351,12 @@ async function save() {
     const payload = { ...form }
     if (lastTestedPassword.value !== null) {
       payload.password = lastTestedPassword.value
-    } else if (editingId.value) {
+    } else if (id !== undefined) {
       delete payload.password
     }
-    if (editingId.value) {
-      await updateDatasource(editingId.value, payload)
+    if (id !== undefined) {
+      await updateDatasource(id, payload)
+      if (!current()) return
       ElMessage.success('数据源已更新')
       dialogVisible.value = false
       await load()
@@ -302,70 +364,80 @@ async function save() {
     }
 
     const result = await createDatasource(payload)
+    if (!current()) return
     const createdId = result.data?.id
     ElMessage.success('数据源已创建')
     dialogVisible.value = false
-    if (createdId) {
+    await iamS1.load(true)
+    if (!alive || identity !== auth.token || intent !== navigationIntent) return
+    if (createdId && iamS1.canOnDatasource('datasource:view', createdId)) {
       await router.push('/admin/data-sources/' + createdId)
     } else {
+      ElMessage.info('连接已保存；当前账号尚无新数据源查看权限，请联系管理员配置负责源。')
       await load()
     }
   } catch (cause) {
+    if (!current()) return
     ElMessage.error(apiError(cause, editingId.value ? '数据源更新失败' : '数据源创建失败'))
   } finally {
-    saving.value = false
+    if (alive && generation === dialogGeneration && identity === auth.token) saving.value = false
   }
 }
 
 async function toggleStatus(row: DatasourceItem) {
+  if (confirmationBusy.value || rowActionBusy.value) return
+  const identity = auth.token
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   const nextStatus = row.status === 1 ? 0 : 1
   if (nextStatus === 0) {
-    try {
-      await ElMessageBox.confirm(
-        '禁用后该数据源无法继续采集和问数，请确认数据源名称：' + row.name,
-        '禁用数据源',
-        { type: 'warning', confirmButtonText: '确认禁用', cancelButtonText: '取消' },
-      )
-    } catch {
-      return
-    }
+    if (!await confirmAction('禁用后该数据源无法继续采集和问数，请确认数据源名称：' + row.name, '禁用数据源', 'warning', '确认禁用')) return
   }
+  rowActionBusy.value = true
   try {
+    if (!alive || identity !== auth.token) return
     if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
     const result = await updateDatasourceStatus(row.id, nextStatus)
+    if (!alive || identity !== auth.token) return
     Object.assign(row, result.data)
     await loadReadiness(row)
+    if (!alive || identity !== auth.token) return
     ElMessage.success(nextStatus === 1 ? '数据源已启用' : '数据源已禁用')
   } catch (cause) {
-    ElMessage.error(apiError(cause, '数据源状态更新失败'))
+    if (alive && identity === auth.token) ElMessage.error(apiError(cause, '数据源状态更新失败'))
+  } finally {
+    if (alive && identity === auth.token) rowActionBusy.value = false
   }
 }
 
 async function remove(row: DatasourceItem) {
+  if (confirmationBusy.value || rowActionBusy.value) return
+  const identity = auth.token
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   if (row.status === 1) {
     ElMessage.warning('启用状态的数据源不可删除，请先禁用')
     return
   }
   try {
-    await ElMessageBox.confirm(
-      '删除后该数据源及其授权关系将被移除，请确认数据源名称：' + row.name,
-      '删除数据源',
-      { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' },
-    )
+    if (!await confirmAction('删除后该数据源及其授权关系将被移除，请确认数据源名称：' + row.name, '删除数据源', 'error', '确认删除')) return
+    if (!alive || identity !== auth.token) return
     if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
+    rowActionBusy.value = true
     await deleteDatasource(row.id)
+    if (!alive || identity !== auth.token) return
     ElMessage.success('数据源已删除')
+    if (rows.value.length === 1 && (query.page || 1) > 1) query.page = (query.page || 1) - 1
     await load()
   } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '数据源删除失败'))
+    if (alive && identity === auth.token && cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '数据源删除失败'))
+  } finally {
+    if (alive && identity === auth.token) rowActionBusy.value = false
   }
 }
 
 watch(
   () => [form.host, form.port, form.databaseName, form.charset, form.username, form.password],
   () => {
+    connectionRevision++
     if (!dialogVisible.value) return
     const changed = form.host !== originalConnection.host
       || form.port !== originalConnection.port
@@ -378,29 +450,65 @@ watch(
       testedOk.value = false
       testError.value = ''
     }
-  },
+  }, { flush: 'sync' },
 )
+watch(() => [form.name, form.description, form.host, form.port, form.databaseName, form.charset, form.username, form.password], () => { formRevision++ }, { flush: 'sync' })
+watch(() => auth.token, () => { navigationIntent++; closeOwnedConfirmation(); rowActionBusy.value = false; dialogVisible.value = false; resetForm(); void load() })
+watch(() => iamS1.snapshot, () => { void load() })
+watch(() => [query.name, query.status, query.healthStatus, query.page, query.pageSize], () => { navigationIntent++; closeOwnedConfirmation() }, { flush: 'sync' })
+watch(() => [route.query.name, route.query.status, route.query.healthStatus, route.query.page], () => {
+  navigationIntent++
+  closeOwnedConfirmation()
+  const next = { name: typeof route.query.name === 'string' ? route.query.name : undefined,
+    status: ['0','1'].includes(String(route.query.status)) ? Number(route.query.status) : undefined,
+    healthStatus: ['HEALTHY','UNHEALTHY','UNKNOWN'].includes(String(route.query.healthStatus)) ? String(route.query.healthStatus) : undefined,
+    page: Math.max(1, Number(route.query.page) || 1) }
+  if (Object.entries(next).every(([key, value]) => query[key as keyof DatasourceQuery] === value)) return
+  Object.assign(query, next); void load()
+})
 
-onMounted(async () => {
-  await load()
+async function openEditFromRoute() {
   const editId = Number(route.query.edit)
-  const editRow = rows.value.find((row) => row.id === editId)
-  if (editRow) openEdit(editRow)
+  if (!Number.isSafeInteger(editId) || editId <= 0 || !canManageDatasource(editId) || !iamS1.canOnDatasource('datasource:view', editId)) return
+  navigationIntent++
+  const identity = auth.token, generation = dialogGeneration
+  const current = () => alive && identity === auth.token && generation === dialogGeneration && editId === Number(route.query.edit)
+  try {
+    const editRow = rows.value.find(row => row.id === editId) || (await getDatasource(editId)).data
+    if (current() && editRow.id === editId && canManageDatasource(editId) && iamS1.canOnDatasource('datasource:view', editId)) openEdit(editRow)
+  } catch (cause) { if (current()) ElMessage.error(apiError(cause, '编辑目标读取失败')) }
+}
+watch(() => route.query.edit, () => { void openEditFromRoute() })
+onMounted(async () => {
+  if (typeof window.matchMedia === 'function') {
+    fillMedia = window.matchMedia('(min-width: 1200px) and (min-height: 700px)')
+    fillMedia.addEventListener('change', syncFillLayout)
+    syncFillLayout()
+  }
+  await load()
+  if (alive) await openEditFromRoute()
 })
 </script>
 
 <template>
-  <div class="admin-page data-sources-page">
+  <div class="admin-page data-sources-page" :class="{ 'admin-list-fill': fillLayout }">
     <TaskPageHeader
       title="数据源"
       description="管理连接，查看准备情况，继续数据治理。"
+      help="发布与索引构建是两个动作。准备状态以各数据源当前核验结果为准。"
     >
       <template #actions>
         <el-button v-if="canCreate" type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
       </template>
     </TaskPageHeader>
 
-    <section class="data-sources-panel do-glass-panel">
+    <!-- 操作教学按需展开；每行当前阶段、阻断与版本依据仍直接可见。 -->
+    <details class="source-journey" aria-label="从连接到问数的操作分工">
+      <summary>数据准备流程</summary>
+      <ol><li v-for="(stage, index) in preparationStages" :key="stage.title"><span class="source-journey__no" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ stage.title }}</strong><small>{{ stage.text }}</small></li></ol>
+    </details>
+
+    <section class="data-sources-panel do-glass-panel" :class="{ 'admin-list-fill__panel': fillLayout }">
       <div class="data-sources-panel__toolbar">
         <el-input
           v-model="query.name"
@@ -411,35 +519,36 @@ onMounted(async () => {
           @clear="query.page = 1; load()"
           @keyup.enter="query.page = 1; load()"
         ><template #prefix><Search :size="16" aria-hidden="true" /></template></el-input>
-        <el-select v-model="query.status" class="data-sources-panel__filter" clearable placeholder="全部状态" @change="query.page = 1; load()">
+        <el-select v-model="query.status" class="data-sources-panel__filter" clearable placeholder="全部状态" aria-label="数据源启用状态" @change="query.page = 1; load()">
           <el-option label="启用" :value="1" />
           <el-option label="禁用" :value="0" />
         </el-select>
-        <el-select v-model="query.healthStatus" class="data-sources-panel__filter" clearable placeholder="全部连接状态" @change="query.page = 1; load()">
+        <el-select v-model="query.healthStatus" class="data-sources-panel__filter" clearable placeholder="全部连接状态" aria-label="数据源连接状态" @change="query.page = 1; load()">
           <el-option label="连接正常" value="HEALTHY" />
           <el-option label="连接异常" value="UNHEALTHY" />
           <el-option label="未检测" value="UNKNOWN" />
         </el-select>
-        <span v-if="!loading && !error" class="data-sources-panel__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></span>
-        <el-button class="data-sources-panel__refresh" :icon="RefreshCw" @click="load">刷新</el-button>
+        <span v-if="!loading && !error" class="data-sources-panel__toolbar-spacer" aria-hidden="true"></span>
+        <el-button class="data-sources-panel__refresh" :icon="RefreshCw" :loading="loading" @click="load">刷新</el-button>
       </div>
 
       <ErrorState v-if="error" :message="error" @retry="load" />
       <LoadingState v-else-if="loading" variant="skeleton" :rows="5" />
       <template v-else-if="rows.length">
-        <div class="data-sources-panel__table">
-          <el-table :data="rows">
+        <div class="data-sources-panel__table" :class="{ 'admin-list-fill__body': fillLayout }">
+          <el-table :data="rows" :height="fillLayout ? '100%' : undefined">
             <el-table-column label="数据源" min-width="250">
               <template #default="{ row }">
                 <el-tooltip :content="sourceLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
                   <div class="source-cell" tabindex="0" :aria-label="sourceLabel(row)">
                     <strong class="notranslate" translate="no">{{ row.name }}</strong>
                     <span class="source-cell__meta notranslate" translate="no">{{ row.dbType }} · {{ row.databaseName }}</span>
+                    <small v-if="row.description" class="source-cell__description" :title="row.description">{{ row.description }}</small>
                   </div>
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="连接" min-width="180">
+            <el-table-column label="连接" min-width="150">
               <template #default="{ row }">
                 <div class="connection-cell">
                   <el-tooltip :content="connectionLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
@@ -452,7 +561,7 @@ onMounted(async () => {
             <el-table-column label="启用状态" width="96">
               <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
             </el-table-column>
-            <el-table-column label="准备状态" width="140">
+            <el-table-column label="当前阶段与下一步" min-width="160">
               <template #default="{ row }">
                 <div v-if="readiness[row.id]" class="readiness-cell">
                   <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
@@ -461,18 +570,24 @@ onMounted(async () => {
                 <span v-else class="cell-muted">准备情况读取失败，请刷新重试</span>
               </template>
             </el-table-column>
-            <el-table-column label="当前快照" width="100">
+            <el-table-column label="版本与索引" min-width="190">
               <template #default="{ row }">
-                <span v-if="readiness[row.id]?.snapshotVersion" class="snapshot-cell">v{{ readiness[row.id]?.snapshotVersion }} · 已发布</span>
-                <span v-else class="cell-muted">{{ readiness[row.id] ? '尚未发布' : '暂不可用' }}</span>
+                <div v-if="readiness[row.id]" class="version-cell">
+                  <span class="version-cell__line">
+                    <span class="version-cell__pill">采集 {{ readiness[row.id]?.latestCollectedSnapshotId ? 'v' + readiness[row.id]?.latestCollectedSnapshotVersion : '暂无' }}</span>
+                    <span class="version-cell__pill">发布 {{ readiness[row.id]?.publishedSnapshotId ? 'v' + readiness[row.id]?.snapshotVersion : '暂无' }}</span>
+                  </span>
+                  <small :class="{ 'version-warning': readiness[row.id]?.ragStale }">索引：{{ readiness[row.id]?.knowledgeReady ? readiness[row.id]?.ragStale ? '活动版本来源落后' : '已有活动版本' : '尚无活动版本' }}</small>
+                </div>
+                <span v-else class="cell-muted">版本暂未确认</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="184" fixed="right">
+            <el-table-column label="操作" width="168" fixed="right">
               <template #default="{ row }">
                 <div class="row-actions">
                   <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
                   <el-dropdown v-if="canManageDatasource(row.id)" trigger="click" popper-class="data-source-actions-popper">
-                    <el-button link class="row-actions__more" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
+                    <el-button link class="row-actions__more" :disabled="rowActionBusy" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item @click="openEdit(row)"><Pencil :size="17" aria-hidden="true" />编辑数据源</el-dropdown-item>
@@ -491,16 +606,21 @@ onMounted(async () => {
             </el-table-column>
           </el-table>
         </div>
-        <div v-if="total > (query.pageSize || 20)" class="data-sources-panel__pagination">
-          <el-pagination
-            v-model:current-page="query.page"
-            v-model:page-size="query.pageSize"
-            layout="total, sizes, prev, pager, next"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="total"
-            @current-change="load"
-            @size-change="() => { query.page = 1; load() }"
-          />
+        <div class="data-sources-panel__footer">
+          <span class="data-sources-panel__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></span>
+          <div class="data-sources-panel__pager">
+            <el-select v-model="query.pageSize" class="data-sources-panel__page-size" aria-label="每页条数" @change="() => { query.page = 1; load() }">
+              <el-option v-for="size in [10, 20, 50, 100]" :key="size" :label="size + ' 条/页'" :value="size" />
+            </el-select>
+            <el-pagination
+              v-model:current-page="query.page"
+              layout="prev, pager, next"
+              :pager-count="5"
+              :page-size="query.pageSize || 20"
+              :total="total"
+              @current-change="load"
+            />
+          </div>
         </div>
       </template>
       <EmptyState
@@ -519,7 +639,8 @@ onMounted(async () => {
       top="6vh"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="data-source-form">
+      <p class="connection-contract">测试连接只验证当前配置。保存后在详情继续采集、治理与审核发布；知识索引需要单独构建。</p>
+      <el-form ref="formRef" :model="form" :rules="rules" :disabled="saving || !canWriteForm" label-position="top" class="data-source-form">
         <section class="data-source-dialog__section">
           <h3 class="data-source-dialog__section-title">基本信息</h3>
           <div class="data-source-dialog__stack">
@@ -552,12 +673,12 @@ onMounted(async () => {
       <template #footer>
         <div class="data-source-dialog__footer">
           <div class="data-source-dialog__test">
-            <el-button :loading="testing" :disabled="!canWriteForm" :icon="PlugZap" @click="testConnection">测试连接</el-button>
+            <el-button :loading="testing" :disabled="!canWriteForm || saving" :icon="PlugZap" @click="testConnection">测试连接</el-button>
             <span class="data-source-dialog__test-status" :class="`is-${testStatusTone}`" role="status" aria-live="polite">{{ testStatusText }}</span>
           </div>
           <div class="data-source-dialog__footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="saving" :disabled="!canSave || !canWriteForm" @click="save">{{ editingId ? '保存' : '保存并查看详情' }}</el-button>
+            <el-button type="primary" :loading="saving" :disabled="!canSave || !canWriteForm || testing" @click="save">{{ editingId ? '保存' : '创建数据源' }}</el-button>
           </div>
         </div>
       </template>
@@ -566,21 +687,38 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.source-journey { margin: 0 0 14px; padding: 9px 14px; border: 1px solid var(--do-line); border-radius: 10px; background: var(--do-soft); }
+.source-journey summary { width: fit-content; color: var(--do-muted); font-size: 12px; cursor: pointer; }
+.source-journey summary:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 3px; }
+.source-journey[open] summary { margin-bottom: 10px; }
+.source-journey ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; padding: 0; margin: 0; list-style: none; }
+.source-journey li { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
+.source-journey__no { color: var(--do-primary-strong); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.source-journey strong { color: var(--do-ink); font-size: 12.5px; font-weight: 600; }
+.source-journey small { color: var(--do-muted); font-size: 11.5px; }
+.source-cell__description { max-width: 100%; overflow: hidden; color: var(--do-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.version-cell { display: grid; gap: 5px; color: var(--do-ink); font-size: 12px; }
+.version-cell__line { display: flex; flex-wrap: wrap; gap: 6px; }
+.version-cell__pill { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border: 1px solid var(--do-line); border-radius: 999px; color: var(--do-ink); background: var(--do-soft); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.version-cell small { color: var(--do-muted); font-size: 11px; }
+.version-cell .version-warning { color: var(--do-warning); }
+.connection-contract { margin: 0 0 22px; padding: 12px 14px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: var(--do-soft); font-size: 12px; line-height: 1.7; }
+@media (max-width: 900px) { .source-journey small { display: none; } }
 .data-sources-page :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
 .data-sources-page :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
 
 .data-sources-panel { min-width: 0; padding: 0; overflow: hidden; border-color: var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
 .data-sources-panel__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
-.data-sources-panel__search { flex: 1 1 280px; min-width: 200px; max-width: 360px; }
+.data-sources-panel__search { flex: 1 1 280px; min-width: 200px; max-width: 380px; }
 .data-sources-panel__filter { flex: 0 1 160px; min-width: 140px; }
 .data-sources-panel__toolbar :deep(.el-input__wrapper),
 .data-sources-panel__toolbar :deep(.el-select__wrapper) { min-height: 36px; }
 .data-sources-panel__toolbar :deep(.el-input__inner),
 .data-sources-panel__toolbar :deep(.el-select__selected-item) { font-size: 13px; }
-.data-sources-panel__count { margin-left: auto; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
-.data-sources-panel__refresh.el-button { flex: 0 0 auto; height: 36px; }
+.data-sources-panel__toolbar-spacer { flex: 1 1 auto; }
+.data-sources-panel__refresh.el-button { flex: 0 0 auto; height: 36px; margin-left: auto; }
 
-.data-sources-panel__table { min-width: 0; }
+.data-sources-panel__table { min-width: 0; min-height: 0; }
 .data-sources-panel :deep(.el-table) {
   --el-table-bg-color: var(--do-surface);
   --el-table-tr-bg-color: var(--do-surface);
@@ -591,23 +729,24 @@ onMounted(async () => {
 }
 .data-sources-panel :deep(.el-table::before),
 .data-sources-panel :deep(.el-table__inner-wrapper::before) { display: none; }
-.data-sources-panel :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
-.data-sources-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
-.data-sources-panel :deep(.el-table td.el-table__cell) { padding: 13px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
-.data-sources-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
+.data-sources-panel :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
+.data-sources-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; white-space: nowrap; }
+.data-sources-panel :deep(.el-table td.el-table__cell) { padding: 10px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.data-sources-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
+.data-sources-panel :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
 .data-sources-panel :deep(.el-table th.el-table__cell:first-child .cell),
 .data-sources-panel :deep(.el-table td.el-table__cell:first-child .cell) { padding-left: 16px; }
 .data-sources-panel :deep(.el-table th.el-table__cell:last-child .cell),
 .data-sources-panel :deep(.el-table td.el-table__cell:last-child .cell) { padding-right: 16px; }
 .data-sources-panel :deep(.el-table__body tr:last-child td.el-table__cell) { border-bottom: 0; }
 
-.source-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; border-radius: 6px; outline: none; }
+.source-cell { min-width: 0; min-height: 40px; display: grid; align-content: center; justify-items: start; gap: 3px; border-radius: 6px; outline: none; }
 .source-cell:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .source-cell strong, .source-cell__meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.source-cell strong { color: var(--do-ink); font-size: 14px; font-weight: 650; }
-.source-cell__meta { color: var(--do-muted); font-size: 12px; }
+.source-cell strong { color: var(--do-ink); font-size: 13.5px; font-weight: 650; }
+.source-cell__meta { color: var(--do-muted); font-size: 11.5px; }
 
-.connection-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; }
+.connection-cell { min-width: 0; min-height: 40px; display: grid; align-content: center; justify-items: start; gap: 3px; }
 .connection-cell__address { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; outline: none; color: var(--do-ink); font-size: 12.5px; }
 .connection-cell__address:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .connection-cell :deep(.business-status-badge) { min-height: auto; padding: 0; gap: 5px; background: transparent; font-size: 12px; font-weight: 500; }
@@ -625,16 +764,29 @@ onMounted(async () => {
 .row-actions__more.el-button.is-disabled,
 .row-actions__more.el-button:disabled { color: var(--do-muted); background: transparent; opacity: .6; cursor: not-allowed; }
 
-.data-sources-panel__pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
-.data-sources-panel__pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+.data-sources-panel__footer {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px;
+  flex: 0 0 auto; padding: 8px 16px; border-top: 1px solid var(--do-line); background: var(--do-surface);
+}
+.data-sources-panel__count { color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.data-sources-panel__pager { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 10px; margin-left: auto; }
+.data-sources-panel__page-size { width: 104px; }
+.data-sources-panel__page-size :deep(.el-select__wrapper) { min-height: 32px; }
+.data-sources-panel__page-size :deep(.el-select__selected-item) { font-size: 12px; }
+.data-sources-panel__pager :deep(.el-pager li),
+.data-sources-panel__pager :deep(.btn-prev),
+.data-sources-panel__pager :deep(.btn-next) { min-width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }
+.data-sources-panel__pager :deep(.el-pager li.is-active) { background: var(--do-primary); color: #fff; }
 
 
 @media (max-width: 900px) {
   .data-sources-panel__toolbar { padding: 10px 12px; gap: 8px; }
   .data-sources-panel__search { flex: 1 1 100%; max-width: none; }
   .data-sources-panel__filter { flex: 1 1 140px; }
-  .data-sources-panel__count { margin-left: 0; }
+  .data-sources-panel__toolbar-spacer { display: none; }
   .data-sources-panel__refresh { margin-left: auto; }
+  .data-sources-panel__footer { align-items: center; padding: 8px 12px; }
+  .data-sources-panel__pager { margin-left: auto; }
 }
 </style>
 

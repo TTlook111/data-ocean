@@ -2,7 +2,7 @@
  * useQuerySubmit — 查询提交和轮询 composable
  * 管理提问提交、任务轮询、取消、重试等流程
  */
-import { computed, ref, type Ref } from 'vue'
+import { computed, getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   iamS1Ask,
@@ -14,7 +14,7 @@ import {
   type IamS1QueryTaskResult,
 } from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
-import { resolveQueryDisplayState } from '../utils/queryDisplayState'
+import { buildAgentProgress, resolveQueryDisplayState } from '../utils/queryDisplayState'
 
 /** 轮询配置常量 */
 const POLL_MAX_CONSECUTIVE_ERRORS = 3
@@ -25,27 +25,7 @@ export function isLocallyResumable(message: Pick<LocalMessage, 'status' | 'local
   return message.status === 'PROCESSING' && message.localWaitTimedOut === true
 }
 
-/** Agent 节点定义 */
-const agentNodes = [
-  { key: 'rag_retrieval', label: '检索已授权知识' },
-  { key: 'schema_linking', label: '理解问题并关联字段' },
-  { key: 'sql_generation', label: '生成 SQL' },
-  { key: 'sql_semantic_check', label: '核对问题语义' },
-  { key: 'execution_authorization', label: '复核当前权限' },
-  { key: 'sql_execution', label: '只读执行' },
-  { key: 'result_verification', label: '核对结果' },
-  { key: 'clarification', label: '需要补充说明' },
-]
-
-export function buildAgentProgress(result: IamS1QueryTaskResult | null) {
-  if (!result || result.status !== 'PROCESSING') return []
-  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
-  if (currentIndex < 0) return []
-  return agentNodes.map((node, index) => ({
-    ...node,
-    status: index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'pending' as const,
-  }))
-}
+export { buildAgentProgress } from '../utils/queryDisplayState'
 
 export function useQuerySubmit(options: {
   selectedId: Ref<number | undefined>
@@ -87,6 +67,21 @@ export function useQuerySubmit(options: {
   let resultSelectionRequest = 0
   let sqlReadRequest = 0
   let cancelRequested = false
+  let alive = true
+  let queryGeneration = 0
+  function invalidateContext() {
+    queryGeneration++
+    cancelRequested = true
+    pollAbortController.value?.abort()
+    pollAbortController.value = undefined
+    currentTaskId.value = undefined
+    isQuerying.value = false
+    followLatestResult()
+  }
+  if (getCurrentScope()) onScopeDispose(() => {
+    alive = false
+    invalidateContext()
+  })
 
   // ---- Computed ----
   const latestAssistantMessage = computed(() => {
@@ -230,7 +225,7 @@ export function useQuerySubmit(options: {
     void iamS1StreamTask(taskId, {
       signal,
       onEvent: (event) => {
-        if (event.type !== 'progress') return
+        if (signal?.aborted || !alive || event.type !== 'progress') return
         try {
           onProgress?.(JSON.parse(event.data) as IamS1QueryTaskResult)
         } catch {
@@ -244,9 +239,12 @@ export function useQuerySubmit(options: {
         return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
       }
 
+      const pollStartedAt = Date.now()
       try {
         const res = await iamS1GetTask(taskId)
+        if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
         const task = res.data
+        if (task.taskId !== taskId) throw new Error('返回的任务与当前查询不一致')
         lastTask = task
         consecutiveErrors = 0
 
@@ -257,8 +255,16 @@ export function useQuerySubmit(options: {
           onProgress(task)
         }
       } catch (error) {
+        if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
         consecutiveErrors++
-        console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
+        // Axios 错误可能包含 Authorization、问题正文和服务端回执，不能直接打印。
+        // taskId 关联服务端任务，状态码、连续次数和耗时用于区分网络波动与持续故障。
+        const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+        console.warn('[问数轮询失败]', {
+          taskId, consecutiveErrors,
+          httpStatus: typeof status === 'number' ? status : undefined,
+          elapsedMs: Date.now() - pollStartedAt,
+        })
         if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
           return { taskId, status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` }
         }
@@ -302,16 +308,18 @@ export function useQuerySubmit(options: {
   async function sendQuestion() {
     const text = question.value.trim()
     if (!selectedId.value || !text || isQuerying.value) return
+    const datasourceId = selectedId.value
     if (!canAskSelectedDatasource.value) {
       ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
       return
     }
     followLatestResult()
+    const generation = ++queryGeneration
     cancelRequested = false
     isQuerying.value = true
     currentTaskId.value = undefined
 
-    const session = activeSession.value || createSession(selectedId.value)
+    const session = activeSession.value || createSession(datasourceId)
     const now = new Date().toISOString()
 
     // 添加用户消息
@@ -322,6 +330,7 @@ export function useQuerySubmit(options: {
       createdAt: now,
     })
     await animateNewMessages?.()
+    if (!alive || generation !== queryGeneration) return
 
     // 添加加载中的助手消息
     const assistantMsgId = `assistant-${Date.now() + 1}`
@@ -334,6 +343,7 @@ export function useQuerySubmit(options: {
       originalQuestion: text,
     })
     await animateNewMessages?.()
+    if (!alive || generation !== queryGeneration) return
 
     if (session.title === '新的对话') {
       session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
@@ -343,24 +353,30 @@ export function useQuerySubmit(options: {
     await focusQuestionInput?.()
 
     try {
+      if (!alive || generation !== queryGeneration) return
       const askResult = await iamS1Ask({
-        datasourceId: selectedId.value,
+        datasourceId,
         question: text,
         conversationId: session.conversationId,
       })
       const taskId = askResult.data.taskId
+      if (!alive || generation !== queryGeneration) {
+        // An obsolete submission must never take ownership of the new account's task.
+        await iamS1CancelTask(taskId).catch(() => undefined)
+        return
+      }
       session.conversationId = askResult.data.conversationId
 
       currentTaskId.value = taskId
       const abortCtrl = new AbortController()
       pollAbortController.value = abortCtrl
 
-      if (cancelRequested) {
+      if (cancelRequested || !alive) {
         try {
           await iamS1CancelTask(taskId)
         } catch {
           cancelRequested = false
-          ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+          if (alive) ElMessage.error('停止请求未能确认，仍在获取服务端状态')
         }
         if (cancelRequested) {
           abortCtrl.abort()
@@ -374,6 +390,7 @@ export function useQuerySubmit(options: {
         }
       }
 
+      if (!alive) return
       const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
         const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
         if (loadingMsg && loadingMsg.status === 'loading') {
@@ -385,38 +402,46 @@ export function useQuerySubmit(options: {
         }
       })
       const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-      if (assistantMsg) {
+      if (assistantMsg && alive && generation === queryGeneration) {
         assistantMsg.taskId = taskId
         applyPollResult(assistantMsg, result)
         await animateMessageUpdate?.(assistantMsgId)
       }
     } catch (error: unknown) {
       const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-      if (assistantMsg) {
+      if (assistantMsg && alive && generation === queryGeneration) {
         assistantMsg.status = 'error'
         assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
         await animateMessageUpdate?.(assistantMsgId)
       }
     } finally {
-      isQuerying.value = false
-      pollAbortController.value = undefined
+      if (generation === queryGeneration) {
+        isQuerying.value = false
+        pollAbortController.value = undefined
+      }
     }
   }
 
   /**
    * 取消当前查询
    */
-  async function cancelCurrentQuery() {
-    if (!isQuerying.value) return
+  async function cancelCurrentQuery(): Promise<boolean> {
+    if (!isQuerying.value) return true
     cancelRequested = true
     const taskId = currentTaskId.value
-    if (!taskId) return
+    const controller = pollAbortController.value
+    const generation = queryGeneration
+    if (!taskId) return false
     try {
       await iamS1CancelTask(taskId)
-      pollAbortController.value?.abort()
+      controller?.abort()
+      return true
     } catch {
-      cancelRequested = false
-      ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+      if (alive && generation === queryGeneration) {
+        cancelRequested = false
+        ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+      }
+      return false
     }
   }
 
@@ -471,6 +496,7 @@ export function useQuerySubmit(options: {
    */
   async function continueWaiting(taskId: string) {
     if (isQuerying.value) return
+    const generation = ++queryGeneration
     cancelRequested = false
     isQuerying.value = true
     currentTaskId.value = taskId
@@ -503,6 +529,7 @@ export function useQuerySubmit(options: {
       try {
         await iamS1ResumeTask(taskId)
       } catch (error) {
+        if (!alive || generation !== queryGeneration) return
         // A timeout may become terminal between the local wait and resume call.
         // Read the server state once before reporting a true restore failure.
         try {
@@ -512,6 +539,7 @@ export function useQuerySubmit(options: {
           // Preserve the resume error below when the task state is also unavailable.
         }
         if (!terminalResult) {
+          if (!alive || generation !== queryGeneration) return
           const reason = extractError(error, '服务端未能恢复当前任务')
           assistantMsg.status = 'error'
           assistantMsg.localWaitTimedOut = false
@@ -522,8 +550,10 @@ export function useQuerySubmit(options: {
         }
       }
 
+      if (!alive || generation !== queryGeneration) return
+
       const result = terminalResult ?? await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
-        if (assistantMsg.status === 'loading') {
+        if (generation === queryGeneration && assistantMsg.status === 'loading') {
           assistantMsg.queryResult = task
           if (task.progressMessage) {
             assistantMsg.content = `${task.progressMessage}...`
@@ -531,15 +561,19 @@ export function useQuerySubmit(options: {
         }
       })
 
+      if (!alive || generation !== queryGeneration) return
       applyPollResult(assistantMsg, result)
       await animateMessageUpdate?.(assistantMsg.id)
     } catch (error) {
+      if (!alive || generation !== queryGeneration) return
       assistantMsg.status = 'error'
       assistantMsg.content = extractError(error, '查询失败，请稍后重试')
       await animateMessageUpdate?.(assistantMsg.id)
     } finally {
-      isQuerying.value = false
-      pollAbortController.value = undefined
+      if (generation === queryGeneration) {
+        isQuerying.value = false
+        pollAbortController.value = undefined
+      }
     }
   }
 
@@ -568,6 +602,7 @@ export function useQuerySubmit(options: {
     trustSummary,
     // 方法
     sendQuestion,
+    invalidateContext,
     cancelCurrentQuery,
     refreshSql,
     selectResultForTask,

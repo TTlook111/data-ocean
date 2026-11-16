@@ -9,13 +9,14 @@ const api = vi.hoisted(() => ({
   confirmMaskCandidate: vi.fn(),
   rejectMaskCandidate: vi.fn(),
 }))
-const iam = vi.hoisted(() => ({ canOnDatasource: vi.fn() }))
+const iam = vi.hoisted(() => ({ loaded: true, errorMessage: '', snapshot: {}, canOnDatasource: vi.fn() }))
 
 vi.mock('../../../../api/admin/catalog', () => ({
   listMaskCandidates: api.listMaskCandidates,
   confirmMaskCandidate: api.confirmMaskCandidate,
   rejectMaskCandidate: api.rejectMaskCandidate,
 }))
+vi.mock('../../../../stores/auth', () => ({ useAuthStore: () => ({ token: 'fixture' }) }))
 vi.mock('../../../../stores/iamS1', () => ({ useIamS1Store: () => iam }))
 
 import MaskCandidatePanel from './MaskCandidatePanel.vue'

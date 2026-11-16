@@ -3,8 +3,9 @@ import TitleHelp from './TitleHelp.vue'
 
 defineProps<{
   title: string
+  /** 普通用途默认按需展示；对象身份或必须立即看见的状态才使用 inline。 */
   description?: string
-  /** inline 用途说明之外，仍可在标题问号中展示更完整的解释。 */
+  /** 提供 help 时优先显示它，需包含仍然必要的用途或业务边界说明。 */
   help?: string
   eyebrow?: string
   descriptionMode?: 'tooltip' | 'inline'

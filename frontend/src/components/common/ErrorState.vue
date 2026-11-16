@@ -5,6 +5,11 @@
  * 显示错误信息和重试按钮。
  */
 
+import { getCurrentInstance } from 'vue'
+const instance = getCurrentInstance()
+// 错误展示不能提供没有处理函数的假重试，也不能默认重发写操作。
+function hasRetryHandler() { return Boolean(instance?.vnode.props?.onRetry) }
+
 interface Props {
   /** 错误消息 */
   message?: string
@@ -26,7 +31,7 @@ const emit = defineEmits<{
   <div class="error-state">
     <div class="error-icon">!</div>
     <p class="error-message">{{ message }}</p>
-    <button v-if="showRetry" class="error-retry" @click="emit('retry')">
+    <button v-if="showRetry && hasRetryHandler()" class="error-retry" @click="emit('retry')">
       重试
     </button>
   </div>

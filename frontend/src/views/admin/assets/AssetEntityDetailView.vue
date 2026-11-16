@@ -33,6 +33,8 @@ import {
   type OverviewTagItem,
   type OverviewTermItem,
 } from '../../../api/admin/catalog'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -50,6 +52,12 @@ import {
 const route = useRoute()
 const router = useRouter()
 const iamS1 = useIamS1Store()
+const auth = useAuthStore()
+const tagBusy = ref(false)
+const tagConfirmOpen = ref(false)
+const confirmClass = `entity-tag-cancel-${Math.random().toString(36).slice(2)}`
+useAdminScrollLock(() => tagConfirmOpen.value)
+function closeOwnedConfirm() { document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click(); tagConfirmOpen.value = false }
 const loading = ref(true)
 const error = ref('')
 const overview = ref<CatalogEntityOverview | null>(null)
@@ -83,7 +91,7 @@ const governanceStatus = computed(() => (isTable.value
   ? overview.value?.table?.governanceStatus
   : overview.value?.column?.governanceStatus))
 /** 目录标签的取消沿用既有治理写入门禁；查看本身只需要对象目录权限。 */
-const canManageTags = computed(() => iamS1.canOnDatasource(
+const canManageTags = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.canOnDatasource(
   'governance:field:manage',
   overview.value?.datasource?.id,
 ))
@@ -712,29 +720,21 @@ function toggleReason(termId: number) {
 }
 
 async function removeCatalogTag(tag: OverviewTagItem) {
-  if (!tag.id || !canManageTags.value) return
-  // 固定发起时的对象与标签，确认期间切走对象后不再对新对象发请求。
-  const targetEntityId = entityId.value
-  const targetTagName = tag.name
-  const objectToken = detailRequestId
+  if (!tag.id || !canManageTags.value || tagBusy.value) return
+  const target = entityId.value, name = tag.name, request = detailRequestId, token = auth.token
+  const current = () => !disposed && entityId.value === target && request === detailRequestId && token === auth.token && canManageTags.value
+  tagBusy.value = true; tagConfirmOpen.value = true
   try {
-    await ElMessageBox.confirm(
-      `确认取消「${tag.displayName || tag.name}」与当前对象的标签关联？这不会删除共享标签本身。`,
-      '取消标签关联',
-      { type: 'warning', confirmButtonText: '取消关联', cancelButtonText: '保留' },
-    )
-    if (disposed || entityId.value !== targetEntityId || detailRequestId !== objectToken) {
-      ElMessage.warning('对象已切换，已取消原标签操作。')
-      return
-    }
-    await unconfirmEntityTag(targetEntityId, targetTagName)
-    if (disposed || entityId.value !== targetEntityId || detailRequestId !== objectToken) return
-    ElMessage.success('标签关联已取消')
-    await load()
+    await ElMessageBox.confirm(`确认取消「${tag.displayName || name}」与当前对象的标签关联？这不会删除共享标签本身。`, '取消标签关联', { type: 'warning', confirmButtonText: '取消关联', cancelButtonText: '保留', cancelButtonClass: confirmClass })
+    tagConfirmOpen.value = false
+    if (!current()) { if (!disposed && token === auth.token && entityId.value !== target) ElMessage.warning('对象已切换，已取消原标签操作。'); return }
+    await unconfirmEntityTag(target, name)
+    if (!current()) return
+    ElMessage.success('标签关联已取消'); await load()
   } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') {
-      ElMessage.error(cause instanceof Error ? cause.message : '取消标签关联失败')
-    }
+    if (current() && cause !== 'cancel' && cause !== 'close') ElMessage.error(cause instanceof Error ? cause.message : '取消标签关联失败')
+  } finally {
+    if (!disposed && request === detailRequestId && token === auth.token && entityId.value === target) { tagBusy.value = false; tagConfirmOpen.value = false }
   }
 }
 
@@ -872,6 +872,8 @@ function termValidityTone(term: { currentlyValid: boolean; status: string }): 's
 }
 
 async function load() {
+  closeOwnedConfirm(); tagBusy.value = false
+  const token = auth.token
   const requestedEntityId = entityId.value
   const requestId = ++detailRequestId
   loading.value = true
@@ -884,26 +886,34 @@ async function load() {
   overflowingTerms.value = new Set()
   termDefinitionElements.forEach((element) => termResizeObserver?.unobserve(element))
   termDefinitionElements.clear()
+  if (!iamS1.loaded) { error.value = iamS1.errorMessage || ''; loading.value = !iamS1.errorMessage; return }
   try {
+    if (!Number.isSafeInteger(requestedEntityId) || requestedEntityId <= 0) throw new Error('对象标识无效。')
+    const rawSource = route.query.datasourceId
+    const explicitSource = rawSource == null ? undefined : typeof rawSource === 'string' ? Number(rawSource) : NaN
+    if (explicitSource !== undefined && (!Number.isSafeInteger(explicitSource) || explicitSource <= 0)) throw new Error('指定的数据源标识无效。')
+    if (iamS1.loaded && (iamS1.errorMessage || (explicitSource && !iamS1.canOnDatasource('metadata:view', explicitSource)))) throw new Error('没有当前数据源的元数据查看权限。')
     const result = await getEntityOverview(requestedEntityId)
     // 成功、失败和 loading 都由同一请求序号约束；旧对象响应不能覆盖新对象。
-    if (disposed || requestId !== detailRequestId || entityId.value !== requestedEntityId) return
+    if (disposed || token !== auth.token || requestId !== detailRequestId || entityId.value !== requestedEntityId) return
+    if (!result.data || result.data.entity.id !== requestedEntityId || (explicitSource && result.data.datasource?.id !== explicitSource)) throw new Error('对象来源与当前请求不一致。')
+    if (!result.data.datasource?.id || !iamS1.loaded || iamS1.errorMessage || !iamS1.canOnDatasource('metadata:view', result.data.datasource.id)) throw new Error('没有当前对象所属数据源的元数据查看权限。')
     overview.value = result.data
     scheduleTermMeasure()
   } catch (cause) {
-    if (disposed || requestId !== detailRequestId || entityId.value !== requestedEntityId) return
+    if (disposed || token !== auth.token || requestId !== detailRequestId || entityId.value !== requestedEntityId) return
     error.value = cause instanceof Error ? cause.message : '对象详情加载失败'
   } finally {
-    if (!disposed && requestId === detailRequestId && entityId.value === requestedEntityId) {
+    if (!disposed && token === auth.token && requestId === detailRequestId && entityId.value === requestedEntityId) {
       loading.value = false
     }
   }
 }
 
-watch(entityId, () => {
+watch([entityId, () => route.query.datasourceId, () => auth.token, () => iamS1.snapshot, () => iamS1.loaded, () => iamS1.errorMessage], () => {
   requestedTab.value = queryTabValue()
   load()
-})
+}, { flush: 'sync' })
 watch(() => overview.value?.entity.id, () => { columnPage.value = 1 })
 watch(() => route.query.tab, () => { requestedTab.value = queryTabValue() })
 watch(activeTab, (tab) => {
@@ -945,14 +955,13 @@ onMounted(() => {
     }
     window.addEventListener('resize', handleViewportChange)
   }
-  iamS1.load().catch(() => {
-    // 能力摘要失败时只影响写入按钮可见性，不影响详情阅读；后端仍是最终安全边界。
-  })
-  load()
+  if (iamS1.loaded) load()
+  else iamS1.load().catch(() => undefined).finally(() => { if (!disposed) load() })
   scheduleLayoutMeasure()
 })
 onBeforeUnmount(() => {
   disposed = true
+  closeOwnedConfirm()
   detailRequestId++
   termResizeObserver?.disconnect()
   termResizeObserver = null
@@ -977,6 +986,7 @@ onBeforeUnmount(() => {
   >
     <TaskPageHeader
       :title="primaryName"
+      eyebrow="数据资产 / 对象详情"
       :help="isTable ? '表详情展示所在位置、字段结构、业务术语、标签与治理、所属关系及影响范围。' : '字段详情展示所属位置、原始注释、业务术语、标签与治理、使用限制及影响范围。'"
     >
       <template #title-prefix>
@@ -993,13 +1003,6 @@ onBeforeUnmount(() => {
           :title="fieldGovernanceUnavailableReason || '在字段解释中定位当前对象'"
           @click="openFieldGovernance"
         >查看字段解释</el-button>
-        <el-button
-          :icon="SlidersHorizontal"
-          :disabled="!canOpenStatusMaintenance"
-          :title="statusMaintenanceUnavailableReason || '在治理状态维护中定位当前表'"
-          @click="openStatusMaintenance"
-        >维护治理状态</el-button>
-        <el-button v-if="overview" :icon="Copy" @click="copyText(overview.entity.fqn, '完整路径')">复制路径</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="load">刷新</el-button>
       </template>
       <template #meta>
@@ -1090,6 +1093,14 @@ onBeforeUnmount(() => {
             @click="commentExpanded = !commentExpanded"
           >{{ commentExpanded ? '收起注释' : '展开完整注释' }}</el-button>
         </div>
+        <div class="entity-detail__context-actions">        <el-button
+          :icon="SlidersHorizontal"
+          :disabled="!canOpenStatusMaintenance"
+          :title="statusMaintenanceUnavailableReason || '在治理状态维护中定位当前表'"
+          @click="openStatusMaintenance"
+        >维护治理状态</el-button>
+        <el-button v-if="overview" :icon="Copy" @click="copyText(overview.entity.fqn, '完整路径')">复制路径</el-button>
+</div>
       </section>
 
       <section class="entity-detail__panel">
@@ -1132,7 +1143,7 @@ onBeforeUnmount(() => {
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="类型" width="120">
+                  <el-table-column label="类型" width="156">
                     <template #default="{ row }"><span class="entity-detail__mono">{{ display(row.dataType, '未记录') }}</span></template>
                   </el-table-column>
                   <el-table-column label="约束" width="180">
@@ -1281,7 +1292,7 @@ onBeforeUnmount(() => {
                       <el-tag effect="plain">{{ tag.displayName || tag.name }}</el-tag>
                       <span class="entity-detail__tag-source">{{ tag.source }}</span>
                       <el-button
-                        v-if="tag.id && canManageTags"
+                        v-if="tag.id && canManageTags" :disabled="tagBusy"
                         link
                         type="danger"
                         @click="removeCatalogTag(tag)"
@@ -1464,7 +1475,7 @@ onBeforeUnmount(() => {
                   size="small"
                   :height="fixedLayout ? '100%' : undefined"
                 >
-                <el-table-column label="类型" width="120">
+                <el-table-column label="类型" width="156">
                   <template #default="{ row }">{{ lineageDisplayType(row) }}</template>
                 </el-table-column>
                 <el-table-column label="上游对象" min-width="220">
@@ -1537,6 +1548,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.entity-detail__context-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; padding:10px 16px; border-top:1px solid var(--do-line); background:var(--do-soft); }
 .entity-detail-page { min-width: 0; display: grid; gap: 12px; }
 /* 本页复用紧凑头部：共享组件默认的外边距和字号保持不变。 */
 .entity-detail-page :deep(.task-page-header) { margin-bottom: 0; }

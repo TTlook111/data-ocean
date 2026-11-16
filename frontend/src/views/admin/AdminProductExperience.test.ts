@@ -19,7 +19,8 @@ vi.mock('vue-router', async importOriginal => ({
   useRoute: () => ({ params: { id: '1' }, query: {}, meta: { domainKey: 'data-entry' } }),
   useRouter: () => ({ push: api.push }),
 }))
-vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, systemAdmin: false, load: async () => {} }) }))
+vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, datasourcesWithFunction: () => [1, 2], systemAdmin: false, loaded: true, errorMessage: null, snapshot: {}, load: async () => {} }) }))
+vi.mock('../../stores/auth', () => ({ useAuthStore: () => ({ token: 'synthetic-admin-test' }) }))
 vi.mock('../../stores/adminContext', () => ({ useAdminContextStore: () => ({ initialize: async () => {}, datasourceId: 1, snapshotId: 10, currentDatasource: { name: '销售库' }, selectSnapshot: vi.fn() }) }))
 vi.mock('../../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
 vi.mock('../../api/admin/datasource', () => ({
@@ -73,7 +74,8 @@ describe('后台任务与未知状态', () => {
     const wrapper = await render(AdminHomeView)
     expect(wrapper.text()).toContain('准备情况暂不可用')
     expect(wrapper.text()).not.toContain('当前没有阻断项')
-    expect(wrapper.findAll('dd').slice(0, 3).every(item => item.text() === '—')).toBe(true)
+    expect(wrapper.findAll('[data-source-choice] .condition.unknown')).toHaveLength(5)
+    expect(wrapper.find('[data-source-detail]').text()).toContain('待确认')
   })
   it('部分数据源读取失败时保留未知对象，不把已知结果当作全部成功', async () => {
     api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 1, name: '销售库' }, { id: 2, name: '未确认库' }] })

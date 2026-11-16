@@ -9,7 +9,8 @@ const api = vi.hoisted(() => ({
   getKnowledgeDoc: vi.fn(), getKnowledgeSourceStatus: vi.fn(), listRagBuilds: vi.fn(),
   listVersions: vi.fn(), listSourceSnapshots: vi.fn(), listSimpleDatasources: vi.fn(), listSnapshots: vi.fn(),
 }))
-vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => ({ systemAdmin: true, load: async () => {}, datasourcesWithFunction: () => [] }) }))
+vi.mock('../../../stores/auth',()=>({useAuthStore:()=>({token:'synthetic-knowledge-test'})}))
+vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => ({ loaded:true,systemAdmin: true, load: async () => {}, datasourcesWithFunction: () => [] }) }))
 vi.mock('../../../stores/adminContext', () => ({ useAdminContextStore: () => ({ selectDatasource() {}, selectKnowledgeDoc() {} }) }))
 vi.mock('../../../api/admin/knowledge', async (original) => ({ ...await original<typeof import('../../../api/admin/knowledge')>(), ...api }))
 vi.mock('../../../api/admin/datasource', () => ({ listSimpleDatasources: api.listSimpleDatasources }))

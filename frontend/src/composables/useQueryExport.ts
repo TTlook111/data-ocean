@@ -6,14 +6,24 @@ import { computed, ref, watch, getCurrentScope,onScopeDispose,type Ref } from 'v
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { iamS1ExportCsv, iamS1SubmitFeedback,iamS1OwnFeedback,type IamS1QueryFeedback,type IamS1QueryTaskResult } from '../api/iamS1'
 
+let feedbackPromptSequence = 0
+
 export function useQueryExport(options: {
   latestResult: Ref<IamS1QueryTaskResult | null>
   canExport: Ref<boolean>
 }) {
   const { latestResult, canExport } = options
   const feedbackStatus=ref(''),feedbackSubmitting=ref(false),feedbackLoading=ref(false)
+  const exportSubmitting = ref(false)
+  let exportRequest = 0
+  const promptCancelClass = `do-feedback-cancel-${++feedbackPromptSequence}`
+  let ownsPrompt = false
+  function closeOwnedPrompt() {
+    if (ownsPrompt && typeof document !== 'undefined') document.querySelector<HTMLButtonElement>(`.${promptCancelClass}`)?.click()
+    ownsPrompt = false
+  }
   let feedbackRequest=0,submitRequest=0,alive=true
-  if(getCurrentScope())onScopeDispose(()=>{alive=false;feedbackRequest++})
+  if(getCurrentScope())onScopeDispose(()=>{alive=false;feedbackRequest++;exportRequest++;closeOwnedPrompt()})
   function summary(feedback?:IamS1QueryFeedback){
     if(!feedback||feedback.status==='NOT_SUBMITTED')return ''
     if(feedback.followupStatus==='VERIFIED')return '原问题已由人工按验收标准核验；文档发布与 RAG 生效另行处理'
@@ -28,7 +38,7 @@ export function useQueryExport(options: {
     catch{if(alive&&ticket===feedbackRequest)feedbackStatus.value='反馈处理状态暂未读取成功，可稍后刷新'}
     finally{if(alive&&ticket===feedbackRequest)feedbackLoading.value=false}
   }
-  watch([()=>latestResult.value?.taskId,()=>latestResult.value?.status],()=>{submitRequest++;feedbackSubmitting.value=false;feedbackStatus.value='';refreshFeedback()},{immediate:true})
+  watch([()=>latestResult.value?.taskId,()=>latestResult.value?.status],()=>{closeOwnedPrompt();submitRequest++;exportRequest++;exportSubmitting.value=false;feedbackSubmitting.value=false;feedbackStatus.value='';refreshFeedback()},{immediate:true})
 
   /** 结果表格分页（前端分页） */
   const tablePage = ref(1)
@@ -42,9 +52,12 @@ export function useQueryExport(options: {
 
   async function exportCsv() {
     const result = latestResult.value
-    if (!result?.taskId || result.status !== 'COMPLETED' || !result.data?.length || result.canExport === false || !canExport.value) return
+    if (!result?.taskId || result.status !== 'COMPLETED' || !result.data?.length || result.canExport === false || !canExport.value || exportSubmitting.value) return
+    const ticket = ++exportRequest
+    exportSubmitting.value = true
     try {
       const blob = await iamS1ExportCsv(result.taskId)
+      if (!alive || ticket !== exportRequest || latestResult.value?.taskId !== result.taskId || !canExport.value) return
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -53,7 +66,9 @@ export function useQueryExport(options: {
       URL.revokeObjectURL(url)
       ElMessage.success('CSV 导出成功')
     } catch {
-      ElMessage.error('当前权限不允许导出，或结果已失效')
+      if (alive && ticket === exportRequest) ElMessage.error('当前权限不允许导出，或结果已失效')
+    } finally {
+      if (alive && ticket === exportRequest) exportSubmitting.value = false
     }
   }
 
@@ -74,14 +89,16 @@ export function useQueryExport(options: {
       ElMessage.success(type === 'LIKE' ? '感谢您的肯定' : '已收到反馈，我们会持续改进')
       if (type === 'DISLIKE') {
         try {
+          ownsPrompt = true
           const response = await ElMessageBox.prompt('可以补充哪里不符合预期，帮助定位字段含义、指标口径或呈现问题。', '补充反馈（可选）', {
-            inputType: 'textarea', confirmButtonText: '补充说明', cancelButtonText: '暂不补充', inputValidator: value => !value || value.length <= 4000 || '说明最多 4000 字',
+            inputType: 'textarea', confirmButtonText: '补充说明', cancelButtonText: '暂不补充', cancelButtonClass: promptCancelClass, inputValidator: value => !value || value.length <= 4000 || '说明最多 4000 字',
           })
           if (response.value?.trim()&&alive&&ticket===submitRequest&&latestResult.value?.taskId===result.taskId) {
             const updated=await iamS1SubmitFeedback(result.taskId, type, { reasonCode: 'UNKNOWN', comment: response.value.trim() })
             if(alive&&ticket===submitRequest&&latestResult.value?.taskId===result.taskId)feedbackStatus.value=summary(updated?.data)
           }
         } catch { /* 首次评价已保存，未补充说明不撤销原反馈。 */ }
+        finally { ownsPrompt = false }
       }
     } catch {
       if(alive&&ticket===submitRequest&&latestResult.value?.taskId===result.taskId)ElMessage.error('反馈提交失败')
@@ -93,6 +110,7 @@ export function useQueryExport(options: {
     tablePageSize,
     pagedTableData,
     exportCsv,
+    exportSubmitting,
     exportPng,
     handleFeedback,
     feedbackStatus,feedbackSubmitting,feedbackLoading,refreshFeedback,

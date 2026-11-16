@@ -93,6 +93,9 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
                                                        String password,
                                                        String checkType) {
         long started = System.nanoTime();
+        // 新建表单尚无数据源 ID；仅用检查类型和耗时关联探测，不把地址、账号或 JDBC 异常正文写入日志。
+        // 定时健康检查频繁发生，正常探测保持 DEBUG，失败才升为 WARN。
+        log.debug("开始数据源连接探测 datasourceId={} checkType={}", datasourceId, checkType);
         DatasourceConnectionTestVO result;
         try (Connection connection = DriverManager.getConnection(
                 jdbcUrl(host, port, databaseName, charset),
@@ -109,10 +112,13 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
                     .serverVersion(connection.getMetaData().getDatabaseProductVersion())
                     .message("连接成功")
                     .build();
+            // SELECT 1 只证明本次连接可用，不证明已具备快照、索引或业务查询授权。
+            log.debug("数据源连接探测通过 datasourceId={} checkType={} elapsedMs={}",
+                    datasourceId, checkType, elapsedMs);
         } catch (Exception exception) {
             long elapsedMs = Math.min(elapsedMs(started), CONNECT_TIMEOUT_MS);
-            log.warn("数据源连接测试失败 datasourceId={} host={} port={} database={} reason={}",
-                    datasourceId, host, port, databaseName, exception.getMessage());
+            log.warn("数据源连接探测失败 datasourceId={} checkType={} elapsedMs={} errorType={}",
+                    datasourceId, checkType, elapsedMs(started), exception.getClass().getSimpleName());
             // 连接失败，构建失败结果
             result = DatasourceConnectionTestVO.builder()
                     .success(false)

@@ -18,11 +18,12 @@ class KnowledgeSourceStatusServiceImplTest {
     @Test void validSourcesDoNotMeanPublicationOrBuildWasTriggered() {
         document();
         assertThat(service.status(1L).valid()).isTrue();
-        verify(validator).validate(5L, 88L, "已保存正文");
+        verify(validator).validatePart(5L, 88L, "已保存正文");
+        verify(validator, never()).validate(any(), any(), any());
     }
     @Test void withdrawnTermShowsBusinessReasonWithoutAlteringPublishedVersion() {
         document();
-        doThrow(new BusinessException("术语审核来源已变化")).when(validator).validate(5L, 88L, "已保存正文");
+        doThrow(new BusinessException("术语审核来源已变化")).when(validator).validatePart(5L, 88L, "已保存正文");
         var result = service.status(1L);
         assertThat(result.valid()).isFalse();
         assertThat(result.reasons().get(0)).contains("业务术语已变化").doesNotContain("marker");
@@ -31,6 +32,20 @@ class KnowledgeSourceStatusServiceImplTest {
         when(helper.requireDoc(1L)).thenReturn(KnowledgeDoc.builder().id(1L).currentVersion(1).build());
         when(helper.requireVersion(1L, 1)).thenThrow(new BusinessException("文档缺少来源快照"));
         assertThat(service.status(1L).valid()).isFalse();
+        verifyNoInteractions(validator);
+    }
+    @Test void currentBodyCannotBorrowApprovalFromAnOlderSavedVersion() {
+        document();
+        when(helper.requireVersion(1L, 2)).thenReturn(KnowledgeDocVersion.builder()
+                .metadataSnapshotId(88L).content("历史版本正文").build());
+        assertThat(service.status(1L).valid()).isFalse();
+        verifyNoInteractions(validator);
+    }
+    @Test void absentCurrentVersionDoesNotFallBackToAnotherRevision() {
+        document();
+        when(helper.requireVersion(1L, 2)).thenThrow(new BusinessException("当前文档版本不存在"));
+        assertThat(service.status(1L).valid()).isFalse();
+        verify(helper).requireVersion(1L, 2);
         verifyNoInteractions(validator);
     }
 }

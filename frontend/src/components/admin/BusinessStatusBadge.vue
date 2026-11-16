@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { issueStatusLabels } from '../../utils/enumLabels'
 
 const props = withDefaults(defineProps<{
   status?: string | number | boolean | null
@@ -23,7 +24,7 @@ const labels: Record<string, string> = {
   DRAFT: '草稿', CHECKING: '校验中', ISSUE_FOUND: '存在问题', APPROVED: '已批准',
   PUBLISHED: '已发布', EXPIRED: '已过期', PENDING: '待处理', RUNNING: '进行中',
   SUCCESS: '成功', FAILED: '失败', OPEN: '待处理', CONFIRMED: '已确认',
-  RESOLVED: '已解决', REJECTED: '已拒绝', REOPENED: '已重新打开', AUTO_CLOSED: '自动关闭',
+  RESOLVED: '已解决', REJECTED: '已拒绝', REOPENED: issueStatusLabels.REOPENED, AUTO_CLOSED: '自动关闭',
   PENDING_REVIEW: '待审核', INDEXING: '索引中', ENABLED: '已启用', DISABLED: '已停用',
   ACTIVE: '启用', INACTIVE: '停用', HEALTHY: '连接正常', UNHEALTHY: '连接异常',
   // 发布门禁清单项状态。

@@ -59,6 +59,24 @@ describe('useQuerySubmit recovery state', () => {
     expect(isLocallyResumable({ status: result.status, localWaitTimedOut: result.localWaitTimedOut })).toBe(false)
   })
 
+  it('轮询故障日志保留诊断字段，但不输出请求凭据、问题正文和异常回执', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+      vi.mocked(iamS1GetTask).mockRejectedValue({
+        message: 'private-provider-message',
+        config: { headers: { Authorization: 'Bearer private-token' }, data: 'private-question' },
+        response: { status: 503, data: { message: 'private-response' } },
+      })
+      const submit = createSubmit()
+      await submit.pollTaskResult('task-safe-id', undefined, 3, 1)
+      expect(warning).toHaveBeenLastCalledWith('[问数轮询失败]', {
+        taskId: 'task-safe-id', consecutiveErrors: 3, httpStatus: 503, elapsedMs: expect.any(Number),
+      })
+      expect(JSON.stringify(warning.mock.calls)).not.toMatch(/private-|Authorization|Bearer/)
+    } finally { warning.mockRestore() }
+  })
+
   it('shows a resume failure instead of silently polling the unchanged task', async () => {
     const message: LocalMessage = {
       id: 'assistant-1',
@@ -210,7 +228,7 @@ describe('useQuerySubmit recovery state', () => {
 
     const sending = submit.sendQuestion()
     expect(submit.isQuerying.value).toBe(true)
-    await submit.cancelCurrentQuery()
+    expect(await submit.cancelCurrentQuery()).toBe(false)
     resolveAsk({ data: { taskId: 'task-stop', conversationId: 42 } })
     await sending
 
@@ -218,6 +236,73 @@ describe('useQuerySubmit recovery state', () => {
     expect(iamS1GetTask).not.toHaveBeenCalled()
     expect(submit.latestAssistantMessage.value).toMatchObject({ status: 'CANCELLED', taskId: 'task-stop' })
     expect(submit.isQuerying.value).toBe(false)
+  })
+
+  it('动画等待中切源不会把原会话的问题提交到新源', async () => {
+    const selectedId = ref(1)
+    const messages: LocalMessage[] = []
+    const local: LocalSession = { id: 'old', datasourceId: 1, title: '新的对话', updatedAt: '', messages, conversationId: 42 }
+    vi.mocked(iamS1Ask).mockResolvedValue({ data: { taskId: 'frozen', conversationId: 42 } } as never)
+    vi.mocked(iamS1GetTask).mockResolvedValue({ data: { taskId: 'frozen', status: 'COMPLETED', data: [] } } as never)
+    vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+    const submit = useQuerySubmit({ selectedId, activeSession: ref(local), activeMessages: ref(messages),
+      canAskSelectedDatasource: ref(true), selectedBlockReason: ref(undefined), createSession: () => local,
+      animateNewMessages: async () => { selectedId.value = 2 },
+    })
+    submit.question.value = '原源问题'
+    await submit.sendQuestion()
+    expect(iamS1Ask).toHaveBeenCalledWith({ datasourceId: 1, question: '原源问题', conversationId: 42 })
+  })
+
+  it('停止后的迟到完成回包不能变成成功结果', async () => {
+    let resolveRead!: (value: unknown) => void
+    vi.mocked(iamS1GetTask).mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve }) as never)
+    vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+    const controller = new AbortController()
+    const submit = createSubmit()
+    const pending = submit.pollTaskResult('a', controller.signal, 1, 1)
+    controller.abort()
+    resolveRead({ data: { taskId: 'a', status: 'COMPLETED', data: [{ secret: '迟到数据' }] } })
+    expect(await pending).toMatchObject({ taskId: 'a', status: 'CANCELLED' })
+  })
+
+  it('账号上下文失效后旧 ask 的 finally 不能解锁新任务', async () => {
+    let resolveOld!: (value: unknown) => void, resolveNew!: (value: unknown) => void
+    vi.mocked(iamS1Ask).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }) as never)
+      .mockReturnValueOnce(new Promise(resolve => { resolveNew = resolve }) as never)
+    vi.mocked(iamS1GetTask).mockResolvedValue({ data: { taskId: 'new-account', status: 'COMPLETED', data: [] } } as never)
+    vi.mocked(iamS1CancelTask).mockResolvedValue(undefined as never)
+    const submit = createSubmit()
+    submit.question.value = '旧账号问题'
+    const old = submit.sendQuestion()
+    await vi.waitFor(() => expect(iamS1Ask).toHaveBeenCalledTimes(1))
+    submit.invalidateContext()
+    submit.question.value = '新账号问题'
+    const current = submit.sendQuestion()
+    await vi.waitFor(() => expect(iamS1Ask).toHaveBeenCalledTimes(2))
+    resolveOld({ data: { taskId: 'old-account', conversationId: 42 } }); await old
+    expect(submit.isQuerying.value).toBe(true)
+    expect(iamS1CancelTask).toHaveBeenCalledWith('old-account')
+    resolveNew({ data: { taskId: 'new-account', conversationId: 42 } }); await current
+    expect(submit.latestResult.value?.taskId).toBe('new-account')
+    expect(submit.isQuerying.value).toBe(false)
+  })
+
+  it('动画挂起后换账号，不发旧问题也不清空新账号草稿', async () => {
+    let releaseAnimation!: () => void
+    const messages: LocalMessage[] = []
+    const local: LocalSession = { id: 'old', datasourceId: 1, title: '新的对话', updatedAt: '', messages }
+    const submit = useQuerySubmit({ selectedId: ref(1), activeSession: ref(local), activeMessages: ref(messages),
+      canAskSelectedDatasource: ref(true), selectedBlockReason: ref(undefined), createSession: () => local,
+      animateNewMessages: () => new Promise<void>(resolve => { releaseAnimation = resolve }),
+    })
+    submit.question.value = '旧账号问题'
+    const old = submit.sendQuestion()
+    submit.invalidateContext()
+    submit.question.value = '新账号尚未发送的草稿'
+    releaseAnimation(); await old
+    expect(iamS1Ask).not.toHaveBeenCalled()
+    expect(submit.question.value).toBe('新账号尚未发送的草稿')
   })
 })
 
@@ -240,3 +325,16 @@ function createSubmit(message?: LocalMessage) {
     createSession: () => session,
   })
 }
+
+it('a 503 cancellation preserves polling and can still receive the real completed result',async()=>{
+ vi.mocked(iamS1CancelTask).mockRejectedValueOnce({response:{status:503}})
+ const submit=createSubmit();submit.isQuerying.value=true;submit.currentTaskId.value='still-running'
+ const controller=new AbortController();submit.pollAbortController.value=controller
+ expect(await submit.cancelCurrentQuery()).toBe(false)
+ expect(controller.signal.aborted).toBe(false);expect(submit.isQuerying.value).toBe(true)
+ vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+ vi.mocked(iamS1GetTask).mockResolvedValue({data:{taskId:'still-running',status:'COMPLETED',data:[{count:3}]}} as never)
+ expect(await submit.pollTaskResult('still-running',controller.signal,1,1)).toMatchObject({status:'COMPLETED',data:[{count:3}]})
+ vi.mocked(iamS1CancelTask).mockResolvedValueOnce(undefined as never)
+ expect(await submit.cancelCurrentQuery()).toBe(true);expect(controller.signal.aborted).toBe(true)
+})

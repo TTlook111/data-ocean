@@ -409,7 +409,7 @@ async def test_sql_prompt_prefers_managed_template(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sql_prompt_falls_back_to_local_template(monkeypatch):
+async def test_sql_prompt_falls_back_to_local_template(monkeypatch, caplog):
     """Java 不可用或模板缺失时退回本地模板，且问题与数据必须渲染进去。
 
     降级不能降成空提示词——那会让模型在没有 schema 的情况下凭空生成 SQL。
@@ -417,7 +417,7 @@ async def test_sql_prompt_falls_back_to_local_template(monkeypatch):
     from dataocean.iam_s1 import service as s1_service
 
     async def broken_managed(code, variables):
-        raise RuntimeError("Java 不可达")
+        raise RuntimeError("Java 不可达 https://private-gateway.test?token=secret-value")
 
     monkeypatch.setattr(s1_service, "render_prompt_with_metadata", broken_managed)
     schema = [{"tableName": "orders", "columns": [{"name": "id"}]}]
@@ -428,6 +428,8 @@ async def test_sql_prompt_falls_back_to_local_template(monkeypatch):
     assert "{{" not in prompt, "本地模板不得残留未渲染的占位符"
     # 聚合别名要求是修复"结果列名显示成 s1_c1"的根因手段，不能在降级模板里丢掉
     assert "AS" in prompt and "别名" in prompt
+    assert "error_type=RuntimeError" in caplog.text
+    assert "private-gateway" not in caplog.text and "secret-value" not in caplog.text
 
 
 def test_field_usage_is_enforced_for_projection_filter_and_join():
@@ -887,8 +889,8 @@ async def test_execute_trace_keeps_java_injected_row_columns_out_of_user_ast_evi
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tamper",[None,"unknown-id","old-snapshot","old-build","body","dependencies","duplicate-authority"])
-async def test_s1_rag_calls_milvus_pipeline_then_filters_sources(tamper):
+@pytest.mark.parametrize("tamper",[None,"unknown-id","old-snapshot","old-build","body","dependencies","duplicate-authority","retrieval-error"])
+async def test_s1_rag_calls_milvus_pipeline_then_filters_sources(tamper, caplog):
     current = snapshot()
     build_id = "abcdef12-3456-7890-abcd-ef1234567890"
     collection_name = "dataocean_rag_ds1_babcdef1234567890abcdef1234567890"
@@ -921,6 +923,8 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources(tamper):
     if tamper=="dependencies":response.results[0].resource_dependencies=["table:employee_pay"]
     if tamper=="duplicate-authority":request.chunks.append({**chunks[0],"chunkText":"Conflicting authoritative record"})
     with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock, return_value=response) as retrieve_mock:
+        if tamper=="retrieval-error":
+            retrieve_mock.side_effect=RuntimeError("private-vendor-detail secret-value")
         result = await retrieve(request)
     retrieve_mock.assert_awaited_once()
     passed_request = retrieve_mock.await_args.args[0]
@@ -936,6 +940,10 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources(tamper):
         from dataocean.rag.service import _filter_build_candidates
         lower=_filter_build_candidates(response.results,passed_request)
         assert bool(lower) is (tamper is None)
+    if tamper=="retrieval-error":
+        assert "task_id=task-1" in caplog.text and "fallback_count=1" in caplog.text
+        assert "error_type=RuntimeError" in caplog.text
+        assert "private-vendor-detail" not in caplog.text and "secret-value" not in caplog.text
 
 
 @pytest.mark.asyncio

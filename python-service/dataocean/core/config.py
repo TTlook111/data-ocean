@@ -197,24 +197,34 @@ def reload_config(overrides: dict[str, str] | None = None) -> Settings:
         # 记录旧配置快照（用于变更日志）
         old_snapshot = settings.model_dump() if overrides else {}
 
-        if overrides:
-            for key, value in overrides.items():
-                env_key = key.upper().replace(".", "_")
-                os.environ[env_key] = str(value)
-
-        get_settings.cache_clear()
-        new_settings = get_settings()
+        env_changes = {key.upper().replace(".", "_"): str(value)
+                       for key, value in (overrides or {}).items()}
+        previous_env = {key: os.environ.get(key) for key in env_changes}
+        try:
+            os.environ.update(env_changes)
+            get_settings.cache_clear()
+            new_settings = get_settings()
+        except Exception:
+            # 无效的候选配置不能污染后续请求或已有活动配置。
+            for key, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            get_settings.cache_clear()
+            raise
 
         # 记录配置变更
         if overrides:
             new_snapshot = new_settings.model_dump()
-            changes = {
-                k: (old_snapshot.get(k), new_snapshot[k])
-                for k in overrides
-                if old_snapshot.get(k) != new_snapshot.get(k)
-            }
-            if changes:
-                logger.info("配置变更: %s", changes)
+            changed_fields = [
+                key.lower().replace(".", "_") for key in overrides
+                if old_snapshot.get(key.lower().replace(".", "_"))
+                != new_snapshot.get(key.lower().replace(".", "_"))
+            ]
+            if changed_fields:
+                # 仅记录字段名；API Key、内部令牌等值不得进入日志。
+                logger.info("配置变更字段: %s", changed_fields)
 
         # 原子切换：先更新版本号，再更新 settings 引用
         _config_version += 1

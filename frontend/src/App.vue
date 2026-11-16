@@ -12,7 +12,8 @@ function handleBeforeEnter(el: Element) {
 
 function handleEnter(el: Element, done: () => void) {
   if (reduceMotion()) {
-    done()
+    // out-in 的同步完成会在卸载过程中重入更新；微任务完成不引入动画等待。
+    queueMicrotask(done)
     return
   }
   gsap.to(el, {
@@ -27,7 +28,8 @@ function handleEnter(el: Element, done: () => void) {
 
 function handleLeave(el: Element, done: () => void) {
   if (reduceMotion()) {
-    done()
+    // out-in 的同步完成会在卸载过程中重入更新；微任务完成不引入动画等待。
+    queueMicrotask(done)
     return
   }
   gsap.to(el, {

@@ -80,8 +80,8 @@ async def render_sql_prompt(question: str, context: dict[str, Any], *, managed: 
             raise RuntimeError("managed SQL 生成模板为空")
         return user_prompt
     except Exception as exc:
-        # Java 不可用或模板缺失时退回本地模板，与该项目其它受管提示词的降级方式一致。
-        logger.info("managed SQL 生成模板不可用，使用本地模板: %s", exc)
+        # 模板降级不改变执行权限；异常原文可能包含网关地址或模板内容，只记录类型。
+        logger.warning("受管 SQL 生成模板不可用，使用本地模板 error_type=%s", type(exc).__name__)
         return render_template_file(_LOCAL_SQL_GENERATION_TEMPLATE, **variables)
 
 
@@ -177,6 +177,11 @@ def validate_request(request: S1SqlValidateRequest) -> S1SqlValidation:
 
 
 async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
+    """固定本次授权事实，再让向量检索决定排序。
+
+    召回为空、索引指针不符与检索异常是不同情况。诊断只记录范围、数量和
+    受控原因，不记录问题、知识正文或异常原文；任何回退仍经过同一防火墙。
+    """
     _contract_matches(request, request.permissionSnapshot)
     from .firewall import filter_chunks
     # S1 uses the existing Milvus embedding/search/adjacent expansion/rerank
@@ -206,12 +211,26 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
         by_id.setdefault(source_id,chunk)
     by_id={key:value for key,value in by_id.items() if key not in duplicates}
     authoritative=list(by_id.values())
+    if duplicates:
+        # 同 ID 的冲突副本整组排除，不能靠“第一份胜出”恢复不可信事实。
+        logger.warning(
+            "S1 RAG 排除冲突事实 task_id=%s datasource_id=%d conflict_count=%d retained_count=%d",
+            request.taskId, request.datasourceId, len(duplicates), len(authoritative),
+        )
     from dataocean.rag.collection_names import is_build_collection_name
     if not is_build_collection_name(request.datasourceId, request.ragBuildId, request.ragCollectionName):
         # Never let a stale or malformed Java build pointer fall back to the
         # configured default collection (schema_knowledge).
+        logger.warning(
+            "S1 RAG 跳过向量检索 task_id=%s datasource_id=%d reason=collection_mismatch fallback_count=%d",
+            request.taskId, request.datasourceId, len(authoritative),
+        )
         return authoritative
     if not request.ragSourceSnapshotId or not request.ragCollectionName or not request.ragEmbeddingConfig:
+        logger.warning(
+            "S1 RAG 拒绝不完整构建上下文 task_id=%s datasource_id=%d reason=incomplete_build_context",
+            request.taskId, request.datasourceId,
+        )
         return []
     try:
         from dataocean.rag.schema import RetrieveRequest
@@ -258,7 +277,7 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
         )
         if filtered:
             return filtered
-    except Exception:
+    except Exception as exc:
         # Retrieval failure is allowed to degrade only to the same filtered
         # fallback; it never sends an unfiltered vector result onward.
         fallback = filter_chunks(
@@ -268,7 +287,15 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             rag_build_id=request.ragBuildId,
         )
         if not fallback:
+            logger.warning(
+                "S1 RAG 无安全兜底，终止检索 task_id=%s datasource_id=%d error_type=%s",
+                request.taskId, request.datasourceId, type(exc).__name__,
+            )
             raise
+        logger.warning(
+            "S1 RAG 使用已授权事实兜底 task_id=%s datasource_id=%d error_type=%s fallback_count=%d",
+            request.taskId, request.datasourceId, type(exc).__name__, len(fallback),
+        )
         return fallback
     return filter_chunks(
         authoritative,

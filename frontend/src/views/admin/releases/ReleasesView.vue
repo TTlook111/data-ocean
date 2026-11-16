@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { GitCompareArrows, RefreshCw, RotateCcw, Send } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
+import { ChevronDown, GitCompareArrows, History, RefreshCw, RotateCcw, Send } from 'lucide-vue-next'
+import { useRouter, useRoute } from 'vue-router'
+import { pendingReleaseWrites, trackReleaseWrite } from '../../../composables/releaseWriteTracker'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { listQualityIssues, triggerQualityCheck } from '../../../api/admin/governance'
@@ -48,6 +51,7 @@ interface SnapshotDialogContext extends SnapshotDetailContext {
 }
 
 const router = useRouter()
+const route = useRoute(), auth = useAuthStore()
 const context = useAdminContextStore()
 const iamS1 = useIamS1Store()
 
@@ -64,6 +68,83 @@ const actionLoading = ref(false)
 const selectedVersions = ref<CompareVersionOption[]>([])
 const hasReviewerNames = computed(() => history.value.some((item) => Boolean(item.reviewedBy)))
 const datasourceId = computed(() => context.datasourceId)
+const compactTable=ref(window.innerWidth<900)
+const narrowTable=ref(window.innerWidth<1420)
+function measureTable() { compactTable.value=window.innerWidth<900; narrowTable.value=window.innerWidth<1420 }
+window.addEventListener('resize',measureTable)
+const scopeError = computed(() => {
+  if (iamS1.errorMessage) return `权限摘要读取失败：${iamS1.errorMessage}`
+  const raw = route.query.datasourceId
+  if (raw != null && (typeof raw !== 'string' || !Number.isSafeInteger(Number(raw)) || Number(raw) <= 0 || Number(raw) !== datasourceId.value)) return '指定数据源尚未核验，未改用其他范围。'
+  if (iamS1.loaded && datasourceId.value && !iamS1.canOnDatasource('metadata:release:view', datasourceId.value)) return '没有当前数据源的元数据版本查看权限。'
+  return ''
+})
+const scopePending=computed(()=>!iamS1.loaded && !iamS1.errorMessage || context.loading || context.routeSyncing)
+const scopeReady = computed(() => iamS1.loaded && !context.loading && !context.routeSyncing && !scopeError.value && !!datasourceId.value)
+const fillMediaMatches = ref(false)
+const fillEnabled = computed(() => fillMediaMatches.value && !!datasourceId.value && !scopePending.value && !scopeError.value)
+let fillMedia: MediaQueryList | null = null
+function syncFillMedia(event?: MediaQueryListEvent) { fillMediaMatches.value = event ? event.matches : Boolean(fillMedia?.matches) }
+onMounted(() => {
+  const query = '(min-width: 1200px) and (min-height: 700px)'
+  const media = window.matchMedia?.(query)
+  if (media && typeof media.addEventListener === 'function') {
+    fillMedia = media
+    syncFillMedia()
+    media.addEventListener('change', syncFillMedia)
+  } else {
+    syncFillMedia()
+  }
+})
+onBeforeUnmount(() => {
+  fillMedia?.removeEventListener('change', syncFillMedia)
+  fillMedia = null
+})
+const actionError = ref(''), actionNotice = ref(''), revokeReason = ref('')
+const uncertainWrites = pendingReleaseWrites
+const uncertainWrite = computed(() => uncertainWrites.value.find(x => x.identity===auth.token && x.source===datasourceId.value))
+const unknownAction = computed(() => !!uncertainWrite.value)
+const verifyingWrite = ref(false)
+async function verifyUncertainWrite() {
+  const item=uncertainWrite.value, scope=ticket()
+  if (!item || verifyingWrite.value || !hasDatasourceFunction(RELEASE_VIEW_FUNCTION,item.source)) return
+  verifyingWrite.value=true
+  try {
+    const result=await listSnapshotAuditLogs(item.snapshot,{page:1,size:20})
+    if (!current(scope) || uncertainWrite.value!==item) return
+    const found=result.data.records?.some(row=>item.baselineAuditId!=null && row.id>item.baselineAuditId && (item.action==='publish' ? row.action==='PUBLISH' : item.action==='revoke' ? row.action==='REVOKE' : item.action==='APPROVED' || item.action==='CHECKING' ? row.action==='STATUS_TRANSITION' && row.newStatus===item.action : false))
+    if (found) { uncertainWrites.value=uncertainWrites.value.filter(x=>x!==item); actionNotice.value='精确快照审计中已观察到目标操作；不再重复写入。该事件不证明原请求的唯一归属。'; await load() }
+    else actionNotice.value='已重读精确快照审计，尚不能确认原请求结果；没有新记录不证明未执行，继续停止重发。'
+  } catch(cause) {if(current(scope)) actionNotice.value=getHttpErrorMessage(cause,'精确审计核对失败，继续停止重发')}
+  finally {if(current(scope)) verifyingWrite.value=false}
+}
+const confirmVisible = ref(false), confirmClass = `release-confirm-${Math.random().toString(36).slice(2)}`
+let scopeRevision = 0, actionOperation = 0, publishOperation = 0, confirmOperation = 0
+function closeOwnedConfirm() { confirmOperation++; document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click(); confirmVisible.value = false }
+function ticket() { return { revision: scopeRevision, source: datasourceId.value, identity:auth.token } }
+function current(t: ReturnType<typeof ticket>) { return !disposed && t.revision === scopeRevision && t.source === datasourceId.value && scopeReady.value }
+async function writeTracked(item: VersionHistoryItem, action: string, scope: ReturnType<typeof ticket>, allowed: () => boolean, write: () => Promise<unknown>) {
+  let baselineAuditId: number | undefined
+  if (hasDatasourceFunction(RELEASE_VIEW_FUNCTION,rowDatasourceId(item))) {
+    try { const audit=await listSnapshotAuditLogs(item.snapshotId,{page:1,size:20}); baselineAuditId=Math.max(0,...audit.data.records.map(x=>x.id)) } catch { /* Missing baseline cannot later prove an uncertain result. */ }
+  }
+  if (!current(scope) || !currentRow(item) || !allowed()) throw 'cancel'
+  return trackReleaseWrite({identity:scope.identity,source:scope.source!,snapshot:item.snapshotId,action,started:Date.now(),baselineAuditId},write)
+}
+function currentRow(item: VersionHistoryItem) { return scopeReady.value && rowDatasourceId(item) === datasourceId.value && history.value.some(row => row.snapshotId === item.snapshotId && row.status === item.status) }
+async function ownedConfirm(message: string, title: string) {
+  const operation=++confirmOperation; confirmVisible.value = true
+  try { await ElMessageBox.confirm(message, title, { type:'warning', cancelButtonClass:confirmClass }) }
+  finally { if(operation===confirmOperation) confirmVisible.value = false }
+}
+function mutationError(cause: unknown, fallback: string) {
+  const status = (cause as {response?:{status?:number}})?.response?.status
+  const uncertain=!status || status>=500 || status===408
+  actionError.value = getHttpErrorMessage(cause, fallback)
+  ElMessage.error(actionError.value)
+  actionNotice.value = uncertain ? '操作结果待确认；请刷新版本并查看该快照操作记录核实，未核实前不会重发。' : status === 409 ? '发生并发冲突，请重读当前版本；已填写原因保留，不会自动重试。' : '服务端拒绝了本次操作，请核对原因。'
+}
+
 
 const snapshotDialogVisible = ref(false)
 const snapshotDialogContext = ref<SnapshotDialogContext | null>(null)
@@ -86,6 +167,7 @@ const {
 const publishConfirmVisible = ref(false)
 const publishTarget = ref<VersionHistoryItem | null>(null)
 const publishSubmitting = ref(false)
+useAdminScrollLock(() => snapshotDialogVisible.value || publishConfirmVisible.value || confirmVisible.value)
 const {
   gate: publishGate,
   loading: publishGateLoading,
@@ -229,15 +311,12 @@ function rowActionWidths(row: VersionHistoryItem): number[] {
   return widths
 }
 
+function hasRowUtilityActions(row: VersionHistoryItem) {
+  return canViewAuditRecords(row) || canCompareWithCurrent(row)
+}
+
 const hasVisibleRowActions = computed(() => history.value.some((row) => rowActionWidths(row).length > 0))
-const actionsColumnWidth = computed(() => Math.max(
-  72,
-  ...history.value.map((row) => {
-    const widths = rowActionWidths(row)
-    if (!widths.length) return 0
-    return widths.reduce((sum, width) => sum + width, 24 + (widths.length - 1) * 16)
-  }),
-))
+const actionsColumnWidth = computed(() => 240)
 
 function formatVersionTime(value?: string | null) {
   if (!value) return ''
@@ -295,7 +374,8 @@ function clearCompareSelection() {
 async function load() {
   const sourceId = datasourceId.value
   const currentRequest = ++listRequestId
-  if (!sourceId) {
+  const scope = ticket()
+  if (!scopeReady.value || !sourceId) {
     history.value = []
     published.value = null
     total.value = 0
@@ -316,7 +396,7 @@ async function load() {
       listVersionHistory(sourceId, { page: page.value, size: pageSize }),
       getPublishedSnapshot(sourceId),
     ])
-    if (disposed || currentRequest !== listRequestId || sourceId !== datasourceId.value) return
+    if (!current(scope) || currentRequest !== listRequestId) return
 
     if (historyResult.status === 'fulfilled') {
       history.value = historyResult.value.data.records || []
@@ -353,7 +433,7 @@ function changePage(nextPage: number) {
 
 function openSnapshotDialog(item: VersionHistoryItem, tab: DetailTab = 'content') {
   const sourceId = rowDatasourceId(item)
-  if (!sourceId || (tab === 'operations' && !canViewAuditRecords(item))) return
+  if (!currentRow(item) || !sourceId || !canViewAuditRecords(item)) return
 
   snapshotDialogContext.value = {
     snapshotId: item.snapshotId,
@@ -393,7 +473,8 @@ function retrySnapshotDialogDetail() {
 
 function loadDialogDetailFromContext() {
   const openedFor = snapshotDialogContext.value
-  if (!snapshotDialogVisible.value || !openedFor) return
+  if (!scopeReady.value || !snapshotDialogVisible.value || !openedFor) return
+  if (!hasDatasourceFunction('metadata:view', openedFor.datasourceId)) { clearSnapshotDialogDetail(); return }
   return loadSnapshotDialogDetail({ snapshotId: openedFor.snapshotId, datasourceId: openedFor.datasourceId })
 }
 
@@ -515,7 +596,7 @@ function openGovernance() {
 
 const dialogGateIssueTarget = computed(() => {
   const source = snapshotDialogContext.value
-  if (!source) return undefined
+  if (!source || !iamS1.canOnDatasource('governance:issue:view',source.datasourceId)) return undefined
   return {
     path: '/admin/governance/issues',
     query: { datasourceId: String(source.datasourceId), snapshotId: String(source.snapshotId) },
@@ -525,7 +606,7 @@ const dialogGateIssueTarget = computed(() => {
 const publishGateIssueTarget = computed(() => {
   const item = publishTarget.value
   const sourceId = item ? rowDatasourceId(item) : undefined
-  if (!item || !sourceId) return undefined
+  if (!item || !sourceId || !iamS1.canOnDatasource('governance:issue:view',sourceId)) return undefined
   return {
     path: '/admin/governance/issues',
     query: { datasourceId: String(sourceId), snapshotId: String(item.snapshotId) },
@@ -596,154 +677,101 @@ function issueCenterTarget(row: VersionHistoryItem) {
  * 批准前读取门禁。来源高风险未解决时不进入确认框；读取失败不阻断前端，
  * 由后端在审核接口再次校验并返回 409。
  */
-async function ensureApprovable(item: VersionHistoryItem): Promise<boolean> {
+async function ensureApprovable(item: VersionHistoryItem, scope: ReturnType<typeof ticket>): Promise<boolean> {
+  // Gate is an auxiliary release:view read; a reviewer without it does not borrow that permission.
+  if (!hasDatasourceFunction(RELEASE_VIEW_FUNCTION, rowDatasourceId(item))) return true
   try {
     const result = await getReleaseGate(item.snapshotId)
+    if (!current(scope)) return false
     const gate = result.data
-    if (!gate || gate.approvable) {
-      if (gate && gate.warningCount > 0) {
-        ElMessage.warning(`门禁有 ${gate.warningCount} 项提示；语义问题不阻断发布`)
-      }
-      return true
-    }
-    const blockers = gate.items
-      .filter((gateItem) => gateItem.blocksApproval && gateItem.status === 'FAIL')
-      .map((gateItem) => gateItem.message)
-    await ElMessageBox.alert(
-      blockers.join('；') || '存在未解决的治理问题，暂不能批准。',
-      '暂不能批准',
-      { type: 'warning' },
-    )
+    if (!gate || gate.snapshotId !== item.snapshotId || (gate.datasourceId != null && gate.datasourceId !== scope.source)) throw new Error('门禁范围与当前快照不一致')
+    if (gate.approvable) return true
+    actionError.value = gate.items.filter(x => x.blocksApproval && x.status === 'FAIL').map(x => x.message).join('；') || '存在未解决的治理问题，暂不能批准。'
+    const operation=++confirmOperation; confirmVisible.value=true
+    try { await ElMessageBox.alert(actionError.value,'暂不能批准',{type:'warning',confirmButtonClass:confirmClass}) } finally {if(operation===confirmOperation) confirmVisible.value=false}
     return false
   } catch (cause) {
-    ElMessage.warning(getHttpErrorMessage(cause, '发布门禁读取失败，审核时将由后端再次校验'))
+    if (!current(scope)) return false
+    ElMessage.warning(getHttpErrorMessage(cause, '门禁读取失败，审核时由后端再次校验'))
     return true
   }
 }
 
+async function runConfirmed(item: VersionHistoryItem, allowed: () => boolean, message: string, title: string, action: () => Promise<unknown>) {
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || !currentRow(item) || !allowed()) return
+  const scope = ticket(), operation = ++actionOperation
+  actionLoading.value = true; actionError.value = ''; actionNotice.value = ''
+  try {
+    if (title === '批准快照' && !(await ensureApprovable(item, scope))) return
+    if (!current(scope) || operation !== actionOperation) return
+    await ownedConfirm(message, title)
+    if (!current(scope) || operation !== actionOperation || !allowed() || !currentRow(item)) return
+    await writeTracked(item,title==='批准快照' ? 'APPROVED' : title==='确认进入审核' ? 'CHECKING' : 'quality-check',scope,allowed,action)
+    if (!current(scope) || operation !== actionOperation) return
+    await load()
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && current(scope) && operation === actionOperation) mutationError(cause, `${title}未完成`)
+  } finally { if (current(scope) && operation === actionOperation) actionLoading.value = false }
+}
 async function enterReview(item: VersionHistoryItem) {
-  if (actionLoading.value || item.status !== 'DRAFT' || !canReviewSnapshot(item)) return
-  const sourceId = rowDatasourceId(item)
-  const requestId = listRequestId
-  const isCurrent = () => !disposed && sourceId !== undefined
-    && sourceId === datasourceId.value && requestId === listRequestId
-  if (!isCurrent()) return
-  actionLoading.value = true
-  try {
-    await ElMessageBox.confirm(
-      `确认将快照 v${item.snapshotVersion} 进入人工审核？此操作不代表质量检查已完整完成，也不会自动批准或发布。`,
-      '确认进入审核',
-      { type: 'warning' },
-    )
-    if (!isCurrent() || !canReviewSnapshot(item)) return
-    await changeSnapshotStatus(item.snapshotId, { targetStatus: 'CHECKING', reason: '人工进入审核' })
-    if (!isCurrent()) return
-    ElMessage.success('快照已进入审核，批准与发布仍需分别操作。')
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close' && isCurrent()) {
-      ElMessage.error(getHttpErrorMessage(cause, '进入审核失败'))
-    }
-  } finally {
-    actionLoading.value = false
-  }
+  if (item.status !== 'DRAFT') return
+  return runConfirmed(item, () => canReviewSnapshot(item), `确认将快照 v${item.snapshotVersion} 进入人工审核？此操作不代表质量检查已完整完成，也不会自动批准或发布。`, '确认进入审核', async () => {
+    await changeSnapshotStatus(item.snapshotId, {targetStatus:'CHECKING',reason:'人工进入审核'})
+  })
 }
-
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
-  const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
-  if (actionLoading.value) return
-  if (targetStatus === 'CHECKING' && !canRunQualityCheck(item)) return
-  if (targetStatus === 'APPROVED' && !canReviewSnapshot(item)) return
-  if (targetStatus === 'APPROVED' && !(await ensureApprovable(item))) return
-  const confirmMessage = targetStatus === 'APPROVED'
-    ? '确认批准快照 v' + item.snapshotVersion + '？批准后仍需通过发布门禁才能发布。'
-    : '确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？'
-  try {
-    await ElMessageBox.confirm(confirmMessage, '确认操作', { type: 'warning' })
-    actionLoading.value = true
-    if (targetStatus === 'CHECKING') {
-      const result = await triggerQualityCheck(item.snapshotId)
-      const check = result.data
-      if (check?.status === 'SUCCESS' && check.complete) {
-        const score = check.requestedScope === 'FULL' && check.qualityScore != null
-          ? `，综合得分 ${check.qualityScore}` : ''
-        ElMessage.success(`质量校验已完整完成${score}。`)
-      } else if (check?.status === 'PARTIAL' || check?.status === 'SUCCESS') {
-        ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
-      } else if (check?.executedRuleCount === 0 && check.failedRuleCount === 0 && check.notApplicableRuleCount > 0) {
-        ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
-      } else {
-        ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
-      }
-    } else {
-      await changeSnapshotStatus(item.snapshotId, { targetStatus })
-      ElMessage.success('快照状态已更新')
-    }
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(getHttpErrorMessage(cause, '快照状态更新失败'))
-  } finally {
-    actionLoading.value = false
+  if (targetStatus === 'APPROVED') {
+    if (!['CHECKING','ISSUE_FOUND'].includes(item.status)) return
+    return runConfirmed(item, () => canReviewSnapshot(item), `确认批准快照 v${item.snapshotVersion}？批准后仍需独立发布。`, '批准快照', () => changeSnapshotStatus(item.snapshotId,{targetStatus}))
   }
+  if (targetStatus !== 'CHECKING' || item.status !== 'DRAFT') return
+  const scope=ticket()
+  return runConfirmed(item, () => canRunQualityCheck(item), `确认对快照 v${item.snapshotVersion} 执行来源质量检查？这不等于人工审核或发布。`, '开始质量检查', async () => {
+    const result=await triggerQualityCheck(item.snapshotId)
+    if (!current(scope)) return
+    const check=result.data
+    if (check?.status==='SUCCESS' && check.complete) ElMessage.success(`质量校验已完整完成${check.requestedScope==='FULL' && check.qualityScore!=null ? `，综合得分 ${check.qualityScore}` : ''}。`)
+    else if (check?.status==='PARTIAL' || check?.status==='SUCCESS') ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
+    else if (check?.executedRuleCount===0 && check.failedRuleCount===0 && check.notApplicableRuleCount>0) ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
+    else ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
+  })
 }
-
 function publish(item: VersionHistoryItem) {
-  if (!canPublishSnapshot(item)) return
-  publishTarget.value = item
-  publishConfirmVisible.value = true
-  void loadPublishGate(item.snapshotId)
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || item.status!=='APPROVED' || !currentRow(item) || !canPublishSnapshot(item)) return
+  publishOperation++; publishTarget.value={...item}; publishConfirmVisible.value=true; actionError.value=''; actionNotice.value=''
+  if (canViewAuditRecords(item)) void loadPublishGate(item.snapshotId)
 }
-
 function closePublishConfirm() {
-  publishConfirmVisible.value = false
-  publishTarget.value = null
-  publishSubmitting.value = false
-  clearPublishGate()
+  publishOperation++; publishConfirmVisible.value=false; publishTarget.value=null; publishSubmitting.value=false; clearPublishGate()
 }
-
-function retryPublishGate() {
-  if (publishTarget.value) void loadPublishGate(publishTarget.value.snapshotId)
-}
-
+function retryPublishGate() { const item=publishTarget.value; if (item && currentRow(item) && canViewAuditRecords(item)) void loadPublishGate(item.snapshotId) }
 async function confirmPublish() {
-  const item = publishTarget.value
-  if (!item || publishSubmitting.value) return
-  // 已知阻断时不提交；门禁读取失败仍允许提交，由后端 409 兜底。
-  if (publishGate.value && publishGate.value.blockingCount > 0) return
-  publishSubmitting.value = true
+  const item=publishTarget.value
+  if (!item || publishSubmitting.value || unknownAction.value || publishGateLoading.value || !currentRow(item) || item.status!=='APPROVED' || !canPublishSnapshot(item)) return
+  if (publishGate.value && !publishGate.value.publishable) return
+  const scope=ticket(), operation=++publishOperation
+  publishSubmitting.value=true
   try {
-    await publishSnapshot(item.snapshotId)
-    ElMessage.success('快照已发布')
-    closePublishConfirm()
-    await load()
-    const openedFor = snapshotDialogContext.value
-    if (snapshotDialogVisible.value && openedFor) {
-      void loadDialogGate(openedFor.snapshotId)
-    }
-  } catch (cause) {
-    ElMessage.error(getHttpErrorMessage(cause, '快照发布失败'))
-  } finally {
-    publishSubmitting.value = false
-  }
+    await writeTracked(item,'publish',scope,()=>canPublishSnapshot(item),()=>publishSnapshot(item.snapshotId))
+    if (!current(scope) || operation!==publishOperation) return
+    closePublishConfirm(); await load()
+  } catch(cause) { if (current(scope) && operation===publishOperation) mutationError(cause,'快照发布未完成') }
+  finally { if (current(scope) && operation===publishOperation) publishSubmitting.value=false }
 }
-
 async function revoke(item: VersionHistoryItem) {
-  if (item.status !== 'PUBLISHED' || !canPublishSnapshot(item)) return
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || item.status!=='PUBLISHED' || !currentRow(item) || !canPublishSnapshot(item)) return
+  const scope=ticket(),operation=++actionOperation
+  actionLoading.value=true; actionError.value='';actionNotice.value='';confirmVisible.value=true
   try {
-    const result = await ElMessageBox.prompt('请输入撤回原因', '撤回已发布快照', {
-      inputValidator: (value) => Boolean(value?.trim()) || '撤回原因不能为空',
-      confirmButtonText: '确认撤回',
-      cancelButtonText: '取消',
-    })
-    actionLoading.value = true
-    await revokeSnapshot(item.snapshotId, result.value)
-    ElMessage.success('快照已撤回')
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(getHttpErrorMessage(cause, '快照撤回失败'))
-  } finally {
-    actionLoading.value = false
-  }
+    const result=await ElMessageBox.prompt('请输入撤回原因','撤回已发布快照',{inputValue:revokeReason.value,inputValidator:value=>Boolean(value?.trim()) || '撤回原因不能为空',confirmButtonText:'确认撤回',cancelButtonText:'取消',cancelButtonClass:confirmClass})
+    confirmVisible.value=false
+    if (!current(scope) || operation!==actionOperation || !canPublishSnapshot(item) || !currentRow(item)) return
+    revokeReason.value=result.value
+    await writeTracked(item,'revoke',scope,()=>canPublishSnapshot(item),()=>revokeSnapshot(item.snapshotId,result.value))
+    if (!current(scope) || operation!==actionOperation) return
+    revokeReason.value=''; await load()
+  } catch(cause) { if (cause!=='cancel' && cause!=='close' && current(scope) && operation===actionOperation) mutationError(cause,'快照撤回未完成') }
+  finally { if (current(scope) && operation===actionOperation) {actionLoading.value=false;confirmVisible.value=false} }
 }
 
 function auditActionLabel(action: string) {
@@ -764,13 +792,13 @@ function releaseToKnowledge() {
   }
 }
 
-watch(datasourceId, (next, previous) => {
-  if (next === previous) return
-  page.value = 1
-  selectedVersions.value = []
-  if (snapshotDialogVisible.value) closeSnapshotDialog()
+watch(() => [auth.token, iamS1.snapshot, iamS1.loaded, iamS1.errorMessage, context.datasourceId, context.routeSyncing, context.loading, route.query.datasourceId], () => {
+  scopeRevision++; listRequestId++; actionOperation++; publishOperation++
+  closeOwnedConfirm(); closeSnapshotDialog(); closePublishConfirm(); clearSnapshotDialogDetail(); resetAuditRecords(); resetIssuePresence()
+  page.value=1; selectedVersions.value=[]; history.value=[]; published.value=null; total.value=0; actionLoading.value=false
+  actionError.value='';actionNotice.value='';revokeReason.value='';verifyingWrite.value=false
   void load()
-})
+}, {flush:'sync'})
 
 watch(activeDetailTab, (tab) => {
   if (tab === 'operations') loadAuditRecords()
@@ -813,6 +841,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true
+  window.removeEventListener('resize',measureTable)
+  scopeRevision++; actionOperation++; publishOperation++; closeOwnedConfirm(); clearDialogGate(); clearPublishGate()
   listRequestId += 1
   auditRequestId += 1
   issuePresenceRequestId += 1
@@ -821,9 +851,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="admin-page releases-page">
+  <main class="admin-page releases-page" :class="{ 'admin-list-fill': fillEnabled }">
     <TaskPageHeader
       title="元数据版本"
+      eyebrow="数据资产 / 版本与发布"
       description="查看元数据快照、当前正式版和版本间的结构变化。发布、撤回、问题处理与知识发布各自独立。"
     >
       <template #actions>
@@ -833,13 +864,30 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
 
-    <section class="releases-page__current" aria-label="当前正式版">
+    <details class="release-path" aria-label="元数据到问数的准备路径">
+      <summary class="release-path__head">
+        <strong>版本准备流程</strong>
+        <span>每一步分别核对，不会自动串联</span>
+      </summary>
+      <ol class="release-path__list">
+        <li class="release-path__item"><span class="release-path__no">01</span><div class="release-path__copy"><strong>核对采集</strong><span>比较结构、查看来源质量</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">02</span><div class="release-path__copy"><strong>审核版本</strong><span>人工批准后才能发布</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">03</span><div class="release-path__copy"><strong>发布快照</strong><span>成为当前正式元数据来源</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">04</span><div class="release-path__copy"><strong>准备知识</strong><span>文档发布与索引构建另行确认</span></div></li>
+      </ol>
+    </details>
+    <div v-if="scopeError" role="alert" class="release-action-notice">{{ scopeError }}</div>
+    <section v-if="unknownAction" role="status" class="release-action-notice">快照 #{{ uncertainWrite?.snapshot }} 的 {{ uncertainWrite?.action }} 结果待确认。切换范围不会清除此记录；离开重进仍保留本次会话记录；整页刷新后仍需人工核对原目标，不可推定请求已取消。<el-button :loading="verifyingWrite" @click="verifyUncertainWrite">核对该快照操作记录</el-button><p>{{ actionNotice }}</p></section>
+    <section v-if="actionError" class="release-action-notice" role="alert"><strong>{{ actionError }}</strong><p>{{ actionNotice }}</p><p v-if="revokeReason">已保留撤回原因：{{ revokeReason }}</p><el-button :loading="listLoading" @click="load">重读版本与当前正式版</el-button></section>
+    <section class="releases-page__current" :class="{ 'releases-page__current--published': published && !publishedLoading && !publishedError }" aria-label="当前正式版">
       <div class="releases-page__current-label">
         <span>当前正式版</span>
         <strong v-if="published && !publishedLoading && !publishedError">v{{ published.snapshotVersion }}</strong>
       </div>
       <div class="releases-page__current-main">
-        <span v-if="!datasourceId" class="releases-page__current-state">请先选择数据源</span>
+        <span v-if="scopePending" class="releases-page__current-state" role="status">正在核验账号与数据源范围…</span>
+        <span v-else-if="scopeError" class="releases-page__current-state">当前正式版尚不可读取</span>
+        <span v-else-if="!datasourceId" class="releases-page__current-state">请先选择数据源</span>
         <span v-else-if="publishedLoading" class="releases-page__current-state" role="status">正在读取当前正式版…</span>
         <div v-else-if="publishedError" class="releases-page__current-error" role="alert">
           <span>{{ publishedError }}</span>
@@ -854,12 +902,12 @@ onBeforeUnmount(() => {
           <span v-if="!published.publishedAt" class="releases-page__current-state">接口未提供发布时间</span>
         </template>
       </div>
-      <RouterLink v-if="published && !publishedLoading && !publishedError" class="releases-page__knowledge-link" :to="releaseToKnowledge()">
-        生成语义知识
+      <RouterLink v-if="published && !publishedLoading && !publishedError && iamS1.canOnDatasource('knowledge:view', datasourceId)" class="releases-page__knowledge-link" :to="releaseToKnowledge()">
+        进入知识文档
       </RouterLink>
     </section>
 
-    <section class="releases-page__workspace" aria-label="元数据版本列表">
+    <section class="releases-page__workspace admin-list-fill__panel" :class="{ 'releases-page__workspace--fill': fillEnabled }" aria-label="元数据版本列表">
       <div class="releases-page__toolbar">
         <div class="releases-page__toolbar-heading">
           <h2>版本列表</h2>
@@ -879,7 +927,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="!datasourceId" class="releases-page__list-state">
+      <div v-if="scopePending" class="releases-page__list-state"><LoadingState text="正在核验账号与数据源范围…" /></div>
+      <div v-else-if="scopeError" class="releases-page__list-state"><p>版本列表尚不可读取，请核对上方范围或权限提示。</p></div>
+      <div v-else-if="!datasourceId" class="releases-page__list-state">
         <EmptyState message="请先选择数据源，再查看元数据版本。" />
       </div>
       <div v-else-if="listLoading" class="releases-page__list-state">
@@ -888,9 +938,9 @@ onBeforeUnmount(() => {
       <div v-else-if="listError" class="releases-page__list-state">
         <ErrorState :message="listError" @retry="load" />
       </div>
-      <div v-else-if="history.length" class="releases-page__table-region">
-        <el-table v-loading="actionLoading" :data="history" class="releases-page__table" row-key="snapshotId">
-          <el-table-column label="比较" width="54" align="center">
+      <div v-else-if="history.length" class="releases-page__table-region admin-list-fill__body">
+        <el-table v-loading="actionLoading" :data="history" class="releases-page__table" row-key="snapshotId" :height="fillEnabled ? '100%' : undefined">
+          <el-table-column label="比较" width="60" align="center">
             <template #default="{ row }">
               <el-checkbox
                 :model-value="isSelectedForCompare(row.snapshotId)"
@@ -900,7 +950,7 @@ onBeforeUnmount(() => {
               />
             </template>
           </el-table-column>
-          <el-table-column label="版本" min-width="160">
+          <el-table-column label="版本" min-width="140">
             <template #default="{ row }">
               <div class="release-version">
                 <el-button link type="primary" class="release-version__link" :aria-label="`查看版本 v${row.snapshotVersion} 详情`" @click="openSnapshotDialog(row)">
@@ -910,19 +960,19 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="发布状态" width="126">
+          <el-table-column label="发布状态" width="110">
             <template #default="{ row }"><BusinessStatusBadge :status="row.status" :label="snapshotStatusLabel(row.status)" /></template>
           </el-table-column>
-          <el-table-column label="表数" width="92" align="right">
+          <el-table-column v-if="!narrowTable" label="表数" width="84" align="right">
             <template #default="{ row }"><span class="release-count">{{ formatCount(row.tableCount) }}</span></template>
           </el-table-column>
-          <el-table-column label="字段数" width="92" align="right">
+          <el-table-column v-if="!narrowTable" label="字段数" width="84" align="right">
             <template #default="{ row }"><span class="release-count">{{ formatCount(row.columnCount) }}</span></template>
           </el-table-column>
-          <el-table-column label="质量分" width="82" align="right">
+          <el-table-column v-if="!narrowTable" label="质量分" width="84" align="right">
             <template #default="{ row }"><span class="release-quality-score">{{ row.qualityScore == null ? '未校验' : row.qualityScore }}</span></template>
           </el-table-column>
-          <el-table-column label="采集 / 发布时间" width="210">
+          <el-table-column label="采集 / 发布时间" width="180">
             <template #default="{ row }">
               <div class="release-time-cell">
                 <time v-if="row.createdAt" :datetime="row.createdAt" :title="row.createdAt">采集 {{ formatVersionTime(row.createdAt) }}</time>
@@ -931,37 +981,52 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column v-if="hasReviewerNames" prop="reviewedBy" label="审校人" width="150" show-overflow-tooltip />
-          <el-table-column v-if="hasVisibleRowActions" label="操作" :width="actionsColumnWidth" fixed="right">
+          <el-table-column v-if="hasReviewerNames" prop="reviewedBy" label="审校人" width="156" show-overflow-tooltip />
+          <el-table-column v-if="hasVisibleRowActions" label="操作" :width="actionsColumnWidth" :fixed="compactTable ? undefined : 'right'">
             <template #default="{ row }">
               <div class="release-row-actions">
-                <el-button v-if="canViewAuditRecords(row)" link class="release-row-actions__audit" @click="openSnapshotDialog(row, 'operations')">操作记录</el-button>
-                <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
-                <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
-                <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
-                <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
-                <el-button v-if="row.status === 'APPROVED' && canPublishSnapshot(row)" link type="primary" @click="publish(row)"><Send :size="14" aria-hidden="true" />发布</el-button>
-                <el-button v-if="row.status === 'PUBLISHED' && canPublishSnapshot(row)" link type="danger" @click="revoke(row)"><RotateCcw :size="14" aria-hidden="true" />撤回</el-button>
-                <el-button v-if="canCompareWithCurrent(row)" link type="primary" @click="compareWithCurrentOfficial(row)">与当前正式版比较</el-button>
+                <div class="release-row-actions__main">
+                  <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                  <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
+                  <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
+                  <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
+                  <el-button v-if="row.status === 'APPROVED' && canPublishSnapshot(row)" link type="primary" @click="publish(row)"><Send :size="14" aria-hidden="true" />发布</el-button>
+                  <el-button v-if="row.status === 'PUBLISHED' && canPublishSnapshot(row)" link type="danger" @click="revoke(row)"><RotateCcw :size="14" aria-hidden="true" />撤回</el-button>
+                </div>
+                <div v-if="hasRowUtilityActions(row)" class="release-row-actions__more">
+                  <el-dropdown trigger="click" placement="bottom-end" popper-class="release-actions-popper">
+                    <el-button link class="release-row-actions__more-trigger" :aria-label="`v${row.snapshotVersion} 的更多操作`">更多<ChevronDown :size="13" aria-hidden="true" /></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-if="canViewAuditRecords(row)" @click="openSnapshotDialog(row, 'operations')"><History :size="16" aria-hidden="true" />操作记录</el-dropdown-item>
+                        <el-dropdown-item v-if="canCompareWithCurrent(row)" @click="compareWithCurrentOfficial(row)"><GitCompareArrows :size="16" aria-hidden="true" />与当前正式版比较</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
               </div>
             </template>
           </el-table-column>
         </el-table>
       </div>
       <div v-else class="releases-page__list-state">
-        <EmptyState message="当前数据源还没有元数据版本。" action-text="去采集任务" @action="router.push({ path: '/admin/collections', query: buildContextQuery('datasource', { datasourceId }) })" />
+        <EmptyState message="当前数据源还没有元数据版本。" :action-text="iamS1.canOnDatasource('metadata:collect:view', datasourceId) ? '去采集任务' : undefined" @action="router.push({ path: '/admin/collections', query: buildContextQuery('datasource', { datasourceId }) })" />
       </div>
 
-      <el-pagination
-        v-if="!listLoading && !listError && total > pageSize"
-        class="releases-page__pagination"
-        background
-        layout="total, prev, pager, next"
-        :total="total"
-        :page-size="pageSize"
-        :current-page="page"
-        @current-change="changePage"
-      />
+      <div v-if="!listLoading && !listError && history.length" class="releases-page__footer admin-list-fill__footer">
+        <span class="releases-page__footer-total">共 {{ total.toLocaleString('zh-CN') }} 个版本 · 每页 {{ pageSize }} 个</span>
+        <el-pagination
+          v-if="total > pageSize"
+          class="releases-page__pagination"
+          background
+          layout="prev, pager, next"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="page"
+          @current-change="changePage"
+        />
+        <span v-else class="releases-page__footer-hint">第 1 页</span>
+      </div>
     </section>
 
     <el-dialog
@@ -991,12 +1056,14 @@ onBeforeUnmount(() => {
       <el-tabs v-model="activeDetailTab" class="metadata-version-dialog__tabs">
         <el-tab-pane label="版本内容" name="content">
           <SnapshotDetailPanel
+            v-if="dialogDatasourceId && hasDatasourceFunction('metadata:view', dialogDatasourceId)"
             :detail="snapshotDialogDetail"
             :loading="snapshotDialogLoading"
             :error="snapshotDialogError"
             :show-datasource="false"
             @retry="retrySnapshotDialogDetail"
           />
+          <p v-else role="status">没有此源的 metadata:view，无法读取表字段结构；仍可查看操作记录与发布门禁。</p>
         </el-tab-pane>
         <el-tab-pane v-if="canViewDialogOperations" label="操作记录" name="operations">
           <div class="metadata-version-dialog__audit">
@@ -1070,6 +1137,8 @@ onBeforeUnmount(() => {
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :close-on-press-escape="!publishSubmitting"
+      :show-close="!publishSubmitting"
     >
       <template #header>
         <h2 class="publish-gate-dialog__title">
@@ -1083,15 +1152,16 @@ onBeforeUnmount(() => {
         :issue-target="publishGateIssueTarget"
         @retry="retryPublishGate"
       />
+      <p v-if="actionError" role="alert" class="release-action-notice">{{ actionError }} · {{ actionNotice }}</p>
       <p class="publish-gate-dialog__hint">
         发布后同一数据源的旧已发布版本会自动过期。门禁会在后端再次校验，未通过时发布会被拒绝。
       </p>
       <template #footer>
-        <el-button @click="closePublishConfirm">取消</el-button>
+        <el-button :disabled="publishSubmitting" @click="closePublishConfirm">取消</el-button>
         <el-button
           type="primary"
           :loading="publishSubmitting"
-          :disabled="publishGateLoading || (publishGate?.blockingCount ?? 0) > 0"
+          :disabled="unknownAction || publishGateLoading || (publishGate ? !publishGate.publishable : false)"
           @click="confirmPublish"
         >确认发布</el-button>
       </template>
@@ -1100,6 +1170,22 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.release-path { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
+.release-path__head { display: list-item; padding: 12px 18px; cursor: pointer; color: var(--do-muted); font-size: 12px; }
+.release-path__head:focus-visible { outline: 2px solid var(--do-primary); outline-offset: -3px; }
+.release-path__head strong { margin-right: 12px; color: var(--do-ink); font-size: 12px; font-weight: 600; }
+.release-path__head span { color: var(--do-muted); font-size: 11.5px; }
+.release-path__list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0 18px 16px; list-style: none; }
+.release-path__item { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 8px 18px 4px 0; }
+.release-path__item + .release-path__item { padding-left: 18px; border-left: 1px solid var(--do-line); }
+.release-path__no { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 8px; color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.release-path__copy { display: grid; gap: 3px; min-width: 0; }
+.release-path__copy strong { color: var(--do-ink); font-size: 12.5px; font-weight: 650; }
+.release-path__copy span { color: var(--do-muted); font-size: 11.5px; line-height: 1.5; }
+.release-action-notice { border:1px solid var(--do-line); border-left:3px solid var(--do-warning); padding:14px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }.release-action-notice p { margin:6px 0; }
+@media(max-width: 900px) { .release-path__list { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 4px; } .release-path__item:nth-child(3) { padding-left: 0; border-left: 0; } }
+@media(max-width: 560px) { .release-path__list { grid-template-columns: minmax(0, 1fr); } .release-path__item + .release-path__item { padding-left: 0; border-left: 0; } }
+
 .releases-page {
   display: flex;
   flex-direction: column;
@@ -1122,70 +1208,98 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 20px;
+  gap: 10px 18px;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 13px 18px;
   border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-md);
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
 }
-.releases-page__current-label { display: flex; align-items: center; gap: 12px; }
-.releases-page__current-label > span { color: var(--do-muted); font-size: 13px; }
-.releases-page__current-label > strong { color: var(--do-ink); font-size: 18px; font-weight: 700; }
-.releases-page__current-main { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; color: var(--do-muted); font-size: 13px; }
-.releases-page__current-main time { color: var(--do-ink); }
-.releases-page__current-state { color: var(--do-muted); }
+.releases-page__current--published { border-color: color-mix(in srgb, var(--do-success) 26%, var(--do-line)); background: color-mix(in srgb, var(--do-success-soft) 65%, var(--do-surface)); }
+.releases-page__current-label { display: flex; align-items: center; gap: 10px; }
+.releases-page__current-label > span { color: var(--do-muted); font-size: 12px; }
+.releases-page__current-label > strong { color: var(--do-ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.releases-page__current-main { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 6px 14px; min-width: 0; color: var(--do-muted); font-size: 12px; }
+.releases-page__current-main time { color: var(--do-ink); font-size: 12px; }
+.releases-page__current-state { color: var(--do-muted); font-size: 12px; }
 .releases-page__current-error { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; color: var(--do-danger); }
-.releases-page__knowledge-link { flex: 0 0 auto; margin-left: auto; color: var(--do-primary-strong); font-size: 13px; font-weight: 600; text-decoration: none; }
-.releases-page__knowledge-link:hover { text-decoration: underline; }
-.releases-page__knowledge-link:focus-visible { border-radius: 3px; outline: 2px solid color-mix(in srgb, var(--do-primary) 45%, transparent); outline-offset: 3px; }
+.releases-page__knowledge-link { flex: 0 0 auto; margin-left: auto; padding: 5px 10px; border-radius: 8px; color: var(--do-primary-strong); font-size: 12.5px; font-weight: 600; text-decoration: none; transition: background 180ms ease; }
+.releases-page__knowledge-link:hover { background: var(--do-primary-soft); text-decoration: none; }
+.releases-page__knowledge-link:focus-visible { border-radius: 8px; outline: 2px solid color-mix(in srgb, var(--do-primary) 45%, transparent); outline-offset: 2px; }
 
-.releases-page__workspace { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
-.releases-page__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; padding: 16px 18px; border-bottom: 1px solid var(--do-line); }
-.releases-page__toolbar-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; }
-.releases-page__toolbar-heading h2 { margin: 0; color: var(--do-ink); font-size: 16px; font-weight: 700; }
-.releases-page__toolbar-heading > span { color: var(--do-muted); font-size: 12px; }
+.releases-page__workspace { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
+.releases-page__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; padding: 14px 18px; border-bottom: 1px solid var(--do-line); }
+.releases-page__toolbar-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.releases-page__toolbar-heading h2 { margin: 0; color: var(--do-ink); font-size: 15px; font-weight: 650; }
+.releases-page__toolbar-heading > span { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: var(--do-radius-full); color: var(--do-muted); background: var(--do-soft); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .releases-page__toolbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .releases-page__toolbar-actions :deep(.el-button) { min-height: 36px; }
 .releases-page__compare-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.releases-page__compare-status { flex: 0 1 auto; max-width: min(34vw, 320px); color: var(--do-muted); font-size: 12px; line-height: 1.4; }
+.releases-page__compare-status { flex: 0 1 auto; max-width: min(34vw, 320px); color: var(--do-muted); font-size: 11.5px; line-height: 1.4; }
 .releases-page__compare-direction { color: var(--do-ink); font-weight: 600; }
 .releases-page__compare-invalid { color: var(--do-danger); }
 .releases-page__list-state { padding: 28px 18px; }
-.releases-page__table-region { min-width: 0; max-width: 100%; overflow-x: auto; padding: 0 18px; }
+.releases-page__table-region { display: flex; flex-direction: column; min-width: 0; max-width: 100%; overflow-x: auto; padding: 0 18px; }
 .releases-page__table :deep(.el-table) { width: 100%; min-width: 0; border: 0; color: var(--do-ink); background: var(--do-surface); }
 .releases-page__table :deep(.el-table.is-scrolling-none .el-table-fixed-column--right::before) { box-shadow: none; }
 .releases-page__table :deep(.el-table::before),
 .releases-page__table :deep(.el-table__inner-wrapper::before) { display: none; }
-.releases-page__table :deep(.el-table th.el-table__cell) { height: 44px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; font-weight: 600; }
-.releases-page__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 44px; }
-.releases-page__table :deep(.el-table td.el-table__cell) { padding: 12px 0; border-bottom-color: #edf0f4; font-size: 14px; vertical-align: middle; }
+.releases-page__table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.releases-page__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; white-space: nowrap; }
+.releases-page__table :deep(.el-table td.el-table__cell) { padding: 10px 0; border-bottom-color: var(--do-line); font-size: 13px; vertical-align: middle; }
 .releases-page__table :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
 .releases-page__table :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
-.release-count { font-size: 12px; white-space: nowrap; }
-.release-version { display: grid; justify-items: start; gap: 3px; }
-.release-version__link { height: auto; padding: 0; color: var(--do-primary-strong); font-size: 15px; font-weight: 700; }
+.releases-page__table :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
+.release-count { color: var(--do-ink); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.release-version { display: flex; align-items: center; flex-wrap: wrap; justify-items: start; gap: 4px 8px; }
+.release-version__link { height: auto; padding: 0; color: var(--do-primary-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; font-weight: 700; }
 .release-version__link:hover { text-decoration: underline; }
-.release-current-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.release-time-cell { display: grid; gap: 3px; color: var(--do-muted); font-size: 12px; line-height: 1.4; }
+.release-current-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.release-time-cell { display: grid; gap: 2px; color: var(--do-muted); font-size: 11.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
 .release-time-cell time:last-child:not(:first-child) { color: var(--do-ink); }
-.release-quality-score { color: var(--do-muted); font-size: 13px; }
-.release-row-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: nowrap; gap: 4px 16px; white-space: nowrap; }
-.release-row-actions :deep(.el-button) { min-height: 30px; }
-.release-row-actions :deep(.release-row-actions__audit) {
-  --el-button-text-color: var(--do-muted);
-  --el-button-hover-link-text-color: var(--do-primary-strong);
-  --el-button-active-color: var(--do-primary-strong);
+.release-quality-score { color: var(--do-muted); font-size: 12.5px; }
+.release-row-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: 0 6px; white-space: normal; }
+.release-row-actions__main { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; min-width: 0; }
+.release-row-actions :deep(.el-button) { min-height: 26px; padding: 0 2px; font-size: 12.5px; }
+.release-row-actions__more { display: flex; align-items: center; flex: 0 0 auto; }
+.release-row-actions :deep(.release-row-actions__more-trigger) {
+  min-height: 24px;
+  gap: 1px;
+  padding: 0 2px;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  font-weight: 500;
 }
-.release-row-actions :deep(.release-row-actions__audit:not(.is-disabled):is(:hover, :focus-visible)) {
-  color: var(--do-primary-strong);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
+.release-row-actions :deep(.release-row-actions__more-trigger:not(.is-disabled):is(:hover, :focus-visible)),
+.release-row-actions :deep(.release-row-actions__more-trigger.is-focus) { color: var(--do-primary-strong); }
 .release-row-actions :deep(.el-button--danger.is-link) { font-weight: 500; }
-.releases-page__issue-link { color: var(--do-primary-strong); font-size: 13px; font-weight: 600; white-space: nowrap; }
+:global(.release-actions-popper) { padding: 6px; border-color: var(--do-line); border-radius: var(--do-radius-md); background: rgba(255, 255, 255, .99); box-shadow: var(--do-shadow-lg); }
+:global(.release-actions-popper .el-popper__arrow::before) { border-color: var(--do-line); background: #fff; }
+:global(.release-actions-popper .el-dropdown-menu) { padding: 0; }
+:global(.release-actions-popper .el-dropdown-menu__item) { min-height: 34px; padding: 0 10px; gap: 8px; border-radius: 7px; color: var(--do-ink); font-size: 12.5px; font-weight: 500; }
+:global(.release-actions-popper .el-dropdown-menu__item > svg) { flex: 0 0 auto; width: 16px; height: 16px; color: var(--do-muted); }
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover),
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover > svg),
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus > svg) { color: var(--do-primary-strong); }
+.releases-page__issue-link { color: var(--do-primary-strong); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .releases-page__issue-link:hover { text-decoration: underline; }
-.releases-page__pagination { justify-content: flex-end; margin: 14px 18px 16px; }
+.releases-page__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--do-line); }
+.releases-page__footer-total { color: var(--do-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.releases-page__footer-hint { color: var(--do-muted); font-size: 11.5px; }
+.releases-page__pagination { justify-content: flex-end; margin: 0; }
+.releases-page__workspace--fill .releases-page__table-region { overflow: hidden; }
+.releases-page__workspace--fill .releases-page__list-state { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; min-height: 0; }
+
+@media (min-width: 1200px) and (min-height: 700px) {
+  .releases-page.admin-list-fill > .task-page-header,
+  .releases-page.admin-list-fill > .release-path,
+  .releases-page.admin-list-fill > .releases-page__current,
+  .releases-page.admin-list-fill > .release-action-notice { flex: 0 0 auto; }
+  .releases-page.admin-list-fill > .releases-page__workspace { flex: 1 1 auto; min-height: 0; }
+  .releases-page.admin-list-fill .releases-page__table { flex: 1 1 auto; min-height: 0; }
+}
+
 
 :global(.metadata-version-dialog.el-dialog) {
   display: flex;
@@ -1218,8 +1332,8 @@ onBeforeUnmount(() => {
 .metadata-version-dialog__audit-table :deep(.el-table) { min-width: 720px; border: 0; background: var(--do-surface); }
 .metadata-version-dialog__audit-table :deep(.el-table::before),
 .metadata-version-dialog__audit-table :deep(.el-table__inner-wrapper::before) { display: none; }
-.metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; }
-.metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell) { padding: 11px 0; border-bottom-color: #edf0f4; font-size: 14px; }
+.metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; }
+.metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell) { padding: 11px 0; border-bottom-color: var(--do-line); font-size: 14px; }
 .metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell .cell),
 .metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
 .metadata-version-dialog__audit-pagination { justify-content: flex-end; margin-top: 12px; }

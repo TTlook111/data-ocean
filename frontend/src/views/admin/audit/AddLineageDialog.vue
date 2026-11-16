@@ -1,243 +1,291 @@
 <script setup lang="ts">
-/**
- * 血缘录入弹窗
- *
- * 参考 OpenMetadata AddLineageRequest + DataHub 手动编辑交互。
- * 支持：源/目标表搜索（仅 TABLE 类型）、列级映射（源列多选+目标列单选）、
- * 转换类型（IDENTITY/TRANSFORMATION/AGGREGATION）、表达式输入。
- * 关系录入与来源边界见 docs/modules/011-audit-lineage.md。
- */
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Trash2 } from 'lucide-vue-next'
 import { getEntityDetail, searchCatalog, type MetadataEntityItem } from '../../../api/admin/catalog'
-import { createLineage, type LineageCreateRequest, type ColumnMappingItem } from '../../../api/admin/lineageApi'
-
+import { createLineage, type LineageCreateRequest } from '../../../api/admin/lineageApi'
+import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
+import { entitySource } from '../../../utils/lineageContext'
+import { trackLineageWrite } from '../../../composables/lineageWriteTracker'
+import { getHttpErrorMessage } from '../../../utils/httpError'
 const props = defineProps<{
   visible: boolean
-  /** 预填源实体 ID（从图谱右键菜单传入） */
   prefilledSourceId?: number | null
   prefilledTargetId?: number | null
 }>()
-
-const emit = defineEmits<{
-  (e: 'update:visible', v: boolean): void
-  (e: 'created'): void
-}>()
-
-// 表单数据
-const lineageType = ref<'ETL' | 'MANUAL'>('ETL')
-const description = ref('')
-const submitting = ref(false)
-
-// 源实体选择
-const sourceSearch = ref('')
-const sourceOptions = ref<MetadataEntityItem[]>([])
-const sourceLoading = ref(false)
-const selectedSource = ref<MetadataEntityItem | null>(null)
-
-// 目标实体选择
-const targetSearch = ref('')
-const targetOptions = ref<MetadataEntityItem[]>([])
-const targetLoading = ref(false)
-const selectedTarget = ref<MetadataEntityItem | null>(null)
-
-// 列映射条目列表
+const emit = defineEmits<{ (e: 'update:visible', v: boolean): void; (e: 'created'): void }>()
+const auth = useAuthStore(),
+  iam = useIamS1Store()
+const lineageType = ref<'ETL' | 'MANUAL'>('ETL'),
+  description = ref(''),
+  submitting = ref(false),
+  error = ref('')
+const sourceOptions = ref<MetadataEntityItem[]>([]),
+  targetOptions = ref<MetadataEntityItem[]>([]),
+  selectedSource = ref<MetadataEntityItem | null>(null),
+  selectedTarget = ref<MetadataEntityItem | null>(null)
+const sourceLoading = ref(false),
+  targetLoading = ref(false),
+  sourceColumnOptions = ref<MetadataEntityItem[]>([]),
+  targetColumnOptions = ref<MetadataEntityItem[]>([])
 interface MappingRow {
   id: number
   fromColumnIds: number[]
-  fromColumnNames: string[]
   toColumnId: number | null
-  toColumnName: string
   expression: string
   transformationType: 'IDENTITY' | 'TRANSFORMATION' | 'AGGREGATION'
 }
-let mappingIdCounter = 0
 const mappings = ref<MappingRow[]>([])
-
-// 源列/目标列下拉选项
-const sourceColumnOptions = ref<MetadataEntityItem[]>([])
-const targetColumnOptions = ref<MetadataEntityItem[]>([])
-
-/** 搜索表（仅 TABLE 类型） */
-async function searchTables(query: string, target: 'source' | 'target') {
-  if (!query || query.length < 1) {
-    if (target === 'source') sourceOptions.value = []
-    else targetOptions.value = []
-    return
-  }
-  if (target === 'source') sourceLoading.value = true
-  else targetLoading.value = true
+let rowId = 0,
+  epoch = 0,
+  alive = true
+const sequences = { source: 0, target: 0, sourceColumns: 0, targetColumns: 0 }
+const scope = computed(() => JSON.stringify([auth.token, iam.snapshot, iam.loaded, iam.errorMessage]))
+const canUseDirectory = computed(
+  () =>
+    iam.loaded &&
+    !iam.errorMessage &&
+    (iam.systemAdmin ||
+      iam.datasourceCapabilities.some(
+        (x) => x.functionCodes.includes('metadata:view') && x.functionCodes.includes('lineage:manage'),
+      )),
+)
+function eligible(entity: MetadataEntityItem) {
+  const source = entitySource(entity)
+  return (
+    !!source &&
+    entity.entityType === 'TABLE' &&
+    iam.canOnDatasource('lineage:manage', source) &&
+    iam.canOnDatasource('metadata:view', source)
+  )
+}
+function current(captured: number, key: string) {
+  return alive && props.visible && captured === epoch && key === scope.value && canUseDirectory.value
+}
+async function searchTables(query: string, side: 'source' | 'target') {
+  const result = side === 'source' ? sourceOptions : targetOptions,
+    busy = side === 'source' ? sourceLoading : targetLoading
+  const ticket = ++sequences[side],
+    captured = epoch,
+    key = scope.value
+  result.value = []
+  if (!canUseDirectory.value || !query.trim()) return
+  busy.value = true
   try {
-    const res = await searchCatalog({ q: query, type: 'TABLE', page: 1, size: 10 })
-    const tables = (res.data ?? []).filter((e) => e.entityType === 'TABLE')
-    if (target === 'source') sourceOptions.value = tables
-    else targetOptions.value = tables
-  } catch {
-    ElMessage.error('搜索表失败')
+    const r = await searchCatalog({ q: query.trim(), type: 'TABLE', page: 1, size: 30 })
+    if (current(captured, key) && ticket === sequences[side]) result.value = (r.data || []).filter(eligible)
+  } catch (cause) {
+    if (current(captured, key) && ticket === sequences[side])
+      error.value = getHttpErrorMessage(cause, '表搜索失败')
   } finally {
-    if (target === 'source') sourceLoading.value = false
-    else targetLoading.value = false
+    if (current(captured, key) && ticket === sequences[side]) busy.value = false
   }
 }
-
-/** 选中源表后加载其下属列 */
-async function loadSourceColumns() {
+function columnBelongsTo(column: MetadataEntityItem, table: MetadataEntityItem) {
   try {
-    // 通过搜索该表 FQN 前缀来获取列列表
-    const entity = selectedSource.value
-    if (!entity) return
-    const res = await searchCatalog({ q: entity.fqn, type: 'COLUMN', page: 1, size: 500 })
-    sourceColumnOptions.value = (res.data ?? []).filter((e) =>
-      e.entityType === 'COLUMN' && e.fqn.startsWith(entity.fqn + '.'),
-    )
+    return JSON.parse(column.entityMetadata || '{}').table_name === table.name
   } catch {
-    sourceColumnOptions.value = []
+    return false
   }
 }
-
-/** 选中目标表后加载其下属列 */
-async function loadTargetColumns() {
+async function loadColumns(side: 'source' | 'target') {
+  const selected = side === 'source' ? selectedSource : selectedTarget,
+    options = side === 'source' ? sourceColumnOptions : targetColumnOptions
+  const slot = side === 'source' ? 'sourceColumns' : 'targetColumns',
+    ticket = ++sequences[slot],
+    captured = epoch,
+    key = scope.value,
+    entity = selected.value
+  options.value = []
+  mappings.value = []
+  if (!entity || !eligible(entity)) return
   try {
-    const entity = selectedTarget.value
-    if (!entity) return
-    const res = await searchCatalog({ q: entity.fqn, type: 'COLUMN', page: 1, size: 500 })
-    targetColumnOptions.value = (res.data ?? []).filter((e) =>
-      e.entityType === 'COLUMN' && e.fqn.startsWith(entity.fqn + '.'),
-    )
-  } catch {
-    targetColumnOptions.value = []
+    const r = await searchCatalog({
+      q: entity.fqn,
+      type: 'COLUMN',
+      datasourceId: entitySource(entity),
+      page: 1,
+      size: 500,
+    })
+    if (current(captured, key) && ticket === sequences[slot] && selected.value?.id === entity.id)
+      options.value = (r.data || []).filter(
+        (x) =>
+          x.entityType === 'COLUMN' &&
+          entitySource(x) === entitySource(entity) &&
+          x.fqn.startsWith(entity.fqn + '.') &&
+          columnBelongsTo(x, entity),
+      )
+  } catch (cause) {
+    if (current(captured, key) && ticket === sequences[slot])
+      error.value = getHttpErrorMessage(cause, '字段选项读取失败；可仅记录表级关系')
   }
 }
-
-watch(selectedSource, (val) => {
-  if (val) loadSourceColumns()
-  else sourceColumnOptions.value = []
-})
-
-watch(selectedTarget, (val) => {
-  if (val) loadTargetColumns()
-  else targetColumnOptions.value = []
-})
-
-/** 添加一行列映射 */
+watch(
+  selectedSource,
+  () => {
+    void loadColumns('source')
+  },
+  { flush: 'sync' },
+)
+watch(
+  selectedTarget,
+  () => {
+    void loadColumns('target')
+  },
+  { flush: 'sync' },
+)
 function addMapping() {
   mappings.value.push({
-    id: ++mappingIdCounter,
+    id: ++rowId,
     fromColumnIds: [],
-    fromColumnNames: [],
     toColumnId: null,
-    toColumnName: '',
     expression: '',
     transformationType: 'IDENTITY',
   })
 }
-
-/** 删除一行列映射 */
 function removeMapping(row: MappingRow) {
-  const idx = mappings.value.findIndex((m) => m.id === row.id)
-  if (idx >= 0) mappings.value.splice(idx, 1)
+  mappings.value = mappings.value.filter((x) => x.id !== row.id)
 }
-
-/** 检查表单是否可提交 */
-const canSubmit = computed(() => {
-  if (!selectedSource.value || !selectedTarget.value) return false
-  if (selectedSource.value.id === selectedTarget.value.id) return false
-  return true
-})
-
-/** 提交 */
+const mappingValid = computed(() =>
+  mappings.value.every(
+    (row) =>
+      row.fromColumnIds.length > 0 &&
+      row.toColumnId !== null &&
+      row.fromColumnIds.every((id) => sourceColumnOptions.value.some((x) => x.id === id)) &&
+      targetColumnOptions.value.some((x) => x.id === row.toColumnId),
+  ),
+)
+const canSubmit = computed(
+  () =>
+    canUseDirectory.value &&
+    !!selectedSource.value &&
+    !!selectedTarget.value &&
+    eligible(selectedSource.value) &&
+    eligible(selectedTarget.value) &&
+    selectedSource.value.id !== selectedTarget.value.id &&
+    mappingValid.value,
+)
 async function handleSubmit() {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || submitting.value) return
+  const captured = epoch,
+    key = scope.value,
+    identity = auth.token
+  const body: LineageCreateRequest = {
+    sourceEntityId: selectedSource.value!.id,
+    targetEntityId: selectedTarget.value!.id,
+    lineageType: lineageType.value,
+    description: description.value || undefined,
+    columnMappings: mappings.value.length
+      ? mappings.value.map((row) => ({
+          fromColumns: [...row.fromColumnIds],
+          toColumn: row.toColumnId!,
+          expression: row.expression || undefined,
+          transformationType: row.transformationType,
+        }))
+      : undefined,
+  }
   submitting.value = true
+  error.value = ''
   try {
-    const body: LineageCreateRequest = {
-      sourceEntityId: selectedSource.value!.id,
-      targetEntityId: selectedTarget.value!.id,
-      lineageType: lineageType.value,
-      description: description.value || undefined,
-      columnMappings:
-        mappings.value.length > 0
-          ? mappings.value
-              .filter((m) => m.fromColumnIds.length > 0 && m.toColumnId)
-              .map(
-                (m): ColumnMappingItem => ({
-                  fromColumns: m.fromColumnIds,
-                  toColumn: m.toColumnId!,
-                  expression: m.expression || undefined,
-                  transformationType: m.transformationType,
-                }),
-              )
-          : undefined,
-    }
-    await createLineage(body)
-    ElMessage.success('血缘关系创建成功')
+    await trackLineageWrite(identity, `create:${body.sourceEntityId}:${body.targetEntityId}:LINEAGE`, () =>
+      createLineage(body),
+    )
+    if (!current(captured, key)) return
+    ElMessage.success('关系创建成功')
     emit('created')
     resetForm()
     emit('update:visible', false)
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '创建失败')
+  } catch (cause) {
+    if (current(captured, key))
+      error.value = getHttpErrorMessage(cause, '创建未确认成功，请先核对关系记录；不要重复提交')
   } finally {
-    submitting.value = false
+    if (current(captured, key)) submitting.value = false
   }
 }
-
-/** 重置表单 */
 function resetForm() {
+  epoch++
   lineageType.value = 'ETL'
   description.value = ''
-  sourceSearch.value = ''
   selectedSource.value = null
-  sourceOptions.value = []
-  targetSearch.value = ''
   selectedTarget.value = null
+  sourceOptions.value = []
   targetOptions.value = []
-  mappings.value = []
   sourceColumnOptions.value = []
   targetColumnOptions.value = []
+  mappings.value = []
+  error.value = ''
+  submitting.value = false
+  sourceLoading.value = false
+  targetLoading.value = false
 }
-
 function handleClose() {
+  if (submitting.value) return
   resetForm()
   emit('update:visible', false)
 }
-
-async function applyPrefilledEntity(id: number, target: 'source' | 'target') {
+async function applyPrefilledEntity(id: number, side: 'source' | 'target') {
+  const ticket = ++sequences[side],
+    captured = epoch,
+    key = scope.value
   try {
     const entity = (await getEntityDetail(id)).data.entity
-    if (target === 'source') {
+    if (!current(captured, key) || ticket !== sequences[side]) return
+    if (!eligible(entity)) throw new Error('预填对象缺少实际源的关系维护或元数据查看能力')
+    if (side === 'source') {
       sourceOptions.value = [entity]
       selectedSource.value = entity
     } else {
       targetOptions.value = [entity]
       selectedTarget.value = entity
     }
-  } catch {
-    ElMessage.error('预填血缘实体加载失败')
+  } catch (cause) {
+    if (current(captured, key)) error.value = getHttpErrorMessage(cause, '预填对象读取失败')
   }
 }
-
-// 监听预填实体
 watch(
   () => [props.visible, props.prefilledSourceId, props.prefilledTargetId] as const,
-  ([visible, sourceId, targetId]) => {
-    if (!visible) return
-    if (sourceId) applyPrefilledEntity(sourceId, 'source')
-    if (targetId) applyPrefilledEntity(targetId, 'target')
+  ([visible, source, target]) => {
+    resetForm()
+    if (!visible || !canUseDirectory.value) return
+    if (source) void applyPrefilledEntity(source, 'source')
+    if (target) void applyPrefilledEntity(target, 'target')
   },
+  { immediate: true },
 )
+watch(
+  scope,
+  () => {
+    resetForm()
+    emit('update:visible', false)
+  },
+  { flush: 'sync' },
+)
+onBeforeUnmount(() => {
+  alive = false
+  epoch++
+})
 </script>
-
 <template>
   <el-dialog
     :model-value="visible"
     title="添加血缘关系"
     width="680px"
     :close-on-click-modal="false"
-    @update:model-value="(v: boolean) => emit('update:visible', v)"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
+    @update:model-value="
+      (v: boolean) => {
+        if (!submitting) emit('update:visible', v)
+      }
+    "
     @close="handleClose"
   >
-    <el-form label-position="top" :disabled="submitting">
+    <p v-if="!canUseDirectory" role="status">
+      表搜索与列映射需要实际数据源的 metadata:view 和 lineage:manage 能力；这不会自动补充授权。
+    </p>
+    <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+    <el-form label-position="top" :disabled="submitting || !canUseDirectory">
       <!-- 血缘类型 -->
       <el-form-item label="血缘类型">
         <el-radio-group v-model="lineageType">
@@ -251,7 +299,7 @@ watch(
         <el-select
           v-model="selectedSource"
           value-key="id"
-          placeholder="🔍 搜索表..."
+          placeholder="搜索有权维护的表…"
           filterable
           remote
           :remote-method="(q: string) => searchTables(q, 'source')"
@@ -273,7 +321,7 @@ watch(
         <el-select
           v-model="selectedTarget"
           value-key="id"
-          placeholder="🔍 搜索表..."
+          placeholder="搜索有权维护的表…"
           filterable
           remote
           :remote-method="(q: string) => searchTables(q, 'target')"
@@ -303,7 +351,7 @@ watch(
       <!-- 列级映射（可折叠） -->
       <el-divider />
       <div class="mapping-header">
-        <span style="font-weight: 600; font-size: 14px;">列级映射（可选）</span>
+        <span style="font-weight: 600; font-size: 14px">列级映射（可选）</span>
         <el-button type="primary" text :icon="Plus" @click="addMapping">添加列映射</el-button>
       </div>
 
@@ -318,12 +366,7 @@ watch(
               style="flex: 1"
               :disabled="!selectedSource"
             >
-              <el-option
-                v-for="col in sourceColumnOptions"
-                :key="col.id"
-                :label="col.name"
-                :value="col.id"
-              />
+              <el-option v-for="col in sourceColumnOptions" :key="col.id" :label="col.name" :value="col.id" />
             </el-select>
 
             <span class="mapping-arrow">→</span>
@@ -335,22 +378,13 @@ watch(
               style="flex: 1"
               :disabled="!selectedTarget"
             >
-              <el-option
-                v-for="col in targetColumnOptions"
-                :key="col.id"
-                :label="col.name"
-                :value="col.id"
-              />
+              <el-option v-for="col in targetColumnOptions" :key="col.id" :label="col.name" :value="col.id" />
             </el-select>
           </div>
 
           <div class="mapping-row__detail">
             <!-- 转换类型 -->
-            <el-select
-              v-model="row.transformationType"
-              style="width: 140px"
-              size="small"
-            >
+            <el-select v-model="row.transformationType" style="width: 140px" size="small">
               <el-option label="直传 (IDENTITY)" value="IDENTITY" />
               <el-option label="转换 (TRANSFORMATION)" value="TRANSFORMATION" />
               <el-option label="聚合 (AGGREGATION)" value="AGGREGATION" />
@@ -365,13 +399,7 @@ watch(
             />
           </div>
 
-          <el-button
-            type="danger"
-            text
-            :icon="Trash2"
-            size="small"
-            @click="removeMapping(row)"
-          />
+          <el-button type="danger" text :icon="Trash2" size="small" @click="removeMapping(row)" />
         </div>
       </div>
 
@@ -379,11 +407,14 @@ watch(
         <span>尚未添加列映射，仅创建表级血缘边</span>
       </div>
 
+      <p v-if="mappings.length && !mappingValid" class="form-error">
+        每一行都需选定当前源表的源列及当前目标表的目标列；未完成的映射不会被静默丢弃。
+      </p>
       <el-divider />
     </el-form>
 
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
+      <el-button :disabled="submitting" @click="handleClose">取消</el-button>
       <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="handleSubmit">
         确认添加
       </el-button>
@@ -392,6 +423,11 @@ watch(
 </template>
 
 <style scoped>
+.form-error {
+  color: var(--do-danger);
+  font-size: 13px;
+  line-height: 1.8;
+}
 .mapping-header {
   display: flex;
   align-items: center;

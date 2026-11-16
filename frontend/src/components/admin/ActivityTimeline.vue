@@ -21,33 +21,34 @@ defineProps<{
 <style scoped>
 .activity-timeline {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   margin: 0;
-  padding: 0 0 0 8px;
+  padding: 0 0 0 6px;
   list-style: none;
 }
 
 li {
   position: relative;
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .activity-timeline__dot {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   margin-top: 5px;
-  border: 2px solid var(--do-primary);
+  border: 0;
   border-radius: 50%;
-  background: var(--do-surface);
+  background: var(--do-primary);
+  box-shadow: 0 0 0 3px var(--do-primary-soft);
 }
 
 li:not(:last-child)::after {
   position: absolute;
-  top: 15px;
+  top: 16px;
   bottom: -14px;
-  left: 4px;
+  left: 3px;
   width: 1px;
   background: var(--do-line);
   content: '';
@@ -55,18 +56,25 @@ li:not(:last-child)::after {
 
 strong {
   color: var(--do-ink);
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 p {
-  margin: 3px 0;
-  color: var(--do-muted);
-  font-size: 12px;
+  margin: 2px 0 0;
+  color: var(--do-ink);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 small,
 .activity-timeline__empty {
+  display: block;
+  margin-top: 2px;
   color: var(--do-muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 </style>

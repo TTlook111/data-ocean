@@ -42,3 +42,14 @@ describe('QueryInput keyboard behavior', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 })
+
+it('unknown readiness stays blocked with an explicit retry and visible progress',async()=>{
+ const w=createInput();await w.setProps({canAsk:false,selectedBlockReason:{message:'就绪状态读取失败'}})
+ expect(w.text()).toContain('就绪状态读取失败');expect(w.get('textarea').attributes('disabled')).toBeDefined()
+ const retry=w.findAll('button').find(b=>b.text()==='重试状态检查')!
+ await retry.trigger('click');expect(w.emitted('retry-readiness')).toHaveLength(1)
+ await w.setProps({readinessLoading:true});expect(w.text()).toContain('正在确认数据源状态')
+ expect(retry.attributes('disabled')).toBeDefined()
+ await w.setProps({readinessLoading:false,canAsk:true,selectedBlockReason:undefined})
+ expect(w.find('.composer-readiness').exists()).toBe(false)
+})

@@ -1,5 +1,7 @@
 import axios from 'axios'
 import router from '../router'
+import { getActivePinia } from 'pinia'
+import { useAuthStore } from '../stores/auth'
 import { getHttpErrorMessage } from '../utils/httpError'
 
 export const http = axios.create({
@@ -7,13 +9,14 @@ export const http = axios.create({
   timeout: 10000,
 })
 
+// 在 API 调用边界冻结身份，避免异步拦截器把旧操作发送为后来账号。
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('dataocean_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
-})
+}, undefined, { synchronous: true })
 
 /** 防止多个并发 401 响应触发重复跳转 */
 let isRedirecting = false
@@ -31,6 +34,8 @@ http.interceptors.response.use(
         return Promise.reject(error)
       }
       isRedirecting = true
+      if (getActivePinia()) useAuthStore().invalidateSession(token || '')
+      localStorage.removeItem('dataocean_current_user')
       localStorage.removeItem('dataocean_token')
       localStorage.removeItem('dataocean_user')
       if (router.currentRoute.value.path !== '/login') {

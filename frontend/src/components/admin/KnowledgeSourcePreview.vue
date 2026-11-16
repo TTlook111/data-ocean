@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { useAuthStore } from '../../stores/auth'
+import { useIamS1Store } from '../../stores/iamS1'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getGenerationInputs, type GenerationInputs } from '../../api/admin/knowledge'
 import { getHttpErrorMessage } from '../../utils/httpError'
 import ErrorState from '../common/ErrorState.vue'
 const props = defineProps<{ datasourceId?: number; snapshotId?: number; tableNames?: string[] }>()
 const emit = defineEmits<{ ready: [boolean]; loaded: [GenerationInputs] }>()
+const auth=useAuthStore(),iam=useIamS1Store()
 const input = ref<GenerationInputs>()
 const error = ref('')
 const loading = ref(false)
@@ -18,14 +21,15 @@ async function load() {
   loading.value = false
   emit('ready', false); input.value = undefined; error.value = ''
   if (!props.datasourceId || !props.snapshotId) return
+  if(!iam.loaded || (!iam.systemAdmin && !iam.datasourcesWithFunction('knowledge:manage').includes(props.datasourceId))){error.value='没有本数据源的知识维护权，无法读取生成输入。';return}
   loading.value = true
   try {
     const result = await getGenerationInputs(props.datasourceId, props.snapshotId)
-    if (token === requestId) { input.value = result.data; emit('ready', true); emit('loaded', result.data) }
+    if (token === requestId) { if(result.data.datasourceId!==props.datasourceId || result.data.snapshotId!==props.snapshotId)throw new Error('生成来源与指定源或快照不一致');input.value = result.data; emit('ready', true); emit('loaded', result.data) }
   } catch (cause) { if (token === requestId) error.value = getHttpErrorMessage(cause, '生成来源读取失败') }
   finally { if (token === requestId) loading.value = false }
 }
-watch(() => [props.datasourceId, props.snapshotId], load, { immediate: true })
+watch(() => [props.datasourceId, props.snapshotId,auth.token,iam.snapshot,iam.loaded], load, { immediate: true })
 onBeforeUnmount(() => { ++requestId })
 </script>
 <template>

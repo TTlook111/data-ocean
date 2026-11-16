@@ -2,7 +2,7 @@
  * useQuerySession — 会话状态管理 composable
  * 管理会话列表、数据源选择、历史会话加载等核心状态
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, getCurrentScope, onScopeDispose, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   iamS1DeleteConversation,
@@ -49,8 +49,12 @@ export function useQuerySession() {
   const loading = ref(false)
   const readinessLoading = ref(false)
   const errorMessage = ref('')
+  const historyLoading = ref(false)
+  const historyError = ref('')
   const datasources = ref<IamS1DatasourceRef[]>([])
   const readinessMap = ref<Record<number, DatasourceReadiness>>({})
+  const readinessErrors = ref<Record<number, string>>({})
+  let readinessRequest = 0
   const selectedId = ref<number>()
   const activeSessionId = ref<string>()
   const keyword = ref('')
@@ -58,12 +62,35 @@ export function useQuerySession() {
   const sessions = reactive<LocalSession[]>([])
   const loadedDatasourceIds = ref<Set<number>>(new Set())
   let datasourceSelectionRequest = 0
+  let datasourceFetchRequest = 0
+  let lifecycle = 0
+  const pendingRemovals = new Set<string>()
+  if (getCurrentScope()) onScopeDispose(reset)
+
+  function reset() {
+    lifecycle++
+    pendingRemovals.clear()
+    datasourceSelectionRequest++
+    datasourceFetchRequest++
+    readinessRequest++
+    readinessErrors.value = {}
+    sessions.splice(0)
+    datasources.value = []
+    readinessMap.value = {}
+    selectedId.value = undefined
+    activeSessionId.value = undefined
+    loadedDatasourceIds.value = new Set()
+    historyLoading.value = false
+    historyError.value = ''
+    loading.value = false
+    readinessLoading.value = false
+  }
 
   // ---- Computed ----
   const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
   const selectedReadiness = computed(() => selectedId.value ? readinessMap.value[selectedId.value] : undefined)
-  const canAskSelectedDatasource = computed(() => selectedReadiness.value?.askable === true)
-  const selectedBlockReason = computed(() => selectedReadiness.value?.blockReasons?.[0])
+  const canAskSelectedDatasource = computed(() => selectedReadiness.value?.askable === true && !loading.value && !historyLoading.value && !readinessLoading.value)
+  const selectedBlockReason = computed(() => historyLoading.value ? { message: '正在读取会话，请稍候再提问' } : (selectedId.value && readinessErrors.value[selectedId.value] ? { message: readinessErrors.value[selectedId.value] } : selectedReadiness.value?.blockReasons?.[0]))
   const askableDatasourceCount = computed(() =>
     datasources.value.filter((item) => readinessMap.value[item.id]?.askable === true).length,
   )
@@ -122,7 +149,9 @@ export function useQuerySession() {
 
   async function hydrateSessionMessages(session: LocalSession) {
     if (!session.conversationId) return
+    const generation = lifecycle
     const res = await iamS1ListConversationMessages(session.conversationId, { pageSize: 50 })
+    if (generation !== lifecycle) return
     session.messages = res.data.items.map(toLocalMessage)
     session.historyBeforeMessageId = res.data.nextBeforeMessageId
     session.hasMoreHistory = res.data.hasMore
@@ -150,9 +179,10 @@ export function useQuerySession() {
     }
   }
 
-  async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
+  async function loadRemoteSessions(datasourceId: number, activateFirst = true, accepts = () => true) {
     if (loadedDatasourceIds.value.has(datasourceId)) return
     const res = await iamS1ListConversations(datasourceId)
+    if (!accepts()) return
     const remoteSessions: LocalSession[] = res.data.map((item) => ({
       id: `remote-${item.id}`,
       datasourceId: item.datasourceId,
@@ -186,6 +216,8 @@ export function useQuerySession() {
     afterSelect?: () => void
   }) {
     const requestId = ++datasourceSelectionRequest
+    historyLoading.value = true
+    historyError.value = ''
     const changed = selectedId.value !== id
     if (changed) {
       keyword.value = ''
@@ -194,17 +226,27 @@ export function useQuerySession() {
     }
     selectedId.value = id
     try {
-      await loadRemoteSessions(id)
+      await loadRemoteSessions(id, true, () => requestId === datasourceSelectionRequest)
     } catch {
       if (requestId !== datasourceSelectionRequest) return
       ensureSession(id)
+      historyError.value = '历史会话读取失败，可刷新数据源后重试；当前可使用临时会话。'
       ElMessage.warning('历史会话加载失败，已创建本地临时会话')
+    } finally {
+      if (requestId === datasourceSelectionRequest) historyLoading.value = false
     }
     if (requestId !== datasourceSelectionRequest) return
     if (!activeSession.value || activeSession.value.datasourceId !== id) {
       ensureSession(id)
     }
     callbacks?.afterSelect?.()
+  }
+
+  async function retryHistory() {
+    const id = selectedId.value
+    if (!id || historyLoading.value) return
+    loadedDatasourceIds.value = new Set([...loadedDatasourceIds.value].filter(item => item !== id))
+    await selectDatasource(id)
   }
 
   function startNewSession(callbacks?: {
@@ -227,44 +269,73 @@ export function useQuerySession() {
   }) {
     const session = sessions.find((item) => item.id === sessionId)
     if (!session) return
+    const requestId = ++datasourceSelectionRequest
+    historyLoading.value = true
+    historyError.value = ''
     selectedId.value = session.datasourceId
     activeSessionId.value = session.id
     if (!session.messages.length) {
       try {
         await hydrateSessionMessages(session)
       } catch {
+        if (requestId !== datasourceSelectionRequest) return
+        historyError.value = '会话消息读取失败，可重新选择此会话重试。'
         ElMessage.error('会话消息加载失败')
       }
     }
+    if (requestId !== datasourceSelectionRequest) return
+    historyLoading.value = false
     callbacks?.focusQuestionInput?.()
   }
 
-  async function removeSession(session: LocalSession) {
+  async function removeSession(session: LocalSession, callbacks?: {
+    beforeDelete?: () => boolean | Promise<boolean>
+    accepts?: () => boolean
+  }): Promise<boolean> {
+    const generation = lifecycle
+    const targetId = session.id, sourceId = session.datasourceId
+    const initialConversationId = session.conversationId
+    const removalKey = `${generation}:${targetId}`
+    const current = () => generation === lifecycle && callbacks?.accepts?.() !== false
+      && session.id === targetId && session.datasourceId === sourceId && sessions.includes(session)
+      && (initialConversationId == null || session.conversationId === initialConversationId)
+    if (!current() || pendingRemovals.has(removalKey)) return false
+    pendingRemovals.add(removalKey)
     try {
       await ElMessageBox.confirm(`确定删除会话「${session.title}」吗？`, '删除会话', {
         type: 'warning',
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
       })
+      if (!current()) return false
+      // Stop only after the user confirms deletion, and before removing either
+      // the local session or its server conversation. An unconfirmed stop keeps it visible.
+      if (callbacks?.beforeDelete && !await callbacks.beforeDelete()) return false
+      if (!current()) return false
       if (session.conversationId) {
         await iamS1DeleteConversation(session.conversationId)
       }
-      const index = sessions.findIndex((item) => item.id === session.id)
+      if (!current()) return false
+      const index = sessions.indexOf(session)
       if (index >= 0) sessions.splice(index, 1)
-      if (activeSessionId.value === session.id) {
+      if (activeSessionId.value === targetId) {
         const nextSession = datasourceSessions.value[0]
         activeSessionId.value = nextSession?.id
         if (nextSession && !nextSession.messages.length) {
           await hydrateSessionMessages(nextSession)
         }
       }
-      ElMessage.success('会话已删除')
+      if (generation === lifecycle && callbacks?.accepts?.() !== false) ElMessage.success('会话已删除')
+      return true
     } catch (error) {
-      if (error === 'cancel' || error === 'close') return
+      if (error === 'cancel' || error === 'close' || generation !== lifecycle || callbacks?.accepts?.() === false) return false
       const msg = typeof error === 'object' && error !== null && 'response' in error
         ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
         : undefined
       ElMessage.error(msg || '会话删除失败')
+      return false
+    } finally {
+      pendingRemovals.delete(removalKey)
     }
   }
 
@@ -273,12 +344,15 @@ export function useQuerySession() {
     focusQuestionInput?: () => void
     autoSelect?: boolean
   }) {
+    const requestId = ++datasourceFetchRequest
     loading.value = true
     errorMessage.value = ''
     try {
       const result = await listIamS1QueryResourceDatasources('QUERY')
+      if (requestId !== datasourceFetchRequest) return
       datasources.value = result.data
-      await fetchDatasourceReadiness(result.data)
+      await fetchDatasourceReadiness(result.data, requestId)
+      if (requestId !== datasourceFetchRequest) return
       const selectedStillAccessible = Boolean(selectedId.value && result.data.some((item) => item.id === selectedId.value))
       if (!selectedStillAccessible) {
         selectedId.value = undefined
@@ -296,6 +370,7 @@ export function useQuerySession() {
         activeSessionId.value = undefined
       }
     } catch (error: unknown) {
+      if (requestId !== datasourceFetchRequest) return
       datasources.value = []
       readinessMap.value = {}
       selectedId.value = undefined
@@ -308,27 +383,28 @@ export function useQuerySession() {
           ? (error as { response: { data: { message: string } } }).response.data.message
           : '数据源加载失败，请稍后重试'
     } finally {
-      loading.value = false
+      if (requestId === datasourceFetchRequest) loading.value = false
     }
   }
 
-  async function fetchDatasourceReadiness(items: IamS1DatasourceRef[]) {
+  async function fetchDatasourceReadiness(items: IamS1DatasourceRef[], requestId = datasourceFetchRequest) {
+    const sequence = ++readinessRequest
     readinessLoading.value = true
-    try {
-      const entries = await Promise.all(
-        items.map(async (item) => {
-          try {
-            const result = await iamS1GetDatasourceReadiness(item.id)
-            return [item.id, result.data] as const
-          } catch {
-            return null
-          }
-        }),
-      )
-      readinessMap.value = Object.fromEntries(entries.filter(Boolean) as Array<readonly [number, DatasourceReadiness]>)
-    } finally {
-      readinessLoading.value = false
-    }
+    const entries = await Promise.all(items.map(async item => {
+      try {
+        const result = await iamS1GetDatasourceReadiness(item.id)
+        return { id: item.id, data: result.data, error: '' }
+      } catch (cause) {
+        const status = (cause as { response?: { status?: number } })?.response?.status
+        return { id: item.id, data: undefined, error: status === 403
+          ? '当前账号无权读取此数据源的就绪状态，请联系管理员核对权限。'
+          : '数据源就绪状态读取失败，尚不能确认能否提问，请重试状态检查。' }
+      }
+    }))
+    if (requestId !== datasourceFetchRequest || sequence !== readinessRequest) return
+    readinessMap.value = Object.fromEntries(entries.filter(row => row.data).map(row => [row.id, row.data!]))
+    readinessErrors.value = Object.fromEntries(entries.filter(row => row.error).map(row => [row.id, row.error]))
+    readinessLoading.value = false
   }
 
   return {
@@ -336,8 +412,13 @@ export function useQuerySession() {
     loading,
     readinessLoading,
     errorMessage,
+    historyLoading,
+    historyError,
+    reset,
+    retryHistory,
     datasources,
     readinessMap,
+    readinessErrors,
     selectedId,
     activeSessionId,
     keyword,

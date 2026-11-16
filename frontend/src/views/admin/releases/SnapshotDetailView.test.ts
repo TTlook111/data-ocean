@@ -1,26 +1,29 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 
 const routeState = vi.hoisted(() => ({ params: { snapshotId: '9' } as Record<string, string>, query: { datasourceId: '5' } as Record<string, string> }))
 const routerState = vi.hoisted(() => ({ push: vi.fn() }))
 const api = vi.hoisted(() => ({ getSnapshotDetail: vi.fn(), getReleaseGate: vi.fn() }))
-const iam = vi.hoisted(() => ({ loaded: true, canOnDatasource: vi.fn() }))
+const iam = vi.hoisted(() => ({ loaded: true, snapshot:{} as any, canOnDatasource: vi.fn() }))
+const identity=vi.hoisted(()=>({token:'synthetic-test'}))
 
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
   return {
     ...actual,
-    useRoute: () => routeState,
+    useRoute: () => reactiveRoute,
     useRouter: () => routerState,
   }
 })
 vi.mock('../../../api/admin/metadata', () => ({ getSnapshotDetail: api.getSnapshotDetail }))
 vi.mock('../../../api/admin/versioning', () => ({ getReleaseGate: api.getReleaseGate }))
-vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => iam }))
+vi.mock('../../../stores/auth', () => ({ useAuthStore: () => reactiveIdentity }))
+vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => reactiveIam }))
 
 import SnapshotDetailView from './SnapshotDetailView.vue'
+const reactiveRoute=reactive(routeState), reactiveIam=reactive(iam), reactiveIdentity=reactive(identity)
 
 function detail(snapshotId = 9) {
   return {
@@ -67,7 +70,7 @@ function mountPage() {
         },
         BusinessStatusBadge: true,
         'el-button': true,
-        SnapshotDetailPanel: { props: ['detail'], template: '<section class="detail-stub">detail-panel</section>' },
+        SnapshotDetailPanel: { props: ['detail'], template: '<section class="detail-stub">detail-panel {{ detail?.snapshot.id }}</section>' },
         ReleaseGatePanel: {
           props: ['gate', 'loading', 'error'],
           template: '<section class="gate-stub">{{ gate ? gate.snapshotId : error }}</section>',
@@ -85,6 +88,7 @@ async function settle() {
 }
 
 beforeEach(() => {
+  routeState.query={datasourceId:'5'}; routeState.params={snapshotId:'9'}; identity.token='synthetic-test'
   api.getSnapshotDetail.mockReset()
   api.getReleaseGate.mockReset()
   routerState.push.mockReset()
@@ -123,3 +127,7 @@ describe('SnapshotDetailView 发布门禁', () => {
     expect(wrapper.find('.detail-stub').exists()).toBe(true)
   })
 })
+
+it('非法显式源不回落也不请求精确结构',async()=>{reactiveRoute.query.datasourceId='bad';const w=mountPage();await settle();expect(api.getSnapshotDetail).not.toHaveBeenCalled();expect(api.getReleaseGate).not.toHaveBeenCalled();w.unmount()})
+it('没有结构权不借用发布查看权',async()=>{iam.canOnDatasource.mockImplementation(code=>code!=='metadata:view');const w=mountPage();await settle();expect(api.getSnapshotDetail).not.toHaveBeenCalled();w.unmount()})
+it('账号切换后旧精确结构响应不能回填',async()=>{let resolve!:(x:any)=>void;api.getSnapshotDetail.mockReturnValueOnce(new Promise(r=>{resolve=r}));const w=mountPage();await settle();reactiveIdentity.token='new';await settle();resolve({data:detail(88)});await settle();expect(w.find('.detail-stub').text()).not.toContain('88');expect(w.find('.detail-stub').text()).toContain('9');w.unmount()})

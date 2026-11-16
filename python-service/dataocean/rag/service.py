@@ -41,8 +41,10 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         return _response(message="buildId 与专属 collection 不一致，拒绝检索", start=start)
     if not request.authorized_chunk_ids:
         return _response(message="当前用户在生效 RAG build 中没有可见事实", start=start)
+    stage = "embedding"
     try:
-        # 1. 生成问题向量（Phase 1 #1: Redis 缓存，TTL 1h）
+        # 缓存只复用相同配置下的问题向量，不缓存查询结果。缓存故障不阻断
+        # 主流程，但保留读/写阶段以区分供应商调用变慢与缓存自身故障。
         cache_key = embedding_cache_key(request.question, request.embedding_config)
         question_embedding = None
         try:
@@ -50,23 +52,27 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
             cached = await redis.get(cache_key)
             if cached:
                 question_embedding = json.loads(cached)
-        except Exception:
-            logger.warning("Embedding 缓存读取失败，降级为 API 调用")
+        except Exception as exc:
+            logger.warning("Embedding 缓存读取失败，降级为 API 调用 datasource_id=%d error_type=%s",
+                           request.datasource_id, type(exc).__name__)
 
         if question_embedding is None:
             question_embedding = await embed_single(request.question, request.embedding_config)
             try:
                 redis = await _get_redis()
                 await redis.setex(cache_key, 3600, json.dumps(question_embedding))
-            except Exception:
-                pass  # 写缓存失败不影响主流程
+            except Exception as exc:
+                logger.warning("Embedding 缓存写入失败，继续检索 datasource_id=%d error_type=%s",
+                               request.datasource_id, type(exc).__name__)
 
         # 2. Milvus 检索
+        stage = "vector_search"
         raw_results = await retrieve_from_milvus(question_embedding, request)
         if request.build_id:
             # MySQL supplies the full authorized chunk ID set before ANN TopK.
             # Recheck complete fact dependencies before reranking/thresholds as
             # an independent guard against stale or malformed Milvus metadata.
+            stage = "candidate_validation"
             raw_results = _filter_build_candidates(raw_results, request)
 
         if not raw_results:
@@ -74,9 +80,11 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
             return _response(message="未找到相关数据表，请换个问法", start=start)
 
         # 3. 规则加权重排
+        stage = "rerank"
         ranked_results = rerank(raw_results, request)
 
         # 4. 相似度阈值过滤（阈值过滤为空时自动降低阈值重试一次）
+        stage = "result_selection"
         threshold = request.min_score if request.min_score is not None else settings.similarity_threshold
         filtered = [r for r in ranked_results if r.score >= threshold]
 
@@ -127,8 +135,13 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
             message="召回包含低置信度上下文，请核对 SQL 与结果" if context_degraded else "",
         )
 
-    except Exception as e:
-        logger.error("RAG 检索异常，触发降级: %s", e, exc_info=True)
+    except Exception as exc:
+        # 供应商/向量库异常原文及堆栈可能携带请求正文或连接信息。
+        # 阶段、异常类型和耗时足以定位本次降级，安全兜底资格仍由原逻辑裁决。
+        logger.warning(
+            "RAG 检索异常，尝试安全降级 datasource_id=%d snapshot_id=%s stage=%s error_type=%s elapsed_ms=%d",
+            request.datasource_id, request.active_snapshot_id, stage, type(exc).__name__, _elapsed_ms(start),
+        )
         response = fallback_retrieve(
             request.datasource_id,
             request.fallback_chunks,
@@ -141,6 +154,8 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         response.retrieval_time_ms = _elapsed_ms(start)
         if not response.results:
             # An outage without usable fallback is not a successful empty search.
+            logger.warning("RAG 安全降级无可用事实 datasource_id=%d snapshot_id=%s elapsed_ms=%d",
+                           request.datasource_id, request.active_snapshot_id, response.retrieval_time_ms)
             raise
         return response
 
@@ -228,10 +243,9 @@ def _log_recall_metrics(
     """记录 RAG 召回质量指标（结构化日志）
 
     用于监控 RAG 系统健康度和发现退化。
-    指标包括：原始召回数、重排后数、过滤后数、top-1 分数、chunk_type 分布。
+    只记录来源范围、各阶段数量与最高分；问题文本和知识正文不进入日志。
     """
     logger.info(
-        "RAG_RECALL datasource_id=%d raw=%d ranked=%d filtered=%d top_score=%.4f question=%s",
-        request.datasource_id, raw_count, ranked_count, filtered_count, top_score,
-        request.question[:50],
+        "RAG_RECALL datasource_id=%d snapshot_id=%s raw=%d ranked=%d filtered=%d top_score=%.4f",
+        request.datasource_id, request.active_snapshot_id, raw_count, ranked_count, filtered_count, top_score,
     )

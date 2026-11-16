@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Database, LockKeyhole, RefreshCw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
+import { useIamS1Store } from '../../stores/iamS1'
 import { useAdminContextStore } from '../../stores/adminContext'
 import type { AdminContextMode } from '../../router/adminNavigation'
 import { getHttpErrorMessage } from '../../utils/httpError'
@@ -27,6 +28,7 @@ const props = withDefaults(defineProps<{
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
+const iam = useIamS1Store()
 const invalidContext = ref('')
 let syncing = false
 let syncPending = false
@@ -64,6 +66,12 @@ async function syncFromUrl() {
       }
     }
 
+    if (showSnapshot.value && querySnapshotId.value && !iam.canOnDatasource('metadata:view', context.datasourceId)) {
+      invalidContext.value = '当前账号没有 metadata:view，公共范围无法读取快照；不会改用其他快照。'
+      context.selectSnapshot(undefined)
+      if (props.trackRouteSync) context.routeSyncError = invalidContext.value
+      return
+    }
     if (showSnapshot.value && querySnapshotId.value) {
       let found = context.snapshots.some((item) => item.id === querySnapshotId.value)
       if (!found) {

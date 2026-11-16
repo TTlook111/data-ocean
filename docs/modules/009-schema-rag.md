@@ -49,6 +49,12 @@ Java/Python 使用一致的事实类型与完整依赖准入：合法表级知�
 
 重排与相邻 chunk 扩展不能跨越上述过滤边界。Embedding 缓存与模型/配置相关；问题兜底按问题、来源快照及当前资源隔离。兜底只在安全知识可用时成立，不返回无来源的成功结果。
 
+## 检索诊断日志
+
+诊断范围为 S1 检索及受管 SQL 模板回退（`iam_s1/service.py`）、RAG 编排与缓存降级（`rag/service.py`）、相邻片段扩展（`rag/retriever.py`）和 Embedding 调用包装层（`infra/embeddings.py`）。这些调用点按可用上下文记录数据源/快照/任务 ID、阶段、数量、耗时与异常类型，用于区分指针不符、事实冲突、空召回、缓存故障和安全兜底；不输出问题文本、知识正文、供应商异常正文或堆栈、配置端点及密钥。此范围不代表全项目或第三方日志均已完成脱敏检查。
+
+日志不改变安全过滤或兜底资格：相邻扩展失败保留原召回，缓存读写失败按原流程继续；检索异常没有合规兜底事实仍失败，checkpoint 初始化或恢复失败仍停止查询。具体异常返回及异常链保持原合同，不因收敛诊断日志而改写。
+
 ## 最小完整依赖
 
 | 事实 | 必需依据 | 空列边界 |
@@ -85,3 +91,11 @@ Java 在模型输入前检查当前来源与可见依赖，Python 防火墙再�
 知识构建入口由[知识模块](006-knowledge.md)的 rag-builds 提供；Python 内部使用 `/internal/rag`和 `/internal/iam-s1/rag/retrieve`。不能将仍保留的通用向量 API 当作 S1 可跳过构建的路径。
 
 验证 token 边界、完整语义单元、metadata、构建失败/替代/清理、同快照 membership、权限过滤和并发查询引用。已有 [test_rag_build_isolation.py](../../python-service/tests/test_rag_build_isolation.py)及 Java [构建测试](../../backend/DataOcean/src/test/java/com/dataocean/module/knowledge/service/impl/RagIndexBuildServiceImplTest.java)。真实 Milvus 结论必须附当次目标和证据，不能由 mock 或历史数量推断。
+
+## 前端构建确认
+
+「构建与索引」作为知识工作区独立Tab，默认选中当前 ACTIVE 记录；构建列表与选中记录详情分开，允许显式阅读历史/非活动记录，无活动记录时显示相应空态。快照、向量核验数量、错误与精确 build 各按实际回执展示，技术详情按需展开。列表显式选择不会切换活动索引。来源/身份变化使旧选择与迟到读取失效。
+
+构建入口不依赖数据源准备表。knowledge:view读取记录，knowledge:publish确认目标源构建，不额外要求datasource:view、metadata:view或metadata:release:view。来源从已发布文档列表完整分页读取并去重，或由人员核对精确快照ID后填写；RAG允许的PUBLISHED/EXPIRED曾发布来源与知识生成输入仅PUBLISHED的合同分开，最终仍由既有构建服务验证整组覆盖。缺选定来源、未发布文档或缺确认能力时分别解释，不能通过忽略已知范围错误开放动作。
+
+新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实现入口为 [KnowledgeView.vue](../../frontend/src/views/admin/semantics/KnowledgeView.vue) 的 `currentBuild/selectedBuild/openBuild/confirmBuild`，回归入口为 [KnowledgeWorkspaceLifecycle.test.ts](../../frontend/src/views/admin/semantics/KnowledgeWorkspaceLifecycle.test.ts)。原构建合同证据见[版本与知识验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d5)，当前活动索引布局及最小角色只读证据见[治理与语义布局验收](../acceptance/2026-10-31-治理与语义布局重构.md)；不代表真实向量核验、切换与清理已重新执行。

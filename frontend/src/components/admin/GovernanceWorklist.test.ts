@@ -6,7 +6,8 @@ import GovernanceWorklist from './GovernanceWorklist.vue'
 import { discoverGovernance,listGovernanceTasks } from '../../api/admin/governanceWorkflow'
 const state=vi.hoisted(()=>({context:{datasourceId:5,snapshotId:8},query:{} as Record<string,unknown>,permissions:['governance:field:view'],push:vi.fn()}))
 vi.mock('../../stores/adminContext',()=>({useAdminContextStore:()=>state.context}))
-vi.mock('../../stores/iamS1',()=>({useIamS1Store:()=>({canOnDatasource:(code:string)=>state.permissions.includes(code)})}))
+vi.mock('../../stores/auth',()=>({useAuthStore:()=>({token:'synthetic-task-auth'})}))
+vi.mock('../../stores/iamS1',()=>({useIamS1Store:()=>({loaded:true,errorMessage:null,snapshot:{},canOnDatasource:(code:string)=>state.permissions.includes(code)})}))
 vi.mock('vue-router',()=>({useRoute:()=>({query:state.query}),useRouter:()=>({push:state.push})}))
 vi.mock('../../api/admin/governanceWorkflow',()=>({pauseGovernance:vi.fn(),governanceError:vi.fn(),discoverGovernance:vi.fn(),listGovernanceTasks:vi.fn(),retryGovernance:vi.fn(),getGovernanceRules:vi.fn()}))
 vi.mock('../../api/admin/fieldSemantic',()=>({runSemanticCheck:vi.fn()}))
