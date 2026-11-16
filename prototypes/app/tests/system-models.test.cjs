@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
 function fixture(){const c=vm.createContext({window:{},structuredClone,URL});for(const file of ['record-query.js','people-data.js','role-data.js','source-approval-data.js','system-model-data.js']){vm.runInContext(fs.readFileSync(path.join(__dirname,'../../后台管理',file),'utf8'),c);Object.assign(c,c.window);}const actor=c.PeopleDemo.users[0],model=c.SystemModelsDemo;return {c,actor,model};}
-test('模型列表支持OpenAI和Anthropic协议，保存后即可分配，没有登记验收或启用关卡',()=>{const {model,actor}=fixture(),result=model.save(null,{name:'新Anthropic模型',protocol:'anthropic',address:'https://gateway.example.invalid',model:'demo-model',credential:'DEMO-SECRET-839',timeout:120,retries:2},actor);assert.ok(result.row);assert.equal(result.row.state,'可用');assert.equal(model.assign({'sql-generate':result.row.id},actor,model.assignmentRevision),'');assert.equal(model.nodes.find(n=>n.id==='sql-generate').model,result.row.id);assert.equal(JSON.stringify({rows:model.rows,changes:model.changes}).includes('DEMO-SECRET-839'),false);});
+test('模型类型和接口格式分别保存，完整配置后即可分配，不增加验收或启用关卡',()=>{const {model,actor}=fixture(),result=model.save(null,{name:'新Anthropic模型',kind:'generation',protocol:'anthropic',address:'https://gateway.example.invalid',model:'demo-model',credential:'DEMO-SECRET-839',timeout:120,retries:2},actor);assert.ok(result.row);assert.equal(result.row.state,'已启用');assert.equal(model.assign({'sql-generate':result.row.id},actor,model.assignmentRevision),'');assert.equal(model.nodes.find(n=>n.id==='sql-generate').model,result.row.id);assert.equal(JSON.stringify({rows:model.rows,changes:model.changes}).includes('DEMO-SECRET-839'),false);});
 test('每个节点独立选择，修改SQL生成不改变SQL修正、解释或其他节点',()=>{const {model,actor}=fixture(),before=new Map(model.nodes.map(n=>[n.id,n.model])),target=model.rows.find(row=>row.content.protocol==='anthropic');assert.equal(model.assign({'sql-generate':target.id},actor,model.assignmentRevision),'');for(const node of model.nodes)assert.equal(node.model,node.id==='sql-generate'?target.id:before.get(node.id));});
 test('节点分配检查能力和配置状态，一项错误不会部分覆盖其他节点',()=>{const {model,actor}=fixture(),gen=model.rows.find(r=>r.kind==='generation'),before=JSON.stringify(model.nodes);assert.match(model.assign({'sql-generate':gen.id,'rag-embedding':gen.id},actor,model.assignmentRevision),/向量模型/);assert.equal(JSON.stringify(model.nodes),before);const stopped=model.rows.find(r=>r.state==='已停用');assert.match(model.assign({'sql-generate':stopped.id},actor,model.assignmentRevision),/不可用/);});
 test('字段校验和旧修订冲突不会部分修改配置，凭据替换不回显旧值',()=>{const {model,actor}=fixture(),row=model.rows[0],before=JSON.stringify(row),data={name:row.name,...row.content,credential:''};assert.match(model.save(row,{...data,address:'https://user:secret@example.invalid'},actor,row.revision).error,/URL/);assert.equal(JSON.stringify(row),before);assert.match(model.save(row,{...data,model:'other'},actor,0).error,/变化/);assert.equal(model.save(row,{...data,model:'other'},actor,row.revision).error,undefined);assert.equal(row.content.credentialSet,true);assert.equal(row.history[0].content.model,data.model);});
@@ -65,4 +65,33 @@ test('节点覆盖当前方案AI职责，Embedding和Rerank明确区分，系统
   assert.equal(byId('rag-embedding').kind,'embedding');assert.equal(byId('feedback-similarity').kind,'embedding');assert.equal(byId('rag-rerank').kind,'rerank');assert.equal(byId('rag-rerank').optional,true);
   assert.ok(!byId('execute')&&!byId('authorization')&&!byId('publish-confirmation'));
   assert.match(model.kinds.embedding,/Embedding/);assert.ok(model.rows.filter(r=>r.kind==='embedding').every(r=>r.name.includes('Embedding')));
+});
+
+test('接口格式不能冒充另一类模型能力，拒绝配置时不改写原模型',()=>{
+  const {model,actor}=fixture(),row=model.rows[0],before=JSON.stringify(row);
+  assert.match(model.save(row,{name:row.name,...row.content,kind:'embedding'},actor,row.revision).error,/匹配/);
+  assert.equal(JSON.stringify(row),before);
+  assert.equal(model.protocolOptions('generation').length,2);
+  assert.deepEqual(Array.from(model.protocolOptions('embedding'),row=>row.value),['embedding']);
+});
+
+test('连接失败独立于启停状态，失败不冒充可用也不自动停用配置',()=>{
+  const {model,actor}=fixture(),row=model.rows.find(row=>row.scenario==='鉴权失败');
+  assert.equal(model.testConnection(row,actor,row.revision),'');assert.equal(row.test.status,'失败');assert.equal(row.state,'已启用');
+  assert.equal(model.assign({'sql-generate':row.id},actor,model.assignmentRevision),'');
+});
+
+test('反馈和知识索引分开办理，更新任务绑定目标且失败可重试',()=>{
+  const {model,actor}=fixture(),feedback=model.nodes.find(row=>row.id==='feedback-similarity'),rag=model.nodes.find(row=>row.id==='rag-embedding'),oldRag=JSON.stringify(rag),target=model.rows.filter(row=>row.kind==='embedding')[1];
+  model.assign({[feedback.id]:target.id},actor,model.assignmentRevision);const info=model.indexInfo(feedback),task=info.task.id;
+  assert.match(info.task.scope,/反馈/);assert.equal(model.resolveIndex(feedback.id,'failed',info.targetKey,actor),'');assert.equal(model.indexInfo(feedback).available,true);
+  assert.equal(model.resolveIndex(feedback.id,'ready',info.targetKey,actor),'');assert.equal(feedback.active.modelId,target.id);assert.equal(feedback.indexTask.id,task);assert.equal(feedback.indexTask.attempts,2);assert.equal(feedback.indexTask.state,'已完成');assert.equal(JSON.stringify(rag),oldRag);
+});
+
+test('调用来源保留独立的任务和对象摘要，配置编辑不改写来源上下文',()=>{
+  const {model,actor}=fixture(),call=model.calls[0],before=JSON.stringify(call.context),row=model.find(call.model);
+  assert.ok(call.context.taskId);assert.equal(call.context.source,'products');assert.match(call.context.href,/#governance\/products\/product/);
+  assert.equal(model.calls.find(call=>call.node==='document-plan').context.href,'');
+  assert.equal(model.calls.find(call=>call.node==='feedback-similarity').context.href,'');
+  model.save(row,{name:'新名称',...row.content,credential:''},actor,row.revision);assert.equal(JSON.stringify(call.context),before);
 });

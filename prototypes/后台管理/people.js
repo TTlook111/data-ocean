@@ -237,6 +237,8 @@
         clearAccessError(key) { this.$nextTick(() => { this.$refs.form.clearValidate(key); this.validated(key, true); }); },
         matchingChoices(field) { return field.options.filter(option => AdminQuery.matches([option.label], this.choiceKeywords[field.key] || '')); },
         selectedChoices(field) { return this.model[field.key].map(value => field.options.find(option => option.value === value)?.label || value).join('、'); },
+        fieldOptions(field) { return typeof field.options === 'function' ? field.options(this.model) : field.options; },
+        fieldChanged(field) { field.onChange?.(this.model); },
         back() { this.reviewing = false; this.$nextTick(() => node.querySelector('.form-grid input,.form-grid textarea')?.focus()); },
         commit() {
           if (this.unchanged) return;
@@ -268,8 +270,8 @@
             <div class="role-choice-scroll"><el-checkbox-group v-model="model[f.key]" :aria-label="f.label" class="form-choice-group">
               <el-checkbox v-for="o in matchingChoices(f)" :key="o.value" :value="o.value" :disabled="o.disabled">{{o.label}}</el-checkbox>
             </el-checkbox-group><p v-if="!matchingChoices(f).length" class="form-note">没有匹配的角色</p></div></div>
-          <el-select v-else-if="f.options" v-model="model[f.key]" :aria-label="f.label" :multiple="f.multiple" :disabled="f.disabled" :clearable="!f.required" :append-to="popupTarget" filterable :placeholder="f.placeholder || (f.label.startsWith('选择') ? '请'+f.label : '请选择'+f.label)">
-            <el-option v-for="o in f.options" :key="o.value" :value="o.value" :label="o.label" :disabled="o.disabled"></el-option>
+          <el-select v-else-if="f.options" v-model="model[f.key]" :aria-label="f.label" :multiple="f.multiple" :disabled="f.disabled" :clearable="!f.required" :append-to="popupTarget" filterable @change="fieldChanged(f)" :placeholder="f.placeholder || (f.label.startsWith('选择') ? '请'+f.label : '请选择'+f.label)">
+            <el-option v-for="o in fieldOptions(f)" :key="o.value" :value="o.value" :label="o.label" :disabled="o.disabled"></el-option>
           </el-select>
           <el-input-number v-else-if="f.type === 'number'" v-model="model[f.key]" :aria-label="f.label" :min="f.min" :max="f.max" :step="f.step || 1" :precision="f.precision" controls-position="right"></el-input-number>
           <data-access-editor v-else-if="f.type === 'data-access'" v-model="model[f.key]" @update:model-value="clearAccessError(f.key)" :popup-target="popupTarget" :single-source="f.singleSource" :source-readonly="f.sourceReadonly"></data-access-editor>
@@ -902,6 +904,7 @@
       main.replaceChildren(pageHeading(titles[section] || '页面不存在'), panel);
     }
     const feedbackContext=window.FeedbackPage?.context(section);if(feedbackContext)main.prepend(feedbackContext);
+    const modelContext=window.SystemModelsPage?.context();if(modelContext)main.prepend(modelContext);
     if (changed) {
       main.scrollTop = 0; main.querySelector('h1')?.focus({ preventScroll: true });
       // 菜单独立滚动时，当前页也必须留在可见区域。

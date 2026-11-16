@@ -7,6 +7,7 @@
 .sm-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;margin:0;}.sm-facts>div{min-width:0;}.sm-facts dt{font-size:12px;line-height:18px;color:var(--do-muted);margin-bottom:4px;}.sm-facts dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px;}
 .sm-disclosure{margin-top:24px;padding-top:16px;border-top:1px solid var(--do-line);}.sm-disclosure summary{cursor:pointer;color:var(--do-primary);margin-bottom:16px;}.sm-disclosure .sm-facts+.sm-facts{margin-top:16px;}
 .sm-prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:22px;}.sm-notice{padding:12px 16px;background:#fff8eb;border-left:3px solid #c38d37;color:#76551f;line-height:22px;}.sm-prototype-hint{flex:none;color:var(--do-muted);font-size:12px;line-height:18px;margin:0;}
+.sm-facts+.sm-facts{margin-top:24px;padding-top:24px;border-top:1px solid var(--do-line);}.sm-source-return{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;flex:none;padding:12px 16px;background:var(--do-panel);border:1px solid var(--do-line);border-radius:8px;}.sm-source-return>span{min-width:0;overflow-wrap:anywhere;}
 @media(max-width:900px){.sm-facts{grid-template-columns:minmax(0,1fr);}}
 /* 窄PC仍保留三列表格，让说明实际可读，模型列不再覆盖说明。 */
 @media(max-width:1100px){
