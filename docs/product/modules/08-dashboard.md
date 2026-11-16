@@ -25,4 +25,4 @@
 
 指标引用[数据源](03-datasources.md)、[治理](04-governance.md)、[知识发布](05-knowledge-release.md)、[问数](06-query.md)和[反馈](07-feedback.md)事实，不在看板另造状态或提醒规则。
 
-技术问题进入[架构输入](../../architecture/README.md)，正式架构尚未确定；验收先对照方案本章场景，再按[前端验收](../../frontend/验收.md)核对原型。
+技术设计与验收见[统一入口](../README.md#架构与重构任务怎样读取)。

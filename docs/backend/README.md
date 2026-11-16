@@ -1,6 +1,6 @@
 # 后端设计
 
-正式后端采用 Java 与 Python，基础技术栈、[应用职责](../architecture/服务职责与数据流.md)、[存储分工与身份层级](../architecture/存储与会话状态.md)、[调用与任务协议](../architecture/调用与任务协议.md)及[工程组织](../engineering/工程组织与版本基线.md)已确定，版本按下述基线验证。当前以[本地启动](../engineering/工程组织与版本基线.md#本地运行与依赖环境)为主，Java 与 Python 在宿主机运行，基础依赖通过 Docker Compose 启动；逐接口结构、物理数据模型、依赖启动配置和具体持久化参数仍待落实。当前阶段见[文档导航](../README.md#当前阶段)，真实重构尚未开始。
+正式后端采用 Java 与 Python，基础技术栈、[应用职责](../architecture/服务职责与数据流.md)、[存储分工与身份层级](../architecture/存储与会话状态.md)、[调用与任务协议](../architecture/调用与任务协议.md)及[工程组织](../engineering/工程组织与版本基线.md)已确定。当前采用[本地运行方式](../engineering/工程组织与版本基线.md#本地运行与依赖环境)，基础依赖和独立验证程序已可运行；物理模型、逐接口结构、正式业务配置、容量与保留参数仍待落实。整体阶段见[文档导航](../README.md#当前阶段)。
 
 ## 已确认的技术栈
 
@@ -13,7 +13,7 @@
 
 Java 基线已确定为 JDK 17，平台数据库使用 MySQL 8 系列，不预先锁定 8.4；MySQL 的具体小版本与补丁在部署基线中固定。接入业务源的数据库类型及版本按适配器能力单独核验，不由平台库版本推定。
 
-名称统一使用 Python、Spring Boot、MyBatis-Plus、Spring Security、Hutool、MySQL、Redis、Milvus、LangGraph 和 FastAPI。前端具体选择维护在[前端技术选型](../frontend/README.md#前端技术选型)，各端不默认沿用旧系统依赖。
+前端选择维护在[前端技术选型](../frontend/README.md#前端技术选型)，各端不默认沿用现有业务代码中的依赖。
 
 Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 IO 等工具。优先复用 JDK、现有框架及 Hutool 已有的适用能力，不为已有能力重复封装。它不替代业务服务、安全框架或持久化分层。用途参考 [Hutool 官方仓库](https://github.com/chinabugotech/hutool)；框架职责参考 [LangGraph 官方概述](https://docs.langchain.com/oss/python/langgraph/overview)及 [FastAPI 官方文档](https://fastapi.tiangolo.com/)。
 
@@ -31,13 +31,11 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 
 基线依据参考 [Spring Boot 要求](https://docs.spring.io/spring-boot/system-requirements.html)、[MyBatis-Plus 安装](https://baomidou.com/en/getting-started/install/)、[Redis Checkpointer 依赖](https://github.com/redis-developer/langgraph-redis/blob/main/pyproject.toml)及 [Milvus 对应表](https://milvus.io/docs/v2.6.x/release_notes.md)。具体版本只在本节维护，共用工程文档链接引用。
 
-Python 核心依赖已在本机 Windows x86_64、Python 3.14 下完成安装、导入及独立 API / Worker 启动；Java 基线已在 JDK 17 下实际编译、启动，并验证登录会话、CSRF、MyBatis-Plus 分页及 SSE 游标重连。隔离程序还验证了双向服务 JWT、重复命令、合成任务协作取消、暂停后重启检查点续作，以及 MySQL 最小生效指针竞争、Milvus Strong 检索与回退。当前运行依据由[本机环境说明](../../.dataocean/local-environment.md#验证入口与依据)定位，具体范围见[验证程序与边界](../../tools/technical-validation/README.md)。
-
-本地 Redis 与 Milvus 已按上述基线重新部署，检查点 Redis 使用独立实例与数据卷，具体持久化配置见[存储边界](../architecture/存储与会话状态.md#redis-检查点的持久化与恢复边界)。故障恢复验证覆盖 Redis / Milvus 进程 SIGKILL、检查点续作、会话与业务事实保留、Redis 冷备隔离还原，以及 Milvus 恢复后的索引检索和回退，依据由本机环境说明定位；AOF 增量验证程序见验证说明。Milvus 镜像及运行构建号经官方发布提交核对，不以 SDK 构建号格式差异误判版本不符。
+独立合成程序已验证 Windows 下的 Java 编译启动、Python 依赖安装与 API / Worker、会话及服务认证、分页、SSE、幂等、协作取消、检查点续作和最小索引切换。Redis / Milvus 采用上述基线，检查点使用独立 Redis 与数据卷，进程强制中断、隔离备份还原和索引恢复已验证。持久化设计见[存储边界](../architecture/存储与会话状态.md#redis-检查点的持久化与恢复边界)，具体场景见[验证说明](../../tools/technical-validation/README.md)，本机运行依据见[环境说明](../../.dataocean/local-environment.md#验证入口与依据)。
 
 这些结果只覆盖独立合成验证程序，正式业务工程尚未重构。Linux 完整安装、真实模型与业务 SQL 取消、浏览器及代理、运行中任意节点崩溃后的自动接管、整机断电或磁盘损坏、跨机备份恢复及完整知识发布门槛仍待验证；准确版本、配置及实际测试边界保留在验证证据中。
 
-Java 格式检查采用 Spotless，命名等非格式检查保留 Checkstyle 的兼容评估，具体插件和引擎版本须能在 JDK 17 下运行。当前 Checkstyle 13/14 要求 Java 21，最新 google-java-format 也要求 Java 21，不能直接取最新版；插件与格式引擎分别锁定，不因检查工具改变 JDK 17 基线。具体兼容组合在工程验证后确定，参见 [Checkstyle JRE 要求](https://checkstyle.org/)和 [格式引擎要求](https://github.com/google/google-java-format#using-the-formatter)。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
+Java 格式检查采用 Spotless，命名等非格式检查保留 Checkstyle 的兼容评估。插件、格式引擎和静态检查器分别锁定并验证 JDK 17 兼容性，不为检查工具改变运行基线；具体组合仍待验证，参考 [Checkstyle JRE 要求](https://checkstyle.org/)和 [格式引擎要求](https://github.com/google/google-java-format#using-the-formatter)。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
 
 Python 使用 Ruff 和 pytest，精确工具版本随开发依赖锁定。测试命名、模块对应及构建入口见[工程基线](../engineering/工程组织与版本基线.md#构建检查与测试定位)，不在本页重复目录规则。
 

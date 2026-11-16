@@ -52,7 +52,7 @@
 | 代码与格式检查 | ESLint、typescript-eslint、Prettier | 分开代码质量与格式职责，兼容补丁及规则配置在建工程时验证 |
 | 组件测试 | Vitest、React Testing Library | 精确依赖随锁文件固定，测试布局见工程基线；浏览器验收仍走 ego-lite |
 
-上述版本作为工程验证基线，未完成依赖安装、生产构建和实际页面验收。新增组件及配套库的精确版本在工程初始化时核对兼容性并随 `package-lock.json` 固定，验证构建、关键组件交互及 SSE 恢复后再记录结果。版本依据参考 [Node.js 发布状态](https://nodejs.org/en/about/previous-releases)、[React 版本](https://react.dev/versions)、[typescript-eslint 兼容范围](https://typescript-eslint.io/users/dependency-versions/)及 [Vite 要求](https://vite.dev/guide/)。具体版本只在本节维护，其他工程文档引用本页。
+上述版本是正式前端工程的验证基线，React 业务工程尚未建立，依赖安装、生产构建和页面验收仍待完成。配套库精确版本在初始化时核对兼容性并随 `package-lock.json` 固定，实际结果以构建、组件交互及 SSE 恢复验证为准。版本依据参考 [Node.js 发布状态](https://nodejs.org/en/about/previous-releases)、[React 版本](https://react.dev/versions)、[typescript-eslint 兼容范围](https://typescript-eslint.io/users/dependency-versions/)及 [Vite 要求](https://vite.dev/guide/)。具体版本只在本节维护，其他工程文档引用本页。
 
 ## 内容归属
 

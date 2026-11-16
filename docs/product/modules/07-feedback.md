@@ -26,4 +26,4 @@
 
 保留[原问数](06-query.md)实际依据；知识修正经[治理](04-governance.md)及[发布](05-knowledge-release.md)生效；[看板](08-dashboard.md)引用统一事件与状态。
 
-技术问题进入[架构输入](../../architecture/README.md)，正式架构尚未确定；验收先对照方案本章场景，再按[前端验收](../../frontend/验收.md)核对原型。
+技术设计与验收见[统一入口](../README.md#架构与重构任务怎样读取)。

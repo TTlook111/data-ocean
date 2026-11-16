@@ -1,3 +1,3 @@
 # DataOcean
 
-本项目处于开发期整体重构阶段。先读 [AGENTS.md](AGENTS.md) 确认当前阶段与约束，再按需查看[现有模块实现说明](docs/modules)。新方案经评审并完成 HTML 原型后才确定技术栈和新表结构。重构各模块时可直接删除旧实现，无需兼容旧接口或数据。
+遵循 [AGENTS.md](AGENTS.md)，从[文档导航](docs/README.md)读取当前阶段、已定选择和维护边界。现有业务代码的定位见[源码地图](docs/source-map/README.md)；正式实现任务按所属设计专题推进。

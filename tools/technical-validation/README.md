@@ -7,7 +7,7 @@
 先完整读取本机 `.dataocean/local-environment.md`，核对实际主机、工具、端口、容器标签、挂载和 Compose 归属。日常验证由用户先启动 MySQL、Redis、独立检查点 Redis、Milvus 及其 etcd、MinIO。
 
 ```powershell
-./tools/technical-validation/run.ps1 -RuntimeDirectory 'D:/projects/DataOcean-runtime/technical-validation'
+./tools/technical-validation/run.ps1 -RuntimeDirectory '<本机私有运行目录>'
 ```
 
 负责人明确授权故障注入后，增加 `-StorageFaults` 执行 Redis / Milvus 强制终止、恢复和检查点备份还原；此模式会实际中断服务，使用独立合成任务。
