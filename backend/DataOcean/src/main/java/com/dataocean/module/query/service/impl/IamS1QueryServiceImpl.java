@@ -35,7 +35,8 @@ import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
 import com.dataocean.module.query.client.IamS1PythonClient;
-import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.service.IamS1QueryNotificationService;
+import com.dataocean.module.query.service.IamS1QueryCancellationService;
 import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.po.QueryAttempt;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
@@ -101,7 +102,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1RowBindingService rowBindingService;
     private final IamS1PythonClient pythonClient;
-    private final IamS1QuerySseController sseController;
+    // 查询编排依赖通知合同，连接管理不再反向依赖 HTTP Controller。
+    private final IamS1QueryNotificationService notificationService;
+    // 取消投递拥有明确的持久意图和接收回执，不借用最终保护状态表示投递结果。
+    private final IamS1QueryCancellationService cancellationService;
     private final ConversationService conversationService;
     private final ConversationContextSummaryService conversationContextSummaryService;
     private final GlossaryTermMapper glossaryTermMapper;
@@ -196,9 +200,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     try {
                         completeInTransaction(taskId, result);
                         try {
-                            sseController.sendResult(taskId, get(taskId, userId));
+                            // 落库后仍通过当前读取权限保护结果，通知层不得直接接收 Python 载荷。
+                            notificationService.sendResult(taskId, get(taskId, userId));
                         } catch (BusinessException ex) {
-                            sseController.sendError(taskId, ex.getMessage());
+                            // 读取资格失效时只交付公开错误，不向任何订阅连接发送结果数据。
+                            notificationService.sendError(taskId, ex.getMessage());
                         } catch (Exception ex) {
                             log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
                         }
@@ -318,17 +324,33 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     public void cancel(String taskId, Long userId) {
         QueryTask task = find(taskId, userId);
         if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        // 同任务重复取消保持幂等；已提交的 PENDING 由投递层核对，不再重复写消息或释放轮次。
+        if (QueryTaskStatus.CANCELLED.name().equals(task.getStatus())) {
+            cancellationService.dispatchAfterCommit(taskId);
+            return;
+        }
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已结束");
         }
+        // 取消意图与业务终态在同一 UPDATE、同一事务提交，不能出现只有其一落库。
         int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                 .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)
                 .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                 .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
                 .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                .set(QueryTask::getCancellationDeliveryStatus, "PENDING")
+                .set(QueryTask::getCancellationNextAttemptAt, LocalDateTime.now())
                 .set(QueryTask::getCompletedAt, LocalDateTime.now()));
-        if (updated == 0) throw new BusinessException("任务已结束");
-        pythonClient.cancelTask(taskId);
+        if (updated == 0) {
+            // CAS 后用当前读确认并发赢家，不能用可重复读快照把已取消任务误判为仍在处理。
+            QueryTask latest = queryTaskMapper.selectByTaskIdForUpdate(taskId);
+            if (latest != null && Objects.equals(latest.getUserId(), userId) && isS1(latest)
+                    && QueryTaskStatus.CANCELLED.name().equals(latest.getStatus())) {
+                cancellationService.dispatchAfterCommit(taskId);
+                return;
+            }
+            throw new BusinessException("任务已结束");
+        }
         if (task.getConversationId() != null) {
             conversationService.saveAssistantMessage(task.getConversationId(), "查询已取消", taskId,
                     writeJson(Map.of("taskId", taskId, "status", QueryTaskStatus.CANCELLED.name(),
@@ -336,6 +358,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             conversationService.releaseTurn(task.getConversationId(), taskId);
             refreshConversationContext(task.getConversationId(), userId, task.getDatasourceId(), taskId);
         }
+        // 消息或轮次写入失败时不会派发；提交后回调丢失仍可从 PENDING 恢复补投。
+        cancellationService.dispatchAfterCommit(taskId);
     }
 
     @Override
@@ -350,8 +374,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             throw new BusinessException("查询所引用的知识已变化，请重新发起查询");
         }
         if (task.getCreatedAt() != null && task.getCreatedAt().plusSeconds(90).isBefore(LocalDateTime.now())) {
-            pythonClient.cancelTask(taskId);
-            finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
+            // 过期恢复也必须原子保存超时与取消意图，不能先取消 Python 再补写本地状态。
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(),
+                            "查询超过总时限，未返回结果，请重试。", true));
             return;
         }
         requireQueryUse(userId);
@@ -600,7 +626,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             try {
                 QueryTaskVO safe = get(message.getTaskId(), userId);
                 message.setMetadata(writeJson(safe));
-                if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
+                // 只有真实 COMPLETED 才能采用结果解释或完成兜底，其他终态不能因缺少错误详情被改写为成功。
+                if (!QueryTaskStatus.COMPLETED.name().equals(safe.getStatus())) {
+                    message.setContent(nonCompletedAssistantContent(safe));
+                } else if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
                     message.setContent("本轮查询完成，部分字段已按当前规则脱敏");
                 } else if (safe.getSqlExplanation() != null && !safe.getSqlExplanation().isBlank()) {
                     message.setContent(safe.getSqlExplanation());
@@ -615,20 +644,38 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return messagePage;
     }
 
+    private String nonCompletedAssistantContent(QueryTaskVO result) {
+        // 只消费当前权限重读后的状态和公开错误，不回用旧助手原文、metadata 或未完成的 SQL 解释。
+        String error = result.getErrorMessage();
+        boolean hasError = error != null && !error.isBlank();
+        return switch (result.getStatus() == null ? "" : result.getStatus()) {
+            case "CANCELLED" -> "查询已取消";
+            case "TIMEOUT" -> hasError ? error : "查询已超时";
+            case "FAILED" -> hasError ? error : "本轮查询失败";
+            case "CLARIFICATION_REQUIRED" -> hasError ? error : "请补充查询条件";
+            case "PROCESSING" -> "查询仍在处理中";
+            default -> "查询状态待确认";
+        };
+    }
+
     @Override
     @Transactional
     public void archiveConversation(Long conversationId, Long userId) {
         requireQueryUse(userId);
         String activeTaskId = conversationService.deleteConversation(conversationId, userId);
         if (activeTaskId != null && !activeTaskId.isBlank()) {
-            queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+            // 会话删除与取消意图共同提交；CAS 失败的已完成任务不得收到取消投递。
+            int changed = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getTaskId, activeTaskId)
                     .eq(QueryTask::getUserId, userId)
+                    .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
                     .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                     .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
                     .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                    .set(QueryTask::getCancellationDeliveryStatus, "PENDING")
+                    .set(QueryTask::getCancellationNextAttemptAt, LocalDateTime.now())
                     .set(QueryTask::getCompletedAt, LocalDateTime.now()));
-            pythonClient.cancelTask(activeTaskId);
+            if (changed > 0) cancellationService.dispatchAfterCommit(activeTaskId);
         }
     }
 
@@ -656,9 +703,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .set(QueryTask::getProgressMessage, message));
         if (updated == 0) return;
         try {
-            sseController.sendProgress(taskId, get(taskId, userId));
+            // 进度也沿用当前权限读取路径，保持通知与任务查询的可见范围一致。
+            notificationService.sendProgress(taskId, get(taskId, userId));
         } catch (BusinessException ex) {
-            sseController.sendError(taskId, ex.getMessage());
+            // 撤权后终止页面通知，不将未经复查的任务对象作为进度载荷。
+            notificationService.sendError(taskId, ex.getMessage());
         }
     }
 
@@ -1534,6 +1583,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     private void finishWithoutData(QueryTask task, String terminalStatus, String message) {
+        // Python 主动回报的终态和澄清结果保持原行为，无需额外发起远端取消。
+        finishWithoutData(task, terminalStatus, message, false);
+    }
+
+    private void finishWithoutData(QueryTask task, String terminalStatus, String message, boolean cancelExecution) {
+        // 只有本地主动终止执行时才同时记录取消意图，现有结果和轮次合同不变。
         if (task == null || task.getTaskId() == null) return;
         int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                 .eq(QueryTask::getTaskId, task.getTaskId())
@@ -1544,16 +1599,22 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .set(QueryTask::getResultColumns, writeJson(List.of()))
                 .set(QueryTask::getChartConfig, null)
                 .set(QueryTask::getIamFinalProtectionStatus, "NO_RESULT")
+                .set(cancelExecution, QueryTask::getCancellationDeliveryStatus, "PENDING")
+                .set(cancelExecution, QueryTask::getCancellationNextAttemptAt, LocalDateTime.now())
                 .set(QueryTask::getCompletedAt, LocalDateTime.now()));
-        if (updated <= 0 || task.getConversationId() == null) return;
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("taskId", task.getTaskId());
-        metadata.put("status", terminalStatus);
-        metadata.put("question", task.getQuestion());
-        metadata.put("clarification", message);
-        conversationService.saveAssistantMessage(task.getConversationId(), message, task.getTaskId(), writeJson(metadata));
-        conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
-        refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
+        if (updated <= 0) return;
+        if (task.getConversationId() != null) {
+            // 终态消息与轮次释放仍由原事务负责，投递组件不重复执行这些业务写操作。
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("taskId", task.getTaskId());
+            metadata.put("status", terminalStatus);
+            metadata.put("question", task.getQuestion());
+            metadata.put("clarification", message);
+            conversationService.saveAssistantMessage(task.getConversationId(), message, task.getTaskId(), writeJson(metadata));
+            conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
+        }
+        if (cancelExecution) cancellationService.dispatchAfterCommit(task.getTaskId());
     }
 
     private void saveCompletedConversationMessage(QueryTask task, Map<String, Object> rawResult,

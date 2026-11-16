@@ -38,26 +38,20 @@ public interface QualityRuleService {
 
     QualityRuleVO createRule(QualityRuleDTO request, Long operatorUserId);
 
-    QualityRuleVO updateRule(Long ruleId, QualityRuleDTO request, Long operatorUserId);
+    QualityRuleVO updateRule(Long ruleId, QualityRuleDTO request, Integer expectedVersion, Long operatorUserId);
 
-    QualityRuleVO copyRule(Long ruleId, Long operatorUserId);
+    QualityRuleVO copyRule(Long ruleId, Integer expectedVersion, Long operatorUserId);
 
-    void deleteRule(Long ruleId, Long operatorUserId);
+    void deleteRule(Long ruleId, Integer expectedVersion, Long operatorUserId);
 
-    void restoreRule(Long ruleId, Long operatorUserId);
+    void restoreRule(Long ruleId, Integer expectedVersion, Long operatorUserId);
 
     /**
-     * 更新质量规则启用状态。
-     *
-     * @param ruleId   规则 ID
-     * @param enabled  是否启用
-     */
-    /**
-     * 启用或停用全局质量规则。
+     * 按客户端原版本启用或停用规则；状态变更同样推进配置版本。
      *
      * <p>全局规则没有 datasourceId，启停影响所有数据源，因此只允许受保护系统管理员执行——
      * 非系统管理员即使在某个负责源上有 {@code governance:rule:manage} 也不能改全局规则。
      * 表/列治理状态不受此限制。</p>
      */
-    void updateEnabled(Long ruleId, boolean enabled, Long operatorUserId);
+    void updateEnabled(Long ruleId, boolean enabled, Integer expectedVersion, Long operatorUserId);
 }

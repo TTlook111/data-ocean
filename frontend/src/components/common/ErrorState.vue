@@ -47,6 +47,7 @@ const emit = defineEmits<{
   gap: 12px;
 }
 
+/* 错误符号与文字共同表达失败状态。 */
 .error-icon {
   width: 40px;
   height: 40px;
@@ -54,8 +55,8 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--do-danger-soft);
+  color: var(--do-danger);
   font-size: 20px;
   font-weight: bold;
 }

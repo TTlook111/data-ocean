@@ -9,6 +9,9 @@ import com.dataocean.module.governance.entity.vo.QualityCheckBatchRuleVO;
 import com.dataocean.module.governance.mapper.QualityCheckBatchMapper;
 import com.dataocean.module.governance.mapper.QualityCheckBatchRuleMapper;
 import com.dataocean.module.governance.mapper.QualityCheckResultMapper;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
@@ -22,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -49,7 +53,7 @@ class QualityCheckBatchRecorderTest {
         when(batchMapper.selectById(anyLong())).thenReturn(persistedBatch);
         QualityCheckBatchRecorder recorder = new QualityCheckBatchRecorder(
                 batchMapper, ruleMapper, mock(QualityCheckResultMapper.class), new ObjectMapper(),
-                mock(IamS1AuthorizationResolver.class), mock(IamS1CapabilityService.class));
+                mock(IamS1AuthorizationResolver.class), mock(IamS1CapabilityService.class), mock(MetadataSnapshotMapper.class));
 
         MetadataQualityRule liveRule = new MetadataQualityRule();
         liveRule.setId(12L);
@@ -120,13 +124,58 @@ class QualityCheckBatchRecorderTest {
         assertThat(adminHistory).extracting(QualityCheckBatchRuleVO::getBatchId).containsExactlyInAnyOrder(202L, 201L);
     }
 
+    @Test
+    void exactBatchLookupNeverSubstitutesLatestAndVerifiesBothSnapshotAndDatasourceBeforeReadingContent() {
+        HistoryFixture fixture = new HistoryFixture();
+        MetadataSnapshot snapshot = new MetadataSnapshot();
+        snapshot.setId(1201L);
+        snapshot.setDatasourceId(5L);
+        when(fixture.snapshotMapper.selectById(1201L)).thenReturn(snapshot);
+
+        assertThat(fixture.recorder.getForSnapshot(1201L, 201L).getId()).isEqualTo(201L);
+        assertThatThrownBy(() -> fixture.recorder.getForSnapshot(1201L, 202L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(404));
+        assertThatThrownBy(() -> fixture.recorder.getForSnapshot(1201L, 999L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(404));
+        snapshot.setDatasourceId(6L);
+        assertThatThrownBy(() -> fixture.recorder.getForSnapshot(1201L, 201L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(404));
+        org.mockito.Mockito.verify(fixture.batchRuleMapper, org.mockito.Mockito.times(1)).selectList(any());
+        org.mockito.Mockito.verify(fixture.batchMapper, org.mockito.Mockito.never()).selectOne(any());
+    }
+
+    @Test
+    void minimalIssueRoleCanResolveItsSnapshotWithoutMetadataDirectoryOrScoreAccess() {
+        HistoryFixture fixture = new HistoryFixture();
+        MetadataSnapshot snapshot = new MetadataSnapshot();
+        snapshot.setId(1201L);
+        snapshot.setDatasourceId(5L);
+        snapshot.setSnapshotVersion(2);
+        snapshot.setStatus("DRAFT");
+        snapshot.setQualityScore(new BigDecimal("47"));
+        when(fixture.snapshotMapper.selectById(1201L)).thenReturn(snapshot);
+        when(fixture.authorizationResolver.canManageDatasource(7L, "governance:issue:view", 5L)).thenReturn(true);
+        var result = fixture.recorder.context(1201L, 7L);
+        assertThat(result.getDatasourceId()).isEqualTo(5L);
+        assertThat(result.getSnapshotVersion()).isEqualTo(2);
+        assertThat(result.getQualityScore()).isNull();
+        when(fixture.authorizationResolver.canManageDatasource(7L, "governance:view", 5L)).thenReturn(true);
+        assertThat(fixture.recorder.context(1201L, 7L).getQualityScore()).isEqualByComparingTo("47");
+        snapshot.setDatasourceId(6L);
+        assertThatThrownBy(() -> fixture.recorder.context(1201L, 7L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(403));
+        org.mockito.Mockito.verify(fixture.authorizationResolver, org.mockito.Mockito.never())
+                .canManageDatasource(any(), org.mockito.ArgumentMatchers.eq("metadata:view"), any());
+    }
+
     private static final class HistoryFixture {
         private final QualityCheckBatchMapper batchMapper = mock(QualityCheckBatchMapper.class);
         private final QualityCheckBatchRuleMapper batchRuleMapper = mock(QualityCheckBatchRuleMapper.class);
         private final IamS1AuthorizationResolver authorizationResolver = mock(IamS1AuthorizationResolver.class);
         private final IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
+        private final MetadataSnapshotMapper snapshotMapper = mock(MetadataSnapshotMapper.class);
         private final QualityCheckBatchRecorder recorder = new QualityCheckBatchRecorder(batchMapper, batchRuleMapper,
-                mock(QualityCheckResultMapper.class), new ObjectMapper(), authorizationResolver, capabilityService);
+                mock(QualityCheckResultMapper.class), new ObjectMapper(), authorizationResolver, capabilityService, snapshotMapper);
 
         private HistoryFixture() {
             when(batchMapper.selectById(201L)).thenReturn(batch(201L, 5L));

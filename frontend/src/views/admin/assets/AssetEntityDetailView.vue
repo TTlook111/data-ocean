@@ -984,9 +984,9 @@ onBeforeUnmount(() => {
     :class="{ 'entity-detail-page--fixed': fixedLayout }"
     data-test="entity-detail-page"
   >
+    <!-- 外壳标明详情路径，页头保留当前对象名、类型及来源，不重复业务域。 -->
     <TaskPageHeader
       :title="primaryName"
-      eyebrow="数据资产 / 对象详情"
       :help="isTable ? '表详情展示所在位置、字段结构、业务术语、标签与治理、所属关系及影响范围。' : '字段详情展示所属位置、原始注释、业务术语、标签与治理、使用限制及影响范围。'"
     >
       <template #title-prefix>

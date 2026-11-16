@@ -166,18 +166,18 @@ function nullableLabel(value: number | boolean) {
 .snapshot-detail-content__table :deep(.el-table) { min-width: 860px; border: 0; border-radius: 0; color: var(--do-ink); background: var(--do-surface); }
 .snapshot-detail-content__table :deep(.el-table::before),
 .snapshot-detail-content__table :deep(.el-table__inner-wrapper::before) { display: none; }
-.snapshot-detail-content__table :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; font-weight: 600; }
+.snapshot-detail-content__table :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; font-weight: 600; }
 .snapshot-detail-content__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
 .snapshot-detail-content__table :deep(.el-table td.el-table__cell) { padding: 12px 0; border-bottom-color: var(--do-line); font-size: 14px; vertical-align: middle; }
 .snapshot-detail-content__table :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
 .snapshot-detail-content__table :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
 .snapshot-detail-content__table :deep(.el-table__expand-icon) { width: 24px; height: 24px; color: var(--do-primary-strong); }
-.snapshot-detail-content__table :deep(.el-table__expanded-cell) { padding: 10px 14px 14px 42px; background: #f7f8fa; }
+.snapshot-detail-content__table :deep(.el-table__expanded-cell) { padding: 10px 14px 14px 42px; background: var(--do-bg); }
 .snapshot-detail-content__expanded-fields { min-width: 0; overflow-x: auto; }
 .snapshot-detail-content__field-table :deep(.el-table) { min-width: 850px; border: 0; color: var(--do-ink); background: var(--do-surface); }
 .snapshot-detail-content__field-table :deep(.el-table::before),
 .snapshot-detail-content__field-table :deep(.el-table__inner-wrapper::before) { display: none; }
-.snapshot-detail-content__field-table :deep(.el-table th.el-table__cell) { height: 36px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; }
+.snapshot-detail-content__field-table :deep(.el-table th.el-table__cell) { height: 36px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; }
 .snapshot-detail-content__field-table :deep(.el-table th.el-table__cell .cell) { padding: 0 10px; line-height: 36px; }
 .snapshot-detail-content__field-table :deep(.el-table td.el-table__cell) { padding: 10px 0; border-bottom-color: var(--do-line); font-size: 14px; }
 .snapshot-detail-content__field-table :deep(.el-table td.el-table__cell .cell) { padding: 0 10px; line-height: 1.4; }

@@ -74,10 +74,11 @@ li.done::before {
   background: var(--do-surface);
 }
 
+/* 阶段圆标的反白数字与图标使用实底配套色。 */
 .done .lifecycle-stepper__marker,
 .current .lifecycle-stepper__marker {
   border-color: var(--do-primary);
-  color: #fff;
+  color: var(--do-on-primary);
   background: var(--do-primary);
 }
 

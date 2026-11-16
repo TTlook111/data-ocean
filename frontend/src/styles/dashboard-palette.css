@@ -1,0 +1,17 @@
+/* 两张看板与工作台明细共用一套浅色图面；颜色使用字面值，让 ECharts 从计算样式取得和图例一致的颜色。 */
+.experience-home,
+.experience-details,
+.issue-dashboard {
+  --do-dash-surface: #fff;
+  --do-dash-ink: #18263b;
+  --do-dash-muted: #52637b;
+  --do-dash-grid: #e4eaf2;
+  --do-dash-border: #d5dfea;
+  --do-dash-cobalt: #2854cc;
+  --do-dash-selected: #edf3ff;
+  --do-dash-target: #74839a;
+  --do-dash-alert: #b1374c;
+  --do-dash-in: #4969b4;
+  --do-dash-out: #27766e;
+  --do-dash-gap: #f4f6fa;
+}

@@ -46,7 +46,8 @@ watch(() => [props.columnId, props.snapshotId, props.version, props.checkId], as
 </template>
 
 <style scoped>
-.field-governance-progress { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; border-left: 3px solid var(--do-primary, #1677ff); background: var(--do-surface); color: var(--do-ink); font-size: 13px; }
+/* 阶段提示与字段工作面共用强调边线。 */
+.field-governance-progress { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; border-left: 3px solid var(--do-primary); background: var(--do-surface); color: var(--do-ink); font-size: 13px; }
 .field-governance-progress strong { flex-shrink: 0; }
 button { min-height:32px; border:1px solid var(--do-line); border-radius:6px; background:var(--do-surface); color:var(--do-primary-strong); font:inherit; padding:4px 10px; cursor:pointer; }
 button:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; }

@@ -26,6 +26,9 @@ public class SnapshotReleaseGateVO {
     private int blockingCount;
     private int warningCount;
     private long unresolvedSourceHigh;
+    /** 精确筛选跳转使用实际状态数量，检查批次独立于当前问题处置事实。 */
+    private java.util.Map<String, Long> unresolvedSourceHighByStatus;
+    private Long latestCheckBatchId;
     private long unresolvedSemanticHigh;
     private long validTableCount;
     private LocalDateTime evaluatedAt;

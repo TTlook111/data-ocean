@@ -9,6 +9,9 @@ import java.util.List;
 
 @Data
 public class QualityCheckBatchVO {
+    /** RECORDED 表示原请求已登记；NOT_STARTED 是阻止迟到原请求的持久终结记录。 */
+    private String operationId;
+    private String operationOutcome;
     private Long id;
     private Long datasourceId;
     private Long snapshotId;

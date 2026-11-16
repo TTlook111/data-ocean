@@ -119,10 +119,13 @@ public class SemanticCheckExecutionService {
                 || MetadataQualityIssue.STATUS_REJECTED.equals(issue.getStatus())
                 || MetadataQualityIssue.STATUS_AUTO_CLOSED.equals(issue.getStatus()))) {
             String oldStatus = issue.getStatus();
+            // 自动重开也推进人工处理使用的同一行版本，防止旧页面绕过一次复查变化。
             int updated = issueMapper.update(null, new LambdaUpdateWrapper<MetadataQualityIssue>()
                     .eq(MetadataQualityIssue::getId, issue.getId())
+                    .eq(MetadataQualityIssue::getRowVersion, issue.getRowVersion())
                     .eq(MetadataQualityIssue::getStatus, oldStatus)
                     .set(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_REOPENED)
+                    .set(MetadataQualityIssue::getRowVersion, issue.getRowVersion() + 1)
                     .set(MetadataQualityIssue::getResolvedBy, null)
                     .set(MetadataQualityIssue::getResolvedAt, null)
                     .set(MetadataQualityIssue::getResolutionNote, null)
@@ -143,7 +146,15 @@ public class SemanticCheckExecutionService {
             issue.setSuggestion("请在字段治理的业务解释工作面补充或复核解释；此问题不影响来源质量评分或快照发布门禁。");
         }
         if (issue.getId() == null) issueMapper.insert(issue);
-        else issueMapper.updateById(issue);
+        else {
+            // 复查证据刷新不能把并发人工状态/分派写回旧值；冲突回滚本次语义批次。
+            Long expectedVersion = issue.getRowVersion();
+            issue.setRowVersion(expectedVersion + 1);
+            int updated = issueMapper.update(issue, new LambdaUpdateWrapper<MetadataQualityIssue>()
+                    .eq(MetadataQualityIssue::getId, issue.getId())
+                    .eq(MetadataQualityIssue::getRowVersion, expectedVersion));
+            if (updated != 1) throw new BusinessException(409, "语义问题已被其他操作修改，请重新复查");
+        }
         result.setIssueId(issue.getId());
         resultMapper.updateById(result);
     }

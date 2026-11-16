@@ -2,7 +2,7 @@
 import { shallowMount, flushPromises } from '@vue/test-utils'
 import ElementPlus, { ElMessageBox } from 'element-plus'
 import { reactive, nextTick } from 'vue'
-import { beforeEach, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, it, expect, vi } from 'vitest'
 const f = vi.hoisted(() => ({
   auth: { token: 'A', currentUser: { id: 1 } },
   iam: {
@@ -75,6 +75,9 @@ async function review(w: any, decision = 'APPROVE') {
 }
 beforeEach(() => {
   vi.restoreAllMocks()
+  // 固定原申请场景的本地日期，只模拟 Date，保留真实异步计时器供组件和 flushPromises 使用。
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 9, 31, 12, 0, 0))
   Object.values(f.api).forEach((x) => x.mockReset())
   f.auth.token = 'A'
   f.auth.currentUser.id = 1
@@ -108,6 +111,10 @@ beforeEach(() => {
     data: { requestId: id, generatedGrantId: payload.decision === 'APPROVE' ? 71 : '' },
   }))
   f.api.withdrawIamS1AccessRequest.mockResolvedValue({})
+})
+// 每例结束恢复系统时钟，避免固定日期泄漏到同一运行器内的其他验证。
+afterEach(() => {
+  vi.useRealTimers()
 })
 it('只读审批角色独立读队列，不因缺queryUse调用APPLY或被申请目录卡住', async () => {
   f.iam.queryUse = false

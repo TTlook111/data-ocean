@@ -23,5 +23,8 @@ public interface QualityCheckService {
     QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
                                              List<String> tableNames, Long operatorUserId);
 
+    QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
+                                             List<String> tableNames, Long operatorUserId, String operationId);
+
     QualityRuleSummaryVO ruleSummary(Long snapshotId);
 }

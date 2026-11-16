@@ -62,7 +62,10 @@ const tone = computed(() => tones[key.value] || 'muted')
 
 <style scoped>
 .business-status-badge {
+  /* 状态标签按内容收缩，在网格卡片内也保持标签形态，避免被拉成整行色带。 */
   display: inline-flex;
+  width: fit-content;
+  justify-self: start;
   align-items: center;
   gap: 6px;
   min-height: 24px;

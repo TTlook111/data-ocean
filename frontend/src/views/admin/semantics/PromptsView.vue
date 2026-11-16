@@ -928,8 +928,8 @@ watch(
       本地编辑尚未保存。
       <el-button text :disabled="saving || actionLoading || loading" @click="discardAndReload">重读并放弃本地草稿</el-button>
     </p>
+    <!-- 导航已表达平台归属，页头保留策略任务以及草稿和生效版本的业务边界。 -->
     <TaskPageHeader
-      eyebrow="运营与平台"
       title="Prompt 策略"
       description="按真实 AI 场景维护策略。草稿与生效版本独立；权限、输出格式和执行门禁由程序强制校验。"
     >

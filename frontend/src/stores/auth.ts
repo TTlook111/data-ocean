@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { login, logout, me, type CurrentUser, type LoginPayload, type LoginResult } from '../api/auth'
 import { useIamS1Store } from './iamS1'
 import { useAdminContextStore } from './adminContext'
+import { clearQualityRuleDrafts } from '../views/admin/governance/rules/qualityRuleDrafts'
+import { clearQualityRuleOperationOrigins } from '../views/admin/governance/rules/qualityRuleOperationOrigins'
 
 function safeJsonParse<T>(key: string): T | null {
   try {
@@ -30,6 +32,9 @@ export const useAuthStore = defineStore('auth', {
       // 不会重新加载页面，store 里的 loaded 短路会让新用户沿用旧能力。
       useIamS1Store().reset()
       useAdminContextStore().resetSession()
+      // 草稿只属于已结束的登录身份；后台页面未挂载时也必须清除内存中的人工输入。
+      clearQualityRuleDrafts()
+      clearQualityRuleOperationOrigins()
       this.token = result.data.token
       this.user = result.data
       this.currentUser = null
@@ -51,6 +56,8 @@ export const useAuthStore = defineStore('auth', {
       this.loginAttempt++
       useIamS1Store().reset()
       useAdminContextStore().resetSession()
+      clearQualityRuleDrafts()
+      clearQualityRuleOperationOrigins()
       this.token = ''
       this.user = null
       this.currentUser = null
@@ -68,6 +75,8 @@ export const useAuthStore = defineStore('auth', {
       // 与 login 同理：不清空会让下一位登录者直接复用上一位用户的 S1 能力摘要。
       useIamS1Store().reset()
       useAdminContextStore().resetSession()
+      clearQualityRuleDrafts()
+      clearQualityRuleOperationOrigins()
       this.token = ''
       this.user = null
       this.currentUser = null

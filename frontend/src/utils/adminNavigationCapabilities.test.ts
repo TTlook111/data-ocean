@@ -109,7 +109,8 @@ describe('导航能力过滤', () => {
 
     expect(groups.map((group) => group.label)).toEqual(['结果与问题', '规则与状态', '字段治理'])
     expect(groups[0].items.map((item) => item.key)).toEqual(['governance', 'governance-issues'])
-    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'governance-status'])
+    // 执行和核对入口在规则组中，用户无须先打开只读趋势图。
+    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-checks', 'governance-rules', 'governance-status'])
     expect(groups[2].items.map((item) => item.key)).toEqual(['governance-fields'])
   })
 

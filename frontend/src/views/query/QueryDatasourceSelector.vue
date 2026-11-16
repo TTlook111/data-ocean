@@ -188,9 +188,10 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
 <style scoped>
 .datasource-picker { position: relative; min-width: 0; }
 .datasource-trigger-wrap { min-width: 0; max-width: 100%; display: flex; }
-.datasource-trigger { min-height: 38px; max-width: min(360px, 42vw); display: flex; align-items: center; gap: 8px; padding: 4px 9px; border: 1px solid var(--do-line); border-radius: 9px; color: var(--do-ink); background: rgba(255, 255, 255, .9); text-align: left; cursor: pointer; transition: border-color var(--do-transition-fast), background var(--do-transition-fast), box-shadow var(--do-transition-fast); }
-.datasource-trigger:hover { border-color: var(--do-line-strong); background: #fff; }
-.datasource-trigger[aria-expanded='true'] { border-color: color-mix(in srgb, var(--do-primary) 42%, var(--do-line)); background: #fff; box-shadow: 0 1px 4px rgba(33, 78, 140, .08); }
+/* 来源选项与浮层共用不透明表面，选中颜色与键盘焦点均来自主题。 */
+.datasource-trigger { min-height: 38px; max-width: min(360px, 42vw); display: flex; align-items: center; gap: 8px; padding: 4px 9px; border: 1px solid var(--do-line); border-radius: 9px; color: var(--do-ink); background: var(--do-surface); text-align: left; cursor: pointer; transition: border-color var(--do-transition-fast), background var(--do-transition-fast), box-shadow var(--do-transition-fast); }
+.datasource-trigger:hover { border-color: var(--do-line-strong); background: var(--do-surface); }
+.datasource-trigger[aria-expanded='true'] { border-color: color-mix(in srgb, var(--do-primary) 42%, var(--do-line)); background: var(--do-surface); box-shadow: var(--do-shadow); }
 .datasource-trigger:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 32%, transparent); outline-offset: 2px; border-color: var(--do-primary); }
 .datasource-trigger > svg:first-child { flex: 0 0 auto; color: var(--do-primary-strong); }
 .source-name { min-width: 0; overflow: hidden; font-size: 12.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -206,9 +207,9 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
 .datasource-options::-webkit-scrollbar-track { background: transparent; }
 .datasource-options::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 22%, transparent); }
 .datasource-option { min-width: 0; min-height: 44px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 16px; align-items: center; gap: 6px; padding: 7px 8px; border: 1px solid transparent; border-radius: 8px; color: var(--do-ink); background: transparent; text-align: left; cursor: pointer; font: inherit; }
-.datasource-option:hover { background: color-mix(in srgb, var(--do-primary) 5%, white); }
+.datasource-option:hover { background: var(--do-soft); }
 .datasource-option:focus-visible { outline: 2px solid var(--do-primary); outline-offset: -2px; background: var(--do-primary-soft); }
-.datasource-option.active { border-color: color-mix(in srgb, var(--do-primary) 20%, transparent); background: color-mix(in srgb, var(--do-primary) 8%, white); }
+.datasource-option.active { border-color: color-mix(in srgb, var(--do-primary) 20%, transparent); background: var(--do-primary-soft); }
 .datasource-option > svg:first-child { color: var(--do-primary-strong); }
 .option-name { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .option-status { justify-self: end; padding: 2px 7px; border-radius: var(--do-radius-full); color: color-mix(in srgb, var(--do-warning) 65%, var(--do-ink)); background: var(--do-warning-soft); font-size: 10.5px; font-weight: 650; white-space: nowrap; }
@@ -235,16 +236,14 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
 </style>
 
 <style>
-/* 浮层挂载到 body，复用 Element Plus 的 popper 层级；仅保留清晰的白色面板。 */
+/* 浮层挂载到 body，从根令牌取得与选项一致的不透明表面。 */
 .query-datasource-popper.el-popover.el-popper {
   max-width: calc(100vw - 24px);
   padding: 6px;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-lg);
   color: var(--do-ink);
-  background: rgba(255, 255, 255, .985);
-  box-shadow: 0 6px 18px rgba(33, 78, 140, .08);
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow-lg);
 }
 </style>

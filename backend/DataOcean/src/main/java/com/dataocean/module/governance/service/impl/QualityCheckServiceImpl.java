@@ -112,17 +112,8 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     /**
      * 执行元数据质量检查。
      * <p>
-     * 实现逻辑：
-     * 1. 校验快照存在性
-     * 2. 解析目标维度（空则检查全部维度）
-     * 3. 判断是否为全量检查（全部维度 + 无表名过滤）
-     * 4. 全量检查时关闭历史快照的旧问题
-     * 5. 清除当前快照未完成的问题（为重新检查腾出空间）
-     * 6. 加载表、列、关系、规则等检查上下文
-     * 7. 逐个执行质量检查器，收集问题
-     * 8. 批量插入问题记录
-     * 9. 计算各维度得分和总分
-     * 10. 全量检查时更新快照质量分和状态
+     * 固定快照范围和启用配置版本后执行检查；完整覆盖才替代旧问题及可信评分。
+     * 被替代问题保留原 ID、分派和批次依据。局部失败不清理旧问题，发布状态变化会拒绝旧结果写回。
      * </p>
      *
      * @param snapshotId  快照ID
@@ -130,21 +121,30 @@ public class QualityCheckServiceImpl implements QualityCheckService {
      * @param tableNames  要检查的表名列表，为空则检查全部表
      * @return 质量检查结果，包含总分、各维度得分、问题统计
      */
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions, List<String> tableNames) {
-        return executeQualityCheckInternal(snapshotId, dimensions, tableNames, null);
+        return executeQualityCheckInternal(snapshotId, dimensions, tableNames, null, null);
     }
 
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
                                                     List<String> tableNames, Long operatorUserId) {
-        return executeQualityCheckInternal(snapshotId, dimensions, tableNames, operatorUserId);
+        return executeQualityCheckInternal(snapshotId, dimensions, tableNames, operatorUserId, null);
+    }
+
+    /** 外部请求必须绑定操作标识；内部发布事件保留独立、无客户端重放的入口。 */
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    @Override
+    public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
+                                                    List<String> tableNames, Long operatorUserId, String operationId) {
+        if (operationId == null) throw new BusinessException(400, "检查操作标识不能为空");
+        return executeQualityCheckInternal(snapshotId, dimensions, tableNames, operatorUserId, operationId);
     }
 
     private QualityCheckResultVO executeQualityCheckInternal(Long snapshotId, List<String> dimensions,
-                                                             List<String> tableNames, Long operatorUserId) {
+                                                             List<String> tableNames, Long operatorUserId, String operationId) {
         // 1. 校验快照存在性
         MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
         if (snapshot == null) {
@@ -154,14 +154,26 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         // 2. 解析目标维度（空则返回全部维度，非空则校验合法性）
         Set<String> targetDimensions = resolveTargetDimensions(dimensions);
 
-        List<String> normalizedTables = tableNames == null || tableNames.isEmpty() ? null
-                : tableNames.stream().filter(org.springframework.util.StringUtils::hasText).map(String::trim).distinct().toList();
+        // 显式表范围含空项时拒绝，不能把无效选择过滤成全量检查并清理其他范围的问题。
+        if (tableNames != null && tableNames.stream().anyMatch(name -> !org.springframework.util.StringUtils.hasText(name))) {
+            throw new BusinessException(400, "质量检查的表范围不能包含空名称");
+        }
+        List<String> normalizedTables = CollectionUtils.isEmpty(tableNames) ? null
+                : tableNames.stream().map(String::trim).distinct().toList();
         boolean isFullCheck = targetDimensions.containsAll(DIMENSION_WEIGHTS.keySet())
                 && CollectionUtils.isEmpty(normalizedTables);
         String requestedScope = isFullCheck ? "FULL"
                 : CollectionUtils.isEmpty(normalizedTables) ? "DIMENSION" : "TABLE";
-        Long batchId = batchRecorder.begin(snapshot.getDatasourceId(), snapshotId, requestedScope,
-                new ArrayList<>(targetDimensions), normalizedTables, operatorUserId);
+        Long batchId;
+        if (operationId != null) {
+            QualityCheckBatchService.OperationStart start = batchRecorder.beginOperation(snapshot.getDatasourceId(), snapshotId,
+                    requestedScope, new ArrayList<>(targetDimensions), normalizedTables, operatorUserId, operationId);
+            if (!start.owner()) return replayBatch(snapshot.getStatus(), start.batch());
+            batchId = start.batchId();
+        } else {
+            batchId = batchRecorder.begin(snapshot.getDatasourceId(), snapshotId, requestedScope,
+                    new ArrayList<>(targetDimensions), normalizedTables, operatorUserId);
+        }
         ExecutionCompletion completion = new ExecutionCompletion();
         boolean synchronizationActive = registerBatchFinalizer(batchId, completion);
 
@@ -306,15 +318,18 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             BigDecimal computedScore = dimensionScores.isEmpty() ? null : calculateTotalScore(dimensionScores);
 
             // 不完整检查不得清理旧问题、关闭历史问题、更新快照状态或覆盖可信质量分。
+            // 检查器完成后才取得同源发布锁；包括 PARTIAL 已发现的问题，发布必须看到先提交的阻断。
+            if (complete || !allIssues.isEmpty()) snapshotMapper.lockReleaseSource(snapshot.getDatasourceId());
             if (complete) {
                 if (isFullCheck) closeOldIssues(snapshot.getDatasourceId(), snapshotId);
-                clearCurrentUnfinishedIssues(snapshotId, successfulDimensions, normalizedTables);
+                closeCurrentUnfinishedIssues(snapshotId, successfulDimensions, normalizedTables);
             }
             for (MetadataQualityIssue issue : allIssues) issueMapper.insert(issue);
             if (!dimensionScores.isEmpty()) {
                 saveCheckResults(snapshotId, batchId, dimensionScores, allIssues, complete ? computedScore : null);
             }
             if (complete && isFullCheck) {
+                String originalStatus = snapshot.getStatus();
                 snapshot.setQualityScore(computedScore);
                 if (!MetadataSnapshot.STATUS_PUBLISHED.equals(snapshot.getStatus())) {
                     // 自动审批同样遵守发布门禁：仍有来源高风险时不能写出 APPROVED。
@@ -323,7 +338,13 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                             ? MetadataSnapshot.STATUS_APPROVED
                             : MetadataSnapshot.STATUS_ISSUE_FOUND);
                 }
-                snapshotMapper.updateById(snapshot);
+                // 检查期间可能发生发布/撤回；只更新检查负责字段并校验原状态，禁止旧对象覆盖新发布状态。
+                int updated = snapshotMapper.update(null, new LambdaUpdateWrapper<MetadataSnapshot>()
+                        .eq(MetadataSnapshot::getId, snapshotId)
+                        .eq(MetadataSnapshot::getStatus, originalStatus)
+                        .set(MetadataSnapshot::getQualityScore, computedScore)
+                        .set(MetadataSnapshot::getStatus, snapshot.getStatus()));
+                if (updated != 1) throw new BusinessException(409, "快照状态在检查期间已变化，本次检查结果未提交，请重新核对");
             }
             if (complete) linkQualityToGovernance(snapshotId, allIssues);
 
@@ -366,6 +387,27 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         if (CollectionUtils.isEmpty(tableNames)) return allTables;
         Set<String> selected = Set.copyOf(tableNames);
         return allTables.stream().filter(table -> selected.contains(table.getTableName())).toList();
+    }
+
+    /** 重放只投影原批次的持久事实，RUNNING/失败/部分完成都不能转成一次新的检查。 */
+    private QualityCheckResultVO replayBatch(String snapshotStatus, QualityCheckBatchVO batch) {
+        QualityCheckResultVO result = new QualityCheckResultVO();
+        result.setSnapshotId(batch.getSnapshotId());
+        result.setSnapshotStatus(snapshotStatus);
+        result.setCheckBatchId(batch.getId());
+        result.setRequestedScope(batch.getRequestedScope());
+        result.setStatus(batch.getStatus());
+        result.setComplete(batch.getComplete());
+        result.setStartedAt(batch.getStartedAt());
+        result.setFinishedAt(batch.getFinishedAt());
+        result.setExecutedRuleCount(batch.getExecutedRuleCount());
+        result.setFailedRuleCount(batch.getFailedRuleCount());
+        result.setNotApplicableRuleCount(batch.getNotApplicableRuleCount());
+        result.setQualityScore(batch.getTotalScore());
+        result.setDimensionScores(batch.getDimensionScores());
+        result.setRules(batch.getRules());
+        result.setErrorSummary(batch.getErrorSummary());
+        return result;
     }
 
     private QualityChecker findChecker(QualityRuleTemplateRegistry.Definition template) {
@@ -510,22 +552,23 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .ne(MetadataQualityIssue::getSnapshotId, currentSnapshotId)     // 排除当前快照
                 .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES)
+                .setSql("row_version = row_version + 1")
                 .set(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_AUTO_CLOSED));  // 更新为"自动关闭"
     }
 
     /**
-     * 清除当前快照中未完成的问题。
+     * 将当前快照中被完整重检替代的未完成问题标为自动关闭。
      * <p>
-     * 在重新检查前调用，删除当前快照中指定维度和表的 OPEN/CONFIRMED 状态问题，
-     * 为新检查结果腾出空间。只清除未完成的问题，已解决或已关闭的问题保留。
+     * 只在完整覆盖后处理指定维度和表，保留人工分派、原问题 ID 与历史批次。
+     * 不完整检查不得执行此步骤；已解决和已关闭的问题不改变。
      * </p>
      *
      * @param snapshotId  快照ID
      * @param dimensions  要清除的维度集合
      * @param tableNames  要清除的表名列表，为空则清除所有表
      */
-    private void clearCurrentUnfinishedIssues(Long snapshotId, Set<String> dimensions, List<String> tableNames) {
-        LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
+    private void closeCurrentUnfinishedIssues(Long snapshotId, Set<String> dimensions, List<String> tableNames) {
+        LambdaUpdateWrapper<MetadataQualityIssue> qw = new LambdaUpdateWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getSnapshotId, snapshotId)            // 当前快照
                 .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .in(MetadataQualityIssue::getDimension, dimensions)             // 指定维度
@@ -534,7 +577,11 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         if (!CollectionUtils.isEmpty(tableNames)) {
             qw.in(MetadataQualityIssue::getTableName, tableNames);
         }
-        issueMapper.delete(qw);
+        // 新检查替代旧未解决问题，但必须保留原 ID、责任人和批次证据；同时使旧客户端版本失效。
+        qw.set(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_AUTO_CLOSED)
+                .setSql("row_version = row_version + 1")
+                .set(MetadataQualityIssue::getUpdatedAt, java.time.LocalDateTime.now());
+        issueMapper.update(null, qw);
     }
 
     /**
@@ -552,6 +599,10 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         // 空列表表示检查全部维度
         if (CollectionUtils.isEmpty(dimensions)) {
             return new HashSet<>(DIMENSION_WEIGHTS.keySet());
+        }
+        // null/空白维度属于非法范围，不能抛空指针或回退到默认全部维度。
+        if (dimensions.stream().anyMatch(dimension -> !org.springframework.util.StringUtils.hasText(dimension))) {
+            throw new BusinessException(400, "质量检查维度不能为空");
         }
         Set<String> targetDimensions = new HashSet<>(dimensions);
         // 校验维度合法性：过滤出不在 DIMENSION_WEIGHTS 中的维度
@@ -715,26 +766,12 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             return;
         }
 
-        // 查询这些表的当前治理状态
-        List<DbTableMeta> tables = tableMetaMapper.selectList(
-                new LambdaQueryWrapper<DbTableMeta>()
-                        .eq(DbTableMeta::getSnapshotId, snapshotId)
-                        .in(DbTableMeta::getTableName, tablesWithHighIssues));
-
-        int updated = 0;
-        for (DbTableMeta table : tables) {
-            String currentStatus = table.getGovernanceStatus();
-            // 不降级已 BLOCKED/DEPRECATED 的表
-            if ("BLOCKED".equals(currentStatus) || "DEPRECATED".equals(currentStatus)) {
-                continue;
-            }
-            // 仅当状态不是 RECOMMENDED 时才更新
-            if (!"RECOMMENDED".equals(currentStatus)) {
-                table.setGovernanceStatus("RECOMMENDED");
-                tableMetaMapper.updateById(table);
-                updated++;
-            }
-        }
+        // 只改治理状态，并在 UPDATE 当刻检查最新限制。慢检查不能拿旧表对象恢复已被阻断的表。
+        int updated = tableMetaMapper.update(null, new LambdaUpdateWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getSnapshotId, snapshotId).in(DbTableMeta::getTableName, tablesWithHighIssues)
+                .and(w -> w.isNull(DbTableMeta::getGovernanceStatus).or()
+                        .notIn(DbTableMeta::getGovernanceStatus, "BLOCKED", "DEPRECATED", "RECOMMENDED"))
+                .set(DbTableMeta::getGovernanceStatus, "RECOMMENDED"));
 
         if (updated > 0) {
             log.info("质量问题联动治理状态 snapshotId={} highIssueTables={} updated={}",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from './BrandMark.vue'
 defineProps<{ title: string; description: string; label: string }>()
 </script>
 <template>
@@ -7,7 +7,7 @@ defineProps<{ title: string; description: string; label: string }>()
     <div class="guide-frame">
       <nav class="guide-nav" aria-label="指南导航">
         <span class="guide-brand">
-          <img :src="brandMark" alt="" />
+          <BrandMark />
           <strong>DataOcean</strong>
         </span>
         <slot name="navigation" />
@@ -46,11 +46,6 @@ defineProps<{ title: string; description: string; label: string }>()
   align-items: center;
   gap: 10px;
   margin-right: auto;
-}
-.guide-brand img {
-  height: 36px;
-  width: 22px;
-  object-fit: contain;
 }
 .guide-brand strong {
   font-size: 18px;

@@ -49,11 +49,12 @@ public class SchemaSnapshotServiceImpl implements SchemaSnapshotService {
     @Transactional
     @Override
     public void updateStats(Long snapshotId, Integer tableCount, Integer columnCount, String schemaHash) {
-        MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
-        snapshot.setTableCount(tableCount);
-        snapshot.setColumnCount(columnCount);
-        snapshot.setSchemaHash(schemaHash);
-        snapshotMapper.updateById(snapshot);
+        // 采集统计只拥有这三个字段；不得把较早读取的生命周期状态写回当前快照。
+        snapshotMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<MetadataSnapshot>()
+                .eq(MetadataSnapshot::getId, snapshotId)
+                .set(MetadataSnapshot::getTableCount, tableCount)
+                .set(MetadataSnapshot::getColumnCount, columnCount)
+                .set(MetadataSnapshot::getSchemaHash, schemaHash));
     }
 
     /**

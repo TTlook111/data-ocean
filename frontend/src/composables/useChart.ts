@@ -1,5 +1,6 @@
 import { onBeforeUnmount, type Ref } from 'vue'
 import * as echarts from 'echarts'
+import { readChartTheme } from '../utils/chartTheme'
 
 export function useChart(containerRef: Ref<HTMLDivElement | null>) {
   let instance: echarts.ECharts | null = null
@@ -42,8 +43,10 @@ export function useChart(containerRef: Ref<HTMLDivElement | null>) {
   }
 
   function getDataURL(): string | null {
-    if (!instance) return null
-    return instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
+    if (!instance || !containerRef.value) return null
+    // 独立图片没有页面样式，导出时显式填入图表工作面的颜色。
+    const backgroundColor = readChartTheme(containerRef.value).color('--do-surface')
+    return instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor })
   }
 
   function getInstance(): echarts.ECharts | null {

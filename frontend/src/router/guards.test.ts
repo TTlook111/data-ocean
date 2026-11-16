@@ -36,6 +36,8 @@ function testRouter() {
       { path: '', redirect: '/admin/workbench' },
       { path: 'workbench', component: empty },
       { path: 'semantics/knowledge', component: empty },
+      { path: 'governance', component: empty },
+      { path: 'governance/checks', component: empty },
     ] },
     { path: '/query', component: empty },
     { path: '/login', component: empty },
@@ -45,6 +47,16 @@ function testRouter() {
   setupRouterGuards(router)
   return router
 }
+
+// 同一路由内打开旧批次书签也必须到检查页，不能在只读总览静默吞掉批次约束。
+it('旧治理批次与版本入口保留来源、快照和返回位置', async () => {
+  const router = testRouter()
+  await router.push('/admin/governance?datasourceId=1&snapshotId=3')
+  expect(router.currentRoute.value.path).toBe('/admin/governance')
+  await router.push('/admin/governance?datasourceId=1&snapshotId=3&batchId=bad&returnTo=/admin/releases')
+  expect(router.currentRoute.value.path).toBe('/admin/governance/checks')
+  expect(router.currentRoute.value.query).toEqual({ datasourceId:'1', snapshotId:'3', batchId:'bad', returnTo:'/admin/releases' })
+})
 
 it('后台默认入口进入manager实际可用知识工作区，不落入无权工作台或旧源', async () => {
   const router = testRouter()

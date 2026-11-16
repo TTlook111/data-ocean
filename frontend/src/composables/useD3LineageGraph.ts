@@ -10,6 +10,7 @@
 import * as d3 from 'd3'
 import dagre from 'dagre'
 import type { MetadataEntityItem, MetadataRelationshipItem } from '../api/admin/catalog'
+import { readChartTheme } from '../utils/chartTheme'
 
 // ========== 类型定义 ==========
 
@@ -124,10 +125,11 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
     // 主图层
     mainGroup = svg.append('g')
 
-    // 拖拽连线预览线（隐藏）
+    // 连线预览表示可操作目标，独立 SVG 导出会沿用这里解析出的实际色值。
+    const { color } = readChartTheme(container)
     dragLine = mainGroup
       .append('line')
-      .attr('stroke', '#faad14')
+      .attr('stroke', color('--do-primary'))
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', '6,4')
       .attr('visibility', 'hidden')
@@ -146,12 +148,16 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M 0 0 L 10 5 L 0 10 z')
-      .attr('fill', '#999')
+      .attr('fill', color('--do-muted'))
   }
 
   /** 渲染图谱 */
   function render(nodes: GraphNode[], edges: GraphEdge[]) {
-    if (!svg || !mainGroup) return
+    const container = containerRef()
+    if (!svg || !mainGroup || !container) return
+    // 节点表面与文字采用工作区材质，图谱序列只承担关系分类。
+    const { color } = readChartTheme(container)
+    const tableFill = color('--do-surface'), columnFill = color('--do-primary-soft')
 
     // 布局计算
     layoutGraph(nodes, edges)
@@ -184,7 +190,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .attr('stroke', (e) => e.style.color)
       .attr('stroke-width', (e) => e.style.width)
       .attr('stroke-dasharray', (e) => (e.style.dashed ? '6,4' : 'none'))
-      .attr('opacity', 0.7)
+      .attr('opacity', 0.9)
       .attr('marker-end', 'url(#arrowhead)')
 
     // 边标签（lineageType）
@@ -194,7 +200,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .attr('text-anchor', 'middle')
       .attr('dy', -6)
       .attr('font-size', 10)
-      .attr('fill', '#888')
+      .attr('fill', color('--do-muted'))
       .append('textPath')
       .attr('href', (_e, i) => `#edge-label-path-${i}`)
       .attr('startOffset', '50%')
@@ -239,10 +245,10 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .attr('width', (n) => (isTable(n) ? 160 : 100))
       .attr('height', (n) => (isTable(n) ? 56 : 32))
       .attr('rx', 8)
-      .attr('fill', (n) => (isTable(n) ? '#fffefa' : '#f2f0e9'))
-      .attr('stroke', (n) => (isTable(n) ? '#b7bcb2' : '#d1ccc1'))
+      .attr('fill', (n) => (isTable(n) ? tableFill : columnFill))
+      .attr('stroke', color('--do-muted'))
+      .attr('stroke-opacity', 0.8)
       .attr('stroke-width', 1.5)
-      .attr('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
 
     // 节点文字
     nodeSelection.selectAll('text').remove()
@@ -250,7 +256,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .append('text')
       .attr('x', 12)
       .attr('y', (n) => (isTable(n) ? 30 : 21))
-      .attr('fill', '#303932')
+      .attr('fill', color('--do-ink'))
       .attr('font-size', (n) => (isTable(n) ? 13 : 11))
       .attr('font-weight', (n) => (isTable(n) ? 600 : 400))
       .text((n) => truncateNodeLabel(n.label, isTable(n) ? 14 : 11))
@@ -260,7 +266,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .append('text')
       .attr('x', 12)
       .attr('y', (n) => (isTable(n) ? 46 : 20))
-      .attr('fill', '#777e74')
+      .attr('fill', color('--do-muted'))
       .attr('font-size', 10)
       .text((n) => (isTable(n) ? 'TABLE' : ''))
 
@@ -359,6 +365,8 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
     if (!node) throw new Error('图谱尚未就绪')
     const { width, height } = node.getBoundingClientRect()
     if (!width || !height || width * height > 16000000) throw new Error('导出尺寸无效')
+    // 在序列化时固定图谱画布底色，PNG 与当时屏幕上的节点和文字配套。
+    const backgroundColor = readChartTheme(node).color('--do-surface')
     const clone = node.cloneNode(true) as SVGSVGElement
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     clone.setAttribute('width', String(width))
@@ -390,7 +398,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
           const ctx = canvas.getContext('2d')
           if (!ctx) throw new Error('画布不可用')
           ctx.scale(2, 2)
-          ctx.fillStyle = '#fffefa'
+          ctx.fillStyle = backgroundColor
           ctx.fillRect(0, 0, width, height)
           ctx.drawImage(img, 0, 0, width, height)
           resolve(canvas.toDataURL('image/png'))

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useAuthStore } from '../../../stores/auth'
 import { ArrowLeft } from 'lucide-vue-next'
-import { useRouter, useRoute, type RouteLocationRaw } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import SnapshotDetailPanel from '../../../components/admin/SnapshotDetailPanel.vue'
 import ReleaseGatePanel from '../../../components/admin/ReleaseGatePanel.vue'
@@ -27,27 +27,15 @@ const {
   load: loadGate,
   clear: clearGate,
 } = useReleaseGate()
-const canViewGovernance = computed(() => {
-  const sourceId = detail.value?.snapshot.datasourceId
-  return sourceId !== undefined && iamS1.canOnDatasource('governance:view', sourceId)
-})
-const canViewReleaseGate = computed(() => {
-  const sourceId = detail.value?.snapshot.datasourceId
-  return iamS1.loaded && sourceId !== undefined
-    && iamS1.canOnDatasource('metadata:release:view', sourceId)
-})
-const gateIssueTarget = computed<RouteLocationRaw | undefined>(() => {
-  const snapshot = detail.value?.snapshot
-  if (!snapshot || !iamS1.canOnDatasource('governance:issue:view',snapshot.datasourceId)) return undefined
-  return {
-    path: '/admin/governance/issues',
-    query: { datasourceId: String(snapshot.datasourceId), snapshotId: String(snapshot.id) },
-  }
-})
-
-function retryGate() {
-  const snapshot = detail.value?.snapshot
-  if (snapshot && canViewReleaseGate.value) void loadGate(snapshot.id)
+// 版本门禁按版本查看权读取，显式来源与返回身份必须相符；表字段结构独立判权。
+const source = computed(() => detail.value?.snapshot.datasourceId ?? routeDatasourceId.value)
+const verifiedSource = computed(() => detail.value?.snapshot.datasourceId ?? gate.value?.datasourceId)
+const canViewGovernance = computed(() => !!verifiedSource.value && iamS1.canOnDatasource('governance:view', verifiedSource.value))
+const canViewReleaseGate = computed(() => iamS1.loaded && !iamS1.errorMessage && (source.value === undefined ? iamS1.systemAdmin || iamS1.datasourcesWithFunction('metadata:release:view').length > 0 : Number.isSafeInteger(source.value) && source.value > 0 && iamS1.canOnDatasource('metadata:release:view', source.value)))
+const canViewGateIssues = computed(() => !!gate.value?.datasourceId && iamS1.canOnDatasource('governance:issue:view', gate.value.datasourceId))
+async function retryGate() {
+  if (!canViewReleaseGate.value) return
+  await loadGate(snapshotId.value, source.value, id => iamS1.canOnDatasource('metadata:release:view', id))
 }
 
 const returnToRelease = computed(() => {
@@ -60,35 +48,28 @@ const returnToRelease = computed(() => {
 function loadRouteSnapshot() {
   clear(); clearGate()
   if (routeDatasourceId.value != null && (!Number.isSafeInteger(routeDatasourceId.value) || routeDatasourceId.value <= 0)) { error.value='指定数据源标识无效，未改用其他范围。'; return }
-  if (!canReadDetail.value) { error.value=iamS1.errorMessage || '需要当前数据源的 metadata:view 才能读取快照结构。'; return }
+  if (!canReadDetail.value) { error.value=iamS1.errorMessage || '此账号未开放表字段结构查看。'; return }
   void load({ snapshotId: snapshotId.value, datasourceId: routeDatasourceId.value })
 }
 
 function openGovernance() {
-  const snapshot = detail.value?.snapshot
-  if (!snapshot || !canViewGovernance.value) return
+  const sourceId = verifiedSource.value
+  if (!sourceId || !canViewGovernance.value) return
   router.push({
-    path: '/admin/governance',
+    path: '/admin/governance/checks',
     query: {
-      datasourceId: String(snapshot.datasourceId),
-      snapshotId: String(snapshot.id),
+      datasourceId: String(sourceId),
+      snapshotId: String(snapshotId.value),
       returnTo: '/admin/releases',
     },
   })
 }
 
 watch(() => [snapshotId.value, routeDatasourceId.value, auth.token, iamS1.snapshot, iamS1.loaded, iamS1.errorMessage], loadRouteSnapshot, { immediate: true, flush: 'sync' })
-watch(
-  () => [detail.value?.snapshot.id, detail.value?.snapshot.datasourceId, canViewReleaseGate.value] as const,
-  ([loadedSnapshotId]) => {
-    if (!loadedSnapshotId || !canViewReleaseGate.value) {
-      clearGate()
-      return
-    }
-    void loadGate(loadedSnapshotId)
-  },
-  { immediate: true },
-)
+watch(() => [snapshotId.value, source.value, canViewReleaseGate.value, auth.token, iamS1.snapshot], () => {
+  if (canViewReleaseGate.value) retryGate()
+  else clearGate()
+}, { immediate: true, flush:'post' })
 onBeforeUnmount(() => {
   clear()
   clearGate()
@@ -97,7 +78,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="admin-page snapshot-detail-page">
-    <p class="snapshot-detail__eyebrow">数据资产 / 精确版本</p>
     <TaskPageHeader title="快照详情" description="检查采集结果和治理状态；审核通过与正式发布是两个独立动作。">
       <template #title-prefix>
         <RouterLink class="snapshot-detail__back" :to="returnToRelease" :aria-label="returnToRelease.path === '/admin/releases' ? '返回元数据版本' : '返回有权数据工作区'">
@@ -106,10 +86,10 @@ onBeforeUnmount(() => {
         </RouterLink>
       </template>
       <template #title-suffix>
-        <span v-if="detail" class="snapshot-detail__version">v{{ detail.snapshot.snapshotVersion }}</span>
+        <span v-if="detail" class="snapshot-detail__version">v{{ detail.snapshot.snapshotVersion }}</span><span v-else-if="gate" class="snapshot-detail__version">数据源 #{{ gate.datasourceId }} · 快照 #{{ gate.snapshotId }}</span>
       </template>
-      <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" :label="snapshotStatusLabel(detail.snapshot.status)" /></template>
-      <template #actions><el-button v-if="canViewGovernance" @click="openGovernance">查看治理情况</el-button></template>
+      <template #status><BusinessStatusBadge v-if="detail || gate" :status="detail?.snapshot.status || gate?.snapshotStatus" :label="snapshotStatusLabel(detail?.snapshot.status || gate?.snapshotStatus)" /></template>
+      <template #actions><el-button v-if="canViewGovernance" @click="openGovernance">查看质量检查</el-button></template>
     </TaskPageHeader>
 
     <ReleaseGatePanel
@@ -117,16 +97,17 @@ onBeforeUnmount(() => {
       :gate="gate"
       :loading="gateLoading"
       :error="gateError"
-      :issue-target="gateIssueTarget"
+      :can-view-issues="canViewGateIssues"
+      :can-view-checks="canViewGovernance"
       @retry="retryGate"
     />
 
-    <SnapshotDetailPanel :detail="detail" :loading="loading" :error="error" @retry="loadRouteSnapshot" />
+    <p v-if="!canReadDetail && canViewReleaseGate" role="status">此账号未开放表字段结构查看。</p>
+    <SnapshotDetailPanel v-else :detail="detail" :loading="loading" :error="error" @retry="loadRouteSnapshot" />
   </div>
 </template>
 
 <style scoped>
-.snapshot-detail__eyebrow {margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
 .snapshot-detail-page { display: grid; gap: 14px; min-width: 0; }
 .snapshot-detail-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
 .snapshot-detail-page :deep(.task-page-header h1) { font-size: clamp(24px, 2.1vw, 28px); line-height: 1.2; letter-spacing: -.02em; }

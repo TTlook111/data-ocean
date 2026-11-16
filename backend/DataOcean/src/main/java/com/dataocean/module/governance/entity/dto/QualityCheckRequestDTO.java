@@ -1,6 +1,8 @@
 package com.dataocean.module.governance.entity.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 import java.util.List;
 
@@ -12,6 +14,10 @@ import java.util.List;
  */
 @Data
 public class QualityCheckRequestDTO {
+    /** 网络重试和刷新核对沿用同一标识，不允许把未知检查当作新的执行。 */
+    @NotBlank
+    @Pattern(regexp = "[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+    private String operationId;
 
     private Long snapshotId;
     private List<String> dimensions;

@@ -14,6 +14,7 @@ import {
   Search,
 } from 'lucide-vue-next'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
+import { readChartTheme } from '../../../utils/chartTheme'
 import {
   getEntitiesByDatasource,
   searchCatalog,
@@ -411,6 +412,24 @@ function edgesByDirection(rels: MetadataRelationshipItem[]) {
   return rels.filter((x) => keep.has(x.id))
 }
 const visibleRelations = computed(() => edgesByDirection(relationships.value))
+// 关系类型对应固定分类色，图例和导出图谱读取同一映射，派生关系另以虚线区分。
+const relationStyles = {
+  FOREIGN_KEY: { label: '结构关联', token: '--do-muted' },
+  DERIVED_FROM: { label: '字段派生', token: '--do-chart-4' },
+  ETL: { label: '加工记录', token: '--do-chart-3' },
+  QUERY: { label: '查询记录', token: '--do-chart-2' },
+  MANUAL: { label: '人工记录', token: '--do-chart-1' },
+  UNKNOWN: { label: '来源未标记', token: '--do-muted' },
+} as const
+
+function relationStyleKey(relation: MetadataRelationshipItem): keyof typeof relationStyles {
+  if (relation.relationType === 'FOREIGN_KEY' || relation.relationType === 'DERIVED_FROM') return relation.relationType
+  const source = parseLineageMeta(relation.relationMetadata).lineage_type
+  if (source === 'ETL' || source === 'QUERY' || source === 'MANUAL') return source
+  return 'UNKNOWN'
+}
+
+const visibleRelationKinds = computed(() => [...new Set(visibleRelations.value.map(relationStyleKey))])
 /** 没有可展示关系时不铺一整片空白画布，改为说明性空态。 */
 const graphEmpty = computed(
   () =>
@@ -433,7 +452,7 @@ function renderGraph() {
   const nodes: GraphNode[] = entities.value
     .filter((x) => ['TABLE', 'COLUMN'].includes(x.entityType) && ids.has(x.id))
     .map((x) => ({ id: String(x.id), label: entityShortLabel(x), entity: x }))
-  const palette: Record<string, string> = { QUERY: '#628179', ETL: '#aa603c', MANUAL: '#8c7957' }
+  const { color } = readChartTheme(chartRef.value)
   const d3Edges: GraphEdge[] = edges.map((x) => {
     const type = parseLineageMeta(x.relationMetadata).lineage_type || 'UNKNOWN'
     return {
@@ -445,12 +464,7 @@ function renderGraph() {
       lineageType: type,
       relationship: x,
       style: {
-        color:
-          x.relationType === 'FOREIGN_KEY'
-            ? '#939b96'
-            : x.relationType === 'DERIVED_FROM'
-              ? '#80728f'
-              : palette[type] || '#939b96',
+        color: color(relationStyles[relationStyleKey(x)].token),
         width: 1.6,
         dashed: x.relationType === 'DERIVED_FROM',
       },
@@ -720,9 +734,9 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <main class="data-lineage-page post-login-page" :class="{ 'admin-list-fill': graphFill }">
+    <!-- 导航承担页面归属，页头保留关系与查询来源的任务区分和真实证据说明。 -->
     <TaskPageHeader
       title="关系与查询来源"
-      eyebrow="数据资产 / 可追溯性"
       help="图谱以实体 ID 为根，不支持快照或时间筛选。这里的关系标记只说明记录来源；实际受保护执行证据在「查询使用与输出来源」中查看。"
     >
       <template #actions>
@@ -913,12 +927,12 @@ onBeforeUnmount(() => {
             <p class="lineage-empty__note">图谱只展示已记录的关系；未记录不代表没有影响。</p>
           </div>
         </template>
-        <p class="graph-legend" aria-label="图例">
+        <p v-if="visibleRelationKinds.length" class="graph-legend" aria-label="图例">
           <span class="graph-legend__label">图例</span>
-          <span><i class="legend-dot legend-dot--struct" />灰色：结构关联</span>
-          <span><i class="legend-dot legend-dot--etl" />铜色：加工记录</span>
-          <span><i class="legend-dot legend-dot--derived" />虚线：字段派生</span>
-          <span><i class="legend-dot legend-dot--query" />绿色：查询记录标记</span>
+          <span v-for="kind in visibleRelationKinds" :key="kind">
+            <i aria-hidden="true" class="legend-line" :class="{ 'legend-line--derived': kind === 'DERIVED_FROM' }"
+               :style="{ borderColor: `var(${relationStyles[kind].token})` }" />{{ relationStyles[kind].label }}
+          </span>
         </p>
         <div v-if="entities.length" class="object-strip" aria-label="选择图谱对象">
           <span class="object-strip__label">图谱对象</span>
@@ -1183,7 +1197,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--do-line);
   border-radius: 14px;
   background: var(--do-surface);
-  box-shadow: 0 12px 32px rgb(36 39 36 / 5%);
+  /* 图谱面板沿用常驻表面的轻阴影。 */
+  box-shadow: var(--do-shadow);
   overflow: hidden;
 }
 .graph-controls {
@@ -1446,7 +1461,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--do-line);
   border-radius: 14px;
   background: var(--do-surface);
-  box-shadow: 0 10px 26px rgb(36 39 36 / 6%);
+  /* 对象详情与相邻工作面保持同一层级。 */
+  box-shadow: var(--do-shadow);
   text-align: center;
 }
 .lineage-empty__icon {
@@ -1506,26 +1522,15 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
 }
-.legend-dot {
+/* 图例使用与实际边相同的线形，名称在灰阶和窄屏下同样可读。 */
+.legend-line {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-}
-.legend-dot--struct {
-  background: #939b96;
-}
-.legend-dot--etl {
-  background: #aa603c;
-}
-.legend-dot--derived {
-  width: 10px;
+  width: 16px;
   height: 0;
-  border-top: 2px dashed #80728f;
-  border-radius: 0;
+  border-top: 2px solid;
 }
-.legend-dot--query {
-  background: #628179;
+.legend-line--derived {
+  border-top-style: dashed;
 }
 .object-strip {
   display: flex;
@@ -1831,7 +1836,8 @@ small {
   padding: 6px;
   background: var(--do-surface);
   border: 1px solid var(--do-line);
-  box-shadow: 0 8px 28px #242b241b;
+  /* 菜单浮在图谱上，使用弹层阴影。 */
+  box-shadow: var(--do-shadow-lg);
   border-radius: 8px;
   display: grid;
 }

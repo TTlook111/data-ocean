@@ -382,8 +382,8 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="operation-log-page post-login-page">
+    <!-- 日志路径由外壳承担，页头保留审计任务和统计口径说明，不重复平台名称。 -->
     <TaskPageHeader
-      eyebrow="运营与平台"
       title="操作日志"
       help="按请求和目标资源追踪后台调用。日志总数来自服务端，成功、失败与平均耗时仅统计当前页；未知状态不计入成功或失败。成功表示调用未抛异常，不等于业务动作已完成。操作类型按 HTTP 方法推断，路径目标仅供定位。"
     >

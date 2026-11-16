@@ -38,6 +38,12 @@ export function setupRouterGuards(router: Router) {
     if (navigation !== navigationSequence) return false
     if (auth.token !== token) return '/login'
 
+    // 旧书签可能只更换 query。全局守卫也能兼容从总览原地打开批次的导航，并保留原精确范围。
+    if (to.path === '/admin/governance' && (to.query?.batchId !== undefined ||
+      to.query?.returnTo === '/admin/releases' || to.query?.source === 'release')) {
+      return { path: '/admin/governance/checks', query: to.query, hash: to.hash, replace: true }
+    }
+
     const user = auth.currentUser ?? auth.user
     if (token && user?.passwordChanged === false && to.path !== '/change-password') {
       return '/change-password?forced=1'

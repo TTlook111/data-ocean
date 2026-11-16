@@ -99,6 +99,6 @@ class GovernanceStatusServiceImplTest {
         private final DbColumnMetaMapper columnMetaMapper = mock(DbColumnMetaMapper.class);
         private final MetadataReviewRecordMapper reviewRecordMapper = mock(MetadataReviewRecordMapper.class);
         private final GovernanceStatusServiceImpl service = new GovernanceStatusServiceImpl(
-                tableMetaMapper, columnMetaMapper, reviewRecordMapper);
+                tableMetaMapper, columnMetaMapper, reviewRecordMapper, mock(com.dataocean.module.metadata.mapper.MetadataSnapshotMapper.class));
     }
 }

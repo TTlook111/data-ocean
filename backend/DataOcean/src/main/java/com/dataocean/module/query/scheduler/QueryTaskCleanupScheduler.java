@@ -7,7 +7,7 @@ import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.ConversationContextSummaryService;
-import com.dataocean.module.query.client.IamS1PythonClient;
+import com.dataocean.module.query.service.IamS1QueryCancellationService;
 import com.dataocean.module.permission.s1.IamS1Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +35,8 @@ public class QueryTaskCleanupScheduler {
     private final QueryTaskMapper queryTaskMapper;
     private final ConversationService conversationService;
     private final ConversationContextSummaryService conversationContextSummaryService;
-    private final IamS1PythonClient pythonClient;
+    // 超时清理只记录取消意图，远端投递交给提交后可恢复的专用服务。
+    private final IamS1QueryCancellationService cancellationService;
 
     /**
      * 清理僵尸任务。
@@ -58,24 +59,29 @@ public class QueryTaskCleanupScheduler {
                 .lt(QueryTask::getCreatedAt, timeoutThreshold));
         int updated = 0;
         for (QueryTask task : stale) {
+            // 仅 S1 任务进入当前取消协议，终态与意图在同一行原子更新。
+            boolean s1 = IamS1Constants.PROTOCOL_VERSION.equals(task.getIamProtocolVersion());
             int changed = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getId, task.getId())
                     .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                     .set(QueryTask::getStatus, QueryTaskStatus.TIMEOUT.name())
                     .set(QueryTask::getErrorMessage, "查询执行超时（任务清理）")
                     .set(QueryTask::getIamFinalProtectionStatus, "TIMEOUT")
+                    .set(s1, QueryTask::getCancellationDeliveryStatus, "PENDING")
+                    .set(s1, QueryTask::getCancellationNextAttemptAt, LocalDateTime.now())
                     .set(QueryTask::getCompletedAt, LocalDateTime.now()));
             if (changed > 0) {
                 updated += changed;
                 if (task.getConversationId() != null
-                        && IamS1Constants.PROTOCOL_VERSION.equals(task.getIamProtocolVersion())) {
-                    pythonClient.cancelTask(task.getTaskId());
+                        && s1) {
                     conversationService.saveAssistantMessage(task.getConversationId(), "查询执行超时，请重新提问",
                             task.getTaskId(), "{\"taskId\":\"" + task.getTaskId() + "\",\"status\":\"TIMEOUT\"}");
                     conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
                     conversationContextSummaryService.refreshAsync(
                             task.getConversationId(), task.getUserId(), task.getDatasourceId());
                 }
+                // 无会话的 S1 任务也需要停止远端执行；事务回滚时不会发出取消。
+                if (s1) cancellationService.dispatchAfterCommit(task.getTaskId());
             }
         }
         if (updated > 0) {

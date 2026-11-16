@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { DropdownInstance } from 'element-plus'
-import { History, LogOut, MessageSquarePlus, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import { ChevronsUpDown, History, LogOut, MessageSquarePlus, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
+import BrandMark from '../../components/common/BrandMark.vue'
 import type { LocalSession } from '../../composables/useQuerySession'
 import { useIamS1Store } from '../../stores/iamS1'
 
@@ -103,8 +103,9 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 
 <template>
   <aside class="query-sidebar" :class="{ 'mobile-history-open': mobileHistoryOpen }" aria-label="会话导航">
+    <!-- 品牌与新建动作保持固定，历史列表滚动不会带走主要入口。 -->
     <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问数">
-      <img class="query-brand-mark" :src="brandMark" alt="" width="28" height="42" />
+      <BrandMark class="query-brand-mark" aria-hidden="true" />
       <div><strong>DataOcean</strong><small>智能问数</small></div>
     </RouterLink>
 
@@ -121,6 +122,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
       <History :size="16" aria-hidden="true" /><span>历史会话</span><small>{{ sessionCount }}</small>
     </button>
 
+    <!-- 历史仍按真实时间分组，搜索、选中和删除各自保留独立键盘入口。 -->
     <section class="history-section" aria-label="历史会话">
       <div class="history-heading">
         <span>历史会话</span>
@@ -170,6 +172,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
         <button ref="userMenuTrigger" class="sidebar-user" type="button" :aria-expanded="userMenuOpen" aria-haspopup="menu" aria-label="打开用户菜单" @keydown.esc.stop.prevent="closeUserMenu">
           <span class="sidebar-avatar" aria-hidden="true">{{ displayName.slice(0, 1) }}</span>
           <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+          <ChevronsUpDown class="sidebar-user-expand" :size="15" aria-hidden="true" />
         </button>
         <template #dropdown>
           <el-dropdown-menu aria-label="用户菜单" @keydown.esc.stop.prevent="closeUserMenu">
@@ -186,99 +189,85 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 </template>
 
 <style scoped>
-/* V2: a quiet navigation surface; the existing brand asset keeps its blue. */
-.query-brand-mark { width: 28px; height: 42px; object-fit: contain; }
+/* 问数历史与后台导航共用表面和选中对比色。 */
+.query-sidebar { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 22px; padding: 24px 16px 14px; color: var(--do-nav-text); background: var(--do-nav-bg); }
+.query-brand { min-width: 0; height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 12px; padding-inline: 4px; color: var(--do-nav-text); text-decoration: none; }
+.query-brand-mark { width: 32px; height: 44px; }
+.query-brand strong, .query-brand small { display: block; }
+.query-brand strong { font-size: 19px; font-weight: 650; letter-spacing: -.45px; line-height: 1.25; }
+.query-brand small { margin-top: 3px; color: var(--do-nav-muted); font-size: 11px; }
 
-/* Keep the compact history control exclusive to narrow viewports. */
-.query-sidebar { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; padding: 16px 12px 10px; border-radius: 16px; }
-.query-sidebar.do-glass-shell { background: rgba(247, 252, 255, .66); }
-.query-brand { height: 44px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 10px; color: var(--do-ink); text-decoration: none; }
-.query-brand > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: var(--do-primary); font-size: 12px; font-weight: 900; box-shadow: 0 4px 10px color-mix(in srgb, var(--do-primary) 20%, transparent); }
-.query-brand strong, .query-brand small, .history-row strong, .history-row small { display: block; }
-.query-brand strong { font-size: 18px; line-height: 1.15; }
-.query-brand small { margin-top: 2px; color: var(--do-muted); font-size: 11.5px; }
-.new-session-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: var(--do-radius-md); color: #fff; background: var(--do-primary); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px color-mix(in srgb, var(--do-primary) 18%, transparent); transition: background var(--do-transition-fast), transform var(--do-transition-fast); }
-.new-session-button:hover { background: var(--do-primary-strong); }
-.new-session-button:active { transform: translateY(1px); }
+/* 新建是导航中的主动作，加载期间沿用原禁用状态。 */
+.new-session-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-start; gap: 10px; padding-inline: 14px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); color: var(--do-nav-text); background: var(--do-nav-hover); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--do-transition-fast), border-color var(--do-transition-fast); }
+.new-session-button:hover:not(:disabled) { border-color: var(--do-nav-active); color: var(--do-nav-active-text); background: var(--do-nav-active); }
+.new-session-button:disabled { opacity: .5; cursor: wait; }
 .mobile-history-toggle { display: none; }
-.history-section { min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+
+/* 搜索与分组标题固定在列表上方，当前会话用整行底色保持可辨认。 */
+.history-section { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .history-heading, .history-search { flex-shrink: 0; }
-.history-heading { min-height: 28px; display: flex; align-items: center; gap: 6px; color: var(--do-muted); font-size: 11.5px; font-weight: 700; }
-.history-count { color: var(--do-muted); font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.history-heading button { width: 30px; height: 30px; margin-left: auto; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--do-muted); background: transparent; cursor: pointer; }
-.history-heading button:hover { color: var(--do-primary-strong); background: var(--do-primary-soft); }
-.history-search { min-height: 36px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-muted); background: rgba(255, 255, 255, .88); }
-.history-search:focus-within { border-color: var(--do-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--do-primary) 10%, transparent); }
-.history-search input { min-width: 0; border: 0; outline: 0; color: var(--do-ink); background: transparent; font: inherit; font-size: 12px; }
-.history-list { flex: 1; min-height: 0; display: grid; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--do-primary) 24%, transparent) transparent; }
-.history-list::-webkit-scrollbar { width: 5px; }
-.history-list::-webkit-scrollbar-track { background: transparent; }
-.history-list::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 22%, transparent); }
-.history-group { min-width: 0; display: grid; gap: 2px; }
-.history-group-label { margin: 9px 0 3px; padding: 0 7px; color: color-mix(in srgb, var(--do-primary-strong) 18%, var(--do-muted)); font-size: 10.5px; font-weight: 650; letter-spacing: .03em; }
-.history-group:first-child .history-group-label { margin-top: 0; }
-.history-row { min-height: 52px; display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; border: 1px solid transparent; border-radius: 9px; color: var(--do-ink); }
-.history-row:hover { background: color-mix(in srgb, var(--do-primary) 5%, white); }
-.history-row.active { border-color: color-mix(in srgb, var(--do-primary) 22%, transparent); background: color-mix(in srgb, var(--do-primary) 8%, white); }
-.history-select { min-width: 0; min-height: 52px; display: flex; align-items: center; padding: 6px 2px 6px 9px; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
-.history-copy { flex: 1 1 auto; min-width: 0; display: block; }
-.history-row strong { display: block; overflow: hidden; font-size: 12.5px; font-weight: 500; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.history-row.active strong { font-weight: 650; }
-.history-row small { margin-top: 2px; overflow: hidden; color: var(--do-muted); font-size: 10.5px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.history-delete { width: 28px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--do-muted); background: transparent; cursor: pointer; opacity: 0; transition: opacity var(--do-transition-fast); }
-.history-row:hover .history-delete, .history-row:focus-within .history-delete, .history-row.active .history-delete { opacity: .75; }
-.history-delete:hover { color: var(--do-danger); background: var(--do-danger-soft); opacity: 1; }
-.history-empty { padding: 12px 8px; color: var(--do-muted); font-size: 12px; }
-.sidebar-user-wrap { position: relative; padding-top: 8px; border-top: 1px solid var(--do-glass-line); }
+.history-heading { min-height: 28px; display: flex; align-items: center; gap: 7px; padding-left: 8px; color: var(--do-nav-muted); font-size: 12px; }
+.history-count { color: var(--do-nav-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.history-heading button { width: 30px; height: 30px; margin-left: auto; display: grid; place-items: center; border: 0; border-radius: var(--do-radius-sm); color: var(--do-nav-muted); background: transparent; cursor: pointer; }
+.history-heading button:hover { color: var(--do-nav-text); background: var(--do-nav-hover); }
+.history-search { min-height: 38px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); color: var(--do-nav-muted); background: var(--do-nav-hover); }
+.history-search:focus-within { border-color: var(--do-nav-accent); }
+.history-search input { min-width: 0; width: 100%; border: 0; outline: 0; color: var(--do-nav-text); background: transparent; font: inherit; font-size: 13px; }
+.history-search input::placeholder { color: var(--do-nav-muted); opacity: 1; }
+.history-list { flex: 1; min-height: 0; display: grid; align-content: start; gap: 16px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; scrollbar-width: thin; scrollbar-color: var(--do-nav-line) transparent; }
+.history-group { min-width: 0; display: grid; gap: 3px; }
+.history-group-label { margin: 0 0 5px; padding-inline: 8px; color: var(--do-nav-muted); font-size: 11px; font-weight: 500; }
+.history-row { min-width: 0; min-height: 56px; display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; border-radius: var(--do-radius-sm); color: var(--do-nav-text); }
+.history-row:hover { background: var(--do-nav-hover); }
+/* 深色选中行使用配套前景，标题、时间和操作图标保持可读。 */
+.history-row.active { color: var(--do-nav-active-text); background: var(--do-nav-active); }
+.history-select { min-width: 0; min-height: 56px; display: flex; align-items: center; padding: 8px 2px 8px 10px; border: 0; border-radius: var(--do-radius-sm); color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.history-copy { min-width: 0; flex: 1; display: block; }
+.history-copy strong, .history-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-copy strong { font-size: 13px; font-weight: 400; line-height: 1.5; }
+.history-row.active strong { font-weight: 600; }
+.history-row.active .history-copy small, .history-row.active .history-delete:not(:hover) { color: var(--do-nav-active-text); }
+.history-row.active .history-select:focus-visible, .history-row.active .history-delete:focus-visible { outline: 2px solid var(--do-nav-active-text); outline-offset: -3px; }
+.history-copy small { margin-top: 3px; color: var(--do-nav-muted); font-size: 11px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.history-delete { width: 28px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--do-radius-sm); color: var(--do-nav-muted); background: transparent; cursor: pointer; opacity: 0; transition: opacity var(--do-transition-fast); }
+.history-row:hover .history-delete, .history-row:focus-within .history-delete, .history-row.active .history-delete { opacity: 1; }
+.history-delete:hover { color: var(--do-danger); background: var(--do-danger-soft); }
+.history-empty { padding: 14px 8px; color: var(--do-nav-muted); font-size: 12px; line-height: 1.7; }
+.history-error { color: var(--do-danger); }
+.retry-history { display: block; min-height: 36px; margin-top: 10px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); padding-inline: 10px; color: var(--do-nav-text); background: var(--do-nav-hover); font: inherit; cursor: pointer; }
+
+/* 当前身份始终位于导航底部，显式箭头表明这里还有账户操作。 */
+.sidebar-user-wrap { position: relative; padding-top: 12px; border-top: 1px solid var(--do-nav-line); }
 .sidebar-user-dropdown { width: 100%; }
-.sidebar-user { width: 100%; min-height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 9px; padding: 6px 7px; border: 0; border-radius: 9px; color: var(--do-ink); background: transparent; text-align: left; cursor: pointer; transition: background var(--do-transition-fast); }
-.sidebar-user:hover { background: color-mix(in srgb, var(--do-primary) 8%, transparent); }
-.sidebar-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--do-primary); font-size: 11px; font-weight: 900; }
+.sidebar-user { width: 100%; min-height: 48px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 15px; align-items: center; gap: 10px; padding: 7px 6px; border: 0; border-radius: var(--do-radius-sm); color: var(--do-nav-text); background: transparent; text-align: left; cursor: pointer; transition: background var(--do-transition-fast); }
+.sidebar-user:hover { background: var(--do-nav-hover); }
+.sidebar-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--do-radius-sm); color: var(--do-nav-active-text); background: var(--do-nav-active); font-size: 13px; font-weight: 600; }
 .sidebar-user-copy { min-width: 0; }
 .sidebar-user-copy strong, .sidebar-user-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-user-copy strong { font-size: 13px; line-height: 1.2; }
-.sidebar-user-copy small { margin-top: 3px; color: var(--do-muted); font-size: 11px; }
-.query-brand:focus-visible, .new-session-button:focus-visible, .mobile-history-toggle:focus-visible, .history-heading button:focus-visible, .history-select:focus-visible, .history-delete:focus-visible, .sidebar-user:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
-@media (max-width: 1279px) and (min-width: 769px) { .query-sidebar { padding-inline: 10px; } }
+.sidebar-user-copy strong { font-size: 13px; font-weight: 500; line-height: 1.3; }
+.sidebar-user-copy small { margin-top: 3px; color: var(--do-nav-muted); font-size: 11px; }
+.sidebar-user-expand { color: var(--do-nav-muted); }
+.query-brand:focus-visible, .new-session-button:focus-visible, .mobile-history-toggle:focus-visible, .history-heading button:focus-visible, .history-select:focus-visible, .history-delete:focus-visible, .sidebar-user:focus-visible, .retry-history:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 2px; }
+
+/* 沿用窄窗口历史展开能力，折叠只改变呈现而不另建一套会话状态。 */
+@media (max-width: 1100px) and (min-width: 769px) { .query-sidebar { padding-inline: 12px; } }
 @media (max-width: 768px) {
-  .query-sidebar { position: relative; top: 0; height: auto; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-rows: 44px auto auto; grid-template-areas: "brand new user" "toggle toggle toggle" "history history history"; gap: 8px; padding: 8px 12px; border-radius: 14px; border-bottom: 1px solid var(--do-glass-line); }
-  .query-brand { grid-area: brand; height: 44px; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; }
-  .query-brand > span { width: 32px; height: 32px; border-radius: 9px; }
-  .query-brand strong { font-size: 15px; }
+  .query-sidebar { height: auto; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-rows: 44px auto auto; grid-template-areas: "brand new user" "toggle toggle toggle" "history history history"; gap: 8px; padding: 10px 12px; }
+  .query-brand { grid-area: brand; height: 44px; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; padding: 0; }
+  .query-brand-mark { width: 28px; height: 38px; }
+  .query-brand strong { font-size: 16px; }
   .query-brand small { display: none; }
-  .new-session-button { grid-area: new; min-height: 42px; padding: 0 12px; }
-  .mobile-history-toggle { grid-area: toggle; min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-ink); background: rgba(255, 255, 255, .88); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
-  .mobile-history-toggle small { margin-left: auto; color: var(--do-muted); }
+  .new-session-button { grid-area: new; min-height: 40px; padding-inline: 10px; }
+  .mobile-history-toggle { grid-area: toggle; min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); color: var(--do-nav-text); background: var(--do-nav-hover); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+  .mobile-history-toggle small { margin-left: auto; color: var(--do-nav-muted); }
   .history-section { display: none; grid-area: history; max-height: 40dvh; }
   .mobile-history-open .history-section { display: flex; }
   .history-list { max-height: 33dvh; }
   .history-row { grid-template-columns: minmax(0, 1fr) 36px; }
-  .history-row strong { font-size: 13px; }
-  .history-delete { width: 36px; height: 40px; opacity: .75; }
+  .history-delete { width: 36px; height: 40px; opacity: 1; }
   .sidebar-user-wrap { grid-area: user; padding-top: 0; border-top: 0; }
   .sidebar-user { width: 44px; height: 44px; min-height: 44px; display: flex; justify-content: center; padding: 4px; }
-  .sidebar-user-copy { display: none; }
-}
-
-.query-sidebar { gap: 22px; padding: 22px 16px 12px; border-radius: 0; border-right: 1px solid var(--do-line); background: var(--do-sidebar); }
-.query-brand { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding-inline: 6px; }
-.query-brand strong { font-size: 19px; letter-spacing: -.5px; }
-.new-session-button { min-height: 44px; justify-content: flex-start; padding-inline: 14px; border: 1px solid var(--do-line-strong); color: var(--do-ink); background: var(--do-surface); box-shadow: none; font-size: 13px; }
-.new-session-button:hover { color: var(--do-primary-strong); background: var(--do-primary-soft); }
-.history-heading { font-weight: 500; }
-.history-row { border-radius: 8px; }
-.history-row.active { border-color: var(--do-line); background: #e9ece5; }
-.history-row strong { font-size: 13px; line-height: 1.5; }
-.sidebar-avatar { color: var(--do-ink); background: #e1e5dc; }
-.history-error { color: var(--do-danger); }
-.retry-history { display: block; min-height: 40px; margin-top: 8px; border: 1px solid var(--do-line); border-radius: 8px; padding-inline: 10px; color: var(--do-ink); background: var(--do-surface); cursor: pointer; }
-@media (max-width: 768px) {
-  .query-sidebar { gap: 6px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--do-line); }
-  .query-brand { padding: 0; grid-template-columns: 22px minmax(0,1fr); gap: 8px; }
-  .query-brand-mark { width: 22px; height: 34px; }
-  .query-brand strong { font-size: 16px; }
-  .new-session-button { padding-inline: 10px; }
-  .mobile-history-toggle { background: var(--do-surface); }
+  .sidebar-user-copy, .sidebar-user-expand { display: none; }
 }
 </style>
 

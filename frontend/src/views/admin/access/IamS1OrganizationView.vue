@@ -610,9 +610,9 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
 </script>
 <template>
   <div class="iam-s1-org">
+    <!-- 组织路径由外壳承担，角色能力与负责源的职责说明继续保留。 -->
     <TaskPageHeader
       title="组织、角色与负责源"
-      eyebrow="权限与组织 / 组织配置"
       description="先明确角色能做什么，再逐个用户角色绑定负责源。部门与业务数据授权、后台管理范围分别维护。"
     />
     <GovernanceWriteNotice />

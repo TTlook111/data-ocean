@@ -29,4 +29,8 @@ public class QualityCheckBatch {
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
     private Long createdBy;
+    /** 仅请求定位与指纹；执行所有者只用于判定谁赢得首次登记，不返回客户端。 */
+    private String operationId;
+    private String requestHash;
+    private String executionOwner;
 }

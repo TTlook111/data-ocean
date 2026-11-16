@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
+import { readChartTheme } from '../../../utils/chartTheme'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useGovernanceScope } from '../../../composables/useGovernanceScope'
@@ -99,24 +100,12 @@ const levelType = (level: string) => {
   }
 }
 
-function cssToken(name: string, fallback: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
-}
-
-function rgbaColor(color: string, alpha: number) {
-  const match = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i)
-  if (!match) return color
-  const digits = match[1]!.length === 3 ? [...match[1]!].map((digit) => digit + digit).join('') : match[1]!
-  const red = Number.parseInt(digits.slice(0, 2), 16)
-  const green = Number.parseInt(digits.slice(2, 4), 16)
-  const blue = Number.parseInt(digits.slice(4, 6), 16)
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
-}
-
+// 等级进度条保留高、中、低的状态语义，未识别等级显示中性色。
 function confidenceColor(level: string) {
-  if (level === 'HIGH') return cssToken('--do-success', '#16a34a')
-  if (level === 'MEDIUM') return cssToken('--do-warning', '#d97706')
-  return cssToken('--do-danger', '#dc2626')
+  if (level === 'HIGH') return 'var(--do-success)'
+  if (level === 'MEDIUM') return 'var(--do-warning)'
+  if (level === 'LOW') return 'var(--do-danger)'
+  return 'var(--do-muted)'
 }
 
 async function fetchConfidenceList() {
@@ -206,11 +195,12 @@ function renderChart() {
   chartInstance = echarts.init(chartRef.value)
   const xData = trendData.value.map((p) => p.time?.substring(0, 16) || '')
   const yData = trendData.value.map((p) => p.cumulativeScore)
-  const primary = cssToken('--do-primary', '#2d68cc')
-  const success = cssToken('--do-success', '#16a34a')
-  const warning = cssToken('--do-warning', '#d97706')
+  // 趋势线表示分数序列，阈值线按业务等级着色，并保留数值与虚线标签。
+  const { color, fontFamily } = readChartTheme(chartRef.value)
+  const seriesColor = color('--do-chart-1')
   chartInstance.setOption({
     animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    textStyle: { color: color('--do-ink'), fontFamily },
     tooltip: {
       trigger: 'axis',
       renderMode: 'richText',
@@ -224,13 +214,16 @@ function renderChart() {
     xAxis: {
       type: 'category',
       data: xData,
-      axisLabel: { rotate: 30, fontSize: 11 },
+      axisLabel: { rotate: 30, fontSize: 11, color: color('--do-muted') },
+      axisLine: { lineStyle: { color: color('--do-line-strong') } },
     },
     yAxis: {
       type: 'value',
       min: 0,
       max: 100,
       name: '可信度分数',
+      axisLabel: { color: color('--do-muted') },
+      splitLine: { lineStyle: { color: color('--do-line') } },
     },
     series: [
       {
@@ -239,19 +232,14 @@ function renderChart() {
         smooth: true,
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { color: primary, width: 2 },
-        itemStyle: { color: primary },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: rgbaColor(primary, 0.3) },
-            { offset: 1, color: rgbaColor(primary, 0.02) },
-          ]),
-        },
+        lineStyle: { color: seriesColor, width: 2 },
+        itemStyle: { color: seriesColor },
+        areaStyle: { color: seriesColor, opacity: 0.09 },
         markLine: {
           silent: true,
           data: [
-            { yAxis: 70, lineStyle: { color: success, type: 'dashed' }, label: { formatter: '高等级 ≥70', position:'insideEndTop' } },
-            { yAxis: 40, lineStyle: { color: warning, type: 'dashed' }, label: { formatter: '中等级 ≥40', position:'insideEndTop' } },
+            { yAxis: 70, lineStyle: { color: color('--do-success'), type: 'dashed' }, label: { formatter: '高等级 ≥70', position:'insideEndTop' } },
+            { yAxis: 40, lineStyle: { color: color('--do-warning'), type: 'dashed' }, label: { formatter: '中等级 ≥40', position:'insideEndTop' } },
           ],
         },
       },

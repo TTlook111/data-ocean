@@ -1,61 +1,11 @@
-/* Shared product palette; the login page keeps its interactive character scene. */
-.query-workspace,
-.query-evidence-dialog,
-.query-datasource-popper,
-.query-user-menu-popper,
-.admin-shell,
-body:has(.admin-shell),
-body:has(.login-page),
-body:has(.account-page),
-body:has(.guide-page),
-body:has(.not-found-page) {
-  --do-primary: #aa5939;
-  --do-primary-strong: #87452c;
-  --do-primary-soft: #f6ebe4;
-  --do-ink: #242724;
-  --do-muted: #676d67;
-  --do-bg: #fcfcfa;
-  --do-surface: #ffffff;
-  --do-soft: #f4f5f1;
-  --do-sidebar: #f4f5f1;
-  --do-line: #e2e5de;
-  --do-line-strong: #c9cec5;
-  --do-success: #347454;
-  --do-warning: #92571d;
-  --do-danger: #b23838;
-  --do-glass-line: var(--do-line);
-  --do-glass-data-bg: var(--do-surface);
-  --el-color-primary: var(--do-primary);
-  --el-color-primary-dark-2: var(--do-primary-strong);
-  --el-color-primary-light-3: #c38b72;
-  --el-color-primary-light-5: #d7b09e;
-  --el-color-primary-light-7: #ead4c9;
-  --el-color-primary-light-8: #f0e1d9;
-  --el-color-primary-light-9: var(--do-primary-soft);
-  --el-border-color-light: var(--do-line);
-  --el-text-color-primary: var(--do-ink);
-  --el-text-color-regular: var(--do-muted);
-  --el-fill-color-light: var(--do-soft);
-  --el-bg-color: var(--do-surface);
+/* 工作区交互与容器规则；主题全部由 variables.css 提供，弹层不再覆盖第二套色值。 */
+/* 网格内的状态标签按内容收缩，避免服务状态和卡片摘要被拉成整行色带。 */
+.admin-shell .el-tag,
+.query-workspace .el-tag {
+  width: fit-content;
+  justify-self: start;
 }
 
-body:has(.query-workspace),
-body:has(.login-page),
-body:has(.account-page),
-body:has(.guide-page),
-body:has(.not-found-page) { background: #fcfcfa; }
-body:has(.admin-shell) {
-  background: var(--do-bg);
-  --do-glass-shell-bg: var(--do-sidebar);
-  --do-glass-panel-bg: var(--do-surface);
-  --do-glass-data-bg: var(--do-surface);
-  --do-glass-border: var(--do-line);
-  --do-glass-line: var(--do-line);
-  --do-glass-shadow: 0 1px 4px rgb(36 39 36 / 3%);
-  --do-shadow: 0 1px 4px rgb(36 39 36 / 3%);
-  --do-shadow-lg: 0 12px 40px rgb(36 39 36 / 12%);
-  --el-bg-color-overlay: var(--do-surface);
-}
 .query-workspace button:focus-visible,
 .query-workspace a:focus-visible,
 .query-evidence-dialog button:focus-visible,

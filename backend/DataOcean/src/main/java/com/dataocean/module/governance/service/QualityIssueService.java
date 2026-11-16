@@ -57,30 +57,33 @@ public interface QualityIssueService {
      * @param issueId         质量问题 ID
      * @param targetStatus    目标状态
      * @param resolutionNote  处理说明
+     * @param expectedVersion 用户读取时的行版本
      * @param operatorId      操作人 ID
      */
-    void handleIssue(Long issueId, String targetStatus, String resolutionNote, Long operatorId);
+    void handleIssue(Long issueId, String targetStatus, String resolutionNote, Long expectedVersion, Long operatorId);
 
     /**
      * 批量处理质量问题状态。
      * <p>
-     * 状态不允许流转的条目会被跳过，调用方需要知道跳过了哪些、为什么，
-     * 因此返回结构包含跳过明细而非仅成功计数。本方法不抛异常：部分失败不是异常，
-     * 是正常结果，应由调用方如实呈现。
+     * 请求合同或整批授权失败会直接拒绝；通过预校验后，状态或版本冲突按条目跳过，
+     * 返回结构保留每项原因，不能把部分成功描述为全有或全无。
      * </p>
      *
      * @param issueIds      质量问题 ID 列表
      * @param targetStatus  目标状态
+     * @param expectedVersions 逐问题的客户端原版本；不从服务端最新状态补造
      * @param operatorId    操作人 ID
      * @return 处理结果，含成功数、跳过数与跳过明细
      */
-    IssueBatchHandleResultVO batchHandle(java.util.List<Long> issueIds, String targetStatus, Long operatorId);
+    IssueBatchHandleResultVO batchHandle(java.util.List<Long> issueIds, String targetStatus,
+                                       java.util.Map<Long, Long> expectedVersions, Long operatorId);
 
     /**
      * 分派质量问题负责人。
      *
      * @param issueId     质量问题 ID
      * @param assigneeId  负责人用户 ID
+     * @param expectedVersion 用户读取时的行版本
      */
-    void assignIssue(Long issueId, Long assigneeId);
+    void assignIssue(Long issueId, Long assigneeId, Long expectedVersion);
 }

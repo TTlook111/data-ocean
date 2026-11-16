@@ -36,6 +36,9 @@ import static org.mockito.Mockito.when;
 })
 @ActiveProfiles("test")
 @Sql(statements = {
+        "DROP TABLE IF EXISTS quality_rule_write_guard",
+        "CREATE TABLE quality_rule_write_guard (id INT PRIMARY KEY)",
+        "INSERT INTO quality_rule_write_guard (id) VALUES (1)",
         "DROP TABLE IF EXISTS metadata_quality_rule",
         "CREATE TABLE metadata_quality_rule ("
                 + "id BIGINT AUTO_INCREMENT PRIMARY KEY, rule_code VARCHAR(100), template_code VARCHAR(100), "
@@ -69,7 +72,7 @@ class QualityRuleServicePersistenceTest {
         deleted.setEnabled(1);
         ruleMapper.insert(deleted);
 
-        service().restoreRule(deleted.getId(), 1L);
+        service().restoreRule(deleted.getId(), 2, 1L);
 
         MetadataQualityRule persisted = ruleMapper.selectById(deleted.getId());
         assertThat(persisted.getDeletedAt()).isNull();
@@ -88,7 +91,7 @@ class QualityRuleServicePersistenceTest {
         ruleMapper.insert(existing);
         QualityRuleDTO replacement = dto("DATASOURCE", 6L, null, null);
 
-        var response = service().updateRule(existing.getId(), replacement, 9L);
+        var response = service().updateRule(existing.getId(), replacement, 2, 9L);
 
         MetadataQualityRule persisted = ruleMapper.selectById(existing.getId());
         assertThat(persisted.getScopeType()).isEqualTo("DATASOURCE");
@@ -112,7 +115,7 @@ class QualityRuleServicePersistenceTest {
         ruleMapper.insert(existing);
         when(authorizationResolver.isSystemAdmin(9L)).thenReturn(true);
 
-        var response = service().updateRule(existing.getId(), dto("GLOBAL", null, null, null), 9L);
+        var response = service().updateRule(existing.getId(), dto("GLOBAL", null, null, null), 2, 9L);
 
         MetadataQualityRule persisted = ruleMapper.selectById(existing.getId());
         assertThat(persisted.getScopeType()).isEqualTo("GLOBAL");

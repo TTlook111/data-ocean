@@ -15,7 +15,10 @@ const categoryChart = {
 describe('query chart presentation', () => {
   it('converts the reported regression into named pie slices with no Cartesian leftovers or duplicate canvas title', () => {
     const before = JSON.stringify(categoryChart)
-    const option = buildQueryChartOption(categoryChart, 'pie')!
+    // 转换后的扇区同时沿用分类序列和实际工作面底色，独立导出也保留分隔线。
+    const theme = { colors: ['rgb(70, 49, 130)', 'rgb(51, 115, 110)'], surfaceColor: 'rgb(248, 245, 239)' }
+    const option = buildQueryChartOption(categoryChart, 'pie', theme)!
+    expect(option.color).toEqual(theme.colors)
     expect(option).not.toHaveProperty('xAxis')
     expect(option).not.toHaveProperty('yAxis')
     expect(option).not.toHaveProperty('grid')
@@ -23,6 +26,7 @@ describe('query chart presentation', () => {
     expect(option.title).toEqual([{ text: question, show: false }])
     expect(option.series).toMatchObject([{
       type: 'pie', data: [{ name: 'Furniture', value: 180 }, { name: 'Accessories', value: 30 }],
+      itemStyle: { borderColor: theme.surfaceColor },
       label: { show: true, formatter: '{b}\n{c} · {d}%' },
     }])
     expect(option.tooltip).toMatchObject({ trigger: 'item', renderMode: 'richText' })

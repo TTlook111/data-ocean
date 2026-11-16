@@ -801,8 +801,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="admin-page glossaries-page">
+    <!-- 导航已标明语义工作区，页头保留术语任务及定义与字段映射的审核说明。 -->
     <TaskPageHeader
-      eyebrow="语义中心 / 定义与字段映射"
       title="业务术语"
       description="维护业务概念、同义词与实际字段的对应关系。可先保存草稿，关联字段后提交定义和映射审核。"
     >

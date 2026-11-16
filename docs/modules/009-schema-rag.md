@@ -41,7 +41,7 @@ Python `rag/chunker.py`按二级章节、三级语义单元处理 skills.md。�
 
 ## S1 检索边界
 
-检索边界：ANN/rerank 仅给出选择顺序和 score；返回 ID、snapshot、build 必须在 Java 当前授权 membership 内，正文、依赖、审核和来源以 Java 权威条目为准，不能把向量返回项重标为当前版本。相同副本去重，冲突身份全部排除；图入口、预算拒绝和异常 fallback 使用同一规则，不复活冲突首份。真实攻击文本与第二源结果见[扩展联调](../acceptance/2026-10-29-扩展联调.md)，离线污染返回反例和真实模型暴露分别记录。
+检索边界：ANN/rerank 仅给出选择顺序和 score；返回 ID、snapshot、build 必须在 Java 当前授权 membership 内，正文、依赖、审核和来源以 Java 权威条目为准，不能把向量返回项重标为当前版本。相同副本去重，冲突身份全部排除；图入口、预算拒绝和异常 fallback 使用同一规则，不复活冲突首份。真实攻击文本与第二源结果见[扩展联调](../archive/2026-10-29-扩展联调.md)，离线污染返回反例和真实模型暴露分别记录。
 
 Java/Python 使用一致的事实类型与完整依赖准入：合法表级知识可无字段，字段派生不可缺字段；新业务关系补键仅处理规划器 `selectedRelationIds` 明确选择的 `BUSINESS_RELATION`，保留当前 JOIN usage，失败不部分修改规划；SQL 上下文也排除未选择的业务关系。血缘正文与 `source_fingerprint` 由 Java 使用同一份当前关系记录生成，文档/构建校验、membership 冻结及查询各阶段当前来源复核均已接入；同 ID 改端点、内容、确认或绑定使旧引用失效。旧血缘 chunk 缺少摘要时不作为可信来源，需重新生成审核并显式构建。详见[查询来源与投影合同](011-audit-lineage.md#提交后投影与恢复)；其中已确认血缘事实的真实模型召回仍需独立验证，不能由其他业务事实的构建成功替代。
 
@@ -98,4 +98,4 @@ Java 在模型输入前检查当前来源与可见依赖，Python 防火墙再�
 
 构建入口不依赖数据源准备表。knowledge:view读取记录，knowledge:publish确认目标源构建，不额外要求datasource:view、metadata:view或metadata:release:view。来源从已发布文档列表完整分页读取并去重，或由人员核对精确快照ID后填写；RAG允许的PUBLISHED/EXPIRED曾发布来源与知识生成输入仅PUBLISHED的合同分开，最终仍由既有构建服务验证整组覆盖。缺选定来源、未发布文档或缺确认能力时分别解释，不能通过忽略已知范围错误开放动作。
 
-新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实现入口为 [KnowledgeView.vue](../../frontend/src/views/admin/semantics/KnowledgeView.vue) 的 `currentBuild/selectedBuild/openBuild/confirmBuild`，回归入口为 [KnowledgeWorkspaceLifecycle.test.ts](../../frontend/src/views/admin/semantics/KnowledgeWorkspaceLifecycle.test.ts)。原构建合同证据见[版本与知识验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d5)，当前活动索引布局及最小角色只读证据见[治理与语义布局验收](../acceptance/2026-10-31-治理与语义布局重构.md)；不代表真实向量核验、切换与清理已重新执行。
+新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实现入口为 [KnowledgeView.vue](../../frontend/src/views/admin/semantics/KnowledgeView.vue) 的 `currentBuild/selectedBuild/openBuild/confirmBuild`，回归入口为 [KnowledgeWorkspaceLifecycle.test.ts](../../frontend/src/views/admin/semantics/KnowledgeWorkspaceLifecycle.test.ts)。原构建合同证据见[版本与知识验收](../archive/2026-10-29-统一跨页终验V2.md#v2-d5)，当前活动索引布局及最小角色只读证据见[治理与语义布局验收](../archive/2026-10-31-治理与语义布局重构.md)；不代表真实向量核验、切换与清理已重新执行。

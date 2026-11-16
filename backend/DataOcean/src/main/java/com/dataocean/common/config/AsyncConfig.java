@@ -170,6 +170,22 @@ public class AsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
+    /** 取消投递不能排在正在等待 Python 的 Agent 后面，饱和时依靠持久意图补投。 */
+    @Bean("queryCancellationExecutor")
+    public Executor queryCancellationExecutor() {
+        // 固定小型有界线程池足够支持单机取消；拒绝时禁止在请求或调度线程执行 HTTP。
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(32);
+        executor.setThreadNamePrefix("query-cancel-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(queryAwaitTerminationSeconds);
+        executor.initialize();
+        return executor;
+    }
+
     /**
      * 会话摘要专用线程池。
      * 摘要调用属于非关键后台任务。线程池满载时拒绝本次摘要，

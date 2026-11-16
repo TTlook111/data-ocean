@@ -20,6 +20,47 @@ export interface QualityCheckResult {
   issueCount: Record<string, number>
 }
 
+export interface QualityContext { id: number; datasourceId: number; snapshotVersion: number; status: string; qualityScore?: number }
+
+export type IssueTrendPeriod = 7 | 30
+export interface IssueTrendDay {
+  date: string
+  coverage: 'NONE' | 'PARTIAL' | 'FULL'
+  remaining: number | null
+  added: number | null
+  reopened: number | null
+  resolved: number | null
+  otherClosed: number | null
+}
+export interface QualityIssueTrend {
+  datasourceId: number
+  snapshotId: number
+  asOf: string
+  coverageStart: string
+  days: IssueTrendDay[]
+}
+
+/** 服务端按上海自然日分桶。覆盖前的空值不参与计数，当前日取截至 asOf 的事实。 */
+export async function getQualityIssueTrend(snapshotId: number, days: IssueTrendPeriod) {
+  const { data } = await http.get<ApiResult<QualityIssueTrend>>(
+    `/api/admin/snapshots/${snapshotId}/quality-issues/trend`, { params: { days } },
+  )
+  return data
+}
+/** 主任务可用范围不是元数据目录授权；这里只读取后端裁决的稀疏身份。 */
+export async function getQualityContext(snapshotId: number) {
+  const { data } = await http.get<ApiResult<QualityContext>>(`/api/admin/snapshots/${snapshotId}/quality-context`)
+  return data
+}
+export async function getQualityCheckOperation(snapshotId: number, operationId: string) {
+  const { data } = await http.get<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-operations/${operationId}`)
+  return data
+}
+export async function resolveQualityCheckOperation(snapshotId: number, operationId: string) {
+  const { data } = await http.post<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-operations/${operationId}/resolve`)
+  return data
+}
+
 export interface QualityCheckBatchRule {
   batchId?: number
   batchDatasourceId?: number
@@ -65,6 +106,7 @@ export interface QualityCheckBatch {
   errorSummary?: string
   startedAt: string
   finishedAt?: string
+  operationOutcome?: 'NOT_STARTED' | 'RECORDED'
   legacyLimited?: boolean
   rules: QualityCheckBatchRule[]
 }
@@ -91,6 +133,7 @@ export interface QualityRuleTemplate {
 
 export interface QualityIssueItem {
   id: number
+  rowVersion: number
   snapshotId: number
   datasourceId?: number
   datasourceName?: string
@@ -222,13 +265,19 @@ export interface ReviewRecord {
   createdAt: string
 }
 
-export async function triggerQualityCheck(snapshotId: number, payload?: { dimensions?: string[]; tableNames?: string[] }) {
+export async function triggerQualityCheck(snapshotId: number, payload: { operationId: string; dimensions?: string[]; tableNames?: string[] }) {
   const { data } = await http.post<ApiResult<QualityCheckResult>>(`/api/admin/snapshots/${snapshotId}/quality-check`, payload || {})
   return data
 }
 
 export async function getLatestQualityCheckBatch(snapshotId: number) {
   const { data } = await http.get<ApiResult<QualityCheckBatch | null>>(`/api/admin/snapshots/${snapshotId}/quality-check-batches/latest`)
+  return data
+}
+
+/** 历史执行按快照和批次精确读取，不用最新批次替代失效或无权的历史依据。 */
+export async function getQualityCheckBatch(snapshotId: number, batchId: number) {
+  const { data } = await http.get<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-batches/${batchId}`)
   return data
 }
 
@@ -253,7 +302,7 @@ export async function listQualityIssues(snapshotId: number | undefined, params: 
   return data
 }
 
-export async function handleIssue(issueId: number, payload: { status: string; resolutionNote?: string }) {
+export async function handleIssue(issueId: number, payload: { status: string; resolutionNote?: string; expectedVersion: number }) {
   const { data } = await http.patch<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/status`, payload)
   return data
 }
@@ -270,13 +319,13 @@ export interface BatchHandleResult {
   skippedIssues: Array<{ issueId: number; reason: string }>
 }
 
-export async function batchHandleIssues(payload: { issueIds: number[]; status: string }) {
+export async function batchHandleIssues(payload: { issueIds: number[]; status: string; expectedVersions: Record<number, number> }) {
   const { data } = await http.patch<ApiResult<BatchHandleResult>>('/api/admin/quality-issues/batch-status', payload)
   return data
 }
 
-export async function assignIssue(issueId: number, assigneeId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/assign`, { assigneeId })
+export async function assignIssue(issueId: number, assigneeId: number, expectedVersion: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/assign`, { assigneeId, expectedVersion })
   return data
 }
 
@@ -300,11 +349,6 @@ export async function listQualityRuleTemplates() {
   return data
 }
 
-export async function createQualityRule(payload: QualityRulePayload) {
-  const { data } = await http.post<ApiResult<QualityRule>>('/api/admin/quality-rules', payload)
-  return data
-}
-
 export async function getQualityRule(ruleId: number, includeDeleted = false) {
   const { data } = await http.get<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}`, { params: { includeDeleted } })
   return data
@@ -317,31 +361,6 @@ export async function getQualityRuleHistory(ruleId: number) {
 
 export async function getQualityRuleRevisions(ruleId: number) {
   const { data } = await http.get<ApiResult<QualityRuleRevision[]>>(`/api/admin/quality-rules/${ruleId}/revisions`)
-  return data
-}
-
-export async function editQualityRule(ruleId: number, payload: QualityRulePayload) {
-  const { data } = await http.put<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}`, payload)
-  return data
-}
-
-export async function copyQualityRule(ruleId: number) {
-  const { data } = await http.post<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}/copy`)
-  return data
-}
-
-export async function updateRuleEnabled(ruleId: number, enabled: boolean) {
-  const { data } = await http.patch<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}/enabled`, { enabled })
-  return data
-}
-
-export async function deleteQualityRule(ruleId: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}`)
-  return data
-}
-
-export async function restoreQualityRule(ruleId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}/restore`)
   return data
 }
 

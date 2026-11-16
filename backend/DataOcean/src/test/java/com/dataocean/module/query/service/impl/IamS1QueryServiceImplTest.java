@@ -23,7 +23,8 @@ import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
 import com.dataocean.module.query.client.IamS1PythonClient;
-import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.service.IamS1QueryNotificationService;
+import com.dataocean.module.query.service.IamS1QueryCancellationService;
 import com.dataocean.module.query.entity.po.QueryAttempt;
 import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
@@ -50,6 +51,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -72,6 +74,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,7 +90,10 @@ class IamS1QueryServiceImplTest {
     @Mock private IamS1AuthorizationResolver authorizationResolver;
     @Mock private IamS1RowBindingService rowBindingService;
     @Mock private IamS1PythonClient pythonClient;
-    @Mock private IamS1QuerySseController sseController;
+    // 查询测试只验证通知合同，HTTP 连接生命周期由独立 MVC 回归覆盖。
+    @Mock private IamS1QueryNotificationService notificationService;
+    // 取消编排的持久投递由独立测试覆盖，普通生命周期用例只替换这一模块边界。
+    @Mock private IamS1QueryCancellationService cancellationService;
     @Mock private ConversationService conversationService;
     @Mock private ConversationContextSummaryService conversationContextSummaryService;
     @Mock private com.dataocean.module.glossary.mapper.GlossaryTermMapper glossaryTermMapper;
@@ -517,12 +523,13 @@ class IamS1QueryServiceImplTest {
         assertThat(task.getChartConfig()).isNull();
         assertThat(task.getSqlExplanation()).isNull();
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        // 通知边界必须收到已拒绝并清除载荷的 VO，不能绕过最终保护。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = pushed.getValue();
         assertThat(ssePayload.getStatus()).isEqualTo("FAILED");
         assertJsonDoesNotContain(ssePayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
-        verify(sseController, never()).sendError(eq(taskId), any());
+        verify(notificationService, never()).sendError(eq(taskId), any());
 
         QueryTaskVO getPayload = service.get(taskId, 7L);
         assertThat(getPayload.getStatus()).isEqualTo("FAILED");
@@ -778,9 +785,10 @@ class IamS1QueryServiceImplTest {
                 "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2"))));
         callback.getValue().accept(objectMapper.writeValueAsString(result));
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        // 通知接口与历史重读使用同一份当前脱敏结果，不允许传出原始手机号。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = pushed.getValue();
         assertThat(ssePayload.getData()).containsExactly(Map.of("phone", "138****0000"));
         assertThat(ssePayload.getChartConfig()).isNull();
         assertThat(ssePayload.getSqlExplanation()).isNull();
@@ -989,6 +997,156 @@ class IamS1QueryServiceImplTest {
     }
 
     @Test
+    void cancellationWaitsForLocalCommitBeforeCallingPython() {
+        // 显式控制事务回调时序；这里只验证跨服务副作用顺序，不声称验证了真实数据库提交。
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "cancellationService",
+                new IamS1QueryCancellationServiceImpl(queryTaskMapper, pythonClient, transactionManager, Runnable::run));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.cancel("task-1", 7L);
+
+            verify(pythonClient, never()).cancelTask("task-1");
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+            verify(pythonClient).cancelTask("task-1");
+        } finally {
+            // 事务同步器是线程状态，失败回归也必须清理，避免污染其他生命周期用例。
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void cancellationPersistenceFailureDoesNotSendRemoteCancellation() {
+        // 消息持久化失败会使生产事务回滚，Python 取消不能先于该事务不可逆地发生。
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "cancellationService",
+                new IamS1QueryCancellationServiceImpl(queryTaskMapper, pythonClient, transactionManager, Runnable::run));
+        doThrow(new IllegalStateException("模拟消息持久化失败"))
+                .when(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThatThrownBy(() -> service.cancel("task-1", 7L))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("模拟消息持久化失败");
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+            }
+
+            verify(pythonClient, never()).cancelTask("task-1");
+            verify(conversationService, never()).releaseTurn(42L, "task-1");
+        } finally {
+            // 不连接数据库，回滚通知只用于证明失败路径不会主动派发远端取消。
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void cancellationRecordsIntentTogetherWithItsTerminalTransition() {
+        // 同一个条件 UPDATE 必须包含终态和待投递意图，消息与轮次仍只处理一次。
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+
+        service.cancel("task-1", 7L);
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> change = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), change.capture());
+        assertThat(change.getValue().getSqlSet()).contains("status", "cancellation_delivery_status",
+                "cancellation_next_attempt_at");
+        assertThat(change.getValue().getParamNameValuePairs().values()).contains("CANCELLED", "PENDING");
+        verify(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
+        verify(conversationService).releaseTurn(42L, "task-1");
+        verify(cancellationService).dispatchAfterCommit("task-1");
+    }
+
+    @Test
+    void repeatedCancellationReusesIntentWithoutReleasingTheTurnAgain() {
+        // 同任务重复请求不改写已提交终态，也不误释放后续轮次。
+        task.setStatus("CANCELLED");
+
+        service.cancel("task-1", 7L);
+
+        verify(queryTaskMapper, never()).update(any(), any());
+        verify(conversationService, never()).releaseTurn(any(), any());
+        verify(cancellationService).dispatchAfterCommit("task-1");
+    }
+
+    @Test
+    void cancellationLosingTheRaceToCompletionDoesNotDispatch() {
+        // 完成先赢得 CAS 后，取消必须拒绝，不能向已成功任务追加远端副作用。
+        QueryTask completed = QueryTask.builder().taskId("task-1").userId(7L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("COMPLETED").build();
+        when(queryTaskMapper.selectByTaskIdForUpdate("task-1")).thenReturn(completed);
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.cancel("task-1", 7L)).isInstanceOf(BusinessException.class);
+
+        verify(cancellationService, never()).dispatchAfterCommit(any());
+        verify(pythonClient, never()).cancelTask(any());
+    }
+
+    @Test
+    void concurrentCancellationUsesCurrentReadToRecognizeTheSameIntent() {
+        // 初次普通读仍是 PROCESSING，CAS 输给另一取消后必须通过当前读识别已提交意图。
+        QueryTask cancelled = QueryTask.builder().taskId("task-1").userId(7L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("CANCELLED").build();
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+        when(queryTaskMapper.selectByTaskIdForUpdate("task-1")).thenReturn(cancelled);
+
+        service.cancel("task-1", 7L);
+
+        verify(queryTaskMapper).selectByTaskIdForUpdate("task-1");
+        verify(cancellationService).dispatchAfterCommit("task-1");
+        verify(conversationService, never()).releaseTurn(any(), any());
+    }
+
+    @Test
+    void archivingConversationRecordsCancellationOnlyWhenItOwnsTheTransition() {
+        // 删除会话复用同一个持久意图，CAS=0 的完成任务不得收到取消。
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(conversationService.deleteConversation(42L, 7L)).thenReturn("task-1");
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+
+        service.archiveConversation(42L, 7L);
+
+        verify(cancellationService, never()).dispatchAfterCommit(any());
+    }
+
+    @Test
+    void archivingActiveConversationStoresItsCancellationIntent() {
+        // 会话删除入口的终态与意图必须原子落库，不能绕过可靠投递链。
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(conversationService.deleteConversation(42L, 7L)).thenReturn("task-1");
+
+        service.archiveConversation(42L, 7L);
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> change = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), change.capture());
+        assertThat(change.getValue().getSqlSet()).contains("cancellation_delivery_status");
+        assertThat(change.getValue().getParamNameValuePairs().values()).contains("CANCELLED", "PENDING");
+        verify(cancellationService).dispatchAfterCommit("task-1");
+    }
+
+    @Test
+    void expiredResumePersistsTimeoutAndCancellationBeforeDelivery() {
+        // 恢复入口发现总时限已过也走同一可靠取消链，不直接调用远端。
+        task.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+
+        service.resume("task-1", 7L);
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> change = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), change.capture());
+        assertThat(change.getValue().getSqlSet()).contains("cancellation_delivery_status");
+        assertThat(change.getValue().getParamNameValuePairs().values()).contains("TIMEOUT", "PENDING");
+        verify(cancellationService).dispatchAfterCommit("task-1");
+        verify(pythonClient, never()).cancelTask(any());
+    }
+
+    @Test
     void resumeRebuildsCandidateContextFromMysqlAndUsesStableConversationThread() {
         task.setConversationId(42L);
         task.setQuestion("统计订单");
@@ -1030,6 +1188,32 @@ class IamS1QueryServiceImplTest {
         assertThat(result.getItems().get(0).getContent()).isEqualTo("question");
         assertThat(result.getItems().get(1).getContent()).contains("当前权限隐藏");
         assertThat(result.getItems().get(1).getMetadata()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CANCELLED,,查询已取消", "TIMEOUT,,查询已超时", "FAILED,,本轮查询失败",
+            "TIMEOUT,查询超过总时限,查询超过总时限", "FAILED,AI 服务暂时不可用,AI 服务暂时不可用"})
+    void historicalNonCompletedMessagesKeepTheirTerminalMeaning(String status, String publicError,
+                                                               String expectedContent) throws Exception {
+        // 终态没有错误详情时也不能回退为完成；历史原文与旧 metadata 均不作为安全正文来源。
+        task.setStatus(status);
+        task.setErrorMessage(publicError);
+        task.setConversationId(42L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        var page = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(ConversationMessageVO.builder().id(2L)
+                        .role("assistant").taskId("task-1").content("RAW_PROVIDER_RESPONSE")
+                        .metadata("{\"raw\":\"RAW_PROVIDER_RESPONSE\"}").build())))
+                .hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(page);
+
+        var result = service.conversationMessages(42L, 7L, null, 50).getItems().get(0);
+
+        assertThat(result.getContent()).isEqualTo(expectedContent);
+        assertThat(objectMapper.readTree(result.getMetadata()).path("status").asText()).isEqualTo(status);
+        assertJsonDoesNotContain(result, "RAW_PROVIDER_RESPONSE");
     }
 
     private void verifyNoConversationRead() {
@@ -1082,9 +1266,10 @@ class IamS1QueryServiceImplTest {
                 "sql", "SELECT id FROM orders LIMIT 10000"));
         callback.getValue().accept(objectMapper.writeValueAsString(result));
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO vo = (QueryTaskVO) pushed.getValue();
+        // 缺少 SQL 查看权时，通知载荷同样不能包含已持久化的 SQL。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO vo = pushed.getValue();
         assertThat(task.getResultSql()).isNotNull();
         assertThat(vo.getSql()).isNull();
         assertThat(vo.getCanViewSql()).isFalse();
@@ -1112,8 +1297,9 @@ class IamS1QueryServiceImplTest {
         callback.getValue().accept("{\"taskId\":\"" + taskId
                 + "\",\"protocolVersion\":\"IAM-SIMPLE-1\",\"status\":\"FAILED\"}");
 
-        verify(sseController).sendError(eq(taskId), any());
-        verify(sseController, never()).sendResult(any(), any());
+        // 当前读取资格不成立时只允许错误通知，不能因改为接口而放松原有保护。
+        verify(notificationService).sendError(eq(taskId), any());
+        verify(notificationService, never()).sendResult(any(), any());
     }
 
     @Test

@@ -142,6 +142,12 @@ function statusMeta(status: string) {
   return map[status] || { label: status || '未知', tone: 'info' }
 }
 
+/** 后端有时只把“可用/不可用”作为说明，徽标已表达该状态。其他诊断原文保留。 */
+function hasHealthDetail(service: { status: string; description?: string | null }) {
+  const detail = service.description?.trim()
+  return Boolean(detail && detail !== statusMeta(service.status).label && !(service.status === 'AVAILABLE' && detail === '可用'))
+}
+
 async function fetchHealth() {
   if (!canViewRuntime.value || healthLoading.value) return
   const k = session.capture(),
@@ -479,19 +485,16 @@ watch(
 
 <template>
   <main class="admin-page runtime-page">
-    <p class="runtime-eyebrow">运营与平台 / 运行事实</p>
+    <!-- 位置由外壳面包屑说明，本工作面直接呈现运行状态与操作。 -->
     <GovernanceWriteNotice />
     <p v-if="writeError" class="runtime-page__alert" role="alert">{{ writeError }}</p>
-    <TaskPageHeader
-      title="运行监控"
-      description="观察依赖服务、SQL 连接池与告警规则配置。告警当前只支持规则配置，没有执行历史与恢复闭环。"
-    >
+    <TaskPageHeader title="运行监控">
       <template #actions>
         <el-button :icon="RefreshCw" :loading="refreshing" @click="refreshCurrent">刷新</el-button>
       </template>
     </TaskPageHeader>
 
-    <ErrorState v-if="!canViewRuntime" message="当前没有运行状态查看权限，未请求服务。" />
+    <ErrorState v-if="!canViewRuntime" message="没有运行状态查看权限。" />
     <el-tabs v-else :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="服务状态" name="health">
         <section class="runtime-page__panel">
@@ -517,7 +520,7 @@ watch(
                   <el-tag :type="statusMeta(health.pythonService.status).tone as 'success'" size="small">
                     {{ statusMeta(health.pythonService.status).label }}
                   </el-tag>
-                  <p class="runtime-page__meta">{{ health.pythonService.description }}</p>
+                  <p v-if="hasHealthDetail(health.pythonService)" class="runtime-page__meta">{{ health.pythonService.description }}</p>
                   <p v-if="health.pythonService.lastCheckTime" class="runtime-page__meta">
                     最后检查 {{ health.pythonService.lastCheckTime }}
                   </p>
@@ -537,7 +540,7 @@ watch(
                   <el-tag :type="statusMeta(health.mysql.status).tone as 'success'" size="small">
                     {{ statusMeta(health.mysql.status).label }}
                   </el-tag>
-                  <p class="runtime-page__meta">{{ health.mysql.description }}</p>
+                  <p v-if="hasHealthDetail(health.mysql)" class="runtime-page__meta">{{ health.mysql.description }}</p>
                 </div>
               </article>
 
@@ -548,7 +551,7 @@ watch(
                   <el-tag :type="statusMeta(health.redis.status).tone as 'success'" size="small">
                     {{ statusMeta(health.redis.status).label }}
                   </el-tag>
-                  <p class="runtime-page__meta">{{ health.redis.description }}</p>
+                  <p v-if="hasHealthDetail(health.redis)" class="runtime-page__meta">{{ health.redis.description }}</p>
                 </div>
               </article>
             </div>
@@ -613,7 +616,7 @@ watch(
             <div class="runtime-page__section-title">
               <TitleHelp
                 label="告警规则配置"
-                text="当前只支持规则配置：可以定义监控指标与阈值并启停。后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、恢复率或历史趋势。"
+                text="可配置监控指标、阈值和启用状态。当前不会自动触发告警。"
               />
               <h3>告警规则配置</h3>
               <span class="runtime-page__configuration-only">仅支持配置</span>
@@ -682,7 +685,7 @@ watch(
           />
           <!-- 保留影响操作判断的能力边界；控制器与端点细节不作为页面辅助文案。 -->
           <p class="runtime-page__note">
-            当前仅保存规则配置，后端尚未实现定时评估；启用状态不代表规则正在执行。
+            启用仅保存规则配置，当前不会自动触发告警。
           </p>
         </section>
       </el-tab-pane>
@@ -732,12 +735,6 @@ watch(
 </template>
 
 <style scoped>
-.runtime-eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--do-primary);
-}
 .runtime-page {
   display: grid;
   gap: 20px;

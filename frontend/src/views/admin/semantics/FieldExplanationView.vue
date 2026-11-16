@@ -17,8 +17,9 @@ const canReturn=computed(()=>!!context.datasourceId&&!!context.snapshotId&&(!rou
 
 <template>
   <main class="field-explanation-page post-login-page">
+    <!-- 字段解释的任务名与业务帮助已经表达用途，来源和审核身份继续由工作面呈现。 -->
     <TaskPageHeader
-      title="字段解释" eyebrow="语义中心 / 业务解释"
+      title="字段解释"
       help="把字段原始资料整理为有依据、可审核的业务解释。候选、人工草稿、审核、同修订复查与问数收录分别核验；知识发布和索引构建在知识工作区确认。"
     ><template #actions><el-button :disabled="!canReturn" @click="router.push({path:'/admin/governance/fields',query:{tab:'tasks',datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">治理任务</el-button></template></TaskPageHeader>
     <FieldSemanticWorkspace />

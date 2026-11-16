@@ -4,10 +4,8 @@ import { GitCompareArrows } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAuthStore } from '../../../stores/auth'
-import { compareSnapshots, getPublishedSnapshot } from '../../../api/admin/versioning'
-import { getSnapshotDetail, type SnapshotDetail } from '../../../api/admin/metadata'
+import { compareSnapshots, getPublishedSnapshot, type VersionDiff } from '../../../api/admin/versioning'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
-import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -17,28 +15,24 @@ const route = useRoute(), iam=useIamS1Store(), auth=useAuthStore()
 // 差异 URL 协议：snapshotId 是旧快照，compareId 是新快照。
 const oldSnapshotId = computed(() => Number(route.params.snapshotId))
 const newSnapshotId = computed(() => Number(route.params.compareId))
-const oldSnapshot = ref<SnapshotDetail | null>(null)
-const newSnapshot = ref<SnapshotDetail | null>(null)
-const diff = ref<any>(null)
+const diff = ref<VersionDiff | null>(null)
 const currentOfficialSnapshotId = ref<number | undefined>()
 const currentOfficialError = ref('')
 const loading = ref(true)
 const error = ref('')
 let requestId = 0
 
-const baseIsCurrentOfficial = computed(() => currentOfficialSnapshotId.value !== undefined && currentOfficialSnapshotId.value === oldSnapshot.value?.snapshot.id)
-const comparedIsCurrentOfficial = computed(() => currentOfficialSnapshotId.value !== undefined && currentOfficialSnapshotId.value === newSnapshot.value?.snapshot.id)
+const baseIsCurrentOfficial = computed(() => currentOfficialSnapshotId.value !== undefined && currentOfficialSnapshotId.value === diff.value?.oldSnapshotId)
+const comparedIsCurrentOfficial = computed(() => currentOfficialSnapshotId.value !== undefined && currentOfficialSnapshotId.value === diff.value?.newSnapshotId)
 const returnToRelease = computed(() => ({
   path: '/admin/releases',
-  query: buildContextQuery('datasource', { datasourceId: oldSnapshot.value?.snapshot.datasourceId }),
+  query: buildContextQuery('datasource', { datasourceId: diff.value?.datasourceId }),
 }))
 
 async function load() {
   const currentRequest = ++requestId
   loading.value = true
   error.value = ''
-  oldSnapshot.value = null
-  newSnapshot.value = null
   diff.value = null
   currentOfficialSnapshotId.value = undefined
   currentOfficialError.value = ''
@@ -47,35 +41,28 @@ async function load() {
     if (![oldSnapshotId.value,newSnapshotId.value].every(id=>Number.isSafeInteger(id) && id>0) || oldSnapshotId.value===newSnapshotId.value) throw new Error('需要两个不同的有效快照标识')
     if (expectedSource!=null && (!Number.isSafeInteger(expectedSource) || expectedSource<=0)) throw new Error('指定数据源标识无效，未改用其他范围')
     if (!iam.loaded || iam.errorMessage) throw new Error(iam.errorMessage || '正在读取权限摘要')
-    const sources=expectedSource!=null ? [expectedSource] : iam.datasourcesWithFunction('metadata:view')
-    if (!iam.systemAdmin && !sources.some(id=>iam.canOnDatasource('metadata:view',id) && iam.canOnDatasource('metadata:release:view',id))) throw new Error('比较结构需要目标源的 metadata:view 与 metadata:release:view')
-    const [oldResult, newResult] = await Promise.all([
-      getSnapshotDetail(oldSnapshotId.value),
-      getSnapshotDetail(newSnapshotId.value),
-    ])
+    // 比较是版本主读取，服务端同时裁决两个快照。页面只采用方向、来源和明细均完整的回执。
+    const sources = expectedSource === undefined ? iam.datasourcesWithFunction('metadata:release:view') : [expectedSource]
+    if (!iam.systemAdmin && !sources.some(id => iam.canOnDatasource('metadata:release:view',id))) throw new Error('当前账号无权查看此来源的版本差异')
+    const response = await compareSnapshots(oldSnapshotId.value, newSnapshotId.value)
     if (disposedOrStale(currentRequest)) return
-    if (oldResult.data.snapshot.id!==oldSnapshotId.value || newResult.data.snapshot.id!==newSnapshotId.value) throw new Error('返回快照与指定版本不一致')
-    const source=oldResult.data.snapshot.datasourceId
-    if (expectedSource!=null && source!==expectedSource) throw new Error('快照不属于指定数据源')
-    if (!iam.canOnDatasource('metadata:view',source) || !iam.canOnDatasource('metadata:release:view',source)) throw new Error('没有目标源的结构/版本查看权限')
-    if (oldResult.data.snapshot.datasourceId !== newResult.data.snapshot.datasourceId) {
-      throw new Error('两个快照必须属于同一个数据源')
-    }
-    const diffResult = await compareSnapshots(oldSnapshotId.value, newSnapshotId.value)
-    if (disposedOrStale(currentRequest)) return
+    const result = response.data
+    if (!result || result.oldSnapshotId !== oldSnapshotId.value || result.newSnapshotId !== newSnapshotId.value || !Number.isSafeInteger(result.oldSnapshotVersion) || !Number.isSafeInteger(result.newSnapshotVersion)) throw new Error('返回的比较方向与指定版本不一致')
+    if (!Number.isSafeInteger(result.datasourceId) || (expectedSource !== undefined && result.datasourceId !== expectedSource) || !iam.canOnDatasource('metadata:release:view',result.datasourceId)) throw new Error('差异回执不属于当前授权来源')
+    if (![result.addedTables,result.removedTables,result.addedColumns,result.removedColumns,result.modifiedColumns].every(Array.isArray)) throw new Error('版本差异明细不完整，请重新读取')
+    diff.value = result
+    loading.value = false
     let officialId: number | undefined
     let officialLookupError = ''
     try {
-      const officialResult = await getPublishedSnapshot(oldResult.data.snapshot.datasourceId)
+      const officialResult = await getPublishedSnapshot(result.datasourceId)
       if (disposedOrStale(currentRequest)) return
+      if (officialResult.data && officialResult.data.datasourceId !== result.datasourceId) throw new Error('正式版回执来源不符')
       officialId = officialResult.data?.snapshotId
     } catch {
       officialLookupError = '当前正式版身份读取失败，无法标记生效版本。'
     }
     if (disposedOrStale(currentRequest)) return
-    oldSnapshot.value = oldResult.data
-    newSnapshot.value = newResult.data
-    diff.value = diffResult.data
     currentOfficialSnapshotId.value = officialId
     currentOfficialError.value = officialLookupError
   } catch (cause) {
@@ -96,8 +83,9 @@ onBeforeUnmount(() => { requestId++ })
 
 <template>
   <div class="admin-page snapshot-diff-page">
-    <ObjectContextSummary v-if="oldSnapshot" :title="'基准版本 v' + oldSnapshot.snapshot.snapshotVersion + ' → 对比版本 v' + (newSnapshot?.snapshot.snapshotVersion || newSnapshotId)" description="差异方向从基准版本指向对比版本" :back-to="returnToRelease" source-label="数据资产 / 元数据版本" />
     <TaskPageHeader title="快照差异" description="差异结果用于判断治理影响和发布风险，不会自动改变任何快照状态。">
+      <template #title-prefix><RouterLink :to="returnToRelease" class="snapshot-diff-page__back">返回版本列表</RouterLink></template>
+      <template #title-suffix><span v-if="diff" class="snapshot-diff-page__direction">基准 v{{ diff.oldSnapshotVersion }} → 对比 v{{ diff.newSnapshotVersion }}</span></template>
       <template #status>
         <span v-if="baseIsCurrentOfficial" class="snapshot-diff-page__official-tag">基准为当前正式版</span>
         <span v-else-if="comparedIsCurrentOfficial" class="snapshot-diff-page__official-tag">对比版本为当前正式版</span>
@@ -118,7 +106,7 @@ onBeforeUnmount(() => { requestId++ })
       <section v-if="diff.addedTables?.length || diff.removedTables?.length" class="diff-card"><h2>表变化</h2><p v-for="name in diff.addedTables" :key="'add'+name">新增表 · {{ name }}</p><p v-for="name in diff.removedTables" :key="'remove'+name">删除表 · {{ name }}</p></section>
       <section class="diff-card">
         <h2>字段变化</h2>
-        <el-table v-if="(diff.modifiedColumns?.length || diff.addedColumns?.length || diff.removedColumns?.length)" :data="[...(diff.addedColumns || []).map((item: any) => ({ ...item, change: '新增' })), ...(diff.removedColumns || []).map((item: any) => ({ ...item, change: '删除' })), ...(diff.modifiedColumns || []).map((item: any) => ({ ...item, change: '变更' }))]" size="small">
+        <el-table v-if="(diff.modifiedColumns?.length || diff.addedColumns?.length || diff.removedColumns?.length)" :data="[...(diff.addedColumns || []).map((item) => ({ ...item, change: '新增' })), ...(diff.removedColumns || []).map((item) => ({ ...item, change: '删除' })), ...(diff.modifiedColumns || []).map((item) => ({ ...item, change: '变更' }))]" size="small">
           <el-table-column prop="change" label="变化" width="90" />
           <el-table-column prop="tableName" label="表" />
           <el-table-column prop="columnName" label="字段" />
@@ -137,8 +125,13 @@ onBeforeUnmount(() => { requestId++ })
 .snapshot-diff-page { display: grid; gap: 16px; }
 .snapshot-diff-page__official-tag { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 9px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .snapshot-diff-page__identity-error { margin: -8px 0 0; color: var(--do-warning); font-size: 12px; }
-.diff-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
-.diff-grid > div, .diff-card { padding: 16px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
+/* 方向和计数属于同一次比较，使用连续的统计面板便于扫读。 */
+.snapshot-diff-page__back { color:var(--do-primary-strong); font-size:12px; }
+.snapshot-diff-page__direction { color:var(--do-muted); font-size:13px; }
+.diff-grid,.diff-card { border:1px solid var(--do-line); border-radius:var(--do-radius-lg); background:var(--do-surface); }
+.diff-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); overflow:hidden; }
+.diff-grid > div,.diff-card { padding:16px; }
+.diff-grid > div + div { border-inline-start:1px solid var(--do-line); }
 .diff-grid span { display: block; color: var(--do-muted); font-size: 12px; }
 .diff-grid strong { display: block; margin-top: 6px; color: var(--do-ink); font-size: 24px; }
 .diff-card h2 { margin: 0 0 14px; color: var(--do-ink); font-size: 16px; }

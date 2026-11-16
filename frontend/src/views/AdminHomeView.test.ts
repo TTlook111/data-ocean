@@ -1,191 +1,77 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
-import ElementPlus from 'element-plus'
-import { createPinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
+import { getQueryExperience } from '../api/admin/dashboard'
+import { cutoff, firstStart, openWorkbench, secondStart, summary } from './admin/workbench/workbench.fixtures'
 
-const api = vi.hoisted(() => ({
-  getDashboardStats: vi.fn(),
-  listSimpleDatasources: vi.fn(),
-  getBatchDatasourceReadiness: vi.fn(),
-  listIamS1AccessRequestQueue: vi.fn(),
-}))
-const iam = vi.hoisted(() => ({
-  loaded: true, errorMessage: null, snapshot: null, systemAdmin: false, canOnDatasource: () => true,
-  hasGlobal: vi.fn(),
-  datasourcesWithFunction: vi.fn(),
-}))
-const routerState = vi.hoisted(() => ({ push: vi.fn() }))
+vi.mock('../api/admin/dashboard', () => ({ getQueryExperience: vi.fn(), getExperienceDetails: vi.fn() }))
+beforeEach(() => { vi.mocked(getQueryExperience).mockReset().mockImplementation(async p => summary(p)) })
 
-vi.mock('vue-router', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('vue-router')>()
-  return { ...actual, useRouter: () => routerState }
-})
-vi.mock('../stores/auth', () => ({ useAuthStore: () => ({ token: 'fixture' }) }))
-vi.mock('../stores/iamS1', () => ({ useIamS1Store: () => iam }))
-vi.mock('../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
-vi.mock('../api/admin/datasource', () => ({
-  listSimpleDatasources: api.listSimpleDatasources,
-  getBatchDatasourceReadiness: api.getBatchDatasourceReadiness,
-}))
-vi.mock('../api/iamS1', () => ({ listIamS1AccessRequestQueue: api.listIamS1AccessRequestQueue }))
-
-import AdminHomeView from './AdminHomeView.vue'
-
-function stats(openIssues = 0) {
-  return {
-    totalDatasources: 1,
-    askableDatasources: 0,
-    pendingDatasources: 1,
-    openIssues,
-    resolvedIssues: 0,
-    totalTables: 2,
-    totalColumns: 8,
-    avgQualityScore: 90,
-    recentActivities: [],
-  }
-}
-
-function readiness() {
-  return {
-    datasourceId: 5,
-    datasourceName: '销售库',
-    askable: false,
-    stage: 'GOVERNANCE_BLOCKED',
-    stageLabel: '治理阻断',
-    progress: 60,
-    connectionReady: true,
-    metadataReady: true,
-    governanceReady: false,
-    knowledgeReady: false,
-    permissionReady: false,
-    blockReasons: [{
-      code: 'BLOCKING_GOVERNANCE_ISSUES',
-      message: '存在 2 条高危未解决治理问题',
-      ownerRole: '治理负责人',
-      actionText: '处理治理问题',
-      actionPath: '/admin/governance/issues',
-    }],
-  }
-}
-
-function mountPage() {
-  return mount(AdminHomeView, {
-    global: {
-      plugins: [createPinia(), ElementPlus],
-      stubs: {
-        TaskPageHeader: { props: ['title'], template: '<header>{{ title }}</header>' },
-        TitleHelp: true,
-        ReadinessPanel: true,
-        ActivityTimeline: true,
-        BusinessStatusBadge: true,
-        RouterLink: {
-          props: ['to'],
-          template: '<a class="router-link-stub" :data-path="to && to.path ? to.path : to"><slot /></a>',
-        },
-      },
-    },
-  })
-}
-
-async function settle() {
-  for (let round = 0; round < 5; round += 1) {
+describe('问数运行工作台', () => {
+  // 原工作台只读原则延续到新的展示口径；冷启动和选周期均按 Java 数据显示。
+  it('分别展示受理耗时和反馈分母，缺少独立抽检时不生成准确率', async () => {
+    const { wrapper, router } = await openWorkbench()
+    expect(wrapper.text()).toContain('超目标 2 / 6 次')
+    expect(wrapper.text()).toContain('60 个回答中有 25 个获得评价')
+    expect(wrapper.text()).toContain('占已评价回答 20%')
+    expect(wrapper.text()).toContain('暂无独立抽检数据')
+    expect(wrapper.find('table').exists()).toBe(false)
+    // 覆盖条与点踩占比的分母不同：二十五个回答有评价，其中五个点踩。
+    const coverage = wrapper.get('progress.coverage-bar').element as HTMLProgressElement
+    expect([coverage.value, coverage.max]).toEqual([25, 60])
+    expect(wrapper.get('select').element.value).toBe(secondStart)
+    expect(router.resolve(wrapper.get('.chart-footer a').attributes('href')!).query).toEqual({
+      kind: 'slow', period: 'today', asOf: cutoff, bucketStart: secondStart,
+    })
+    await wrapper.get('select').setValue(firstStart)
+    expect(wrapper.find('.chart-footer a').exists()).toBe(false)
+    await router.push('/admin/workbench?period=week')
     await flushPromises()
-    await nextTick()
-  }
-}
-
-beforeEach(() => {
-  Object.values(api).forEach((fn) => fn.mockReset())
-  iam.hasGlobal.mockReset().mockImplementation((code: string) => code === 'admin:workbench:view')
-  iam.datasourcesWithFunction.mockReset().mockImplementation((code: string) => ['datasource:view', 'governance:issue:view'].includes(code) ? [5] : [])
-  routerState.push.mockReset()
-  api.getDashboardStats.mockResolvedValue({ data: stats(2) })
-  api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 5, name: '销售库', databaseName: 'sales' }] })
-  api.getBatchDatasourceReadiness.mockResolvedValue({ data: [readiness()], failedDatasourceIds: [] })
-  api.listIamS1AccessRequestQueue.mockResolvedValue({ data: { records: [], total: 3 } })
-})
-
-describe('工作台待处理事项', () => {
-  it('没有工作台权限时不请求业务概览或展示业务快捷入口', async () => {
-    iam.hasGlobal.mockReturnValue(false)
-    iam.datasourcesWithFunction.mockImplementation((code: string) => code === 'knowledge:view' ? [2] : [])
-    const wrapper = mountPage()
-    try {
-      await settle()
-      expect(api.getDashboardStats).not.toHaveBeenCalled()
-      expect(api.listSimpleDatasources).not.toHaveBeenCalled()
-      expect(api.getBatchDatasourceReadiness).not.toHaveBeenCalled()
-      expect(wrapper.text()).toContain('没有“查看工作台”功能')
-      expect(wrapper.text()).not.toContain('管理数据源')
-      expect(wrapper.text()).not.toContain('查阅知识文档')
-      expect(wrapper.find('.workbench-stats').exists()).toBe(false)
-    } finally { wrapper.unmount() }
+    expect(getQueryExperience).toHaveBeenLastCalledWith('week')
+    const q = router.resolve(wrapper.get('.feedback a').attributes('href')!).query
+    expect(q).toEqual({ kind:'feedback', period:'week', asOf:cutoff, returnBucket:secondStart })
   })
-
-  it('当前工作台请求403时不继续展示业务快捷入口', async () => {
-    api.getDashboardStats.mockRejectedValue(Object.assign(new Error('工作台访问被拒绝'), { response: { status: 403, data: { message: '工作台访问被拒绝' } } }))
-    const wrapper = mountPage()
-    try {
-      await settle()
-      expect(wrapper.text()).toContain('工作台访问被拒绝')
-      expect(wrapper.text()).not.toContain('管理数据源')
-      expect(wrapper.find('.workbench-stats').exists()).toBe(false)
-    } finally { wrapper.unmount() }
+  it('没有计时或评价样本时保持空值，只有一个时段有样本时不画趋势', async () => {
+    const r = summary()
+    r.usage = { ...r.usage!, measured: 0, avgSeconds: null, p95Seconds: null, slow: 0, buckets: [] }
+    r.feedback = { eligible: 9, likes: 0, dislikes: 0, previousLikes: null, previousDislikes: null }
+    vi.mocked(getQueryExperience).mockResolvedValue(r)
+    const { wrapper } = await openWorkbench()
+    expect(wrapper.text()).toContain('暂无计时样本')
+    expect(wrapper.text()).toContain('缺少可核对的起止时间')
+    expect(wrapper.text()).not.toContain('0 / 0 次')
+    expect(wrapper.text()).toContain('暂无评价')
+    expect(wrapper.find('.feedback a').exists()).toBe(false)
+    r.usage = { ...summary().usage!, buckets: [summary().usage!.buckets[0]!] }
+    await wrapper.get('.refresh').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('仅 09:00–09:30 有可计时回答')
+    expect(wrapper.find('waiting-time-chart-stub').exists()).toBe(false)
   })
-
-  it('汇总数据源阻断和治理问题', async () => {
-    const wrapper = mountPage()
-    await settle()
-
-    expect(wrapper.findAll('[data-source-choice]')).toHaveLength(1)
-    expect(wrapper.find('[data-source-detail]').text()).toContain('销售库')
-    expect(wrapper.text()).toContain('存在 2 条高危未解决治理问题')
-    expect(wrapper.find('.board-bottom b').text()).toBe('2')
-    expect(wrapper.findAll('.workbench-pending__item')).toHaveLength(0)
-    expect(wrapper.text()).toContain('负责范围')
+  it('工作台只有反馈权限时保留合法评价，不展示任何审计计数', async () => {
+    const { wrapper } = await openWorkbench(undefined, ['governance:field:view'])
+    expect(wrapper.find('.speed').exists()).toBe(false)
+    expect(wrapper.find('.traffic').exists()).toBe(false)
+    expect(wrapper.text()).toContain('用户反馈')
   })
-
-  it('有审批查看权时显示真实待审批数量', async () => {
-    iam.hasGlobal.mockImplementation((code: string) => (
-      code === 'security:approval:view' || code === 'admin:workbench:view'
-    ))
-    const wrapper = mountPage()
-    await settle()
-
-    expect(api.listIamS1AccessRequestQueue).toHaveBeenCalledWith('PENDING', 1, 2)
-    expect(wrapper.text()).toContain('3 条负责范围申请待审批')
+  // 服务端分子和分母无法对账时，不能把超出的票数画成已经全部覆盖。
+  it('拒绝有效票数超过该权限域已完成回答数的反馈回执', async () => {
+    const r = summary()
+    r.feedback = { ...r.feedback!, eligible: 1, likes: 1, dislikes: 1 }
+    vi.mocked(getQueryExperience).mockResolvedValue(r)
+    const { wrapper } = await openWorkbench()
+    expect(wrapper.text()).toContain('问数统计返回的范围或指标不完整')
+    expect(wrapper.find('.coverage-bar').exists()).toBe(false)
   })
-
-  it('审批数量读取失败时显示原因而不是零', async () => {
-    iam.hasGlobal.mockImplementation((code: string) => (
-      code === 'security:approval:view' || code === 'admin:workbench:view'
-    ))
-    api.listIamS1AccessRequestQueue.mockRejectedValue(new Error('审批服务不可用'))
-    const wrapper = mountPage()
-    await settle()
-
-    expect(wrapper.text()).toContain('审批服务不可用')
-    expect(wrapper.text()).not.toContain('0 条访问申请待审批')
-  })
-
-  it('没有审批查看权时不请求也不显示入口', async () => {
-    const wrapper = mountPage()
-    await settle()
-
-    expect(api.listIamS1AccessRequestQueue).not.toHaveBeenCalled()
-    expect(wrapper.text()).not.toContain('处理访问申请')
-  })
-
-  it('知识审核与待发布入口按能力显示', async () => {
-    iam.datasourcesWithFunction.mockImplementation((code: string) => (
-      code === 'knowledge:view' || code === 'metadata:release:view' ? [5] : []
-    ))
-    const wrapper = mountPage()
-    await settle()
-
-    expect(wrapper.text()).toContain('查阅知识文档')
-    expect(wrapper.text()).toContain('核对元数据版本')
+  it('旧来源书签只打开授权的精确来源，非法来源清晰报错', async () => {
+    const { router, wrapper } = await openWorkbench('/admin/workbench?focusSourceId=5')
+    expect(router.currentRoute.value.path).toBe('/admin/data-sources/5')
+    await router.push('/admin/workbench?focusSourceId=7')
+    await flushPromises()
+    expect(wrapper.text()).toContain('没有查看指定来源的权限')
+    await router.push('/admin/workbench?focusSourceId=1oops')
+    await flushPromises()
+    expect(wrapper.text()).toContain('指定来源标识无效')
+    expect(getQueryExperience).not.toHaveBeenCalled()
   })
 })

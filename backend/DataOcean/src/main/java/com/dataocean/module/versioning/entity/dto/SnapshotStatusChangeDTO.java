@@ -8,6 +8,8 @@ import lombok.Data;
  */
 @Data
 public class SnapshotStatusChangeDTO {
+    @NotNull(message = "缺少待审核快照的原状态")
+    private String expectedStatus;
 
     @NotNull(message = "目标状态不能为空")
     private String targetStatus;

@@ -7,6 +7,7 @@ import { useIamS1Store } from '../../stores/iamS1'
 import { getHttpErrorMessage } from '../../utils/httpError'
 import { resolveQueryDisplayState } from '../../utils/queryDisplayState'
 import { buildQueryChartOption, getDefaultQueryChartType } from '../../utils/queryChart'
+import { readChartTheme } from '../../utils/chartTheme'
 import QueryResult from './QueryResult.vue'
 
 const props = defineProps<{ taskId: string; datasourceId: number; originalQuestion: string }>()
@@ -36,11 +37,12 @@ const canExport = computed(() => result.value?.status === 'COMPLETED'
 const exporter = useQueryExport({ latestResult: result, canExport })
 const viewState = computed(() => resolveQueryDisplayState({ result: result.value, selectionLoading: loading.value, selectionError: error.value }))
 const chartOption = computed(() => {
-  const style = getComputedStyle(root.value || document.documentElement)
+  // 指标与类别使用同一组六色序列，切换图型时保持类别顺序和文字标识。
+  const { color, fontFamily } = readChartTheme(root.value || document.documentElement)
   return buildQueryChartOption(result.value?.chartConfig, chartType.value, {
-    colors: ['--do-primary', '--do-success', '--do-ink', '--do-warning', '--do-info'].map(name => style.getPropertyValue(name).trim()).filter(Boolean),
-    textColor: style.getPropertyValue('--do-ink').trim(), mutedColor: style.getPropertyValue('--do-muted').trim(),
-    borderColor: style.getPropertyValue('--do-line').trim(), fontFamily: style.fontFamily,
+    colors: [1, 2, 3, 4, 5, 6].map(index => color(`--do-chart-${index}`)).filter(Boolean),
+    textColor: color('--do-ink'), mutedColor: color('--do-muted'), borderColor: color('--do-line'),
+    surfaceColor: color('--do-surface'), fontFamily,
   })
 })
 const trustSummary = computed(() => [

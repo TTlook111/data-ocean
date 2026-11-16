@@ -4,10 +4,10 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import AdminHomeView from '../AdminHomeView.vue'
 import DataSourceDetailView from './datasource/DataSourceDetailView.vue'
-import QualityDashboard from './governance/QualityDashboard.vue'
+import QualityChecksView from './governance/QualityChecksView.vue'
 
 const api = vi.hoisted(() => ({
-  listSimpleDatasources: vi.fn(), getBatchDatasourceReadiness: vi.fn(), getDashboardStats: vi.fn(),
+  getQueryExperience: vi.fn(),
   getDatasource: vi.fn(), getDatasourceReadiness: vi.fn(), listSnapshots: vi.fn(), listSyncTasks: vi.fn(),
   listKnowledgeDocs: vi.fn(), listQualityIssues: vi.fn(), push: vi.fn(),
   listQualityRules: vi.fn(), updateRuleEnabled: vi.fn(),
@@ -16,15 +16,14 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock('vue-router', async importOriginal => ({
   ...await importOriginal<typeof import('vue-router')>(),
-  useRoute: () => ({ params: { id: '1' }, query: {}, meta: { domainKey: 'data-entry' } }),
+  useRoute: () => ({ path: '/admin/workbench', params: { id: '1' }, query: {}, meta: { domainKey: 'data-entry' } }),
   useRouter: () => ({ push: api.push }),
 }))
 vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, datasourcesWithFunction: () => [1, 2], systemAdmin: false, loaded: true, errorMessage: null, snapshot: {}, load: async () => {} }) }))
 vi.mock('../../stores/auth', () => ({ useAuthStore: () => ({ token: 'synthetic-admin-test' }) }))
 vi.mock('../../stores/adminContext', () => ({ useAdminContextStore: () => ({ initialize: async () => {}, datasourceId: 1, snapshotId: 10, currentDatasource: { name: '销售库' }, selectSnapshot: vi.fn() }) }))
-vi.mock('../../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
+vi.mock('../../api/admin/dashboard', () => ({ getQueryExperience: api.getQueryExperience }))
 vi.mock('../../api/admin/datasource', () => ({
-  listSimpleDatasources: api.listSimpleDatasources, getBatchDatasourceReadiness: api.getBatchDatasourceReadiness,
   getDatasource: api.getDatasource, getDatasourceReadiness: api.getDatasourceReadiness,
   testSavedDatasourceConnection: vi.fn(), updateDatasourceStatus: vi.fn(),
 }))
@@ -43,7 +42,7 @@ vi.mock('../../api/admin/governance', () => ({
 
 const ready = { datasourceId: 1, datasourceName: '销售库', askable: true, stage: 'ASKABLE', stageLabel: '可询问', progress: 100, publishedSnapshotId: 10, snapshotVersion: 1, connectionReady: true, metadataReady: true, governanceReady: true, knowledgeReady: true, permissionReady: true, blockReasons: [] }
 const wrappers: VueWrapper[] = []
-async function render(component: typeof AdminHomeView | typeof DataSourceDetailView | typeof QualityDashboard) {
+async function render(component: typeof AdminHomeView | typeof DataSourceDetailView | typeof QualityChecksView) {
   const wrapper = mount(component, { global: { plugins: [ElementPlus], stubs: { RouterLink: { props: ['to'], template: '<a><slot /></a>' } } } })
   wrappers.push(wrapper)
   await flushPromises()
@@ -51,9 +50,8 @@ async function render(component: typeof AdminHomeView | typeof DataSourceDetailV
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 1, name: '销售库', databaseName: 'sales' }] })
-  api.getBatchDatasourceReadiness.mockResolvedValue({ data: [ready], failedDatasourceIds: [] })
-  api.getDashboardStats.mockResolvedValue({ data: { openIssues: 0, recentActivities: [] } })
+  api.getQueryExperience.mockResolvedValue({ period: 'today', asOf: '2026-11-07T10:00:00', start: '2026-11-07T00:00:00',
+    end: '2026-11-07T10:00:00', targetSeconds: 10, usage: null, feedback: null })
   api.getDatasource.mockResolvedValue({ data: { id: 1, name: '销售库', dbType: 'MYSQL', host: 'localhost', port: 3306, databaseName: 'sales', status: 1 } })
   api.getDatasourceReadiness.mockResolvedValue({ data: ready })
   api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 20, snapshotVersion: 2, status: 'DRAFT' }, { id: 10, snapshotVersion: 1, status: 'PUBLISHED' }] } })
@@ -69,21 +67,17 @@ beforeEach(() => {
 afterEach(() => wrappers.splice(0).forEach(wrapper => wrapper.unmount()))
 
 describe('后台任务与未知状态', () => {
-  it('准备情况失败时明确错误，不展示全部就绪或零阻断的结论', async () => {
-    api.getBatchDatasourceReadiness.mockRejectedValue(new Error('读取失败'))
+  // 问数工作台的读失败和窄范围角色不能得到“零点踩”或推断出来的全样本正确率。
+  it('工作台读取失败时明确错误，不展示成功结论', async () => {
+    api.getQueryExperience.mockRejectedValue(new Error('统计读取失败'))
     const wrapper = await render(AdminHomeView)
-    expect(wrapper.text()).toContain('准备情况暂不可用')
-    expect(wrapper.text()).not.toContain('当前没有阻断项')
-    expect(wrapper.findAll('[data-source-choice] .condition.unknown')).toHaveLength(5)
-    expect(wrapper.find('[data-source-detail]').text()).toContain('待确认')
+    expect(wrapper.text()).toContain('统计读取失败')
+    expect(wrapper.find('.speed').exists()).toBe(false)
   })
-  it('部分数据源读取失败时保留未知对象，不把已知结果当作全部成功', async () => {
-    api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 1, name: '销售库' }, { id: 2, name: '未确认库' }] })
-    api.getBatchDatasourceReadiness.mockResolvedValue({ data: [ready], failedDatasourceIds: [2] })
+  it('服务端没有返回有权范围时不展示评价和抽检读数', async () => {
     const wrapper = await render(AdminHomeView)
-    expect(wrapper.text()).toContain('部分数据源的准备情况尚未确认')
-    expect(wrapper.text()).toContain('未确认库')
-    expect(wrapper.text()).not.toContain('当前没有阻断项')
+    expect(wrapper.text()).toContain('没有可查看的问数审计或反馈统计')
+    expect(wrapper.find('.feedback').exists()).toBe(false)
   })
   it('详情读取已发布快照的问题，避免被最新草稿快照误导', async () => {
     await render(DataSourceDetailView)
@@ -112,12 +106,12 @@ describe('后台任务与未知状态', () => {
   })
   it('治理问题读取失败时不显示无高危或暂无待处理项', async () => {
     api.getSnapshotQualityIssueSummary.mockRejectedValue(new Error('不可用'))
-    const wrapper = await render(QualityDashboard)
+    const wrapper = await render(QualityChecksView)
     expect(wrapper.text()).toContain('待处理问题统计读取失败')
     expect(wrapper.text()).not.toContain('当前没有待处理问题')
   })
-  it('治理总览不显示常驻规则开关，规则管理通过摘要入口进入', async () => {
-    const wrapper = await render(QualityDashboard)
+  it('检查页不显示常驻规则开关，规则管理通过摘要入口进入', async () => {
+    const wrapper = await render(QualityChecksView)
     expect(wrapper.find('.el-switch').exists()).toBe(false)
     expect(wrapper.text()).toContain('规则准备')
     expect(wrapper.text()).toContain('管理规则')

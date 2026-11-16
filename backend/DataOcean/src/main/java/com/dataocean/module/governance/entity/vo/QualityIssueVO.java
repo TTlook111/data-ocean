@@ -24,6 +24,8 @@ public class QualityIssueVO {
     private String issueDescription;
     private String suggestion;
     private String status;
+    /** 客户端按此读取版本提交处理或分派，不得用保存前重读替换原依据。 */
+    private Long rowVersion;
     private Long assigneeId;
     private String assigneeName;
     private LocalDateTime createdAt;

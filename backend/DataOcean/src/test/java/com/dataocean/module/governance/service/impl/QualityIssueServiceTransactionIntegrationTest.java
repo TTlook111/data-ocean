@@ -65,8 +65,40 @@ import static org.mockito.Mockito.when;
  */
 class QualityIssueServiceTransactionIntegrationTest {
 
+    // 同一状态经历处理、重开再确认后，旧页面的操作依据已经失效，不能只比较状态字符串。
     @Test
-    void assignmentCannotOverwriteAStatusCommittedAfterItsRead() {
+    void staleClientCannotOverwriteAnAbaStatusCycle() {
+        try (Fixture fixture = new Fixture(false, null)) {
+            long issueId = fixture.insertIssue(MetadataQualityIssue.STATUS_CONFIRMED, null);
+            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_RESOLVED, "他人已核验", fixture.issueMapper.selectById(issueId).getRowVersion(), 10L);
+            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_REOPENED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 11L);
+            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 12L);
+
+            assertThatThrownBy(() -> fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_REJECTED, "旧页面判断", 1L, 99L))
+                    .isInstanceOfSatisfying(com.dataocean.common.exception.BusinessException.class,
+                            error -> assertThat(error.getCode()).isEqualTo(409));
+            assertThat(fixture.issueMapper.selectById(issueId).getStatus()).isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
+        }
+    }
+
+    // 陈旧页面的分派不能覆盖另一位操作者已经提交的新责任人。
+    @Test
+    void staleClientAssignmentCannotReplaceANewerAssignee() {
+        try (Fixture fixture = new Fixture(false, null)) {
+            long issueId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, null);
+            when(fixture.userMapper.selectById(77L)).thenReturn(activeUser(77L));
+            when(fixture.userMapper.selectById(88L)).thenReturn(activeUser(88L));
+            fixture.issueService.assignIssue(issueId, 77L, 1L);
+
+            assertThatThrownBy(() -> fixture.issueService.assignIssue(issueId, 88L, 1L))
+                    .isInstanceOfSatisfying(com.dataocean.common.exception.BusinessException.class,
+                            error -> assertThat(error.getCode()).isEqualTo(409));
+            assertThat(fixture.issueMapper.selectById(issueId).getAssigneeId()).isEqualTo(77L);
+        }
+    }
+
+    @Test
+    void assignmentRejectsAStatusCommittedAfterItsRead() {
         try (Fixture fixture = new Fixture(false, null)) {
             long issueId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, null);
             SysUser assignee = activeUser(77L);
@@ -74,15 +106,19 @@ class QualityIssueServiceTransactionIntegrationTest {
             requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
             when(fixture.userMapper.selectById(77L)).thenAnswer(invocation -> {
                 requiresNew.executeWithoutResult(status ->
-                        fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L));
+                        fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 99L));
                 return assignee;
             });
 
-            fixture.issueService.assignIssue(issueId, 77L);
+            // 读到 v1 后另一事务处理成 v2，分派必须在 SQL 条件处失败，不回滚他人的处理。
+            assertThatThrownBy(() -> fixture.issueService.assignIssue(issueId, 77L, 1L))
+                    .isInstanceOfSatisfying(com.dataocean.common.exception.BusinessException.class,
+                            error -> assertThat(error.getCode()).isEqualTo(409));
 
             MetadataQualityIssue persisted = fixture.issueMapper.selectById(issueId);
             assertThat(persisted.getStatus()).isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
-            assertThat(persisted.getAssigneeId()).isEqualTo(77L);
+            assertThat(persisted.getAssigneeId()).isNull();
+            assertThat(persisted.getRowVersion()).isEqualTo(2L);
         }
     }
 
@@ -96,7 +132,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             AtomicReference<Throwable> loserError = new AtomicReference<>();
             Thread winner = new Thread(() -> {
                 try {
-                    fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 10L);
+                    fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 1L, 10L);
                 } catch (Throwable error) {
                     winnerError.set(error);
                 } finally {
@@ -105,7 +141,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             }, "issue-status-winner");
             Thread loser = new Thread(() -> {
                 try {
-                    fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 11L);
+                    fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 1L, 11L);
                 } catch (Throwable error) {
                     loserError.set(error);
                 }
@@ -137,13 +173,13 @@ class QualityIssueServiceTransactionIntegrationTest {
             resolved.setResolutionNote("旧解决备注");
             fixture.issueMapper.updateById(resolved);
 
-            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_REOPENED, null, 90L);
+            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_REOPENED, null, fixture.issueMapper.selectById(resolved.getId()).getRowVersion(), 90L);
             assertResolutionInfoCleared(fixture.issueMapper.selectById(resolved.getId()), MetadataQualityIssue.STATUS_REOPENED);
 
-            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_CONFIRMED, null, 91L);
+            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(resolved.getId()).getRowVersion(), 91L);
             assertResolutionInfoCleared(fixture.issueMapper.selectById(resolved.getId()), MetadataQualityIssue.STATUS_CONFIRMED);
 
-            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_RESOLVED, "本轮解决备注", 92L);
+            fixture.issueService.handleIssue(resolved.getId(), MetadataQualityIssue.STATUS_RESOLVED, "本轮解决备注", fixture.issueMapper.selectById(resolved.getId()).getRowVersion(), 92L);
             MetadataQualityIssue finalResolved = fixture.issueMapper.selectById(resolved.getId());
             assertThat(finalResolved.getStatus()).isEqualTo(MetadataQualityIssue.STATUS_RESOLVED);
             assertThat(finalResolved.getResolvedBy()).isEqualTo(92L);
@@ -161,10 +197,10 @@ class QualityIssueServiceTransactionIntegrationTest {
             rejected.setResolutionNote("旧驳回备注");
             fixture.issueMapper.updateById(rejected);
 
-            fixture.issueService.handleIssue(rejected.getId(), MetadataQualityIssue.STATUS_REOPENED, null, 90L);
+            fixture.issueService.handleIssue(rejected.getId(), MetadataQualityIssue.STATUS_REOPENED, null, fixture.issueMapper.selectById(rejected.getId()).getRowVersion(), 90L);
             assertResolutionInfoCleared(fixture.issueMapper.selectById(rejected.getId()), MetadataQualityIssue.STATUS_REOPENED);
 
-            fixture.issueService.handleIssue(rejected.getId(), MetadataQualityIssue.STATUS_REJECTED, null, 93L);
+            fixture.issueService.handleIssue(rejected.getId(), MetadataQualityIssue.STATUS_REJECTED, null, fixture.issueMapper.selectById(rejected.getId()).getRowVersion(), 93L);
             MetadataQualityIssue finalRejected = fixture.issueMapper.selectById(rejected.getId());
             assertThat(finalRejected.getStatus()).isEqualTo(MetadataQualityIssue.STATUS_REJECTED);
             assertThat(finalRejected.getResolvedBy()).isEqualTo(93L);
@@ -179,7 +215,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             fixture.insertConfidence(300L, 50);
             long issueId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, 300L);
 
-            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
+            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 99L);
 
             assertThat(fixture.issueMapper.selectById(issueId).getStatus())
                     .isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
@@ -188,8 +224,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             assertThat(fixture.eventsFor(300L)).extracting(FieldConfidenceEvent::getEventType)
                     .containsExactly(FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED);
 
-            assertThatThrownBy(() -> fixture.issueService.handleIssue(
-                    issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L))
+            assertThatThrownBy(() -> fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 99L))
                     .isInstanceOf(com.dataocean.common.exception.BusinessException.class);
             assertThat(fixture.eventCount()).isEqualTo(1);
             assertThat(fixture.confidence(300L).getScore()).isEqualTo(45);
@@ -203,7 +238,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             long issueId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, 300L);
 
             // The service intentionally degrades the auxiliary confidence update after the issue commit.
-            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
+            fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 99L);
 
             assertThat(fixture.issueMapper.selectById(issueId).getStatus())
                     .isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
@@ -220,7 +255,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             TransactionTemplate transaction = new TransactionTemplate(fixture.transactionManager);
 
             transaction.executeWithoutResult(status -> {
-                fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
+                fixture.issueService.handleIssue(issueId, MetadataQualityIssue.STATUS_CONFIRMED, null, fixture.issueMapper.selectById(issueId).getRowVersion(), 99L);
                 status.setRollbackOnly();
             });
 
@@ -242,8 +277,7 @@ class QualityIssueServiceTransactionIntegrationTest {
             when(fixture.issueResourceResolver.resolve(resolvedId)).thenReturn(
                     IamS1ResolvedResource.of(IamS1ResourceType.GOVERNANCE_ISSUE, resolvedId, 5L));
 
-            IssueBatchHandleResultVO result = fixture.issueService.batchHandle(
-                    List.of(openId, resolvedId), MetadataQualityIssue.STATUS_CONFIRMED, 99L);
+            IssueBatchHandleResultVO result = fixture.issueService.batchHandle(List.of(openId, resolvedId), MetadataQualityIssue.STATUS_CONFIRMED, versions(List.of(openId, resolvedId)), 99L);
 
             assertThat(result.getUpdated()).isEqualTo(1);
             assertThat(result.getSkipped()).isEqualTo(1);
@@ -262,6 +296,34 @@ class QualityIssueServiceTransactionIntegrationTest {
         }
     }
 
+    // 批量携带各自原版本，单条陈旧不阻止其他合法条目，但必须保留对应跳过原因。
+    @Test
+    void batchReportsStaleVersionWithoutChangingItOrDiscardingOtherSuccesses() {
+        try (Fixture fixture = new Fixture(false, null)) {
+            long staleId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, null);
+            long freshId = fixture.insertIssue(MetadataQualityIssue.STATUS_OPEN, null);
+            when(fixture.userMapper.selectById(77L)).thenReturn(activeUser(77L));
+            fixture.issueService.assignIssue(staleId, 77L, 1L);
+            for (long id : List.of(staleId, freshId)) {
+                when(fixture.issueResourceResolver.resolve(id)).thenReturn(
+                        IamS1ResolvedResource.of(IamS1ResourceType.GOVERNANCE_ISSUE, id, 5L));
+            }
+
+            IssueBatchHandleResultVO result = fixture.issueService.batchHandle(
+                    List.of(staleId, freshId), MetadataQualityIssue.STATUS_CONFIRMED,
+                    versions(List.of(staleId, freshId)), 99L);
+
+            assertThat(result.getUpdated()).isEqualTo(1);
+            assertThat(result.getSkippedIssues()).singleElement().satisfies(item -> {
+                assertThat(item.getIssueId()).isEqualTo(staleId);
+                assertThat(item.getReason()).contains("问题已被其他操作修改");
+            });
+            assertThat(fixture.issueMapper.selectById(staleId).getStatus()).isEqualTo(MetadataQualityIssue.STATUS_OPEN);
+            assertThat(fixture.issueMapper.selectById(staleId).getAssigneeId()).isEqualTo(77L);
+            assertThat(fixture.issueMapper.selectById(freshId).getRowVersion()).isEqualTo(2L);
+        }
+    }
+
     private static void assertResolutionInfoCleared(MetadataQualityIssue issue, String status) {
         assertThat(issue.getStatus()).isEqualTo(status);
         assertThat(issue.getResolvedBy()).isNull();
@@ -274,6 +336,11 @@ class QualityIssueServiceTransactionIntegrationTest {
         user.setId(id);
         user.setStatus(SysUser.STATUS_NORMAL);
         return user;
+    }
+
+    /** 批量夹具明确给出每个读取版本，不能由被测服务自行补齐。 */
+    private static java.util.Map<Long, Long> versions(List<Long> ids) {
+        return ids.stream().distinct().collect(java.util.stream.Collectors.toMap(id -> id, id -> 1L));
     }
 
     private static final class Fixture implements AutoCloseable {
@@ -327,7 +394,7 @@ class QualityIssueServiceTransactionIntegrationTest {
                         + "table_name VARCHAR(200), column_name VARCHAR(200), issue_description VARCHAR(1000), "
                         + "suggestion VARCHAR(1000), status VARCHAR(20) NOT NULL, assignee_id BIGINT, "
                         + "resolved_by BIGINT, resolved_at TIMESTAMP, resolution_note VARCHAR(500), "
-                        + "created_at TIMESTAMP, updated_at TIMESTAMP, column_meta_id BIGINT)");
+                        + "created_at TIMESTAMP, updated_at TIMESTAMP, column_meta_id BIGINT, row_version BIGINT NOT NULL DEFAULT 1)");
                 statement.execute("CREATE TABLE field_confidence ("
                         + "id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, column_meta_id BIGINT NOT NULL UNIQUE, "
                         + "score INT NOT NULL, level VARCHAR(10) NOT NULL, reason VARCHAR(500), "

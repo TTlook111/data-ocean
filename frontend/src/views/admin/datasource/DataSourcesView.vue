@@ -776,7 +776,8 @@ onMounted(async () => {
 .data-sources-panel__pager :deep(.el-pager li),
 .data-sources-panel__pager :deep(.btn-prev),
 .data-sources-panel__pager :deep(.btn-next) { min-width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }
-.data-sources-panel__pager :deep(.el-pager li.is-active) { background: var(--do-primary); color: #fff; }
+/* 页码选中态与来源目录的主操作使用同一组对比色。 */
+.data-sources-panel__pager :deep(.el-pager li.is-active) { background: var(--do-primary); color: var(--do-on-primary); }
 
 
 @media (max-width: 900px) {
@@ -807,10 +808,11 @@ onMounted(async () => {
   padding: 0;
   border-color: var(--do-line);
   border-radius: var(--do-radius-md);
-  background: rgba(255, 255, 255, .99);
+  /* 菜单传送至 body，箭头与面板均使用不透明覆盖表面。 */
+  background: var(--do-surface);
   box-shadow: var(--do-shadow-lg);
 }
-.data-source-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: #fff; }
+.data-source-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: var(--do-surface); }
 .data-source-actions-popper .el-dropdown-menu { padding: 6px; background: transparent; }
 .data-source-actions-popper .el-dropdown-menu__item {
   min-height: 38px;
@@ -846,7 +848,8 @@ onMounted(async () => {
 .data-source-dialog .el-dialog { max-width: calc(100vw - 32px); overflow: hidden; border-radius: var(--do-radius-lg); }
 .data-source-dialog .el-dialog__header { padding: 16px 20px 12px; margin-right: 0; }
 .data-source-dialog .el-dialog__body { max-height: calc(100vh - 250px); max-height: calc(100dvh - 250px); padding: 4px 20px 12px; overflow-y: auto; }
-.data-source-dialog .el-dialog__footer { padding: 12px 20px 14px; border-top: 1px solid var(--do-line); background: rgba(255, 255, 255, .6); }
+/* 对话框操作区通过边线与正文分开，保持与表单一致的底色。 */
+.data-source-dialog .el-dialog__footer { padding: 12px 20px 14px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
 .data-source-dialog .el-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
 
 .data-source-form { display: grid; gap: 14px; }

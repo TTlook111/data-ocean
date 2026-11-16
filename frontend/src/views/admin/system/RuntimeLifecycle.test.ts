@@ -105,6 +105,25 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 describe('运行工作面生命周期', () => {
+  it('保留额外诊断和故障原因，相同的可用状态只读一次', async () => {
+    rights()
+    const response = health()
+    api.getSystemHealth.mockResolvedValue({ data: {
+      ...response.data,
+      pythonService: { ...service, status:'UNAVAILABLE', description:'不可用', lastErrorMessage:'连接超时' },
+      mysql: { ...service, status:'AVAILABLE', description:'可用' },
+      redis: { ...service, status:'AVAILABLE', description:'使用备用节点' },
+    } })
+    const w = page()
+    await flushPromises()
+    const text = (name: string) => w.findAll('.runtime-page__card').find(c => c.get('h3').text() === name)!.text()
+    expect(text('Python AI 服务').match(/不可用/g)).toHaveLength(1)
+    expect(text('Python AI 服务')).toContain('连接超时')
+    expect(text('MySQL 数据库')).toContain('正常')
+    expect(text('MySQL 数据库')).not.toContain('可用')
+    expect(text('Redis 缓存')).toContain('使用备用节点')
+    w.unmount()
+  })
   it('最小查看只读当前服务，不依赖源目录', async () => {
     const w = page()
     await flushPromises()

@@ -1,6 +1,6 @@
 # README 视觉资产 / README visual assets
 
-本目录服务于根目录的[中文 README](../../../README.md) 与 [English README](../../../README.en.md)。两版共用四张英文短标签说明图与三张中文界面截图；重要架构和流程同时保留在两版正文中。
+本目录服务于根目录的[中文 README](../../../README.md) 与 [English README](../../../README.en.md)。两版共用四张说明图；重要架构和流程同时保留在两版正文中。
 
 ## 说明图 / Explanatory illustrations
 
@@ -23,22 +23,3 @@ All four illustrations were generated with the built-in image model, reviewed, a
 - 封面仅用概念符号表达治理、检索、问数，不声明部署拓扑、性能、自动采集策略或业务正确率。
 
 Reviewed against the linked implementation and maintained docs: nine architecture nodes with eight main dependency links; six query nodes with five forward links; five governance stages with four forward links and feedback returning to review. Authorization/protection callbacks and non-main graph branches are omitted. Publication and explicit index building remain separate.
-
-## 界面截图 / Product captures
-
-- 渲染日期：2026-11-02；产品代码：`a180b0eab4380759f63e8fa8ef1701df122fb06f`。
-- 正式 Vue 组件在本机 Chromium 中渲染，所有 `/api/` 请求由仓内合成夹具应答。未连接 Java、Python、数据库或模型；未使用公司截图、账号或真实业务资料。
-- 双语角标是预览标注。耗时、金额、问题数量、授权与准备状态均为夹具值，不是性能指标或真实授权证明。
-- 本轮保留截图像素与合成标记，仅调整 README 中的排列、尺寸与说明。只展示正常布局，实际验收仍从[验收索引](../../acceptance/README.md)进入。
-
-These are actual Vue component captures with repository-based synthetic API fixtures. No live backend, database, model, company screenshot, or business data was used. The bilingual watermark identifies the preview. Displayed values are fixtures, not benchmarks. This revision changes presentation in the README, preserving the captures themselves.
-
-| 文件 / File | 内容 / Content | CSS 视口 / Viewport | 夹具来源 / Fixture source |
-| --- | --- | --- | --- |
-| [query.webp](query.webp) | 连续对话与查询结果 / Conversation and query results | 1440 × 1080 | [query_conversation_v2.py](../../../scripts/frontend-acceptance/query_conversation_v2.py), `AcceptanceFixture` 默认历史会话 |
-| [workbench.webp](workbench.webp) | 来源准备与下一步 / Source readiness | 1440 × 900 | [workbench_governance_v3.py](../../../scripts/frontend-acceptance/workbench_governance_v3.py), `Fixture('normal')` |
-| [governance.webp](governance.webp) | 问题分布与来源校验 / Issues and source checks | 1440 × 900 | 同上 / Same as above, `Fixture('normal')` |
-
-截图使用 1.5 倍像素密度，未改动组件布局或业务文案；问数对话滚动到顶部，使问题与回答一起可见。两版继续直接引用仓内 [DataOcean 品牌标识](../../../frontend/src/assets/brand/dataocean-mark.png)，未重新生成 Logo。
-
-Captured at 1.5× pixel density, with application layout and copy unchanged. The query conversation was scrolled to its top. Both READMEs continue to use the original repository logo.

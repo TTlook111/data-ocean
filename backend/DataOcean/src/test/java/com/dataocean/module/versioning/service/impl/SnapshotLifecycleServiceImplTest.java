@@ -30,6 +30,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SnapshotLifecycleServiceImplTest {
+    @Test
+    void reviewTransitionCannotExpireThePublishedPointer() {
+        MetadataSnapshotMapper snapshots = mock(MetadataSnapshotMapper.class);
+        MetadataSnapshot formal = new MetadataSnapshot();
+        formal.setId(80L);
+        formal.setDatasourceId(5L);
+        formal.setStatus("PUBLISHED");
+        when(snapshots.selectById(80L)).thenReturn(formal);
+        var lifecycle = new SnapshotLifecycleServiceImpl(snapshots, mock(SnapshotReleaseGateService.class),
+                mock(SchemaDiffService.class), mock(SnapshotAuditLogService.class), mock(UserService.class), mock(DatasourceMapper.class));
+        assertThatThrownBy(() -> lifecycle.changeStatus(80L, "PUBLISHED", "EXPIRED", 9L, "审核状态入口"))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(409));
+        verify(snapshots, never()).update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class));
+    }
 
     @BeforeAll
     static void initTableInfo() {
@@ -87,7 +101,7 @@ class SnapshotLifecycleServiceImplTest {
         doThrow(new BusinessException(409, "无法审核通过：仍有 1 个未解决的高风险问题"))
                 .when(releaseGateService).assertApprovable(snapshot);
 
-        assertThatThrownBy(() -> service.changeStatus(80L, "APPROVED", 9L, "复核"))
+        assertThatThrownBy(() -> service.changeStatus(80L, "ISSUE_FOUND", "APPROVED", 9L, "复核"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("高风险问题");
 
@@ -106,7 +120,7 @@ class SnapshotLifecycleServiceImplTest {
         snapshot.setId(80L); snapshot.setDatasourceId(5L); snapshot.setStatus("CHECKING");
         when(snapshotMapper.selectById(80L)).thenReturn(snapshot);
 
-        assertThatThrownBy(() -> service.changeStatus(80L, "NOT_A_STATUS", 9L, null))
+        assertThatThrownBy(() -> service.changeStatus(80L, "CHECKING", "NOT_A_STATUS", 9L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("非法快照状态");
     }
