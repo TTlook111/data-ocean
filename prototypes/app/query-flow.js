@@ -53,13 +53,13 @@
     } };
   }
 
-  function open({ id, sourceId, text, previous, caseReply, context, scenario = 'normal', now = Date.now(), related = '' }) {
+  function open({ id, sourceId, text, previous, caseReply, context, outputRules = [], scenario = 'normal', now = Date.now(), related = '' }) {
     const outcome = sourceId === 'products' ? { state: null, reply: productExample(text, context) }
       : sourceId !== 'retail' ? { state: null, reply: { kind: 'notice', text: '当前数据源暂无问数数据样例。' } }
       : caseReply ? { state: null, reply: clone(caseReply) } : extraExample(previous, text, now) || QueryDemo.next(previous, text, now);
     const request = { id, sourceId, text, related, scenario, startedAt: now, stage: 0, state: clone(outcome.state), planned: clone(outcome.reply),
       status: '运行中', database: '未提交', explanation: '未开始', executions: 0, explanationAttempts: 0, remainingExplanation: 2,
-      anchor: '2026-11-08 Asia/Shanghai', evidence: { release: 'SAMPLE-RETAIL-r1', revision: 1 }, events: [], reply: null };
+      anchor: '2026-11-08 Asia/Shanghai', evidence: { release: 'SAMPLE-RETAIL-r1', revision: 1, outputRules: clone(outputRules) }, events: [], reply: null };
     if (previous?.waitingUntil && now >= previous.waitingUntil) request.resume = '等待已到期，已关联原问题建立新请求';
     else if (previous?.waitingUntil && outcome.reply.kind === 'answer') request.resume = /按天|按日|改|换|顺便/.test(text) ? '条件已改变，重新理解问题' : '缺项已补齐，继续原任务';
     if (outcome.reply.kind !== 'answer') {

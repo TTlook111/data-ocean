@@ -11,9 +11,7 @@
   // 共用既有示例访问来源，不从部门层级推导记录过滤，也不因分派授予访问。
   function sourceAccess(actor, source) {
     if (!actor || actor.status !== '正常') return false;
-    const departments = [actor.department, ...actor.extra];
-    return PeopleDemo.departments.some(row => departments.includes(row.id) && row.status === '正常' && row.access.some(access => access.source === source))
-      || PeopleDemo.extraRequests.some(row => row.user === actor.id && row.status === '已生效' && row.access.some(access => access.source === source));
+    return PeopleDemo.accessFor(actor).some(access => access.source === source);
   }
   // 反馈功能统一取个人角色；具体处理核对分派，业务证据仍沿用原有数据访问。
   const can = (actor,row,ability='view') => Boolean(row) && has(actor,'feedback.view') && has(actor,'feedback.'+ability);

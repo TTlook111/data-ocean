@@ -145,7 +145,7 @@
         const next=el('div');next.append(ui.textCell(pending.label));const updated=el('small','cell-sub','最近更新：'+model.updatedLabel(row));updated.title=time(row.updatedAt);next.append(updated);
         return [title,ui.textCell(row.originType),ui.textCell(model.sourceName(row.sourceId)),tag(row.status),ui.textCell(row.owner?name(row.owner):model.closed(row)?row.closedBy?.name||'历史办理人':'待分派'),next,ui.textCell(time(row.createdAt)),action];
       }}),RecordControls.pager({total:rows.length,...query},page=>{query.page=page;refresh();},size=>{query.pageSize=size;query.page=1;refresh();}));
-    main.replaceChildren(ui.pageHeading('问题队列与处理'),FeedbackInsightsPage.navigation(ui),filter,panel);
+    main.replaceChildren(ui.pageHeading('问题队列与处理'),filter,panel);
     const key=sessionStorage.getItem('dataocean.feedback.return');if(key){sessionStorage.removeItem('dataocean.feedback.return');requestAnimationFrame(()=>{const target=main.querySelector('[data-focus="feedback-'+key+'"]')||main.querySelector('[data-focus^="feedback-"]')||main.querySelector('input[name="keyword"]');target?.focus({preventScroll:true});target?.scrollIntoView({block:'nearest',inline:'nearest'});});}
   }
   function evidence(row,body){
@@ -262,7 +262,6 @@
   function render(target,controls,id=''){
     main=target;ui=controls;actor=ui.currentUser;current=id;
     if(!model.has(actor,'feedback.view')){main.replaceChildren(ui.pageHeading('问题队列与处理'),el('p','fb-notice','当前账号没有反馈查看权限。'));return;}
-    if(Object.hasOwn(FeedbackInsightsPage.labels,id)){FeedbackInsightsPage.render(main,ui,id);return;}
     if(id){const row=model.get(id);if(!row||!allowed(row,'view')){main.replaceChildren(ui.pageHeading('事项不可访问'),el('p','fb-notice','事项不存在或当前没有访问权限。'));return;}detail(row);}else list();reviewTools();
     main.scrollTop=parentPositions.get(id)||0;
   }

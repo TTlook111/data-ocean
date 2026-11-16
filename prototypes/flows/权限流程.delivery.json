@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "receiptId": "28b89d45-5551-4f43-80ef-88310d72544f",
+  "receiptId": "66ad98a4-3b69-4028-aa72-d56e23326b52",
   "status": "current",
   "command": "deliver",
   "type": "workflow",
   "input": "E:\\projects\\data-ocean\\prototypes\\flows\\权限流程.json",
   "output": "E:\\projects\\data-ocean\\prototypes\\flows\\权限流程.html",
   "specification": {
-    "sha256": "0445ce14cbd61c804b56ffe536474051b2fb96fb98493bd3b7a8a1ec3c96430e",
-    "bytes": 7493
+    "sha256": "bc0b79c37f6249881317fbe68bba89af21ae2a1d2ee304a1f0f5ef797e195e31",
+    "bytes": 7547
   },
   "artifact": {
-    "sha256": "2f9bdd2a47cedbc0682d78922a9914b7b11b231e7609b97c407978fde0e2bd0c",
-    "bytes": 847415
+    "sha256": "6b477be9856a3a3552ec5e27b6d807dbc9f5e37ff5dfe39fd511d056a4ca9b18",
+    "bytes": 847469
   }
 }

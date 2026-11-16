@@ -123,9 +123,11 @@ test('inactive and pending-review sources retain their provenance but do not add
   assert.equal(finance.activeCount,3);assert.equal(finance.origins.length,4);assert.ok(!finance.rules.some(rule=>rule.id==='cost'));
   const stopped=demo.accessGroups(people.users.find(user=>user.id==='u15'))[0];assert.equal(stopped.state,'来源停用');assert.equal(stopped.rules.length,0);assert.ok(stopped.origins[0].rules.length);
 });
-test('different snapshots of one rule never overwrite or silently remove another restriction',()=>{
-  const{demo}=fixture(),input=[{rules:[{id:'privacy',name:'信息限制',content:'不返回电话'}]},{rules:[{id:'privacy',name:'信息限制',content:'不返回身份证'}]}];
-  assert.equal(demo.mergeRules(input).length,2);assert.equal(input[0].rules[0].content,'不返回电话');
+test('current grants use the newest shared rule while approval snapshots retain their original contents',()=>{
+  const{demo,people}=fixture(),input=[{rules:[{id:'privacy',name:'信息限制',content:'不返回电话'}]},{rules:[{id:'privacy',name:'信息限制',content:'不返回身份证'}]}];
+  const rule=people.outputRules.find(rule=>rule.id==='privacy');rule.content='不返回电话、身份证和联系地址';
+  assert.equal(demo.mergeRules(input).length,1);assert.equal(demo.mergeRules(input)[0].content,rule.content);
+  assert.equal(input[0].rules[0].content,'不返回电话');assert.equal(input[1].rules[0].content,'不返回身份证');
 });
 test('identical restriction text is displayed once even when source rule names differ',()=>{
   const{demo}=fixture(),input=[{rules:[{id:'a',name:'客户信息限制',content:'不返回电话'}]},{rules:[{id:'b',name:'联系方式限制',content:'不返回电话'}]}],rules=demo.mergeRules(input);

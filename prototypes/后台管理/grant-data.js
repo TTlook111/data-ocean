@@ -11,7 +11,7 @@
       const department = departments.find(item => item.id === departmentId);
       if (!department) continue;
       for (const access of department.access) {
-        const key = [user.id, department.id, access.source].join(':'), fingerprint = JSON.stringify(access.rules);
+        const key = [user.id, department.id, access.source].join(':'), fingerprint = JSON.stringify(access.rules.map(rule => rule.id));
         current.add(key);
         let row = activeDepartments.get(key);
         if (row && row.fingerprint !== fingerprint) { row.endedAt = now(); activeDepartments.delete(key); row = null; }
@@ -35,13 +35,13 @@
     syncDepartments(); requests.records();
     const rows = departmentRows.map(row => {
       const department = departments.find(item => item.id === row.department);
-      return { ...row, state: row.endedAt ? '来源已结束' : department.status !== '正常' ? '来源停用' : department.requiresReview ? '待复核' : '已生效',
+      return { ...row, rules: row.endedAt ? row.rules : PeopleDemo.currentRules(row.rules), state: row.endedAt ? '来源已结束' : department.status !== '正常' ? '来源停用' : department.requiresReview ? '待复核' : '已生效',
         origin: department.name, originCode: department.code, typeLabel: '部门初始访问' };
     });
     for (const request of extraRequests) {
       if (request.status === '已生效' && !request.approvalItems) requests.ensure(request);
       for (const part of request.approvalItems || []) if (['已生效','已撤销'].includes(part.status)) rows.push({
-        id: 'REQUEST-GRANT-' + request.id + '-' + part.id, type: 'request', typeLabel: '申请授权', user: request.user, source: part.source, rules: part.rules,
+        id: 'REQUEST-GRANT-' + request.id + '-' + part.id, type: 'request', typeLabel: '申请授权', user: request.user, source: part.source, rules: part.status === '已生效' ? PeopleDemo.currentRules(part.rules) : part.rules,
         state: part.status, activatedAt: part.activatedAt || request.submitted, request, part, origin: request.id, originCode: request.id
       });
     }
@@ -57,7 +57,7 @@
   function get(id, actor) { return records(actor).find(row => row.id === id); }
   function mergeRules(rows) {
     const byContent = new Map();
-    for (const row of rows) for (const rule of row.rules) {
+    for (const row of rows) for (const rule of PeopleDemo.currentRules(row.rules)) {
       const key = rule.content.trim();
       if (!byContent.has(key)) byContent.set(key,{rule:{...rule,displayKey:key},names:new Set()});
       byContent.get(key).names.add(rule.name);
@@ -106,5 +106,11 @@
     row.request.access = structuredClone(requests.effectiveAccess(row.request)); requests.aggregate(row.request); row.request.revision += 1;
     row.request.history.push({ time, actor: actor.name, action: '授权撤销', content: affected.map(part => sourceName(part.source)).join('、') + '：' + reason.trim() });
   }
-  window.GrantDemo = { records, get, canView, canRevoke, blocked, impact, revoke, mergeRules, accessGroups, sourceName, identity };
+  const navigationSnapshot = () => ({ departmentRows, sequence });
+  function restoreNavigation(saved) {
+    departmentRows.splice(0, departmentRows.length, ...saved.departmentRows); sequence = saved.sequence;
+    activeDepartments.clear();
+    for (const row of departmentRows.filter(row => !row.endedAt)) activeDepartments.set([row.user,row.department,row.source].join(':'), row);
+  }
+  window.GrantDemo = { records, get, canView, canRevoke, blocked, impact, revoke, mergeRules, accessGroups, sourceName, identity, navigationSnapshot, restoreNavigation };
 })();

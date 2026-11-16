@@ -15,17 +15,16 @@
   const person = PeopleDemo.users.find(user => user.id === 'u01');
   const account = { id: person.id, name: person.name, active: person.status === '正常',
     departments: [person.department, ...person.extra].map(id => PeopleDemo.departments.find(department => department.id === id).name) };
-  const assigned = [...PeopleDemo.departments.filter(department => [person.department, ...person.extra].includes(department.id)).flatMap(department => department.access),
-    ...PeopleDemo.extraRequests.filter(request => request.user === person.id && request.status === '已生效').flatMap(request => request.access)];
-  const sourceOptions = PeopleDemo.dataSources.filter(source => assigned.some(item => item.source === source.id));
+  const sourceOptions = Vue.reactive(PeopleDemo.dataSources.filter(source => PeopleDemo.accessFor(person).some(item => item.source === source.id)));
   const defaultSource = sourceOptions.some(source => source.id === 'retail') ? 'retail' : sourceOptions[0]?.id;
-  const sourceName = id => sourceOptions.find(source => source.id === id)?.name || '数据源不可用';
+  const sourceName = id => PeopleDemo.dataSources.find(source => source.id === id)?.name || '数据源不可用';
   const sourceState = Vue.reactive({ value: defaultSource });
   PrototypeUI.mount(document.getElementById('data-source-picker'), {
     setup: () => () => Vue.h(ElementPlus.ElSelect, {
       modelValue: sourceState.value, 'aria-label': '本次问数数据源',
       'onUpdate:modelValue': value => switchSource(value), popperClass: 'prototype-ui-popper',
-    }, { default: () => sourceOptions.map(source => Vue.h(ElementPlus.ElOption, { key: source.id, value: source.id, label: source.name })) })
+    }, { default: () => [...sourceOptions.map(source => Vue.h(ElementPlus.ElOption, { key: source.id, value: source.id, label: source.name })),
+      ...(!sourceOptions.some(source=>source.id===sourceState.value)&&sourceState.value?[Vue.h(ElementPlus.ElOption,{key:sourceState.value,value:sourceState.value,label:sourceName(sourceState.value)+'（访问已失效）',disabled:true})]:[])] })
   });
   const profileMenu = sidebar.querySelector('.profile-more');
   const profileToggle = profileMenu.querySelector('summary');
@@ -38,7 +37,9 @@
   const revokedSources = new Set();
   let canSql = true;
   const timers = new Map();
-  const allowedSource = source => person.status==='正常' && SourceApprovalDemo.hasAbility(person,'query.view') && FeedbackDemo.sourceAccess(person,source) && sourceOptions.some(item => item.id === source) && !revokedSources.has(source);
+  const unavailableSource = source => ['已停用','已退役'].includes(PeopleDemo.dataSources.find(item=>item.id===source)?.connectionState);
+  const allowedSource = source => person.status==='正常' && SourceApprovalDemo.hasAbility(person,'query.view') && FeedbackDemo.sourceAccess(person,source) && sourceOptions.some(item => item.id === source) && !unavailableSource(source) && !revokedSources.has(source);
+  const ruleStamp = rules => JSON.stringify([...new Set(rules.map(rule=>rule.content.trim()))].sort());
   const scenarios = [['normal', '正常查询'], ['output-repair', '毛利输出校验后重新生成'], ['explanation', '解释生成失败'], ['connection', '连接失败'], ['unknown', '执行状态未知'], ['permission', '执行前撤权'], ['budget', '资源或预算超限'], ['empty', '空记录'], ['zero', '零值'], ['null', 'NULL 未知值'], ['truncated', '结果截断']];
   PrototypeUI.mount(document.getElementById('query-review-controls'), {
     setup: () => () => Vue.h(ElementPlus.ElSelect, { modelValue: reviewState.scenario, 'aria-label': '下一次查询样例',
@@ -206,6 +207,7 @@
   function hideRestricted(turn) {
     turn.querySelector('.qa-answer')?.remove();
     turn.querySelector('.feedback-case')?.remove();
+    turn.querySelector('.query-access-retry')?.remove();
     if (!turn.querySelector('.access-ended')) turn.append(element('p', 'access-ended', '这条回答当前不可用，请核对访问范围、知识状态或结果保留期限。'));
   }
 
@@ -220,15 +222,18 @@
         if (turn.querySelector('.case-card')?.dataset.caseStatus !== desk.get(reply.caseId).status) renderCase(thread, entry, turn);
       } else if (!canView(thread, entry)) {
         hideRestricted(turn);
+        if(allowedSource(thread.sourceId)){const retry=element('button','choice query-access-retry','重新查询');retry.type='button';retry.addEventListener('click',()=>requery(thread,entry));turn.append(retry);}
       } else {
         const message = turn.querySelector('.access-ended');
-        if (message) message.replaceWith(renderAnswer(thread, entry));
+        if (message) { turn.querySelector('.query-access-retry')?.remove();message.replaceWith(renderAnswer(thread, entry)); }
       }
     }
   }
 
   function canView(thread, entry) {
     if (!allowedSource(thread.sourceId) || !desk.canView(entry.reply.result)) return false;
+    // 原回答仍保留当次依据；限制内容变化后不直接沿用旧样例的交付资格。
+    if(entry.request?.evidence.outputRules&&ruleStamp(entry.request.evidence.outputRules)!==ruleStamp(PeopleDemo.rulesFor(person,thread.sourceId)))return false;
     if (entry.reply.result?.retainedUntil <= Date.now()) return false;
     if (entry.reply.result?.example === 'published-products') {
       const current = QueryKnowledgeBridge.read(thread.sourceId);
@@ -237,16 +242,19 @@
     return true;
   }
 
-  function requery(thread, entry) {
-    if (active !== thread) selectThread(thread);
-    const draft = input.value;
+  function questionFor(entry) {
     const state = entry.state;
     let question = entry.queryText || entry.text;
     if (state?.topic === 'sales') question = '城南店' + state.period + (state.weekdays?.length > 1 ? state.weekdays.map(day => '周' + '日一二三四五六'[day]).join('和') : '') + state.products.join('和')
       + ({ net: '净销量', gross: '售出盒数', returns: '退货盒数' }[state.metric] || '销量') + (state.group === 'day' ? '，按天列' : '，只看合计');
     if (state?.topic === 'inventory') question = '城南店今天' + state.products.join('和') + '库存';
     if (state?.topic === 'comparison') question = (state.comparison === 'cause' ? '为什么本周比上周净销量下降' : state.comparison === 'formula' ? '本周牛奶净销量除以上周牛奶净销量' : '本周和上周牛奶净销量比较') + '，' + (state.progress || '按整周比较');
-    submitMessage(question, entry.request?.id || entry.id, null);
+    return question;
+  }
+  function requery(thread, entry) {
+    if (active !== thread) selectThread(thread);
+    const draft = input.value;
+    submitMessage(questionFor(entry), entry.request?.id || entry.id, null);
     if (draft) { input.value = draft; syncInput(); save(); }
   }
 
@@ -486,7 +494,7 @@
       turn.append(author);
       if (reply.kind === 'case') renderCase(thread, entry, turn);
       else if (canView(thread, entry)) turn.append(renderAnswer(thread, entry));
-      else hideRestricted(turn);
+      else { hideRestricted(turn);if(allowedSource(thread.sourceId)){const retry=element('button','choice query-access-retry','重新查询');retry.type='button';retry.addEventListener('click',()=>requery(thread,entry));turn.append(retry);} }
     } else {
       turn.classList.add('compact');
       const line = element('div', 'prompt-line');
@@ -496,8 +504,12 @@
         const retry = element('button', 'choice', '重新查询'); retry.type = 'button'; retry.addEventListener('click', () => requery(thread, entry)); turn.append(retry);
       }
       if (entry.request?.status === '权限不允许') {
-        const apply = element('a', 'choice', '申请访问');
-        apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(entry.queryText || entry.text) + '&requestSource=' + thread.sourceId + '#my-requests'; turn.append(apply);
+        if (allowedSource(thread.sourceId)) {
+          const retry = element('button', 'choice', '重新查询'); retry.type = 'button'; retry.addEventListener('click', () => requery(thread, entry)); turn.append(retry);
+        } else if(!unavailableSource(thread.sourceId)) {
+          const apply = element('a', 'choice', '申请访问');
+          apply.href = accessApplication(thread, entry.queryText || entry.text, entry.id); turn.append(apply);
+        }
       }
     }
     // 插问解释或依据时，当前请求仍可继续；把仍有效的选项放到最新回复下方。
@@ -546,7 +558,7 @@
       updateEntry(thread, last);
     }
     const request = QueryFlow.open({ id: continuing ? last.request.id : 'QS-' + serial, sourceId: thread.sourceId, text, previous, caseReply,
-      context: QueryKnowledgeBridge.read(thread.sourceId), scenario: prototypeReview && !immediate ? reviewState.scenario : 'normal', related: related || (previous?.waitingUntil <= Date.now() ? last?.request?.id || '' : '') });
+      context: QueryKnowledgeBridge.read(thread.sourceId), outputRules: PeopleDemo.rulesFor(person,thread.sourceId), scenario: prototypeReview && !immediate ? reviewState.scenario : 'normal', related: related || (previous?.waitingUntil <= Date.now() ? last?.request?.id || '' : '') });
     if (prototypeReview && !immediate) reviewState.scenario = 'normal';
     if (immediate) while (request.status === '运行中') QueryFlow.advance(request);
     if (request.reply?.knowledgeGap) {
@@ -573,6 +585,9 @@
       if (!allowedSource(thread.sourceId)) {
         entry.request.database = entry.request.executions ? '取消已请求，状态待核查' : '未提交';
         entry.request.status = '权限不允许'; entry.request.reply = { kind: 'notice', text: '当前数据源访问已失效，本次查询已停止交付。' };
+      } else if(ruleStamp(entry.request.evidence.outputRules)!==ruleStamp(PeopleDemo.rulesFor(person,thread.sourceId))){
+        entry.request.status='权限不允许';entry.request.reply={kind:'notice',text:'输出限制已更新，请按当前规则重新查询。'};
+        entry.request.database=entry.request.executions?'取消已请求，状态待核查':'未提交';
       } else QueryFlow.advance(entry.request);
       entry.reply = entry.request.reply || { kind: 'notice', text: '' };
       entry.state = entry.request.state;
@@ -590,9 +605,10 @@
   function drawActivity() {
     const host = document.getElementById('query-activity'); host.replaceChildren();
     if (active && !allowedSource(active.sourceId)) {
+      if(unavailableSource(active.sourceId)){host.append(element('span','','当前数据源'+PeopleDemo.dataSources.find(source=>source.id===active.sourceId).connectionState+'，暂时不能问数。'));return;}
       host.hidden = false; host.append(element('span', '', '当前数据源访问已失效。'));
       const apply = element('a', 'choice', '申请访问');
-      apply.href = '../后台管理/index.html?requestData=' + encodeURIComponent(input.value || active.turns.at(-1)?.queryText || '') + '&requestSource=' + active.sourceId + '#my-requests';
+      apply.href = accessApplication(active,input.value || active.turns.at(-1)?.queryText || '',active.turns.at(-1)?.id);
       host.append(apply); return;
     }
     const entry = active?.turns.at(-1), request = entry?.request;
@@ -722,6 +738,17 @@
     if(turn&&(!answer||entry?.feedbackAnswerId===answer)){selectThread(feedbackThread);turn.tabIndex=-1;turn.focus({preventScroll:true});turn.scrollIntoView({block:'center'});feedbackLocated=true;}
   }
   if(feedbackParams.has('feedbackThread')&&!feedbackLocated){const note=element('p','access-ended','原问记录当前不可用，请从历史中选择其他问题。');note.setAttribute('role','status');transcript.prepend(note);}
+  function accessApplication(thread,text,turn='') {
+    const entry=thread.turns.find(entry=>entry.id===turn);if(entry&&(!text||text===entry.queryText||text===entry.text))text=questionFor(entry);
+    return '../后台管理/index.html?'+new URLSearchParams({requestData:text,requestSource:thread.sourceId,requestThread:thread.id,requestTurn:turn})+'#my-requests';
+  }
+  const accessThread=threads.find(thread=>thread.id===feedbackParams.get('requestThread'));
+  if(accessThread){selectThread(accessThread);const entry=accessThread.turns.find(entry=>entry.id===feedbackParams.get('requestTurn'));if(entry){const turn=accessThread.flow.querySelector('#'+CSS.escape(entry.id));turn?.scrollIntoView({block:'center'});}drawActivity();}
+  window.addEventListener('access-prototype-refresh',()=>{
+    sourceOptions.splice(0,sourceOptions.length,...PeopleDemo.dataSources.filter(source=>PeopleDemo.accessFor(person).some(access=>access.source===source.id)));
+    for(const thread of threads){refreshAccess(thread);for(const entry of thread.turns.filter(entry=>entry.request?.status==='权限不允许'))updateEntry(thread,entry);}
+    drawActivity();save();
+  });
   setInterval(() => {
     for (const thread of threads) {
       const entry = thread.turns.at(-1);

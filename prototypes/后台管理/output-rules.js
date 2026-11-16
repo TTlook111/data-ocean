@@ -11,11 +11,14 @@
         fields: [{ key: 'name', label: '规则名称', required: true, full: true },
           { key: 'content', label: '返回限制内容', type: 'textarea', required: true, full: true, placeholder: '例如：不允许返回用户的身份证号码、电话号码。' }],
         validate: data => outputRules.some(item => item.id !== rule?.id && item.name === data.name.trim()) ? '规则名称已存在。' : undefined,
-        // 这里只更新规则列表，不模拟共享规则修改对已有授权的生效策略。
+        preview: data => [{ label: '规则名称', before: rule?.name || '—', after: data.name.trim() },
+          { label: '返回限制内容', before: rule?.content || '—', after: data.content.trim() },
+          ...(rule ? [{ label: '生效范围', before: '当前引用该规则的有效授权', after: '保存后统一使用最新内容' }] : [])],
+        // 修改即更新全部有效引用的当前限制，不覆盖审批和历史查询的当次快照。
         save: data => {
           const value = { name: data.name.trim(), content: data.content.trim(), updated: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) };
-          if (rule) Object.assign(rule, value);
-          else { outputRules.unshift({ id: 'rule-' + Date.now(), ...value }); query.keyword = ''; query.content = ''; query.page = 1; }
+          if (rule) Object.assign(rule, value, { revision: (rule.revision || 1) + 1 });
+          else { outputRules.unshift({ id: 'rule-' + Date.now(), revision: 1, ...value }); query.keyword = ''; query.content = ''; query.page = 1; }
         }
       });
     }

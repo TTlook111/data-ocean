@@ -433,7 +433,7 @@
       .filter(d => d?.access.length).map(d => ({ id: d.id, type: 'department', label: '部门初始访问 · ' + d.name, access: d.access, submitted: d.created,
         state: d.status !== '正常' ? '来源' + d.status : d.requiresReview ? '待复核' : '' }));
     for (const request of extraRequests.filter(r => r.user === user.id && AccessRequestDemo.effectiveAccess(r).length)) sources.push({ id: request.id, type: 'request', label: '申请授权 · ' + request.id, access: AccessRequestDemo.effectiveAccess(request), submitted: request.submitted, request });
-    return sources;
+    return sources.map(origin=>({...origin,access:origin.access.map(access=>({...access,rules:origin.state?access.rules:PeopleDemo.currentRules(access.rules)}))}));
   }
   function dataAccessSources(user) {
     // 来源按数据源分页，规则正文作为单行补充摘要。
@@ -479,7 +479,8 @@
         change('提交后的状态', '', data.sourceIds.length && data.sourceIds.every(id=>SourceApprovalDemo.resolve(id,currentUser.id).reviewer) ? '待审批' : '待分流')],
       saveLabel: '提交申请', success: '申请已提交',
       // 仅记录申请并展示待审批，不把申请内容转换为实际授权。
-      save: data => { submittedRequest = { ...data, reason: data.reason.trim(), requestedScope: data.requestedScope.trim(), id: 'SQ-' + Date.now(), user: currentUser.id, department: currentUser.department, status: '待审批', submitted: timestamp() }; AccessRequestDemo.ensure(submittedRequest); extraRequests.unshift(submittedRequest); },
+      save: data => { submittedRequest = { ...data, reason: data.reason.trim(), requestedScope: data.requestedScope.trim(), id: 'SQ-' + Date.now(), user: currentUser.id, department: currentUser.department, status: '待审批', submitted: timestamp(),
+        queryOrigin: query.get('requestThread') ? { thread: query.get('requestThread'), turn: query.get('requestTurn') || '', source: requestedSource } : null }; AccessRequestDemo.ensure(submittedRequest); extraRequests.unshift(submittedRequest); },
       onSaved: () => {
         // 新申请直接回看其待审批详情，不让它混入“当前可访问”的清单。
         const reveal = () => requestDetail(submittedRequest, main.querySelector('[data-focus="apply-data-access"]'));
@@ -530,6 +531,10 @@
     }
     if (request.result) body.append(el('h3', '', '处理说明'), el('p', '', request.result));
     const footer = el('footer', 'dialog-footer'); footer.append(button('关闭', () => node.close()));
+    if(request.user===currentUser.id&&request.queryOrigin){
+      const link=el('a','admin-button'+(request.status==='已生效'?' is-primary':''),'返回原问题');
+      link.href='../app/index.html?'+new URLSearchParams({requestThread:request.queryOrigin.thread,requestTurn:request.queryOrigin.turn});footer.append(link);
+    }
     if (!adminResult && AccessRequestDemo.canResubmit(request, currentUser)) footer.append(button('补充并重新提交', () => { node.close(); resubmitRequest(request, trigger); }, 'admin-button is-primary'));
     if(adminResult&&section==='access-requests'&&SourceApprovalDemo.hasAbility(currentUser,'grants.view')&&GrantDemo.records(currentUser,{origin:request.id}).some(record=>record.request?.id===request.id))footer.append(button('查看授权',()=>{node.close();GrantsPage.openOrigin(request.id);}));
     if (!adminResult && AccessRequestDemo.inProgress(request)) footer.append(button(request.access.length ? '撤回未处理子项' : '撤回申请', () => { const revision = request.revision; node.close(); confirmChange({ title: request.access.length ? '撤回未处理子项' : '撤回申请', trigger, danger: true,
@@ -883,7 +888,7 @@
     }, section, decodeURIComponent(parts[1] || ''), decodeURIComponent(parts[2] || ''), decodeURIComponent(parts[3] || ''));
     else if (section === 'my-access') renderMyAccess();
     else if (section === 'my-requests') renderMyRequests();
-    else if (section === 'account-info') AccountInfoPage.render(main, { el, pair, status, pageHeading, currentUser });
+    else if (section === 'account-info') AccountInfoPage.render(main, { el, button, pair, status, pageHeading, currentUser, openForm, modal });
     else if (section === 'audit') AuditPage.render(main, { el, button, pair, textCell, pageHeading, modal, currentUser, viewRequest: (request, trigger) => requestDetail(request, trigger, true) });
     else if (['models','diagnostics'].includes(section)) SystemModelsPage.render(main,{el,button,pair,textCell,status,pageHeading,modal,currentUser,openForm,notify,moreActions,
       setTitle(title){pageLocation.title=title;document.title=title+' · DataOcean 后台管理';}

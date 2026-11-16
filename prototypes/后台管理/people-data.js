@@ -71,5 +71,16 @@
     { id: 'SQ-DEMO-021', user: 'u09', department: 'd10', access: [accessExample('products')], reason: '核对商品中心上架目录', status: '已生效', submitted: '2026-11-08 11:00' },
     { id: 'SQ-DEMO-022', user: 'u13', department: 'd13', access: [accessExample('finance')], reason: '核对财务部应收与费用', status: '已生效', submitted: '2026-11-08 11:10' }
   ];
-  window.PeopleDemo = { departments, users, roles, dataSources, outputRules, extraRequests };
+  // 授权保留选用时的规则快照；当前使用始终按稳定规则编号读取最新修订。
+  const currentRules = rules => rules.map(rule => ({ ...(outputRules.find(current => current.id === rule.id) || rule) }));
+  function accessFor(user) {
+    if (user?.status !== '正常') return [];
+    const departmentIds = new Set([user.department, ...user.extra]);
+    return [...departments.filter(row => departmentIds.has(row.id) && row.status === '正常' && !row.requiresReview).flatMap(row => row.access),
+      ...extraRequests.filter(row => row.user === user.id).flatMap(row => row.approvalItems
+        ? row.approvalItems.filter(part => part.status === '已生效').map(part => ({ source: part.source, rules: part.rules }))
+        : row.status === '已生效' ? row.access : [])].map(access => ({ source: access.source, rules: currentRules(access.rules) }));
+  }
+  const rulesFor = (user,source) => [...new Map(accessFor(user).filter(access=>access.source===source).flatMap(access=>access.rules).map(rule=>[rule.content.trim(),rule])).values()];
+  window.PeopleDemo = { departments, users, roles, dataSources, outputRules, extraRequests, currentRules, accessFor, rulesFor };
 })();

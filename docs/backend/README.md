@@ -9,7 +9,7 @@
 ## 设计输入
 
 - [产品模块解说](../product/README.md)定位所需业务章，详细规则读方案原文。
-- [人员权限](../product/modules/02-people-access.md)明确页面和操作分离、数据范围及来源；不能用隐藏按钮代替服务端检查。
+- [人员权限](../product/modules/02-people-access.md)明确后台页面和操作分离、办理归属，以及问数数据源访问与输出限制来源；不能用隐藏按钮代替服务端检查。
 - [数据源接入](../product/modules/03-datasources.md)、[知识发布](../product/modules/05-knowledge-release.md)和[问数](../product/modules/06-query.md)提供只读、版本和执行边界。
 - [现有源码定位](../source-map/README.md)仅供理解仍保留的代码与评估复用，不定义新版架构。
 

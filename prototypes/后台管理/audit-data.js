@@ -48,5 +48,7 @@
       .sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
   }
   const get = (id, actor) => records(actor).find(row => row.id === id);
-  window.AuditDemo = { actions, canView, records, get, recordApproval };
+  const navigationSnapshot = () => rows;
+  const restoreNavigation = saved => { rows.splice(0, rows.length, ...saved); };
+  window.AuditDemo = { actions, canView, records, get, recordApproval, navigationSnapshot, restoreNavigation };
 })();

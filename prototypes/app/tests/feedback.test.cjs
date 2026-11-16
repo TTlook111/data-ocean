@@ -245,7 +245,7 @@ test('受限内容在办理、历史和证据页签及结果表单中均不可�
  const ui={currentUser:worker,el:(...args)=>new Node(...args),button:(label,action)=>{buttons.push({label,action});return new Node('button','',label);},pair:(label,value)=>new Node('div','',label+':'+value),pageHeading:label=>new Node('h1','',label),setTitle(){},moreActions:()=>new Node(),openForm:config=>{forms.push(config);}};
  Object.assign(f.c,{URLSearchParams,location:{search:''},requestAnimationFrame:fn=>fn(),PrototypeUI:{mount:(node,config)=>{tabChange=config.methods.change;return node;}}});
  f.c.FeedbackDemo=Object.assign(f.demo,Object.fromEntries(Object.entries(f.c.FeedbackDemo).filter(([key])=>!(key in f.demo))));f.c.window.FeedbackDemo=f.c.FeedbackDemo;
- for(const file of ['feedback-insights-data.js','feedback-insights.js','feedback.js']){vm.runInContext(fs.readFileSync(path.join(__dirname,'../../后台管理',file),'utf8'),f.c);Object.assign(f.c,f.c.window);}
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../../后台管理/feedback.js'),'utf8'),f.c);Object.assign(f.c,f.c.window);
  f.c.FeedbackPage.render(host,ui,row.id);assert.equal(host.textContent.includes(secret),false);assert.ok(host.textContent.includes('具体内容受限'));
  buttons.find(button=>button.label==='更新处理记录').action();assert.equal(JSON.stringify(forms[0].value).includes(secret),false);
  buttons.find(button=>button.label==='重新分派').action();assert.equal(JSON.stringify(forms[1].value).includes(secret),false);
