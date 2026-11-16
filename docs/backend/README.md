@@ -31,7 +31,11 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 
 基线依据参考 [Spring Boot 要求](https://docs.spring.io/spring-boot/system-requirements.html)、[MyBatis-Plus 安装](https://baomidou.com/en/getting-started/install/)、[Redis Checkpointer 依赖](https://github.com/redis-developer/langgraph-redis/blob/main/pyproject.toml)及 [Milvus 对应表](https://milvus.io/docs/v2.6.x/release_notes.md)。具体版本只在本节维护，共用工程文档链接引用。
 
-Python 核心依赖已针对 Python 3.14 的 Windows x86_64 与 Linux manylinux_2_28 x86_64 做过声明依赖求解，未出现无法解开的约束；尚未做完整安装、导入、服务启动或恢复验收，不能把求解成功当作运行兼容保证。Java 组合仍需真实编译、分页、安全与流式验证，数据库和向量服务仍需实际接口验收。
+Python 核心依赖已在本机 Windows x86_64、Python 3.14 下完成安装、导入及独立 API / Worker 启动；Java 基线已在 JDK 17 下实际编译、启动，并验证登录会话、CSRF、MyBatis-Plus 分页及 SSE 游标重连。隔离程序还验证了双向服务 JWT、重复命令、合成任务协作取消、暂停后重启检查点续作，以及 MySQL 最小生效指针竞争、Milvus Strong 检索与回退。当前运行依据由[本机环境说明](../../.dataocean/local-environment.md#验证入口与依据)定位，具体范围见[验证程序与边界](../../tools/technical-validation/README.md)。
+
+本地 Redis 与 Milvus 已按上述基线重新部署，检查点 Redis 使用独立实例与数据卷，具体持久化配置见[存储边界](../architecture/存储与会话状态.md#redis-检查点的持久化与恢复边界)。故障恢复验证覆盖 Redis / Milvus 进程 SIGKILL、检查点续作、会话与业务事实保留、Redis 冷备隔离还原，以及 Milvus 恢复后的索引检索和回退，依据由本机环境说明定位；AOF 增量验证程序见验证说明。Milvus 镜像及运行构建号经官方发布提交核对，不以 SDK 构建号格式差异误判版本不符。
+
+这些结果只覆盖独立合成验证程序，正式业务工程尚未重构。Linux 完整安装、真实模型与业务 SQL 取消、浏览器及代理、运行中任意节点崩溃后的自动接管、整机断电或磁盘损坏、跨机备份恢复及完整知识发布门槛仍待验证；准确版本、配置及实际测试边界保留在验证证据中。
 
 Java 格式检查采用 Spotless，命名等非格式检查保留 Checkstyle 的兼容评估，具体插件和引擎版本须能在 JDK 17 下运行。当前 Checkstyle 13/14 要求 Java 21，最新 google-java-format 也要求 Java 21，不能直接取最新版；插件与格式引擎分别锁定，不因检查工具改变 JDK 17 基线。具体兼容组合在工程验证后确定，参见 [Checkstyle JRE 要求](https://checkstyle.org/)和 [格式引擎要求](https://github.com/google/google-java-format#using-the-formatter)。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
 

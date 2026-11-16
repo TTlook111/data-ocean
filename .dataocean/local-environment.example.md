@@ -1,6 +1,7 @@
 # DataOcean Machine-Local Environment
 
 > Copy this file to `.dataocean/local-environment.md` on each computer and fill it from that computer's actual environment. The copied file is ignored by Git and must not be shared between machines.
+> Keep current configuration and active entry points only. Replace superseded content; do not append dated execution histories.
 
 ## Machine Identity
 
@@ -15,13 +16,13 @@
 - Maven: `<absolute-path-to-mvn-or-mvn.cmd>`
 - Node.js: `<version-and-command>`
 - npm: `<path-or-command>`
-- Python 3.13 / uv: `<path-or-command>`
+- Python / uv: `<actual-version-and-path-or-command>`
 
 ## Application Runtime
 
-- Java service: `<native-or-container>`; expected port `8080`
-- Python service: `<native-or-container>`; expected port `8000`
-- Vue frontend: `<native-or-container>`; expected port `5173`
+- Java service: `<actual-entry-runtime-address-and-port-or-not-running>`
+- Python API / Worker: `<actual-entry-environment-address-and-port-or-not-running>`
+- Frontend: `<actual-entry-runtime-address-and-port-or-not-running>`
 - Runtime logs: `<absolute-log-directory>`
 
 ## Infrastructure Topology

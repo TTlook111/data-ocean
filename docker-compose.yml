@@ -1,6 +1,7 @@
-# 仅启动本地开发基础设施；Java、Python（uv）和 Vue 在宿主机运行。
+# 仅启动本地开发基础设施；Java、Python（uv）和前端在宿主机运行。
 # 从 .env.example 填写本机密码和可选的应用库名。
-name: ${COMPOSE_PROJECT_NAME:-dataocean}
+# 共享基础设施分别使用 redis / milvus 等项目名，不归入应用项目。
+name: ${COMPOSE_PROJECT_NAME:?请通过私有环境文件指定共享基础设施项目名}
 
 services:
   mysql:
@@ -30,10 +31,10 @@ services:
       start_period: 60s
 
   redis:
-    image: redis:8.2.10-alpine
+    image: redis:8.10.3-alpine
     restart: unless-stopped
     # 保留镜像 entrypoint，由它加载 Redis 8 自带模块。
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction", "--aof-load-truncated", "no"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -46,10 +47,10 @@ services:
     stop_grace_period: 30s
 
   redis-checkpoint:
-    image: redis:8.2.10-alpine
+    image: redis:8.10.3-alpine
     restart: unless-stopped
     # checkpoint 独立实例、独立数据卷，使用 DB 0；禁止自动淘汰恢复状态。
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction", "--aof-load-truncated", "no"]
     ports:
       - "127.0.0.1:${REDIS_CHECKPOINT_PORT:-6380}:6379"
     volumes:
@@ -89,7 +90,8 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    # 沿用本机已使用的 MinIO 构建，避免升级 Milvus 时顺带降级其对象存储。
+    image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: dataocean
@@ -104,7 +106,7 @@ services:
       retries: 10
 
   milvus:
-    image: milvusdb/milvus:v2.6.15
+    image: milvusdb/milvus:v2.6.26
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
     # 与该版本官方 standalone 编排保持一致。
