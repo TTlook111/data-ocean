@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: dataocean
+  datasource:
+    hikari:
+      connection-init-sql: "SET time_zone = '+00:00'"
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      timeout: 3s
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  flyway:
+    clean-disabled: true
+    validate-migration-naming: true
+server:
+  address: 127.0.0.1
+  port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+  servlet:
+    session:
+      cookie:
+        name: DATAOCEAN_SESSION
+        http-only: true
+        same-site: lax
+        secure: true
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    arg-name-based-constructor-auto-mapping: true
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+dataocean:
+  session-idle-seconds: 1800
+  session-absolute-seconds: 28800
+  review-seconds: 300
+  login-attempt-limit: 10
+  login-window-seconds: 300
+  outbox-enabled: true
+logging:
+  level:
+    org.springframework.security: WARN
