@@ -1,25 +1,44 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import lombok.ToString;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import org.hibernate.validator.constraints.CodePointLength;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 身份凭据的明确传输结构，字段职责及校验与接口契约一致。
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString(exclude={"newPassword","confirmPassword"})
+@ToString
 public final class InitialPasswordDTO {
+
+    /**
+     * 提交者核对时的聚合版本，服务端以当前版本检查并发变化。
+     */
     @NotNull
     @Min(1)
     private Integer expectedVersion;
+
+    /**
+     * 本次拟设置的新密码，不做 trim 或字符截断。
+     */
     @NotBlank
-    @Size(min=8,max=32)
+    @CodePointLength(min = 8, max = 32)
+    @ToString.Exclude
     private String newPassword;
+
+    /**
+     * 本次新密码的二次确认，仅用于校验，不持久化或输出。
+     */
     @NotBlank
+    @ToString.Exclude
     private String confirmPassword;
 }

@@ -24,7 +24,7 @@ try {
     $javaPath = (Get-Command java.exe).Source
     $javaVersion = & $javaPath -version 2>&1 | Out-String
     if ($javaVersion -notmatch 'version "17\.') { throw 'JDK 17 is required.' }
-    uv sync --locked --project (Join-Path $PSScriptRoot 'python') --python 3.14
+    uv sync --locked --project (Join-Path $PSScriptRoot 'python') --python 3.13
     if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
     $pythonPath = Join-Path $PSScriptRoot 'python/.venv/Scripts/python.exe'
     mvn -B -ntp "-Dmaven.repo.local=$projectRoot/.m2/repository" "-Dprobe.build.directory=$buildDirectory" -f (Join-Path $PSScriptRoot 'java/pom.xml') package *> (Join-Path $logDirectory 'maven-build.log')

@@ -1,0 +1,43 @@
+# 每台设备在当前 resources 目录复制为 application-local.yml，再填写本机实际值。
+# 修改连接地址、端口、库名、账号及密码；local 不提交，example 不参与运行时加载。
+# 公共参数和开发账号继承 application.yml，本文件只列本机环境差异。
+
+# 一、框架与基础依赖。
+spring:
+  # 平台 MySQL：填写当前设备已核实的新版平台库。
+  datasource:
+    # 按本机实例修改主机、端口和库名，连接时区保持 UTC。
+    url: jdbc:mysql://127.0.0.1:3307/dataocean?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8
+    # 本机平台库的应用账号。
+    username: dataocean
+    # 复制为 local 后替换为该账号的真实密码，保留引号。
+    password: '替换为本机 MySQL 密码'
+
+  # Redis：填写当前设备的会话与缓存实例。
+  data:
+    redis:
+      # 本机 Redis 服务地址。
+      host: 127.0.0.1
+      # 本机 Redis 服务端口。
+      port: 6379
+      # 复制为 local 后替换为真实密码；实例未启用认证时填写空字符串 ''。
+      password: '替换为本机 Redis 密码'
+      # 当前设备使用的 Redis 逻辑数据库编号。
+      database: 0
+
+  # Redis 会话存储：同一实例上独立运行的开发环境应使用不同前缀。
+  session:
+    redis:
+      # 两台设备各用自己的 Redis 时可以保留相同前缀。
+      namespace: dataocean:session
+
+# 二、HTTP 服务。
+server:
+  # 本机后端开发端口；修改后同步前端代理地址。
+  port: 18080
+
+# 三、本机密钥文件（可选）。
+# 使用 tools/dev/start-backend.ps1 时自动生成并注入，保持以下内容注释即可。
+# 用 IDE 手动启动时，取消以下两行注释，并填写已存在的本机密钥文件绝对路径。
+# dataocean:
+#   secret-key-file: 'C:/your-project/data-ocean/.dataocean/hmac-key.txt'

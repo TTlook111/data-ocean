@@ -64,6 +64,8 @@ backend/DataOcean/src/main/resources/application-dev.yaml
 !/.dataocean/local-environment.example.md
 
 # Shared Node dependencies and package-manager caches
+# Project runtime selection belongs to each device; compatibility lives in engines.
+/frontend/.node-version
 .npm-cache/
 node_modules/
 npm-debug.log*

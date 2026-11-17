@@ -1,0 +1,1042 @@
+{
+  "pages": [
+    {
+      "id": "dashboard",
+      "group": "总览",
+      "name": "总览",
+      "operations": [
+        {
+          "id": "dashboard.view",
+          "name": "访问页面",
+          "purpose": "进入总览，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "sources-dashboard",
+      "group": "数据源接入",
+      "name": "接入概览",
+      "operations": [
+        {
+          "id": "sources-dashboard.view",
+          "name": "访问页面",
+          "purpose": "进入接入概览，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "sources",
+      "group": "数据源接入",
+      "name": "数据源管理",
+      "operations": [
+        {
+          "id": "sources.view",
+          "name": "访问页面",
+          "purpose": "进入数据源管理，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.approval-config",
+          "name": "配置审批责任",
+          "purpose": "为数据源指定具备审批功能的主审批人和替代负责人，不改变查询授权。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.create",
+          "name": "新增数据源",
+          "purpose": "创建连接配置，不自动获得业务查询权。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.edit",
+          "name": "编辑连接",
+          "purpose": "修改连接信息或轮换凭据，凭据不回显。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.test",
+          "name": "测试连接",
+          "purpose": "核对连接、读取与采集条件。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.enable",
+          "name": "启用数据源",
+          "purpose": "核对连接和采集条件后启用。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.pause",
+          "name": "暂停采集",
+          "purpose": "暂停该源后续采集，保留已有结果。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.disable",
+          "name": "停用数据源",
+          "purpose": "核对使用与依赖影响后停用。",
+          "protectedAbility": false
+        },
+        {
+          "id": "sources.retire",
+          "name": "退役数据源",
+          "purpose": "核对依赖和历史保留后退役。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "collections",
+      "group": "数据源接入",
+      "name": "采集记录",
+      "operations": [
+        {
+          "id": "collections.view",
+          "name": "访问页面",
+          "purpose": "查看获准采集记录及对应结构变化；结构变化在元数据目录中查看。",
+          "protectedAbility": false
+        },
+        {
+          "id": "collections.collect",
+          "name": "发起采集",
+          "purpose": "从获准数据源只读采集结构信息。",
+          "protectedAbility": false
+        },
+        {
+          "id": "collections.retry",
+          "name": "重新采集",
+          "purpose": "重新采集当前数据源的完整配置范围，保留原任务。",
+          "protectedAbility": false
+        },
+        {
+          "id": "collections.cancel",
+          "name": "取消采集",
+          "purpose": "停止当前有权取消的采集任务。",
+          "protectedAbility": false
+        },
+        {
+          "id": "collections.review",
+          "name": "核实变化",
+          "purpose": "在元数据目录的结构变化页签核对证据并记录结论，不替代业务治理确认。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "catalog",
+      "group": "数据源接入",
+      "name": "元数据目录",
+      "operations": [
+        {
+          "id": "catalog.view",
+          "name": "访问页面",
+          "purpose": "进入元数据目录，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "business-notes",
+      "group": "数据源接入",
+      "name": "企业业务说明",
+      "operations": [
+        {
+          "id": "business-notes.view",
+          "name": "访问页面",
+          "purpose": "进入企业业务说明，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "business-notes.submit",
+          "name": "提交业务资料",
+          "purpose": "编写说明或上传业务资料，保存修订。",
+          "protectedAbility": false
+        },
+        {
+          "id": "business-notes.replace",
+          "name": "替换业务资料",
+          "purpose": "保存替换修订，已引用正文或附件变化直接关联表治理中的受影响内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "business-notes.withdraw",
+          "name": "撤下业务资料",
+          "purpose": "核对影响后撤下有权管理的资料。",
+          "protectedAbility": false
+        },
+        {
+          "id": "business-notes.restore",
+          "name": "恢复业务资料",
+          "purpose": "恢复已撤下资料供后续治理取用，保留原修订和操作记录。",
+          "protectedAbility": false
+        },
+        {
+          "id": "business-notes.delete",
+          "name": "删除未使用资料",
+          "purpose": "仅删除所有修订均未被任务取用或成果引用的资料。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "governance-dashboard",
+      "group": "数据治理",
+      "name": "治理概览",
+      "operations": [
+        {
+          "id": "governance-dashboard.view",
+          "name": "访问页面",
+          "purpose": "进入治理概览，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "governance",
+      "group": "数据治理",
+      "name": "治理工作台",
+      "operations": [
+        {
+          "id": "governance.view",
+          "name": "访问页面",
+          "purpose": "进入治理工作台，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.suggest",
+          "name": "生成 AI 建议",
+          "purpose": "基于获准资料生成待确认建议。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.edit",
+          "name": "编辑治理内容",
+          "purpose": "维护表字段、关系和指标的业务说明。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.confirm",
+          "name": "审核治理内容",
+          "purpose": "在表治理详情逐项审核业务内容，沿用来源核实结论；不自动发布或授权。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.supplement",
+          "name": "要求补充",
+          "purpose": "记录治理条目缺口，保留待确认状态。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.forbid",
+          "name": "禁止对象使用",
+          "purpose": "核对影响后禁止对象参与查询。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "knowledge-dashboard",
+      "group": "知识库与发布",
+      "name": "知识概览",
+      "operations": [
+        {
+          "id": "knowledge-dashboard.view",
+          "name": "访问页面",
+          "purpose": "进入知识概览，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "group": "知识库与发布",
+      "name": "知识文档",
+      "operations": [
+        {
+          "id": "knowledge.view",
+          "name": "访问页面",
+          "purpose": "进入知识文档，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "knowledge.generate",
+          "name": "生成知识草稿",
+          "purpose": "使用已确认治理成果生成文档。",
+          "protectedAbility": false
+        },
+        {
+          "id": "knowledge.edit",
+          "name": "编辑知识草稿",
+          "purpose": "修改草稿并核对来源。",
+          "protectedAbility": false
+        },
+        {
+          "id": "knowledge.confirm",
+          "name": "确认知识文档",
+          "purpose": "确认文档内容，供后续候选构建使用。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "test-cases",
+      "group": "知识库与发布",
+      "name": "标准题单",
+      "operations": [
+        {
+          "id": "test-cases.view",
+          "name": "访问页面",
+          "purpose": "进入标准题单，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "test-cases.edit",
+          "name": "维护标准题单",
+          "purpose": "新增或修订标准问题、数据依据及判定规则。",
+          "protectedAbility": false
+        },
+        {
+          "id": "test-cases.review",
+          "name": "审核标准题",
+          "purpose": "确认题目修订、预期答案及执行条件。",
+          "protectedAbility": false
+        },
+        {
+          "id": "test-cases.judge",
+          "name": "裁定验证结果",
+          "purpose": "依据当前候选的运行证据处理待裁定结果，不能放行明确错误。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "releases",
+      "group": "知识库与发布",
+      "name": "发布与版本",
+      "operations": [
+        {
+          "id": "releases.view",
+          "name": "访问页面",
+          "purpose": "进入发布与版本，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "releases.build",
+          "name": "构建候选",
+          "purpose": "选择本批完整范围并构建固定候选。",
+          "protectedAbility": false
+        },
+        {
+          "id": "releases.test",
+          "name": "运行验证",
+          "purpose": "验证当前候选或当前版本的恢复条件。",
+          "protectedAbility": false
+        },
+        {
+          "id": "releases.publish",
+          "name": "确认发布",
+          "purpose": "复核通过后整批切换实际发布范围。",
+          "protectedAbility": false
+        },
+        {
+          "id": "releases.withdraw",
+          "name": "撤下知识",
+          "purpose": "核对完整依赖影响后撤下知识，保留版本和审计记录。",
+          "protectedAbility": false
+        },
+        {
+          "id": "versions.pause",
+          "name": "暂停知识",
+          "purpose": "核对范围和原因后暂停当前知识。",
+          "protectedAbility": false
+        },
+        {
+          "id": "versions.rollback",
+          "name": "整批回退上一版",
+          "purpose": "完整范围预检通过后切换到直接上一版。",
+          "protectedAbility": false
+        },
+        {
+          "id": "governance.allow",
+          "name": "解除禁止与恢复",
+          "purpose": "验证通过后显式核对风险和范围，解除对应禁止及暂停。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "feedback-dashboard",
+      "group": "反馈处理",
+      "name": "反馈概览",
+      "operations": [
+        {
+          "id": "feedback-dashboard.view",
+          "name": "访问页面",
+          "purpose": "进入反馈概览，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "feedback",
+      "group": "反馈处理",
+      "name": "问题队列与处理",
+      "operations": [
+        {
+          "id": "feedback.view",
+          "name": "访问页面",
+          "purpose": "查看反馈队列基础信息，业务原文和 SQL 另按已有权限核对。",
+          "protectedAbility": false
+        },
+        {
+          "id": "feedback.evidence",
+          "name": "查看原文证据",
+          "purpose": "结合当前业务访问及输出限制查看原问题和核查明细，SQL 另行核权。",
+          "protectedAbility": false
+        },
+        {
+          "id": "feedback.assign",
+          "name": "分派问题",
+          "purpose": "为事项和处理任务选择负责人，不授予业务数据访问。",
+          "protectedAbility": false
+        },
+        {
+          "id": "feedback.process",
+          "name": "记录处理",
+          "purpose": "办理当前分派给本人的事项与任务，记录获准的核查及处理结果。",
+          "protectedAbility": false
+        },
+        {
+          "id": "feedback.verify",
+          "name": "复验",
+          "purpose": "按当前有效修复和验证依据登记验收结果。",
+          "protectedAbility": false
+        },
+        {
+          "id": "feedback.close",
+          "name": "结案并回告",
+          "purpose": "按实际验收或核查依据结案，回告受控结论。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "users",
+      "group": "人员与权限",
+      "name": "人员管理",
+      "operations": [
+        {
+          "id": "users.view",
+          "name": "访问页面",
+          "purpose": "进入人员管理，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.create",
+          "name": "新增人员",
+          "purpose": "创建登录名、初始密码及人员资料。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.edit",
+          "name": "编辑人员",
+          "purpose": "维护人员资料，不直接改变数据访问。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.assign",
+          "name": "分配角色",
+          "purpose": "向个人选择已有角色，不设置时长。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.transfer",
+          "name": "调整归属",
+          "purpose": "调整主部门或兼任关系，核对初始访问来源变化。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.password",
+          "name": "重置密码",
+          "purpose": "重置初始凭据，不改变已有业务权限。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.disable",
+          "name": "停用人员",
+          "purpose": "核对影响后停止该账号访问，保留资料及历史。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.enable",
+          "name": "复核并恢复人员",
+          "purpose": "核对归属、角色及访问来源后恢复账号。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.archive",
+          "name": "归档人员",
+          "purpose": "先停用并核对历史保留，仅供回看。",
+          "protectedAbility": false
+        },
+        {
+          "id": "users.recover",
+          "name": "受保护权限恢复",
+          "purpose": "核验后恢复受保护管理能力。",
+          "protectedAbility": true
+        }
+      ]
+    },
+    {
+      "id": "departments",
+      "group": "人员与权限",
+      "name": "部门管理",
+      "operations": [
+        {
+          "id": "departments.view",
+          "name": "访问页面",
+          "purpose": "进入部门管理，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.create",
+          "name": "新增部门",
+          "purpose": "创建组织及上下级关系。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.edit",
+          "name": "编辑部门",
+          "purpose": "维护部门资料与负责人。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.add-member",
+          "name": "加入成员",
+          "purpose": "维护直属或兼任成员关系。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.remove-member",
+          "name": "移出成员",
+          "purpose": "核对其他归属与来源后移出相应成员。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.transfer-members",
+          "name": "迁移成员或子部门",
+          "purpose": "核对目标部门和组织关系后迁移。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.access",
+          "name": "配置初始数据访问",
+          "purpose": "选择数据源和输出限制规则，不形成部门记录过滤。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.end-access",
+          "name": "结束初始数据访问",
+          "purpose": "结束本部门初始来源，其他合法来源保留。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.disable",
+          "name": "停用部门",
+          "purpose": "核对成员和来源影响后停用。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.enable",
+          "name": "复核并恢复部门",
+          "purpose": "恢复组织状态并复核保留配置。",
+          "protectedAbility": false
+        },
+        {
+          "id": "departments.archive",
+          "name": "归档部门",
+          "purpose": "处理成员、子部门及来源后归档。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "roles",
+      "group": "人员与权限",
+      "name": "角色与功能权限",
+      "operations": [
+        {
+          "id": "roles.view",
+          "name": "访问页面",
+          "purpose": "进入角色与功能权限，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.create",
+          "name": "新增角色",
+          "purpose": "创建角色并配置页面及操作。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.edit",
+          "name": "编辑角色",
+          "purpose": "修改名称、说明及功能，核对受影响人员。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.disable",
+          "name": "停用角色",
+          "purpose": "停用该角色功能，保留分配关系和配置。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.enable",
+          "name": "启用角色",
+          "purpose": "核对影响后启用该角色功能。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.archive",
+          "name": "归档角色",
+          "purpose": "先停用并移出当前分配人员，配置仅供回看。",
+          "protectedAbility": false
+        },
+        {
+          "id": "roles.protected",
+          "name": "受保护能力授予",
+          "purpose": "核验授予上限及受保护管理能力。",
+          "protectedAbility": true
+        }
+      ]
+    },
+    {
+      "id": "output-rules",
+      "group": "人员与权限",
+      "name": "输出限制规则",
+      "operations": [
+        {
+          "id": "output-rules.view",
+          "name": "访问页面",
+          "purpose": "进入输出限制规则，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "output-rules.create",
+          "name": "新增规则",
+          "purpose": "维护可复用规则名称及返回限制内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "output-rules.edit",
+          "name": "编辑规则",
+          "purpose": "维护已有规则名称与返回限制内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "access-requests",
+      "group": "人员与权限",
+      "name": "访问申请",
+      "operations": [
+        {
+          "id": "access-requests.view",
+          "name": "访问页面",
+          "purpose": "进入访问申请，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "access-requests.route",
+          "name": "核定与分派申请",
+          "purpose": "核定数据源、拆分未办理子项并设置独立或联合组合，按当前责任分派，不直接批准或授权。",
+          "protectedAbility": false
+        },
+        {
+          "id": "access-requests.review",
+          "name": "核定与审批",
+          "purpose": "根据用途核定数据源和输出规则，分项批准。",
+          "protectedAbility": false
+        },
+        {
+          "id": "access-requests.supplement",
+          "name": "要求补充",
+          "purpose": "说明缺少的业务信息并交回申请人。",
+          "protectedAbility": false
+        },
+        {
+          "id": "access-requests.reject",
+          "name": "驳回申请",
+          "purpose": "说明理由并驳回相应申请子项。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "grants",
+      "group": "人员与权限",
+      "name": "授权管理",
+      "operations": [
+        {
+          "id": "grants.view",
+          "name": "访问页面",
+          "purpose": "进入授权管理，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "grants.revoke",
+          "name": "撤销授权",
+          "purpose": "核对来源和影响后结束指定授权来源。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "group": "人员与权限",
+      "name": "权限审计",
+      "operations": [
+        {
+          "id": "audit.view",
+          "name": "访问页面",
+          "purpose": "进入权限审计，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "group": "系统配置",
+      "name": "模型配置",
+      "operations": [
+        {
+          "id": "models.view",
+          "name": "访问页面",
+          "purpose": "进入模型配置，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.create",
+          "name": "新增模型",
+          "purpose": "选择协议并填写服务URL、模型名称及凭据。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.edit",
+          "name": "编辑模型",
+          "purpose": "维护接入信息和连接参数。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.credential",
+          "name": "替换模型凭据",
+          "purpose": "替换凭据，不回显旧凭据。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.test",
+          "name": "测试连接",
+          "purpose": "使用固定合成内容测试模型接入。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.assign",
+          "name": "分配节点模型",
+          "purpose": "查看具体AI节点的用途，为每个节点独立选择已配置模型。",
+          "protectedAbility": false
+        },
+        {
+          "id": "models.disable",
+          "name": "停用模型",
+          "purpose": "核对已分配节点的影响后停用模型。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "group": "系统配置",
+      "name": "调用记录与故障",
+      "operations": [
+        {
+          "id": "diagnostics.view",
+          "name": "访问页面",
+          "purpose": "进入调用记录与故障，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "diagnostics.test",
+          "name": "重新测试",
+          "purpose": "重新测试有权维护的配置，不重放业务 SQL 或结果未知的任务。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "account-info",
+      "group": "个人管理",
+      "name": "账号信息",
+      "operations": [
+        {
+          "id": "account-info.view",
+          "name": "访问页面",
+          "purpose": "进入账号信息，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "my-requests",
+      "group": "个人管理",
+      "name": "我的申请",
+      "operations": [
+        {
+          "id": "my-requests.view",
+          "name": "访问页面",
+          "purpose": "进入我的申请，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "my-requests.apply",
+          "name": "申请额外访问",
+          "purpose": "填写业务用途和需要的数据，已知源可选填；按要求补充本人申请并重新提交。",
+          "protectedAbility": false
+        },
+        {
+          "id": "my-requests.withdraw",
+          "name": "撤回本人申请",
+          "purpose": "撤回本人尚未生效的申请子项。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "my-access",
+      "group": "个人管理",
+      "name": "我的访问范围",
+      "operations": [
+        {
+          "id": "my-access.view",
+          "name": "访问页面",
+          "purpose": "进入我的访问范围，查看获准内容。",
+          "protectedAbility": false
+        }
+      ]
+    },
+    {
+      "id": "query",
+      "group": "问数工作台",
+      "name": "问数工作台",
+      "operations": [
+        {
+          "id": "query.view",
+          "name": "访问页面",
+          "purpose": "进入问数工作台，查看获准内容。",
+          "protectedAbility": false
+        },
+        {
+          "id": "query.ask",
+          "name": "发起问数",
+          "purpose": "对单一获准源发起或重新查询业务问题。",
+          "protectedAbility": false
+        },
+        {
+          "id": "query.sql",
+          "name": "查看 SQL",
+          "purpose": "按对应权限查看查询依据中的 SQL。",
+          "protectedAbility": false
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "role-root",
+      "name": "超级管理员",
+      "description": "维护平台功能配置，受保护管理能力需单独核验。",
+      "permissions": [
+        "dashboard.view",
+        "sources-dashboard.view",
+        "sources.view",
+        "sources.approval-config",
+        "sources.create",
+        "sources.edit",
+        "sources.test",
+        "sources.enable",
+        "sources.pause",
+        "sources.disable",
+        "sources.retire",
+        "collections.view",
+        "collections.collect",
+        "collections.retry",
+        "collections.cancel",
+        "collections.review",
+        "catalog.view",
+        "business-notes.view",
+        "business-notes.submit",
+        "business-notes.replace",
+        "business-notes.withdraw",
+        "business-notes.restore",
+        "business-notes.delete",
+        "governance-dashboard.view",
+        "governance.view",
+        "governance.suggest",
+        "governance.edit",
+        "governance.confirm",
+        "governance.supplement",
+        "governance.forbid",
+        "knowledge-dashboard.view",
+        "knowledge.view",
+        "knowledge.generate",
+        "knowledge.edit",
+        "knowledge.confirm",
+        "test-cases.view",
+        "test-cases.edit",
+        "test-cases.review",
+        "test-cases.judge",
+        "releases.view",
+        "releases.build",
+        "releases.test",
+        "releases.publish",
+        "releases.withdraw",
+        "versions.pause",
+        "versions.rollback",
+        "governance.allow",
+        "feedback-dashboard.view",
+        "feedback.view",
+        "feedback.evidence",
+        "feedback.assign",
+        "feedback.process",
+        "feedback.verify",
+        "feedback.close",
+        "users.view",
+        "users.create",
+        "users.edit",
+        "users.assign",
+        "users.transfer",
+        "users.password",
+        "users.disable",
+        "users.enable",
+        "users.archive",
+        "users.recover",
+        "departments.view",
+        "departments.create",
+        "departments.edit",
+        "departments.add-member",
+        "departments.remove-member",
+        "departments.transfer-members",
+        "departments.access",
+        "departments.end-access",
+        "departments.disable",
+        "departments.enable",
+        "departments.archive",
+        "roles.view",
+        "roles.create",
+        "roles.edit",
+        "roles.disable",
+        "roles.enable",
+        "roles.archive",
+        "roles.protected",
+        "output-rules.view",
+        "output-rules.create",
+        "output-rules.edit",
+        "access-requests.view",
+        "access-requests.route",
+        "access-requests.review",
+        "access-requests.supplement",
+        "access-requests.reject",
+        "grants.view",
+        "grants.revoke",
+        "audit.view",
+        "models.view",
+        "models.create",
+        "models.edit",
+        "models.credential",
+        "models.test",
+        "models.assign",
+        "models.disable",
+        "diagnostics.view",
+        "diagnostics.test",
+        "account-info.view",
+        "my-requests.view",
+        "my-requests.apply",
+        "my-requests.withdraw",
+        "my-access.view",
+        "query.view",
+        "query.ask",
+        "query.sql"
+      ]
+    },
+    {
+      "id": "role-admin",
+      "name": "管理员",
+      "description": "维护人员、部门及常用管理功能。",
+      "permissions": [
+        "users.view",
+        "users.create",
+        "users.edit",
+        "users.assign",
+        "users.transfer",
+        "users.password",
+        "users.disable",
+        "users.enable",
+        "users.archive",
+        "departments.view",
+        "departments.create",
+        "departments.edit",
+        "departments.add-member",
+        "departments.remove-member",
+        "departments.transfer-members",
+        "departments.access",
+        "departments.end-access",
+        "departments.disable",
+        "departments.enable",
+        "departments.archive",
+        "roles.view",
+        "roles.create",
+        "roles.edit",
+        "roles.disable",
+        "roles.enable",
+        "roles.archive",
+        "output-rules.view",
+        "output-rules.create",
+        "output-rules.edit",
+        "account-info.view",
+        "my-requests.view",
+        "my-requests.apply",
+        "my-requests.withdraw",
+        "my-access.view"
+      ]
+    },
+    {
+      "id": "role-analyst",
+      "name": "数据分析师",
+      "description": "使用问数、元数据目录和本人管理功能。",
+      "permissions": [
+        "account-info.view",
+        "my-requests.view",
+        "my-requests.apply",
+        "my-requests.withdraw",
+        "my-access.view",
+        "query.view",
+        "query.ask",
+        "catalog.view"
+      ]
+    },
+    {
+      "id": "role-user",
+      "name": "普通用户",
+      "description": "使用本人问数、申请及访问回看功能。",
+      "permissions": [
+        "account-info.view",
+        "my-requests.view",
+        "my-requests.apply",
+        "my-requests.withdraw",
+        "my-access.view",
+        "query.view",
+        "query.ask"
+      ]
+    }
+  ]
+}

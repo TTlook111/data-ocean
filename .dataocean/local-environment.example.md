@@ -36,9 +36,11 @@
 
 ## Local Configuration Files
 
-- Java local config: `<absolute-or-repository-relative-path>`
+- Java local config: `backend/src/main/resources/application-local.yml` (ignored by Git)
 - Python local config: `<absolute-or-repository-relative-path>`
 - Frontend local config: `<path-or-none>`
+
+Keep development logs and scratch scripts in `output/dev`, generated acceptance classes in `backend/target/acceptance`, and verification evidence in `output/acceptance` or `output/playwright`. This directory only holds the machine environment notes and private keys.
 
 ## Startup Notes
 

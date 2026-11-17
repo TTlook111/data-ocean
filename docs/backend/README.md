@@ -24,7 +24,7 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 | Java 运行与构建 | JDK 17、Maven 3.9.16 | Maven Wrapper 固定版本，构建目标及应用运行遵循 JDK 17 |
 | Java 框架 | Spring Boot 4.1.2 | Spring Security、Spring Session、Jackson 等配套依赖跟随 Boot BOM，不从旧示例单独钉版本 |
 | 持久化与工具 | MyBatis-Plus 3.5.18、Hutool 5.8.48 | 使用 Boot 4 对应 starter，分页与 JSqlParser 配套依赖通过 MP BOM 对齐并验证 |
-| Python 运行与 API | Python 3.14、FastAPI 0.163.1 | 使用 uv 和同一 `uv.lock`；Uvicorn、Pydantic、HTTP 客户端及模型 SDK 配套求解并锁定 |
+| Python 运行与 API | Python 3.13 / 3.14、FastAPI 0.163.1 | 使用 uv 和同一 `uv.lock`；沿用满足依赖要求且已验证的解释器，Uvicorn、Pydantic、HTTP 客户端及模型 SDK 配套求解并锁定 |
 | 图与检查点 | LangGraph 1.2.22、langgraph-checkpoint 4.3.2、langgraph-checkpoint-redis 0.6.0 | API/Worker 同包同锁，Redis 适配器与图版本共同验证；Python redis 包版本不等同 Redis 服务端版本 |
 | 平台数据库 | MySQL 8 系列、Redis 8.10.3 | MySQL 小版本与补丁仍待部署确认；Redis 持久化与检查点隔离按存储方案落实 |
 | 向量服务与 SDK | Milvus 2.6.26、PyMilvus 2.6.17 | 按官方对应组合验证，不机械要求服务端和 SDK 补丁号相同 |
@@ -33,9 +33,9 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 
 独立合成程序已验证 Windows 下的 Java 编译启动、Python 依赖安装与 API / Worker、会话及服务认证、分页、SSE、幂等、协作取消、检查点续作和最小索引切换。Redis / Milvus 采用上述基线，检查点使用独立 Redis 与数据卷，进程强制中断、隔离备份还原和索引恢复已验证。持久化设计见[存储边界](../architecture/存储与会话状态.md#redis-检查点的持久化与恢复边界)，具体场景见[验证说明](../../tools/technical-validation/README.md)，本机运行依据见[环境说明](../../.dataocean/local-environment.md#验证入口与依据)。
 
-这些结果只覆盖独立合成验证程序，正式业务工程尚未重构。Linux 完整安装、真实模型与业务 SQL 取消、浏览器及代理、运行中任意节点崩溃后的自动接管、整机断电或磁盘损坏、跨机备份恢复及完整知识发布门槛仍待验证；准确版本、配置及实际测试边界保留在验证证据中。
+上述独立程序不能作为正式业务工程的验收结论。Java 首批认证、人员、部门、角色、审计与 Outbox 已可运行，Maven Wrapper、MySQL 新模型迁移、服务边界测试和真实接口已有验证；Python 正式包的依赖锁定、构建、公共配置、日志及存活接口通过验证，入口见[Python 工程](../../python-service/README.md)。启动及复验见[运行与验收](运行与验收.md)，逐项边界以[首批验收](iam/验收.md)为准。源码见[正式定位](../source-map/README.md#首批正式实现)。Python Worker、服务 JWT、Linux 完整安装、真实模型与业务 SQL 取消、SSE、运行中任意节点崩溃后的自动接管、断电／磁盘故障、跨机恢复及知识发布门槛仍待对应批次接入验证。
 
-Java 格式检查采用 Spotless，命名等非格式检查保留 Checkstyle 的兼容评估。插件、格式引擎和静态检查器分别锁定并验证 JDK 17 兼容性，不为检查工具改变运行基线；具体组合仍待验证，参考 [Checkstyle JRE 要求](https://checkstyle.org/)和 [格式引擎要求](https://github.com/google/google-java-format#using-the-formatter)。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
+Java 格式检查采用已验证的 Spotless 与 Palantir Java Format 组合，精确版本见 [pom.xml](../../backend/pom.xml)，使用 JDK 17 完成格式和测试检查。命名等非格式检查保留 Checkstyle 的兼容评估，不将未接入的检查器记为已启用。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
 
 Python 使用 Ruff 和 pytest，精确工具版本随开发依赖锁定。测试命名、模块对应及构建入口见[工程基线](../engineering/工程组织与版本基线.md#构建检查与测试定位)，不在本页重复目录规则。
 

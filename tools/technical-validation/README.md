@@ -12,7 +12,7 @@
 
 负责人明确授权故障注入后，增加 `-StorageFaults` 执行 Redis / Milvus 强制终止、恢复和检查点备份还原；此模式会实际中断服务，使用独立合成任务。
 
-需要 JDK 17、Maven、uv 与 Python 3.14，验证端口为回环 18081 / 18082，临时还原检查点实例使用回环 16380。Java 版本引用 `java/pom.xml`，Python 核心版本引用 `python/pyproject.toml`，精确解析结果固定在同目录 `uv.lock`。
+需要 JDK 17、Maven、uv 与 Python 3.13 / 3.14，入口默认使用已安装的 Python 3.13，验证端口为回环 18081 / 18082，临时还原检查点实例使用回环 16380。Java 版本引用 `java/pom.xml`，Python 核心版本引用 `python/pyproject.toml`，精确解析结果固定在同目录 `uv.lock`。
 
 共享基础设施保持原先的独立 Docker 分组：`redis` 项目包含 `redis` / `redis-checkpoint`，`milvus` 项目包含 `milvus` / `etcd` / `minio`，现有 MySQL 单独管理。根 Compose 模板显式指定项目名及所属服务后使用，不放入应用项目；私有环境文件与容器名覆盖配置留在仓库外的本机运行目录，准确路径见本机环境说明。
 

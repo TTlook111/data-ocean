@@ -1,32 +1,36 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 修改部门输入，资料和上下级关系共同进行版本检查。
+ */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UpdateDepartmentDTO {
+@ToString(callSuper = true)
+public final class UpdateDepartmentDTO extends DepartmentProfileDTO {
+
+    /**
+     * 核对时的部门版本，防止覆盖他人已提交修改。
+     */
     @NotNull
     @Min(1)
     private Integer expectedVersion;
+
+    /**
+     * 绑定当前版本及完整资料的核对凭据。
+     */
     @NotBlank
-    @Size(max=80)
-    private String name;
-    @NotBlank
-    @Size(max=64)
-    private String code;
-    private String parentId;
-    private String managerUserId;
-    @Size(max=300)
-    private String note;
-    @NotNull
-    private Integer sortOrder;
-    @NotBlank
+    @ToString.Exclude
     private String reviewToken;
 }

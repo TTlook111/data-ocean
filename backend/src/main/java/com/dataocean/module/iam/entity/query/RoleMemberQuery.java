@@ -1,7 +1,22 @@
 package com.dataocean.module.iam.entity.query;
-import com.dataocean.common.PageQuery;
-import com.dataocean.common.TextSearch;
-import java.util.List;
+
+import java.util.Map;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+/**
+ * 角色与授予的明确查询条件，分页与排序遵循统一白名单约束。
+ */
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class RoleMemberQuery extends PersonQuery {
-    @Override protected java.util.Map<String,String> sortColumns() { return java.util.Map.of("updatedAt", "u.updated_at", "username", "u.username", "displayName", "u.display_name"); }
+
+    /**
+     * 定义外部排序字段到内部数据库列的白名单，不透传外部 SQL 片段。
+     */
+    @Override
+    protected Map<String, String> sortColumns() {
+        return Map.of("updatedAt", "u.updated_at", "username", "u.username", "displayName", "u.display_name");
+    }
 }

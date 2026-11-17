@@ -1,26 +1,55 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import org.hibernate.validator.constraints.CodePointLength;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * 部门与成员的明确传输结构，字段职责及校验与接口契约一致。
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class DepartmentProfileDTO {
+public class DepartmentProfileDTO {
+
+    /**
+     * 当前业务对象的显示名称，身份仍使用稳定标识。
+     */
     @NotBlank
-    @Size(max=80)
+    @CodePointLength(max = 80)
     private String name;
+
+    /**
+     * 所属业务对象或系统契约的稳定编码，不以名称替代身份。
+     */
     @NotBlank
-    @Size(max=64)
+    @CodePointLength(max = 64)
     private String code;
+
+    /**
+     * 当前部门的直接上级标识，空值表示根部门。
+     */
     private String parentId;
+
+    /**
+     * 以稳定人员标识绑定的部门负责人。
+     */
     private String managerUserId;
-    @Size(max=300)
+
+    /**
+     * 当前部门或配置对象的可空业务说明。
+     */
+    @CodePointLength(max = 300)
     private String note;
+
+    /**
+     * 部门同级显示顺序，按整数范围校验。
+     */
     @NotNull
     private Integer sortOrder;
 }

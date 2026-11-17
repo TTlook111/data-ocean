@@ -1,28 +1,27 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 新增部门输入，复用完整部门资料。
+ */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public final class CreateDepartmentDTO {
+@ToString(callSuper = true)
+public final class CreateDepartmentDTO extends DepartmentProfileDTO {
+
+    /**
+     * 绑定新增部门提案的核对凭据。
+     */
     @NotBlank
-    @Size(max=80)
-    private String name;
-    @NotBlank
-    @Size(max=64)
-    private String code;
-    private String parentId;
-    private String managerUserId;
-    @Size(max=300)
-    private String note;
-    @NotNull
-    private Integer sortOrder;
-    @NotBlank
+    @ToString.Exclude
     private String reviewToken;
 }

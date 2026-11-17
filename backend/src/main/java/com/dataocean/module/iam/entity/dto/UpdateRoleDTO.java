@@ -1,29 +1,36 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import java.util.List;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 普通角色修改输入，复用完整资料并增加并发及核对约束。
+ */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UpdateRoleDTO {
+@ToString(callSuper = true)
+public final class UpdateRoleDTO extends RoleProfileDTO {
+
+    /**
+     * 核对时的角色版本。
+     */
     @NotNull
     @Min(1)
     private Integer expectedVersion;
+
+    /**
+     * 绑定当前角色及完整功能集合的核对凭据。
+     */
     @NotBlank
-    @Size(max=80)
-    private String name;
-    @Size(max=300)
-    private String description;
-    @NotNull
-    @Size(min=1)
-    private List<@NotBlank String> permissionCodes;
-    @NotBlank
+    @ToString.Exclude
     private String reviewToken;
 }

@@ -1,25 +1,27 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import java.util.List;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 新增角色输入，复用普通角色资料和完整功能集合。
+ */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public final class CreateRoleDTO {
+@ToString(callSuper = true)
+public final class CreateRoleDTO extends RoleProfileDTO {
+
+    /**
+     * 绑定本次功能选择的核对凭据。
+     */
     @NotBlank
-    @Size(max=80)
-    private String name;
-    @Size(max=300)
-    private String description;
-    @NotNull
-    @Size(min=1)
-    private List<@NotBlank String> permissionCodes;
-    @NotBlank
+    @ToString.Exclude
     private String reviewToken;
 }

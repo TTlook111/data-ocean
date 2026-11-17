@@ -1,44 +1,37 @@
 package com.dataocean.module.iam.entity.dto;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import lombok.ToString;
-import java.util.List;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
-import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 
+import org.hibernate.validator.constraints.CodePointLength;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+/**
+ * 新增人员输入，复用非秘密资料，初始凭据只用于本次提交。
+ */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString(exclude={"initialPassword"})
-public final class CreateUserDTO {
+@ToString(callSuper = true)
+public final class CreateUserDTO extends NewUserProfileDTO {
+
+    /**
+     * 初始密码，不进入核对结果、日志或命令返回。
+     */
     @NotBlank
-    @Size(max=80)
-    private String username;
-    @NotBlank
-    @Size(max=80)
-    private String displayName;
-    @NotNull
-    @Valid
-    private MembershipSelectionDTO membership;
-    @Size(max=32)
-    private String phone;
-    @Email
-    @Size(max=254)
-    private String email;
-    @Size(max=300)
-    private String managementNote;
-    @NotNull
-    @Valid
-    private List<RoleVersionRefVO> roles;
-    @NotBlank
-    @Size(min=8,max=32)
+    @CodePointLength(min = 8, max = 32)
+    @ToString.Exclude
     private String initialPassword;
+
+    /**
+     * 绑定本次完整资料提案的签名核对凭据。
+     */
     @NotBlank
+    @ToString.Exclude
     private String reviewToken;
 }
