@@ -40,7 +40,7 @@ describe('列表结果状态', () => {
     );
     expect(screen.getByRole('columnheader', { name: '姓名' })).toBeVisible();
     expect(screen.getByText('查询暂时失败')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    fireEvent.click(screen.getByRole('button', { name: /重新加载/ }));
     expect(retry).toHaveBeenCalledOnce();
   });
 

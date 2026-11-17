@@ -45,7 +45,9 @@ public final class RoleImpactPreviewDTO {
             visible = true)
     @JsonSubTypes({
         @JsonSubTypes.Type(value = RoleProfileDTO.class, name = "UPDATE"),
-        @JsonSubTypes.Type(value = ActionReasonDTO.class, names = {"DISABLE", "ENABLE", "ARCHIVE"}),
+        @JsonSubTypes.Type(
+                value = ActionReasonDTO.class,
+                names = {"DISABLE", "ENABLE", "ARCHIVE"}),
         @JsonSubTypes.Type(value = RoleGrantLimitProposalDTO.class, name = "GRANT_LIMIT"),
         @JsonSubTypes.Type(value = RoleProtectedPermissionsProposalDTO.class, name = "PROTECTED_PERMISSIONS")
     })

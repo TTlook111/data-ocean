@@ -1,5 +1,6 @@
-import { Alert, Button, Empty, Result, Space, Spin, Tag } from 'antd';
+import { Button, Empty, Result, Space, Spin, Tag } from 'antd';
 import type { ReactNode } from 'react';
+import { DisconnectOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ApiError } from './api';
 
 /**
@@ -18,17 +19,64 @@ export const statuses: Record<string, string> = {
  */
 export function Status({ value, label }: { value: string; label?: string }) {
   return (
-    <Tag color={value === 'ENABLED' ? 'success' : value === 'DISABLED' ? 'warning' : 'default'}>
+    <Tag className={`record-status record-status-${value.toLowerCase()}`}>
       {label ?? statuses[value] ?? value}
     </Tag>
   );
 }
 
 /**
+ * 核对与审计中的状态编码转为业务名称，普通名称即使与编码同字也保留原文。
+ */
+export function displayChangeValue(value: string | null, field: string, label: string) {
+  // 缺少历史值时明确显示空值，不与状态含义混用。
+  if (!value) return '—';
+  if (['lifecycle', 'displayStatus', 'status'].includes(field)) {
+    // 角色启用与人员、部门正常的展示口径分别沿用当前页面规则。
+    if (value === 'ENABLED' && label === '角色状态') return '启用';
+    return statuses[value] ?? value;
+  }
+  return value;
+}
+
+/**
  * 网络和浏览器异常给出可操作的中文反馈，不将技术错误直接放入业务界面。
  */
 export function readErrorMessage(error: Error) {
+  // 将平台依赖分类翻成使用者能理解的恢复反馈，不把存储层术语带入业务页面。
+  if (error instanceof ApiError && error.code === 503001) return '服务暂时不可用，请稍后重试';
   return /[\u4e00-\u9fff]/u.test(error.message) ? error.message : '暂时无法加载，请检查连接后重试';
+}
+
+/**
+ * 列表与详情共用的读取失败态，原因和重试保持紧凑，不拉成横跨整页的错误横幅。
+ */
+export function ReadFailure({
+  error,
+  retry,
+}: {
+  /** 当前读取请求的受控失败原因。 */
+  error: Error;
+  /** 使用同一组条件重新读取，不重放业务写入。 */
+  retry?: () => void;
+}) {
+  return (
+    <div className="read-failure" role="alert">
+      <span className="read-failure-icon" aria-hidden="true">
+        <DisconnectOutlined />
+      </span>
+      <div className="read-failure-copy">
+        <h3>数据暂时无法加载</h3>
+        <p>{readErrorMessage(error)}</p>
+      </div>
+      {/* 恢复入口只在存在真实可执行的读取回调时显示。 */}
+      {retry && (
+        <Button icon={<ReloadOutlined aria-hidden="true" />} onClick={retry}>
+          重新加载
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -52,14 +100,7 @@ export function ReadState({
     return <Result status="403" title="当前无权查看这些内容" />;
   }
   if (error) {
-    return (
-      <Alert
-        type="error"
-        title={readErrorMessage(error)}
-        action={<Button onClick={retry}>重试</Button>}
-        showIcon
-      />
-    );
+    return <ReadFailure error={error} retry={retry} />;
   }
   if (empty) {
     return <Empty description="暂无记录" />;

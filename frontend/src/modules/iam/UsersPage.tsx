@@ -11,10 +11,10 @@ import {
   Select,
   Space,
 } from 'antd';
-import { DownOutlined } from '@ant-design/icons';
+import { DownOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, queryString } from '../../shared/api';
 import {
   DetailFooter,
@@ -46,6 +46,9 @@ export function UsersPage() {
   const [editing, setEditing] = useState<Person | 'new' | null>(null);
 
   const [assignment, setAssignment] = useState<Person | null>(null);
+
+  // 详情分配角色后回到原按钮，抽屉保持挂载以保留阅读位置。
+  const assignmentTrigger = useRef<HTMLElement | null>(null);
 
   const [action, setAction] = useState<{ person: Person; name: string } | null>(null);
 
@@ -193,9 +196,10 @@ export function UsersPage() {
           <Space>
             {active && allowed(session, 'users.assign') && (
               <Button
-                onClick={() => {
-                  // 分配直接使用当前完整详情，关闭后回到原列表上下文。
-                  setDetailId(null);
+                data-person-action="assign"
+                onClick={(event) => {
+                  // 只暂时隐藏详情；保存、取消或 Esc 后均恢复原人员与阅读上下文。
+                  assignmentTrigger.current = event.currentTarget;
                   setAssignment(person);
                 }}
               >
@@ -250,13 +254,14 @@ export function UsersPage() {
     <>
       <section className="panel query-panel" aria-label="人员查询">
         <Form
+          name="users-query"
           form={form}
           layout="inline"
           onFinish={search}
           initialValues={Object.fromEntries(params)}
         >
           <Form.Item name="displayName">
-            <Input aria-label="姓名" placeholder="姓名" allowClear />
+            <Input aria-label="姓名" placeholder="姓名" prefix={<SearchOutlined />} allowClear />
           </Form.Item>
           <Form.Item name="username">
             <Input aria-label="登录名" placeholder="登录名" allowClear />
@@ -292,7 +297,7 @@ export function UsersPage() {
           </div>
         </Form>
         {allowed(session, 'users.create') && (
-          <Button type="primary" onClick={() => setEditing('new')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
             新增人员
           </Button>
         )}
@@ -387,13 +392,38 @@ export function UsersPage() {
         />
       </section>
       {detailId && (
-        <PersonDetailsDrawer id={detailId} close={() => setDetailId(null)} actions={rowActions} />
+        <PersonDetailsDrawer
+          id={detailId}
+          open={!assignment}
+          close={() => setDetailId(null)}
+          actions={rowActions}
+          afterOpenChange={(open) => {
+            // 恢复抽屉完成后再交回焦点，避免被弹窗的退出动画抢走。
+            if (open && assignmentTrigger.current) {
+              requestAnimationFrame(() => {
+                // 保存刷新可能替换底栏节点，等抽屉原生聚焦结束后定位当前分配入口。
+                const target = assignmentTrigger.current?.isConnected
+                  ? assignmentTrigger.current
+                  : document.querySelector<HTMLElement>(
+                      '.ant-drawer-open [data-person-action="assign"]',
+                    );
+                target?.focus({ preventScroll: true });
+                assignmentTrigger.current = null;
+              });
+            }
+          }}
+        />
       )}
       {editing && (
         <PersonEditor
           key={editing === 'new' ? 'new' : editing.id}
           person={editing === 'new' ? null : editing}
           close={() => setEditing(null)}
+          created={(id) => {
+            // 创建对象不能被旧筛选遮住，回到首屏并直接打开其真实详情。
+            setParams({ pageNum: '1', pageSize: params.get('pageSize') ?? '10' });
+            setDetailId(id);
+          }}
         />
       )}
       {assignment && (
@@ -420,12 +450,21 @@ export function UsersPage() {
  */
 export function PersonDetailsDrawer({
   id,
+  open = true,
   close,
   actions,
+  afterOpenChange,
 }: {
+  /** 当前回看人员的稳定标识。 */
   id: string;
+  /** 分配角色时暂时隐藏抽屉，保留详情与滚动位置。 */
+  open?: boolean;
+  /** 关闭人员详情并回到原列表。 */
   close: () => void;
+  /** 当前账号获准执行的人员动作。 */
   actions?: (person: Person, inDetail?: boolean) => React.ReactNode;
+  /** 抽屉重新打开后恢复原动作入口焦点。 */
+  afterOpenChange?: (open: boolean) => void;
 }) {
   useReturnFocus();
 
@@ -437,7 +476,8 @@ export function PersonDetailsDrawer({
   // 详情只展示服务端当前事实，归档时展示已保存的身份快照。
   return (
     <Drawer
-      open
+      open={open}
+      afterOpenChange={afterOpenChange}
       title="人员详情"
       size="min(600px, calc(100vw - 80px))"
       closable={{ placement: 'end' }}

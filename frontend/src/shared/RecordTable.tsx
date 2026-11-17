@@ -1,8 +1,9 @@
-import { Alert, Button, Empty, Pagination, Result, Select, Table } from 'antd';
+import { Button, Empty, Pagination, Result, Select, Table } from 'antd';
 import type { TableProps } from 'antd';
+import type { CSSProperties } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from './api';
-import { readErrorMessage } from './Records';
+import { ReadFailure } from './Records';
 
 /**
  * 共用结果状态在表体内呈现，权限拒绝独立阻断受限结构与数量。
@@ -138,25 +139,31 @@ export function RecordTable<T extends object>({
   if (error instanceof ApiError && Math.floor(error.code / 1000) === 403)
     return <Result status="403" title="当前无权查看这些记录" />;
 
-  const empty = error ? (
-    <Alert
-      type="error"
-      title={readErrorMessage(error)}
-      showIcon
-      action={retry && <Button onClick={retry}>重试</Button>}
-    />
-  ) : (
-    <Empty
-      image={Empty.PRESENTED_IMAGE_SIMPLE}
-      description={busy ? '正在加载' : filtered ? '没有匹配的记录' : '暂无记录'}
-    >
-      {filtered && onReset && <Button onClick={onReset}>清空条件</Button>}
-    </Empty>
+  // 空态与失败复用可见表体的占位，横向滚动不带走恢复入口。
+  const empty = (
+    <div className="record-body-state">
+      {error ? (
+        <ReadFailure error={error} retry={retry} />
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={busy ? '正在加载' : filtered ? '没有匹配的记录' : '暂无记录'}
+        >
+          {filtered && onReset && <Button onClick={onReset}>清空条件</Button>}
+        </Empty>
+      )}
+    </div>
   );
 
   // 表头、空态或失败、留白与分页沿用同一个面板，表体承接余高滚动。
   return (
-    <div className="record-table" ref={container}>
+    <div
+      className="record-table"
+      ref={container}
+      style={
+        { '--record-state-width': availableWidth ? `${availableWidth}px` : '100%' } as CSSProperties
+      }
+    >
       <Table<T>
         {...props}
         columns={columns}

@@ -8,9 +8,11 @@
 
 | 范围 | 实际入口 |
 | --- | --- |
-| React 路由、登录边界与后台外壳 | [应用装配](../../frontend/src/app/Application.tsx)、[启动与主题](../../frontend/src/app/main.tsx) |
+| React 路由、登录边界与后台外壳 | [应用装配](../../frontend/src/app/Application.tsx)、[启动与 Provider](../../frontend/src/app/main.tsx) |
+| 前端主题与公共样式 | [Ant Design 主题](../../frontend/src/app/theme.ts)、[布局与状态样式](../../frontend/src/app/styles.css)；尺度依据见[界面规范](../frontend/界面规范.md) |
 | 登录与首次改密、账号、人员、部门、角色配置及权限审计页面 | [IAM 页面](../../frontend/src/modules/iam/)；覆盖与验收边界见[前端实现状态](../frontend/README.md#当前实现与验证边界) |
-| 前端请求、会话、表格与操作核对 | [共用代码](../../frontend/src/shared/) |
+| 前端请求、会话、表格、字段错误及操作核对 | [共用代码](../../frontend/src/shared/)；短任务对象摘要在 `OperationContext.tsx`，服务端字段错误定位在 `formErrors.ts` |
+| Java 统一返回、异常、分页与身份上下文 | [公共代码](../../backend/src/main/java/com/dataocean/common/)、[分页配置](../../backend/src/main/java/com/dataocean/infrastructure/persistence/MybatisConfig.java)；复用要求见[Java 细则](../backend/编码规范.md#公共代码复用) |
 | Java 认证、人员、部门、角色与权限 | [IAM 模块](../../backend/src/main/java/com/dataocean/module/iam/)；接口设计与验收见[首批模块入口](../backend/详细设计与验收.md) |
 | Java 审计及身份建库基线 | [审计模块](../../backend/src/main/java/com/dataocean/module/audit/)、[建库脚本](../../backend/src/main/resources/db/migration/) |
 | Python 正式公共包、配置与存活 API | [API](../../python-service/src/dataocean_ai/api/app.py)、[公共配置／返回／日志](../../python-service/src/dataocean_ai/core/)、[构建与运行](../../python-service/README.md)；旧 `dataocean` 不进入正式产物，工作流执行器按业务批次接入 |
@@ -18,6 +20,8 @@
 以上仅说明已存在的源码位置，不代表逐接口、界面或跨端链路全部验收通过。离线原型的定位仍由[页面专题](../frontend/pages/README.md#原型定位与衔接)维护。
 
 ## 模块定位专题
+
+001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
 
 | 模块 |
 | --- |

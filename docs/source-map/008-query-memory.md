@@ -1,13 +1,13 @@
 # 008 S1 问数与会话记忆
 
-用户在一个数据源内用自然语言提问。Java 保存会话、消息、任务、执行尝试与受保护结果，Python 编排检索、SQL 生成、语义核对和只读执行。前端通过 Java 创建任务、读取进度和结果，也可恢复会话、查看 SQL、导出或提交反馈。[问数页面](../../frontend/src/views/query/QueryDatasourceView.vue)、[问数 API](../../backend/DataOcean/src/main/java/com/dataocean/module/query/controller/IamS1QueryController.java)
+保留的 S1 Java/Python 实现围绕单个数据源处理自然语言提问，未接入新版应用。Java 保存会话、消息、任务、执行尝试与受保护结果，Python 编排检索、SQL 生成、语义核对和只读执行；此处执行职责不作为新版架构依据。[问数 API](../../backend/DataOcean/src/main/java/com/dataocean/module/query/controller/IamS1QueryController.java)
 
 ## 一次提问的执行路径
 
 1. **建立任务。** `submit` 绑定用户、数据源和会话，选择当前授权及知识构建版本，保存任务后派发。后续步骤只能使用任务绑定的来源；检索、规划所见字段仍受当前权限约束。[任务服务](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)
 2. **检索与生成。** `run_query_graph` 从检索、资源规划进入 SQL 生成和语义核对。规划保留用户原始问题，跨表推理需有经确认的关系依据。问题缺少业务条件可返回澄清；模型、限流或网络故障有各自的失败处理。[查询图与节点](../../python-service/dataocean/iam_s1/graph.py)
 3. **授权与只读执行。** Java 为每次 SQL 尝试授权并登记开始。Python 做 AST 与字段用途检查，注入参数化行条件，在选定的业务库执行。Java 复核来源并保护结果，Python 使用受保护数据核对答案和制作图表。[尝试授权与保护](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryAttemptServiceImpl.java)、[SQL 校验](../../python-service/dataocean/iam_s1/sql_security.py)
-4. **保存与读取。** 进入 `COMPLETED` 需要非空 `attemptId`、与本任务同一条 `PROTECTED` 尝试匹配的精确 SQL 哈希。前端可通过 SSE 看进度，最终结果从 Java 的任务查询读取。历史重读、导出与 SQL 查看按当前权限处理。[完成与回读](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)、[任务订阅与轮询](../../frontend/src/composables/useQuerySubmit.ts)
+4. **保存与读取。** 进入 `COMPLETED` 需要非空 `attemptId`、与本任务同一条 `PROTECTED` 尝试匹配的精确 SQL 哈希。任务查询读取最终结果，历史重读、导出与 SQL 查看按当前权限处理。[完成与回读](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)
 
 ## 预算、取消与恢复
 

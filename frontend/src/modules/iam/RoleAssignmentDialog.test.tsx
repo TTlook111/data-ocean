@@ -85,6 +85,40 @@ function openAssignment() {
  */
 describe('个人角色分配', () => {
   /**
+   * 角色读取失败时不允许提交旧选项，重试后仍可继续原选择。
+   */
+  it('读取失败时禁用保存并提供重试', async () => {
+    vi.mocked(api).mockRejectedValueOnce(new Error('角色读取失败'));
+    openAssignment();
+    await screen.findByText('角色读取失败');
+    expect(screen.getByRole('button', { name: /保\s*存/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    await screen.findByRole('checkbox', { name: '原有角色（停用）' });
+    await waitFor(() => expect(screen.getByRole('button', { name: /保\s*存/ })).toBeEnabled());
+  });
+
+  /**
+   * 无匹配只影响可见清单，不能把后台已有角色当成被清空。
+   */
+  it('搜索无匹配时保留已有分配并显示明确空态', async () => {
+    openAssignment();
+    await screen.findByRole('checkbox', { name: '原有角色（停用）' });
+    vi.mocked(api).mockResolvedValueOnce([]);
+    const search = screen.getByRole('searchbox', { name: '搜索个人角色' });
+    fireEvent.change(search, { target: { value: '无匹配' } });
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' });
+    await screen.findByText('没有匹配的角色');
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+    await waitFor(() => expect(mutation).toHaveBeenCalled());
+    expect(vi.mocked(mutation).mock.calls[0][2]).toEqual({
+      // 保存原人员版本，不重新构造对象。
+      expectedVersion: 3,
+      // 清单无匹配时仍保留不可见角色。
+      roles: [{ roleId: '10', version: 2 }],
+    });
+  });
+
+  /**
    * 已停用的普通角色只能保留或移出，不被组件锁死。
    */
   it('可以移出已有停用普通角色', async () => {

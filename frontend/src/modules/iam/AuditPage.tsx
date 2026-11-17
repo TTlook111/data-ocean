@@ -1,11 +1,12 @@
 import { RecordTable } from '../../shared/RecordTable';
 import { Button, DatePicker, Descriptions, Drawer, Form, Input, Select, Space, Tag } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { useEffect, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import { api, queryString } from '../../shared/api';
-import { DetailFooter, displayTime, ReadState } from '../../shared/Records';
+import { DetailFooter, displayChangeValue, displayTime, ReadState } from '../../shared/Records';
 import type { Change, Page } from './types';
 
 /**
@@ -182,6 +183,7 @@ export function AuditPage() {
     <>
       <section className="panel query-panel" aria-label="审计查询">
         <Form
+          name="audit-query"
           form={form}
           layout="inline"
           onFinish={search}
@@ -194,7 +196,12 @@ export function AuditPage() {
           }}
         >
           <Form.Item name="actor">
-            <Input aria-label="操作者姓名或登录名" placeholder="操作者姓名或登录名" allowClear />
+            <Input
+              aria-label="操作者姓名或登录名"
+              placeholder="操作者姓名或登录名"
+              prefix={<SearchOutlined />}
+              allowClear
+            />
           </Form.Item>
           <Form.Item name="actionCode">
             <Select
@@ -293,7 +300,13 @@ export function AuditPage() {
               ellipsis: true,
               render: (value) => actionLabels[value] ?? '其他操作',
             },
-            { title: '目标对象', dataIndex: 'targetName', width: 230, ellipsis: true },
+            {
+              title: '目标对象',
+              dataIndex: 'targetName',
+              width: 230,
+              ellipsis: true,
+              render: (value) => value || '—',
+            },
             {
               title: '结果',
               width: 100,
@@ -383,8 +396,16 @@ export function AuditPage() {
             pagination={false}
             columns={[
               { title: '字段', dataIndex: 'label', width: 130 },
-              { title: '之前', dataIndex: 'before', render: (value) => value || '—' },
-              { title: '之后', dataIndex: 'after', render: (value) => value || '—' },
+              {
+                title: '之前',
+                dataIndex: 'before',
+                render: (value, change) => displayChangeValue(value, change.field, change.label),
+              },
+              {
+                title: '之后',
+                dataIndex: 'after',
+                render: (value, change) => displayChangeValue(value, change.field, change.label),
+              },
             ]}
           />
         </ReadState>

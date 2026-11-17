@@ -28,15 +28,16 @@ public interface AuditMapper {
 
     /**
      * 列表与总数共用的参数化过滤片段，文本条件按字面转义。
+     * 文本块续行消除可选节点间的空行，避免分页解析截断后续筛选条件。
      */
     String FILTER =
             """
-        <where>
-        <foreach collection="q.actorTerms" item="term">AND (JSON_UNQUOTE(JSON_EXTRACT(a.actor_snapshot,'$.username')) COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!' OR JSON_UNQUOTE(JSON_EXTRACT(a.actor_snapshot,'$.displayName')) COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!')</foreach>
-        <foreach collection="q.targetTerms" item="term">AND (a.target_name COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!' OR a.target_id LIKE #{term} ESCAPE '!')</foreach>
-        <if test="q.actionCode != null and q.actionCode != ''">AND a.action_code=#{q.actionCode}</if>
-        <if test="q.outcome != null and q.outcome != ''">AND a.outcome=#{q.outcome}</if>
-        <if test="from != null">AND a.occurred_at &gt;= #{from} AND a.occurred_at &lt; #{until}</if>
+        <where>\
+        <foreach collection="q.actorTerms" item="term">AND (JSON_UNQUOTE(JSON_EXTRACT(a.actor_snapshot,'$.username')) COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!' OR JSON_UNQUOTE(JSON_EXTRACT(a.actor_snapshot,'$.displayName')) COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!')</foreach>\
+        <foreach collection="q.targetTerms" item="term">AND (a.target_name COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!' OR a.target_id LIKE #{term} ESCAPE '!')</foreach>\
+        <if test="q.actionCode != null and q.actionCode != ''">AND a.action_code=#{q.actionCode}</if>\
+        <if test="q.outcome != null and q.outcome != ''">AND a.outcome=#{q.outcome}</if>\
+        <if test="from != null">AND a.occurred_at &gt;= #{from} AND a.occurred_at &lt; #{until}</if>\
         </where>
         """;
 

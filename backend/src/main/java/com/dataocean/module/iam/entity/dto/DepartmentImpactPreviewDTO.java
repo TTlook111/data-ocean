@@ -49,7 +49,9 @@ public final class DepartmentImpactPreviewDTO {
         @JsonSubTypes.Type(value = DepartmentEndMembershipProposalDTO.class, name = "END_MEMBERSHIP"),
         @JsonSubTypes.Type(value = DepartmentMoveMembersProposalDTO.class, name = "MOVE_MEMBERS"),
         @JsonSubTypes.Type(value = DepartmentMoveChildrenProposalDTO.class, name = "MOVE_CHILDREN"),
-        @JsonSubTypes.Type(value = ActionReasonDTO.class, names = {"DISABLE", "ARCHIVE"}),
+        @JsonSubTypes.Type(
+                value = ActionReasonDTO.class,
+                names = {"DISABLE", "ARCHIVE"}),
         @JsonSubTypes.Type(value = DepartmentEnableProposalDTO.class, name = "ENABLE")
     })
     private DepartmentProposalDTO proposal;

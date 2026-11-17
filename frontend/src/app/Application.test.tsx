@@ -9,12 +9,14 @@ import { Application } from './Application';
 /**
  * 仅控制身份服务是否暂不可用，安全边界和页面挂载使用真实应用组件。
  */
-const service = vi.hoisted(() => ({ unavailable: false }));
+const service = vi.hoisted(() => ({ unavailable: false, logoutFailure: false }));
 
 // 模拟已经认证且只有角色页查看权的会话，不执行任何外部写入。
 vi.mock('../shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../shared/api')>()),
   api: vi.fn(async (path: string) => {
+    // 注销失败不能先清空身份或静默吞掉界面反馈。
+    if (path === '/auth/logout' && service.logoutFailure) throw new Error('退出暂不可用');
     if (path === '/auth/me') {
       if (service.unavailable) throw new Error('服务连接暂不可用');
       return {
@@ -48,6 +50,33 @@ vi.mock('../modules/iam/RolesPage', () => ({
  * 暂时无法复核时遮挡旧展示并暂停操作，恢复连接后保留用户尚未提交的输入。
  */
 describe('临时身份服务故障', () => {
+  /**
+   * 退出失败保留当前页面和会话展示，并向使用者明确说明可以重试。
+   */
+  it('退出失败时保留身份并提示原因', async () => {
+    service.unavailable = false;
+    service.logoutFailure = true;
+    const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter([{ path: '*', element: <Application /> }], {
+      initialEntries: ['/iam/roles'],
+    });
+    render(
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <App>
+          <QueryClientProvider client={cache}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </App>
+      </ConfigProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /用户菜单/ }));
+    fireEvent.click(await screen.findByText('退出登录'));
+    await screen.findByText('退出暂不可用');
+    expect(cache.getQueryData(['session'])).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: '登录' })).not.toBeInTheDocument();
+    service.logoutFailure = false;
+  });
+
   /**
    * 只重新核验登录，不把连接重试变成业务重放或表单重建。
    */

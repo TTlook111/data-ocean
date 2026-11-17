@@ -1,18 +1,33 @@
-import { Alert, App, Checkbox, Form, Input, Modal, Select } from 'antd';
+import { Alert, App, Button, Checkbox, Empty, Form, Input, Modal, Select, Spin } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { UserOutlined } from '@ant-design/icons';
 import { api, mutation, queryString } from '../../shared/api';
 import { useSession, allowed } from '../../shared/session';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import { useFormClose } from '../../shared/useFormClose';
 import { useReturnFocus } from '../../shared/useReturnFocus';
+import { applyFormError } from '../../shared/formErrors';
+import { OperationContext } from '../../shared/OperationContext';
+import { Status } from '../../shared/Records';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import type { Department, Person, PersonForm, Preview, Role, Page } from './types';
 
 /**
  * 人员资料表单只传稳定 ID，主兼任在同一次保存中完成。
  */
-export function PersonEditor({ person, close }: { person: Person | null; close: () => void }) {
+export function PersonEditor({
+  person,
+  close,
+  created,
+}: {
+  /** 编辑时使用当前人员详情，新增时为空。 */
+  person: Person | null;
+  /** 退出当前资料表单。 */
+  close: () => void;
+  /** 新增成功后由列表展示真实创建对象。 */
+  created?: (id: string) => void;
+}) {
   useReturnFocus();
 
   const session = useSession();
@@ -100,10 +115,15 @@ export function PersonEditor({ person, close }: { person: Person | null; close: 
         body: person
           ? { ...proposal, expectedVersion: person.version }
           : { ...proposal, initialPassword: values.initialPassword },
-        done: close,
+        done: (id) => {
+          // 新增成功才交回对象标识，取消、预览或返回修改不改变列表上下文。
+          close();
+          if (!person) created?.(id);
+        },
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 登录名冲突与接口字段校验定位到输入；其余失败保留整体反馈。
+      setError(applyFormError(form, failure, { 409101: 'username' }));
     } finally {
       setBusy(false);
     }
@@ -114,8 +134,8 @@ export function PersonEditor({ person, close }: { person: Person | null; close: 
     <>
       <Modal
         centered
-        open
-        title={person ? `编辑人员：${person.displayName}` : '新增人员'}
+        open={!review}
+        title={person ? '编辑人员' : '新增人员'}
         onCancel={requestClose}
         width={680}
         onOk={() => form.submit()}
@@ -134,9 +154,12 @@ export function PersonEditor({ person, close }: { person: Person | null; close: 
           />
         )}
         <Form
+          name="person-editor"
           form={form}
           layout="vertical"
           onFinish={preview}
+          disabled={busy}
+          onValuesChange={() => setError(null)}
           scrollToFirstError={{ focus: true }}
           initialValues={{
             ...person,
@@ -246,6 +269,8 @@ export function PersonEditor({ person, close }: { person: Person | null; close: 
 export function RoleAssignmentDialog({ person, close }: { person: Person; close: () => void }) {
   useReturnFocus();
 
+  useReturnFocus();
+
   const [search, setSearch] = useState('');
 
   const roles = useQuery({
@@ -287,6 +312,8 @@ export function RoleAssignmentDialog({ person, close }: { person: Person; close:
    * 完整最终分配携带每个角色版本，回包后刷新原人员。
    */
   async function save() {
+    // 当前选项仍在核验或读取失败时不提交旧版本，保留勾选供重试。
+    if (busy || roles.isFetching || roles.error || !roles.data) return;
     setBusy(true);
     try {
       const refs = selected.map((ref) => ({
@@ -315,8 +342,9 @@ export function RoleAssignmentDialog({ person, close }: { person: Person; close:
     <Modal
       centered
       open
-      title={`分配角色：${person.displayName}`}
-      width={480}
+      title="分配角色"
+      className="operation-dialog"
+      width={520}
       onCancel={() => {
         if (!busy) close();
       }}
@@ -325,32 +353,61 @@ export function RoleAssignmentDialog({ person, close }: { person: Person; close:
       confirmLoading={busy}
       closable={!busy}
       cancelButtonProps={{ disabled: busy }}
-      okButtonProps={{ disabled: !roles.data }}
+      okButtonProps={{ disabled: !roles.data || roles.isFetching || Boolean(roles.error) }}
     >
+      {/* 与其他短任务共用对象摘要，角色选择仍直接保存，不增加核对步骤。 */}
+      <OperationContext icon={<UserOutlined />} title={person.displayName}>
+        <Status value={person.displayStatus} />
+        <span>{person.username}</span>
+      </OperationContext>
       {(error || roles.error) && (
-        <Alert title={error ?? roles.error?.message} type="error" showIcon className="form-alert" />
+        <Alert
+          title={error ?? roles.error?.message}
+          type="error"
+          showIcon
+          className="form-alert"
+          action={roles.error && <Button onClick={() => roles.refetch()}>重试</Button>}
+        />
       )}
       <Input.Search
+        disabled={busy}
         aria-label="搜索个人角色"
         placeholder="搜索角色"
         allowClear
         onSearch={setSearch}
         className="form-alert"
       />
+      {search && (
+        <p className="role-selection-count" aria-live="polite">
+          已选 {selected.length} 项
+        </p>
+      )}
       {/* 角色选项直接可见，多选或清空后直接保存，不增加功能明细和核对步骤。 */}
-      <Checkbox.Group
-        aria-label="个人角色"
-        className="role-assignment-options"
-        value={selected.map((role) => role.roleId)}
-        onChange={(values) => selectRoles(values as string[])}
-        options={roles.data?.map((role) => ({
-          value: role.id,
-          label: role.name + (role.lifecycle === 'ENABLED' ? '' : '（停用）'),
-          disabled:
-            role.containsProtected ||
-            (!role.selectable && !(role.lifecycle === 'DISABLED' && role.selected)),
-        }))}
-      />
+      <Spin spinning={roles.isFetching}>
+        <div className="role-assignment-body">
+          {roles.data?.length === 0 && !roles.error ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={search ? '没有匹配的角色' : '暂无可分配角色'}
+            />
+          ) : (
+            <Checkbox.Group
+              aria-label="个人角色"
+              disabled={busy || roles.isFetching || Boolean(roles.error)}
+              className="role-assignment-options"
+              value={selected.map((role) => role.roleId)}
+              onChange={(values) => selectRoles(values as string[])}
+              options={roles.data?.map((role) => ({
+                value: role.id,
+                label: role.name + (role.lifecycle === 'ENABLED' ? '' : '（停用）'),
+                disabled:
+                  role.containsProtected ||
+                  (!role.selectable && !(role.lifecycle === 'DISABLED' && role.selected)),
+              }))}
+            />
+          )}
+        </div>
+      </Spin>
     </Modal>
   );
 }
@@ -413,6 +470,40 @@ export function UserActionDialog({
     recover: '受保护权限恢复',
   };
 
+  // 归属或角色仍在读取时暂停预览，防止使用旧版本或未回填的选择。
+  const optionsUnavailable =
+    departments.isFetching || roles.isFetching || Boolean(departments.error || roles.error);
+
+  // 标题表达任务，对象名称、状态和必要后果在摘要中分层呈现。
+  const targetContext = (
+    <OperationContext
+      icon={<UserOutlined />}
+      title={person.displayName}
+      warning={
+        action === 'disable'
+          ? '停用后无法登录，已有会话将失效。'
+          : action === 'archive'
+            ? '归档后仅可回看，账号无法恢复使用。'
+            : action === 'password-reset'
+              ? '重置后现有会话失效，下次登录须先修改密码。'
+              : undefined
+      }
+    >
+      <Status value={person.displayStatus} />
+      <span>{person.username}</span>
+    </OperationContext>
+  );
+  const reasonLabel =
+    action === 'disable'
+      ? '停用原因'
+      : action === 'archive'
+        ? '归档原因'
+        : action === 'enable'
+          ? '恢复原因'
+          : action === 'password-reset'
+            ? '重置原因'
+            : '操作原因';
+
   /**
    * 为每个动作构造明确提案，密码仅加入正式写入请求。
    */
@@ -425,6 +516,8 @@ export function UserActionDialog({
     reviewedAccess: boolean;
     sourceAuditId: string;
   }) {
+    // 查询失败或仍在读取时，Enter 也不能绕过禁用的预览按钮。
+    if (busy || optionsUnavailable) return;
     setBusy(true);
     setError(null);
     try {
@@ -487,7 +580,10 @@ export function UserActionDialog({
               ? 'users.password'
               : `users.${action}`;
       setReview({
-        title: `${actionNames[action]}：${person.displayName}`,
+        title: `${actionNames[action]} · 核对影响`,
+        context: targetContext,
+        confirmText: `确认${actionNames[action]}`,
+        danger: ['disable', 'archive', 'password-reset'].includes(action),
         preview: result,
         path: `/iam/users/${person.id}/${action === 'transfer' ? 'memberships' : action}`,
         method: action === 'transfer' || action === 'protected-roles' ? 'PUT' : 'POST',
@@ -496,7 +592,8 @@ export function UserActionDialog({
         done: close,
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 保留本次动作的输入并关联可识别字段，不将拒绝误当成提交成功。
+      setError(applyFormError(form, failure));
     } finally {
       setBusy(false);
     }
@@ -507,12 +604,15 @@ export function UserActionDialog({
     <>
       <Modal
         centered
-        open
-        title={`${actionNames[action]}：${person.displayName}`}
+        open={!review}
+        title={actionNames[action]}
+        className="operation-dialog"
+        width={560}
         onCancel={requestClose}
         onOk={() => form.submit()}
-        okText="核对并继续"
+        okText="核对影响"
         confirmLoading={busy}
+        okButtonProps={{ disabled: optionsUnavailable }}
         closable={!busy}
         cancelButtonProps={{ disabled: busy }}
         mask={{ closable: false }}
@@ -521,14 +621,31 @@ export function UserActionDialog({
           <Alert
             type="error"
             title={error ?? departments.error?.message ?? roles.error?.message}
+            action={
+              (departments.error || roles.error) && (
+                <Button
+                  onClick={() => {
+                    // 只重试失败的选项读取，保留当前人员和已填原因。
+                    if (departments.error) void departments.refetch();
+                    if (roles.error) void roles.refetch();
+                  }}
+                >
+                  重试
+                </Button>
+              )
+            }
             showIcon
             className="form-alert"
           />
         )}
+        {targetContext}
         <Form
+          name="person-action"
           form={form}
           layout="vertical"
           onFinish={prepare}
+          disabled={busy || optionsUnavailable}
+          onValuesChange={() => setError(null)}
           scrollToFirstError={{ focus: true }}
           initialValues={{
             primaryDepartmentId: person.primaryDepartment?.id,
@@ -630,10 +747,17 @@ export function UserActionDialog({
           )}
           <Form.Item
             name="reason"
-            label="操作原因"
-            rules={[{ required: true, whitespace: true, message: '请填写操作原因' }, { max: 500 }]}
+            label={reasonLabel}
+            rules={[
+              { required: true, whitespace: true, message: `请填写${reasonLabel}` },
+              { max: 500 },
+            ]}
           >
-            <Input.TextArea rows={3} maxLength={500} showCount />
+            <Input.TextArea
+              autoFocus={['disable', 'archive'].includes(action)}
+              autoSize={{ minRows: 3, maxRows: 5 }}
+              maxLength={500}
+            />
           </Form.Item>
         </Form>
       </Modal>

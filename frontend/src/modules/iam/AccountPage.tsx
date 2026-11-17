@@ -218,6 +218,7 @@ export function AccountPage({ expired }: { expired: () => Promise<unknown> }) {
       >
         {error && <Alert type="error" title={error} showIcon className="form-alert" />}
         <Form
+          name="account-editor"
           key={command}
           form={form}
           layout="vertical"

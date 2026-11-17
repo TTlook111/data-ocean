@@ -55,6 +55,7 @@ export function LoginPage({ done }: { done: () => Promise<unknown> }) {
           <h1>登录</h1>
           {error && <Alert type="error" title={error} showIcon className="form-alert" />}
           <Form
+            name="login"
             form={form}
             layout="vertical"
             onFinish={login}
@@ -171,6 +172,7 @@ export function InitialPasswordPage({
           </p>
           {error && <Alert type="error" title={error} showIcon className="form-alert" />}
           <Form
+            name="initial-password"
             layout="vertical"
             onFinish={submit}
             onValuesChange={() => setError(null)}

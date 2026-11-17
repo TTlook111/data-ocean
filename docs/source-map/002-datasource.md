@@ -1,6 +1,6 @@
 # 002 数据源与就绪检查
 
-旧版登记单个 MySQL 业务数据源，管理连接、启停和健康记录。问数任务选定一个源，在该库内访问有权的表和字段。
+保留的 Java 实现登记单个 MySQL 业务数据源，管理连接、启停和健康记录；未接入新版应用。问数任务选定一个源，在该库内访问有权的表和字段。
 
 ## 登记与连接
 
@@ -10,5 +10,3 @@
 ## 问数就绪判断
 
 服务端综合连接、正式快照、阻断问题和授权四项条件计算 `askable`。后台检查该源是否已有有效查询授权，业务端检查当前用户能否查询。活动 RAG 构建单独记为 `knowledgeReady`，不参与 `askable` 合取。准备状态、阻断原因、正式快照与活动索引分别返回。[就绪判断](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImpl.java) · [业务用户入口](../../backend/DataOcean/src/main/java/com/dataocean/module/permission/s1/controller/IamS1UserResourceController.java)
-
-后台列表管理连接和状态，详情页按权限读取选中数据源的采集、正式快照、治理和索引信息。[数据源列表](../../frontend/src/views/admin/datasource/DataSourcesView.vue) · [数据源详情](../../frontend/src/views/admin/datasource/DataSourceDetailView.vue)

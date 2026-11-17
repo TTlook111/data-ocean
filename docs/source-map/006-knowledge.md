@@ -1,6 +1,6 @@
 # 006 业务术语与知识文档
 
-本模块把术语定义、字段映射和经过审核的业务事实组织成带来源的文档。Java 保存术语修订、文档版本与审核记录。Python 根据固定输入生成目录或释义候选。使用者可以分别追查一段内容采用了哪次元数据快照、哪次人工审核，以及哪个版本已发布。[文档接口](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/controller/KnowledgeDocController.java)、[文档工作区](../../frontend/src/views/admin/semantics/KnowledgeView.vue)
+保留的 Java/Python 实现把术语定义、字段映射和经过审核的业务事实组织成带来源的文档，未接入新版应用。Java 保存术语修订、文档版本与审核记录，Python 根据固定输入生成目录或释义候选。内容可追查所用元数据快照、人工审核及发布版本。[文档接口](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/controller/KnowledgeDocController.java)
 
 ## 从术语到文档
 

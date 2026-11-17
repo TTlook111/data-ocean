@@ -1,10 +1,14 @@
 import { Alert, Checkbox, Form, Input, InputNumber, Modal, Select } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ApartmentOutlined } from '@ant-design/icons';
 import { api, queryString } from '../../shared/api';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import { useFormClose } from '../../shared/useFormClose';
 import { useReturnFocus } from '../../shared/useReturnFocus';
+import { applyFormError } from '../../shared/formErrors';
+import { OperationContext } from '../../shared/OperationContext';
+import { Status } from '../../shared/Records';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import type { Department, DepartmentForm, Membership, Page, Person, Preview } from './types';
 
@@ -23,11 +27,14 @@ export function DepartmentEditor({
   parentId,
   tree,
   close,
+  created,
 }: {
   department: Department | null;
   parentId?: string;
   tree: Department[];
   close: () => void;
+  /** 新增成功后定位到该部门，编辑与取消不切换当前组织。 */
+  created?: (id: string) => void;
 }) {
   useReturnFocus();
 
@@ -96,10 +103,15 @@ export function DepartmentEditor({
         method: department ? 'PUT' : 'POST',
         operation: department ? 'departments.edit' : 'departments.create',
         body: department ? { ...proposal, expectedVersion: department.version } : proposal,
-        done: close,
+        done: (id) => {
+          // 创建后回看新部门，避免仍停留在旧部门而找不到刚完成的记录。
+          close();
+          if (!department) created?.(id);
+        },
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 编号冲突定位到编号输入，不清空部门资料或归属选择。
+      setError(applyFormError(form, failure, { 409103: 'code' }));
     } finally {
       setBusy(false);
     }
@@ -110,8 +122,8 @@ export function DepartmentEditor({
     <>
       <Modal
         centered
-        open
-        title={department ? `编辑部门：${department.name}` : '新增部门'}
+        open={!review}
+        title={department ? '编辑部门' : '新增部门'}
         onCancel={requestClose}
         onOk={() => form.submit()}
         okText="核对并保存"
@@ -130,9 +142,12 @@ export function DepartmentEditor({
           />
         )}
         <Form
+          name="department-editor"
           form={form}
           layout="vertical"
           onFinish={prepare}
+          disabled={busy}
+          onValuesChange={() => setError(null)}
           scrollToFirstError={{ focus: true }}
           initialValues={{
             ...department,
@@ -265,6 +280,33 @@ export function DepartmentAction({
     archive: '归档部门',
   };
 
+  // 部门名称、状态和直属成员事实归入对象摘要，正文只保留本次办理输入。
+  const targetContext = (
+    <OperationContext
+      icon={<ApartmentOutlined />}
+      title={department.name}
+      warning={
+        action === 'disable'
+          ? '停用后，该部门不能用于新的人员归属配置。'
+          : action === 'archive'
+            ? '归档后仅保留历史信息，不再参与组织配置。'
+            : undefined
+      }
+    >
+      <Status value={department.lifecycle} />
+      <span>{department.code}</span>
+      <span>直属 {department.directMemberCount} 人</span>
+    </OperationContext>
+  );
+  const reasonLabel =
+    action === 'disable'
+      ? '停用原因'
+      : action === 'archive'
+        ? '归档原因'
+        : action === 'enable'
+          ? '恢复原因'
+          : '操作原因';
+
   /**
    * 完整读取直属成员的全部分页，避免把当前页误作整批集合。
    */
@@ -356,7 +398,10 @@ export function DepartmentAction({
               ? 'departments.transfer-members'
               : `departments.${action}`;
       setReview({
-        title: `${titles[action]}：${department.name}`,
+        title: `${titles[action]} · 核对影响`,
+        context: targetContext,
+        confirmText: `确认${titles[action]}`,
+        danger: ['disable', 'archive', 'end'].includes(action),
         preview,
         path: `/iam/departments/${department.id}/${action === 'end' ? `memberships/${member!.relation.id}/end` : action}`,
         method: 'POST',
@@ -365,7 +410,8 @@ export function DepartmentAction({
         done: close,
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 业务阻断留在当前动作中回看，能定位的字段使用就近校验。
+      setError(applyFormError(form, failure));
     } finally {
       setBusy(false);
     }
@@ -376,11 +422,13 @@ export function DepartmentAction({
     <>
       <Modal
         centered
-        open
-        title={`${titles[action]}：${department.name}`}
+        open={!review}
+        title={titles[action]}
+        className="operation-dialog"
+        width={560}
         onCancel={requestClose}
         onOk={() => form.submit()}
-        okText="核对并继续"
+        okText="核对影响"
         confirmLoading={busy}
         closable={!busy}
         cancelButtonProps={{ disabled: busy }}
@@ -394,7 +442,16 @@ export function DepartmentAction({
             className="form-alert"
           />
         )}
-        <Form form={form} layout="vertical" onFinish={prepare} scrollToFirstError={{ focus: true }}>
+        {targetContext}
+        <Form
+          name="department-action"
+          form={form}
+          layout="vertical"
+          onFinish={prepare}
+          disabled={busy}
+          onValuesChange={() => setError(null)}
+          scrollToFirstError={{ focus: true }}
+        >
           {action === 'secondary-members' && (
             <Form.Item
               name="memberIds"
@@ -434,6 +491,8 @@ export function DepartmentAction({
               rules={[{ required: true, message: '请选择原部门子树以外的目标部门' }]}
             >
               <Select
+                placeholder="选择目标部门"
+                notFoundContent="暂无可用的目标部门"
                 showSearch
                 optionFilterProp="label"
                 options={destinations.map((item) => ({ value: item.id, label: item.name }))}
@@ -464,10 +523,17 @@ export function DepartmentAction({
           )}
           <Form.Item
             name="reason"
-            label="操作原因"
-            rules={[{ required: true, whitespace: true, message: '请填写操作原因' }, { max: 500 }]}
+            label={reasonLabel}
+            rules={[
+              { required: true, whitespace: true, message: `请填写${reasonLabel}` },
+              { max: 500 },
+            ]}
           >
-            <Input.TextArea rows={3} maxLength={500} showCount />
+            <Input.TextArea
+              autoFocus={['disable', 'archive', 'end'].includes(action)}
+              autoSize={{ minRows: 3, maxRows: 5 }}
+              maxLength={500}
+            />
           </Form.Item>
         </Form>
       </Modal>

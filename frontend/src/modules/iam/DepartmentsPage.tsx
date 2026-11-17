@@ -13,7 +13,7 @@ import {
   Tabs,
   Tree,
 } from 'antd';
-import { DownOutlined } from '@ant-design/icons';
+import { DownOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
@@ -291,6 +291,7 @@ export function DepartmentsPage() {
           ]}
         />
         <Form
+          name="department-members-query"
           form={memberForm}
           layout="inline"
           className="member-query"
@@ -314,18 +315,21 @@ export function DepartmentsPage() {
           <Form.Item name="username">
             <Input aria-label="登录名" placeholder="登录名" allowClear />
           </Form.Item>
-          <Form.Item name="displayStatus">
-            <Select
-              aria-label="状态"
-              placeholder="全部状态"
-              allowClear
-              options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
-            />
-          </Form.Item>
-          <Space>
-            <Button htmlType="submit">查询</Button>
-            <Button onClick={resetMembers}>重置</Button>
-          </Space>
+          {/* 状态与查询操作作为整体换行，窄成员区不留下孤立按钮。 */}
+          <div className="member-query-tail">
+            <Form.Item name="displayStatus">
+              <Select
+                aria-label="状态"
+                placeholder="全部状态"
+                allowClear
+                options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
+              />
+            </Form.Item>
+            <Space>
+              <Button htmlType="submit">查询</Button>
+              <Button onClick={resetMembers}>重置</Button>
+            </Space>
+          </div>
         </Form>
       </div>
       <RecordTable<Person>
@@ -484,7 +488,7 @@ export function DepartmentsPage() {
                 编辑部门
               </Button>
             ) : (
-              '仅供回看'
+              <span className="table-action-note">仅供回看</span>
             ),
         },
       ]}
@@ -514,7 +518,11 @@ export function DepartmentsPage() {
             {fullTree.data && <small>{flattenDepartments(fullTree.data).length} 个部门</small>}
           </div>
           {allowed(session, 'departments.create') && (
-            <Button type="primary" onClick={() => setEditor({ department: null })}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setEditor({ department: null })}
+            >
               新增部门
             </Button>
           )}
@@ -523,6 +531,7 @@ export function DepartmentsPage() {
           <Input
             aria-label="搜索部门"
             placeholder="搜索部门"
+            prefix={<SearchOutlined />}
             allowClear
             value={treeKeyword}
             onChange={(event) => setTreeKeyword(event.target.value)}
@@ -654,6 +663,7 @@ export function DepartmentsPage() {
           parentId={editor.parentId}
           tree={fullTree.data ?? []}
           close={() => setEditor(null)}
+          created={selectDepartment}
         />
       )}
       {department && action && (

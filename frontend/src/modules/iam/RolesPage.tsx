@@ -15,8 +15,14 @@ import {
   Tabs,
   Tag,
 } from 'antd';
-import { DownOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  PlusOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
@@ -25,6 +31,8 @@ import { displayTime, readErrorMessage, ReadState, Status } from '../../shared/R
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import { useFormClose } from '../../shared/useFormClose';
 import { useReturnFocus } from '../../shared/useReturnFocus';
+import { applyFormError } from '../../shared/formErrors';
+import { OperationContext } from '../../shared/OperationContext';
 import { PersonDetailsDrawer } from './UsersPage';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import type { CapabilityPage, Page, Person, Preview, Role, RoleForm } from './types';
@@ -40,6 +48,7 @@ function PermissionPicker({
   disabled = false,
   grantLimit = false,
   readOnly = false,
+  footer,
 }: {
   pages: CapabilityPage[];
   value?: string[];
@@ -48,6 +57,10 @@ function PermissionPicker({
   disabled?: boolean;
   grantLimit?: boolean;
   readOnly?: boolean;
+  /**
+   * 独立角色编辑的操作区，固定在右侧用途清单下方。
+   */
+  footer?: ReactNode;
 }) {
   const [keyword, setKeyword] = useState('');
 
@@ -128,6 +141,7 @@ function PermissionPicker({
           <Input
             aria-label="搜索页面或操作"
             placeholder="搜索页面或操作"
+            prefix={<SearchOutlined />}
             allowClear
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
@@ -158,58 +172,62 @@ function PermissionPicker({
           ))}
         </nav>
       </div>
-      <section
-        className="permission-content"
-        aria-label={active ? `${active.name}的功能` : '功能选择结果'}
-      >
-        {active ? (
-          <>
-            <div className="permission-page-heading">
-              <h3>{active.name}</h3>
-              <span>
-                {active.operations.filter((operation) => value.includes(operation.code)).length} /{' '}
-                {active.operations.length} 项
-              </span>
+      {/* 右栏将功能正文滚动与角色级操作分开，左栏目录保留完整高度。 */}
+      <div className="permission-detail-column">
+        <section
+          className="permission-content"
+          aria-label={active ? `${active.name}的功能` : '功能选择结果'}
+        >
+          {active ? (
+            <>
+              <div className="permission-page-heading">
+                <h3>{active.name}</h3>
+                <span>
+                  {active.operations.filter((operation) => value.includes(operation.code)).length} /{' '}
+                  {active.operations.length} 项
+                </span>
+              </div>
+              <ul className="permission-operations">
+                {active.operations
+                  .filter((operation) => !readOnly || value.includes(operation.code))
+                  .map((operation) => (
+                    <li key={operation.code}>
+                      {readOnly ? (
+                        <strong>{operation.name}</strong>
+                      ) : (
+                        <Checkbox
+                          checked={value.includes(operation.code)}
+                          disabled={
+                            disabled ||
+                            (!protectedMode &&
+                              (operation.protected ||
+                                (!operation.pagePermissionCode &&
+                                  active.operations.some(
+                                    (item) => item.protected && value.includes(item.code),
+                                  ))))
+                          }
+                          onChange={(event) => toggle(operation.code, event.target.checked)}
+                        >
+                          {operation.name}
+                        </Checkbox>
+                      )}
+                      {operation.protected && <Tag className="role-protected">受保护</Tag>}
+                      <p>{operation.purpose}</p>
+                    </li>
+                  ))}
+              </ul>
+              {!protectedMode && active.operations.some((operation) => operation.protected) && (
+                <p className="permission-hint">受保护管理能力需单独核验。</p>
+              )}
+            </>
+          ) : (
+            <div className="permission-empty">
+              {readOnly && !keyword ? '暂无已配置功能' : '没有匹配的页面或操作'}
             </div>
-            <ul className="permission-operations">
-              {active.operations
-                .filter((operation) => !readOnly || value.includes(operation.code))
-                .map((operation) => (
-                  <li key={operation.code}>
-                    {readOnly ? (
-                      <strong>{operation.name}</strong>
-                    ) : (
-                      <Checkbox
-                        checked={value.includes(operation.code)}
-                        disabled={
-                          disabled ||
-                          (!protectedMode &&
-                            (operation.protected ||
-                              (!operation.pagePermissionCode &&
-                                active.operations.some(
-                                  (item) => item.protected && value.includes(item.code),
-                                ))))
-                        }
-                        onChange={(event) => toggle(operation.code, event.target.checked)}
-                      >
-                        {operation.name}
-                      </Checkbox>
-                    )}
-                    {operation.protected && <Tag className="role-protected">受保护</Tag>}
-                    <p>{operation.purpose}</p>
-                  </li>
-                ))}
-            </ul>
-            {!protectedMode && active.operations.some((operation) => operation.protected) && (
-              <p className="permission-hint">受保护管理能力需单独核验。</p>
-            )}
-          </>
-        ) : (
-          <div className="permission-empty">
-            {readOnly && !keyword ? '暂无已配置功能' : '没有匹配的页面或操作'}
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+        {footer}
+      </div>
     </div>
   );
 }
@@ -371,10 +389,12 @@ export function RolesPage() {
     <>
       <section className="panel query-panel">
         <Form
+          name="roles-query"
           form={form}
           layout="inline"
           initialValues={Object.fromEntries(params)}
-          onFinish={(values) =>
+          onFinish={(values) => {
+            // 查询与 Enter 共用提交入口，完成后仍可继续在原字段输入。
             setParams(
               queryString({
                 name: values.name,
@@ -382,11 +402,17 @@ export function RolesPage() {
                 pageNum: 1,
                 pageSize: params.get('pageSize') ?? 10,
               }),
-            )
-          }
+            );
+            form.focusField('name');
+          }}
         >
           <Form.Item name="name">
-            <Input aria-label="角色名称" placeholder="角色名称" allowClear />
+            <Input
+              aria-label="角色名称"
+              placeholder="角色名称"
+              prefix={<SearchOutlined />}
+              allowClear
+            />
           </Form.Item>
           <div className="query-tail status-tail">
             <Form.Item name="lifecycle" className="status-query">
@@ -408,7 +434,7 @@ export function RolesPage() {
           </div>
         </Form>
         {allowed(session, 'roles.create') && (
-          <Button type="primary" onClick={() => configure()}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => configure()}>
             新增角色
           </Button>
         )}
@@ -459,7 +485,13 @@ export function RolesPage() {
                 </Space>
               ),
             },
-            { title: '角色说明', dataIndex: 'description', width: 360, ellipsis: true },
+            {
+              title: '角色说明',
+              dataIndex: 'description',
+              width: 360,
+              ellipsis: true,
+              render: (value) => value || '—',
+            },
             {
               title: '状态',
               dataIndex: 'lifecycle',
@@ -663,17 +695,23 @@ export function RoleEditor() {
           dirtyRef.current = false;
           setDirty(false);
           setReview(null);
-          navigate(`/iam/roles${state?.returnSearch ? `?${state.returnSearch}` : ''}`);
+          // 新增或复制后清除旧名称和状态筛选，编辑则恢复原查询上下文。
+          const context = new URLSearchParams(state?.returnSearch ?? '');
+          const returnSearch = id
+            ? context.toString()
+            : queryString({ pageNum: 1, pageSize: context.get('pageSize') ?? 10 });
+          navigate(`/iam/roles${returnSearch ? `?${returnSearch}` : ''}`);
         },
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 重名定位到角色名称，其他失败保留功能选择供修改或重试。
+      setError(applyFormError(form, failure, { 409102: 'name' }));
     } finally {
       setBusy(false);
     }
   }
 
-  // 功能编辑使用完整工作区和固定底栏，详情仍保留原后台外壳。
+  // 功能编辑保留后台外壳，操作区位于功能权限卡片右栏底部。
   return (
     <ReadState
       error={catalog.error ?? detail.error}
@@ -686,11 +724,14 @@ export function RoleEditor() {
       <section className="role-editor" aria-label="角色功能配置">
         {error && <Alert type="error" title={error} showIcon className="form-alert" />}
         <Form
+          name="role-editor"
           form={form}
           layout="vertical"
-          disabled={readOnly}
+          disabled={readOnly || busy}
           onFinish={prepare}
           onValuesChange={() => {
+            // 修正字段后撤下上一次整体失败反馈，字段错误由 Form 自身更新。
+            setError(null);
             dirtyRef.current = initial.current !== JSON.stringify(form.getFieldsValue());
             setDirty(dirtyRef.current);
           }}
@@ -728,41 +769,51 @@ export function RoleEditor() {
                 protectedMode={protectedMode}
                 disabled={readOnly}
                 readOnly={readOnly}
+                footer={
+                  // 角色级操作固定在右侧清单下方，不占用页面外层底栏。
+                  <div className="permission-editor-footer">
+                    {/* 受保护原因紧邻核对操作，继续参与同一角色表单的校验。 */}
+                    {protectedMode && (
+                      <Form.Item
+                        name="reason"
+                        label="操作原因"
+                        rules={[
+                          { required: true, whitespace: true, message: '请填写受保护调整原因' },
+                          { max: 500 },
+                        ]}
+                      >
+                        <Input.TextArea rows={2} />
+                      </Form.Item>
+                    )}
+                    {/* 只读或提交期间仍可取消，避免继承表单禁用状态而无法返回。 */}
+                    <div className="permission-editor-actions">
+                      <Button
+                        disabled={false}
+                        onClick={() =>
+                          navigate(
+                            `/iam/roles${state?.returnSearch ? `?${state.returnSearch}` : ''}`,
+                          )
+                        }
+                      >
+                        取消
+                      </Button>
+                      {!readOnly && (
+                        <Button
+                          type="primary"
+                          loading={busy}
+                          disabled={Boolean(id) && !dirty}
+                          onClick={() => form.submit()}
+                        >
+                          核对变更
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                }
               />
             </Form.Item>
           </section>
-          {protectedMode && (
-            <Form.Item
-              name="reason"
-              label="操作原因"
-              rules={[
-                { required: true, whitespace: true, message: '请填写受保护调整原因' },
-                { max: 500 },
-              ]}
-            >
-              <Input.TextArea rows={2} />
-            </Form.Item>
-          )}
         </Form>
-        <div className="editor-footer">
-          <Button
-            onClick={() =>
-              navigate(`/iam/roles${state?.returnSearch ? `?${state.returnSearch}` : ''}`)
-            }
-          >
-            取消
-          </Button>
-          {!readOnly && (
-            <Button
-              type="primary"
-              loading={busy}
-              disabled={Boolean(id) && !dirty}
-              onClick={() => form.submit()}
-            >
-              核对变更
-            </Button>
-          )}
-        </div>
       </section>
       {review && <ReviewDialog submission={review} close={() => setReview(null)} />}
     </ReadState>
@@ -913,6 +964,7 @@ function RoleMembers({
                 children: (
                   <div className="records-panel role-member-results">
                     <Form
+                      name="role-members-query"
                       form={form}
                       layout="inline"
                       className="member-query"
@@ -927,24 +979,27 @@ function RoleMembers({
                       <Form.Item name="username">
                         <Input aria-label="登录名" placeholder="登录名" allowClear />
                       </Form.Item>
-                      <Form.Item name="displayStatus">
-                        <Select
-                          aria-label="账号状态"
-                          placeholder="全部状态"
-                          allowClear
-                          options={[
-                            { value: 'ENABLED', label: '正常' },
-                            { value: 'DISABLED', label: '停用' },
-                            { value: 'ARCHIVED', label: '已归档' },
-                            { value: 'PENDING_FIRST_LOGIN', label: '待首次登录' },
-                            { value: 'PASSWORD_CHANGE_REQUIRED', label: '待改密' },
-                          ]}
-                        />
-                      </Form.Item>
-                      <Space>
-                        <Button htmlType="submit">查询</Button>
-                        <Button onClick={resetMembers}>重置</Button>
-                      </Space>
+                      {/* 与部门成员共用状态及查询的成组换行，避免抽屉内按钮孤立。 */}
+                      <div className="member-query-tail">
+                        <Form.Item name="displayStatus">
+                          <Select
+                            aria-label="账号状态"
+                            placeholder="全部状态"
+                            allowClear
+                            options={[
+                              { value: 'ENABLED', label: '正常' },
+                              { value: 'DISABLED', label: '停用' },
+                              { value: 'ARCHIVED', label: '已归档' },
+                              { value: 'PENDING_FIRST_LOGIN', label: '待首次登录' },
+                              { value: 'PASSWORD_CHANGE_REQUIRED', label: '待改密' },
+                            ]}
+                          />
+                        </Form.Item>
+                        <Space>
+                          <Button htmlType="submit">查询</Button>
+                          <Button onClick={resetMembers}>重置</Button>
+                        </Space>
+                      </div>
                     </Form>
                     <RecordTable<Person>
                       error={records.error}
@@ -1044,6 +1099,18 @@ function RoleAction({ role, action, close }: { role: Role; action: string; close
 
   const initialized = useRef(false);
 
+  // 上限尚未完整读取时不能把空白表单解释为清空已有配置。
+  const grantReady =
+    action !== 'grant-limit' ||
+    Boolean(
+      grant.data &&
+      catalog.data &&
+      !grant.isFetching &&
+      !catalog.isFetching &&
+      !grant.error &&
+      !catalog.error,
+    );
+
   useEffect(() => {
     // 只在首次取得上限时填充，刷新不覆盖未保存选择。
     if (grant.data && !initialized.current) {
@@ -1062,10 +1129,39 @@ function RoleAction({ role, action, close }: { role: Role; action: string; close
           ? '启用角色'
           : '归档角色';
 
+  // 标题表达当前任务，对象名称与成员事实在独立摘要中完整展示。
+  const targetContext = (
+    <OperationContext
+      icon={<SafetyCertificateOutlined />}
+      title={role.name}
+      warning={
+        action === 'disable'
+          ? '停用后暂停该角色的功能权限，保留人员分配。'
+          : action === 'archive'
+            ? '归档后仅可回看，不能再分配或编辑。'
+            : undefined
+      }
+    >
+      <Status value={role.lifecycle} label={role.lifecycle === 'ENABLED' ? '启用' : undefined} />
+      <span>已分配 {role.memberCount} 人</span>
+    </OperationContext>
+  );
+
+  const reasonLabel =
+    action === 'disable'
+      ? '停用原因'
+      : action === 'enable'
+        ? '启用原因'
+        : action === 'archive'
+          ? '归档原因'
+          : '变更原因';
+
   /**
    * 状态和上限使用各自 DTO，核对后保留同一完整提案。
    */
   async function prepare(values: { reason: string; grantablePermissionCodes?: string[] }) {
+    // 键盘提交与按钮遵循同一就绪边界，避免预览尚未回填的选择。
+    if (!grantReady || busy) return;
     setBusy(true);
     try {
       const proposal = {
@@ -1086,7 +1182,10 @@ function RoleAction({ role, action, close }: { role: Role; action: string; close
         },
       });
       setReview({
-        title: `${title}：${role.name}`,
+        title: `${title} · 核对影响`,
+        context: targetContext,
+        confirmText: `确认${title}`,
+        danger: ['disable', 'archive'].includes(action),
         preview,
         path: `/iam/roles/${role.id}/${action}`,
         method: action === 'grant-limit' ? 'PUT' : 'POST',
@@ -1095,7 +1194,8 @@ function RoleAction({ role, action, close }: { role: Role; action: string; close
         done: close,
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '核对未完成');
+      // 角色仍有成员等阻断原因在本次操作中反馈，不丢弃已填原因。
+      setError(applyFormError(form, failure));
     } finally {
       setBusy(false);
     }
@@ -1105,42 +1205,59 @@ function RoleAction({ role, action, close }: { role: Role; action: string; close
     <>
       <Modal
         centered
-        open
-        title={`${title}：${role.name}`}
-        width={action === 'grant-limit' ? 900 : 520}
+        open={!review}
+        title={title}
+        className="operation-dialog"
+        width={action === 'grant-limit' ? 900 : 560}
         onCancel={requestClose}
         onOk={() => form.submit()}
-        okText="核对并继续"
+        okText="核对影响"
         confirmLoading={busy}
+        okButtonProps={{ disabled: !grantReady }}
         closable={!busy}
         cancelButtonProps={{ disabled: busy }}
       >
-        {(error || grant.error || catalog.error) && (
-          <Alert
-            type="error"
-            title={error ?? grant.error?.message ?? catalog.error?.message}
-            showIcon
-            className="form-alert"
-          />
-        )}
-        <Descriptions
-          size="small"
-          items={[{ key: 'members', label: '当前成员', children: `${role.memberCount} 人` }]}
-        />
-        <Form form={form} layout="vertical" onFinish={prepare} scrollToFirstError={{ focus: true }}>
-          {action === 'grant-limit' && (
-            <Form.Item name="grantablePermissionCodes" label="可授予操作">
-              <PermissionPicker pages={catalog.data ?? []} protectedMode grantLimit />
-            </Form.Item>
-          )}
-          <Form.Item
-            name="reason"
-            label="操作原因"
-            rules={[{ required: true, whitespace: true, message: '请填写操作原因' }, { max: 500 }]}
+        {error && <Alert type="error" title={error} showIcon className="form-alert" />}
+        <ReadState
+          error={action === 'grant-limit' ? (grant.error ?? catalog.error) : null}
+          retry={() => {
+            // 读取重试不提交权限变更。
+            void grant.refetch();
+            void catalog.refetch();
+          }}
+          loading={action === 'grant-limit' && (grant.isPending || catalog.isPending)}
+        >
+          {targetContext}
+          <Form
+            name="role-action"
+            form={form}
+            layout="vertical"
+            onFinish={prepare}
+            disabled={busy}
+            onValuesChange={() => setError(null)}
+            scrollToFirstError={{ focus: true }}
           >
-            <Input.TextArea rows={3} maxLength={500} />
-          </Form.Item>
-        </Form>
+            {action === 'grant-limit' && (
+              <Form.Item name="grantablePermissionCodes" label="可授予操作">
+                <PermissionPicker pages={catalog.data ?? []} protectedMode grantLimit />
+              </Form.Item>
+            )}
+            <Form.Item
+              name="reason"
+              label={reasonLabel}
+              rules={[
+                { required: true, whitespace: true, message: `请填写${reasonLabel}` },
+                { max: 500 },
+              ]}
+            >
+              <Input.TextArea
+                autoFocus={action !== 'grant-limit'}
+                autoSize={{ minRows: 3, maxRows: 5 }}
+                maxLength={500}
+              />
+            </Form.Item>
+          </Form>
+        </ReadState>
       </Modal>
       {review && <ReviewDialog submission={review} close={() => setReview(null)} />}
     </>

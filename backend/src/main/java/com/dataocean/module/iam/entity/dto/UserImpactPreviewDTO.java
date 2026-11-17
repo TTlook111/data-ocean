@@ -47,7 +47,9 @@ public final class UserImpactPreviewDTO {
         @JsonSubTypes.Type(value = UserProfileDTO.class, name = "UPDATE"),
         @JsonSubTypes.Type(value = UserTransferProposalDTO.class, name = "TRANSFER"),
         @JsonSubTypes.Type(value = UserEnableProposalDTO.class, name = "ENABLE"),
-        @JsonSubTypes.Type(value = ActionReasonDTO.class, names = {"DISABLE", "ARCHIVE"}),
+        @JsonSubTypes.Type(
+                value = ActionReasonDTO.class,
+                names = {"DISABLE", "ARCHIVE"}),
         @JsonSubTypes.Type(value = UserResetPasswordProposalDTO.class, name = "RESET_PASSWORD"),
         @JsonSubTypes.Type(value = UserProtectedRolesProposalDTO.class, name = "PROTECTED_ROLES")
     })

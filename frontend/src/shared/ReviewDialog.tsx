@@ -1,9 +1,11 @@
-import { Alert, App, Button, Descriptions, Modal, Table } from 'antd';
+import { Alert, App, Button, Modal, Table } from 'antd';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Preview } from '../modules/iam/types';
 import { mutation } from './api';
 import { useReturnFocus } from './useReturnFocus';
+import { displayChangeValue } from './Records';
 
 /**
  * 服务端稳定对象类型转为业务名称，不在核对面板直接展示协议代码。
@@ -44,9 +46,21 @@ export interface ReviewSubmission {
    */
   body: object;
   /**
-   * 提交确认后回到原记录并重新读取的回调。
+   * 提交确认后携带真实目标标识，回看该记录或恢复原查询。
    */
-  done: () => void;
+  done: (targetId: string) => void;
+  /**
+   * 危险或生命周期动作使用准确的确认名称，普通编辑默认确认保存。
+   */
+  confirmText?: string;
+  /**
+   * 停用、归档及重置等后果明确的动作使用危险按钮样式。
+   */
+  danger?: boolean;
+  /**
+   * 与输入阶段一致的对象摘要，避免把长对象名称挤入确认标题。
+   */
+  context?: ReactNode;
 }
 
 /**
@@ -78,7 +92,7 @@ export function ReviewDialog({
     setBusy(true);
     setError(null);
     try {
-      await mutation(
+      const result = await mutation<{ targetId: string }>(
         submission.path,
         submission.method,
         { ...submission.body, reviewToken: submission.preview.reviewToken },
@@ -87,7 +101,7 @@ export function ReviewDialog({
       );
       await cache.invalidateQueries();
       message.success('已保存');
-      submission.done();
+      submission.done(result.targetId);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作未完成');
     } finally {
@@ -101,22 +115,30 @@ export function ReviewDialog({
       centered
       open
       title={submission.title}
+      className={submission.context ? 'operation-dialog operation-review-dialog' : undefined}
       onCancel={() => {
         if (!busy) close();
       }}
       closable={!busy}
-      width={760}
+      width={submission.context ? 640 : 760}
       footer={[
         <Button key="back" onClick={close} disabled={busy}>
           返回修改
         </Button>,
-        <Button key="save" type="primary" loading={busy} onClick={submit}>
-          确认保存
+        <Button
+          key="save"
+          type="primary"
+          danger={submission.danger}
+          loading={busy}
+          onClick={submit}
+        >
+          {submission.confirmText ?? '确认保存'}
         </Button>,
       ]}
       mask={{ closable: false }}
     >
       {error && <Alert type="error" title={error} showIcon className="form-alert" />}
+      {submission.context}
       <Table
         className="full-text-table"
         rowKey="field"
@@ -125,19 +147,31 @@ export function ReviewDialog({
         dataSource={submission.preview.changes}
         columns={[
           { title: '核对项', dataIndex: 'label', width: 140 },
-          { title: '当前', dataIndex: 'before', render: (value) => value || '—' },
-          { title: '保存后', dataIndex: 'after', render: (value) => value || '—' },
+          {
+            title: '当前',
+            dataIndex: 'before',
+            render: (value, change) => displayChangeValue(value, change.field, change.label),
+          },
+          {
+            title: '保存后',
+            dataIndex: 'after',
+            className: 'review-change-after',
+            render: (value, change) => displayChangeValue(value, change.field, change.label),
+          },
         ]}
       />
-      <Descriptions
-        className="review-counts"
-        size="small"
-        items={submission.preview.affected.map((item) => ({
-          key: item.kind,
-          label: impactLabels[item.kind] ?? '影响对象',
-          children: `${item.count} 个`,
-        }))}
-      />
+      {/* 影响范围以紧凑事实展示，使用业务单位，不再塞进一张只含零值的描述表。 */}
+      {submission.preview.affected.length > 0 && (
+        <div className="review-impact" aria-label="影响范围">
+          {submission.preview.affected.map((item) => (
+            <span key={item.kind}>
+              {impactLabels[item.kind] ?? '影响对象'}
+              <strong>{item.count}</strong>
+              {item.kind === 'USER' ? '人' : item.kind === 'MEMBERSHIP' ? '条' : '个'}
+            </span>
+          ))}
+        </div>
+      )}
       {submission.preview.warnings.map((warning) => (
         <Alert key={warning} type="warning" title={warning} showIcon className="form-alert" />
       ))}

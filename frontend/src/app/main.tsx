@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { Application } from './Application';
+import { appTheme } from './theme';
 import './styles.css';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -32,32 +33,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ConfigProvider
       locale={zhCN}
-      theme={{
-        token: {
-          colorPrimary: '#2f63d5',
-          colorLink: '#2f63d5',
-          colorText: '#1f2937',
-          colorTextSecondary: '#5b6575',
-          colorTextPlaceholder: '#5b6575',
-          colorSuccess: '#216449',
-          colorSuccessBg: '#e8f4ee',
-          colorSuccessBorder: '#e8f4ee',
-          colorSuccessText: '#216449',
-          fontSize: 14,
-          controlHeight: 40,
-          borderRadius: 6,
-          fontFamily: '"Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
-        },
-        components: {
-          Table: {
-            cellPaddingBlock: 12,
-            cellPaddingInline: 16,
-            headerBg: '#f8fafc',
-            headerColor: '#5b6575',
-          },
-          Menu: { itemHeight: 40 },
-        },
-      }}
+      theme={appTheme}
+      componentSize="large"
+      button={{ autoInsertSpace: false }}
+      modal={{ className: 'app-dialog' }}
     >
       <AntApp>
         <QueryClientProvider client={cache}>

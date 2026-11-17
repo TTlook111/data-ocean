@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Modal, Result, Spin } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { App, Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Modal, Result, Spin } from 'antd';
 import {
   ApartmentOutlined,
   AuditOutlined,
@@ -47,6 +47,10 @@ const navigation = [
  */
 export function Application() {
   const cache = useQueryClient();
+
+  const { message } = App.useApp();
+
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const navigate = useNavigate();
 
@@ -119,9 +123,19 @@ export function Application() {
    * 普通退出只注销当前 Cookie 会话。
    */
   async function logout() {
-    await api('/auth/logout', { method: 'POST' });
-    resetCsrf();
-    await refreshIdentity();
+    // 退出尚未完成时不重复发送，失败保留当前身份并提供明确反馈。
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await api('/auth/logout', { method: 'POST' });
+      resetCsrf();
+      await refreshIdentity();
+    } catch (failure) {
+      // 服务端未确认注销时不能伪装成功或让菜单操作没有响应。
+      message.error(readErrorMessage(failure instanceof Error ? failure : new Error('退出未完成')));
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   useEffect(() => {
@@ -311,7 +325,11 @@ export function Application() {
             menu={{
               items: [
                 { key: 'account', label: '账号信息' },
-                { key: 'logout', label: '退出登录' },
+                {
+                  key: 'logout',
+                  label: loggingOut ? '正在退出…' : '退出登录',
+                  disabled: loggingOut,
+                },
               ],
               onClick: ({ key }) => {
                 if (key === 'logout') void logout();
@@ -337,7 +355,8 @@ export function Application() {
           <Layout.Sider width={216} theme="light" className="admin-sidebar">
             <Menu
               mode="inline"
-              inlineIndent={24}
+              inlineIndent={12}
+              aria-label="后台管理菜单"
               defaultOpenKeys={['people-group', 'personal-group']}
               selectedKeys={[location.pathname === '/account' ? '/account' : (selected?.key ?? '')]}
               onClick={({ key }) => openPage(key)}
