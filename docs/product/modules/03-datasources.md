@@ -27,3 +27,5 @@
 变化与资料影响进入[治理](04-governance.md)，必要内容更新由[知识发布](05-knowledge-release.md)承接；审批责任沿[人员权限](02-people-access.md#审批责任与分派)。
 
 技术设计与验收见[统一入口](../README.md#架构与重构任务怎样读取)。
+
+接入与首次采集已有[详细设计](../../backend/datasource/设计.md)、[接口](../../backend/datasource/接口.md)及[验收条件](../../backend/datasource/验收.md)，当前仅为设计。该批不包含完整变化治理、审批授权或真实定时调度；原型与正式实现分别核对状态。
