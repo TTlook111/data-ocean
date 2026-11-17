@@ -9,12 +9,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 人员资料的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 人员、部门和角色共用的仅含操作原因的非秘密提案，具体动作单独核权。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UserArchiveProposalDTO {
+public final class ActionReasonDTO implements UserProposalDTO, RoleProposalDTO, DepartmentProposalDTO {
 
     /**
      * 本次管理动作的必填原因，不写入秘密凭据。

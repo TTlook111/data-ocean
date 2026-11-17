@@ -15,12 +15,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 角色与授予的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 受保护角色分配在预览与正式提交中共用的完整角色集合和操作原因。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UserProtectedRolesProposalDTO {
+public class UserProtectedRolesProposalDTO implements UserProposalDTO {
 
     /**
      * 当前角色、使用与授予集合及分配历史的访问依赖。

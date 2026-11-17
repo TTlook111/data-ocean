@@ -12,12 +12,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 角色与授予的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 角色授予上限在预览与正式提交中共用的完整功能集合和操作原因。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class RoleGrantLimitProposalDTO {
+public class RoleGrantLimitProposalDTO implements RoleProposalDTO {
 
     /**
      * 显式可授予功能集合，与本人使用权分别维护。

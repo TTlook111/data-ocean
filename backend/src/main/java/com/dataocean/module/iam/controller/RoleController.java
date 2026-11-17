@@ -2,14 +2,15 @@ package com.dataocean.module.iam.controller;
 
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateRoleDTO;
-import com.dataocean.module.iam.entity.dto.CreateRolePreviewDTO;
 import com.dataocean.module.iam.entity.dto.RoleImpactPreviewDTO;
+import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
 import com.dataocean.module.iam.entity.dto.UpdateGrantLimitDTO;
 import com.dataocean.module.iam.entity.dto.UpdateProtectedRoleDTO;
 import com.dataocean.module.iam.entity.dto.UpdateRoleDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
-import com.dataocean.module.iam.entity.query.RoleMemberQuery;
+import com.dataocean.module.iam.entity.query.PersonQuery;
 import com.dataocean.module.iam.entity.query.RoleQuery;
 import com.dataocean.module.iam.entity.vo.GrantLimitVO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
@@ -68,7 +69,7 @@ public class RoleController {
      * 分页回看仍持有当前分配的人员。
      */
     @GetMapping("/{id}/members")
-    public Result<PageVO<UserRowVO>> members(@PathVariable String id, @Valid @ModelAttribute RoleMemberQuery query) {
+    public Result<PageVO<UserRowVO>> members(@PathVariable String id, @Valid @ModelAttribute PersonQuery query) {
         return Result.success(service.members(id, query));
     }
 
@@ -76,7 +77,7 @@ public class RoleController {
      * 核对普通角色的新增提案。
      */
     @PostMapping("/impact-preview")
-    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreateRolePreviewDTO data) {
+    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreatePreviewDTO<RoleProfileDTO> data) {
         return Result.success(service.previewCreate(data));
     }
 

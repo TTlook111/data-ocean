@@ -10,26 +10,23 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateRoleDTO;
-import com.dataocean.module.iam.entity.dto.CreateRolePreviewDTO;
 import com.dataocean.module.iam.entity.dto.ProtectedRoleAssignmentDTO;
 import com.dataocean.module.iam.entity.dto.RecoverUserDTO;
 import com.dataocean.module.iam.entity.dto.RecoveryPreviewDTO;
-import com.dataocean.module.iam.entity.dto.RoleArchivePreviewDTO;
-import com.dataocean.module.iam.entity.dto.RoleDisablePreviewDTO;
-import com.dataocean.module.iam.entity.dto.RoleEnablePreviewDTO;
-import com.dataocean.module.iam.entity.dto.RoleGrantLimitPreviewDTO;
+import com.dataocean.module.iam.entity.dto.RoleGrantLimitProposalDTO;
 import com.dataocean.module.iam.entity.dto.RoleImpactPreviewDTO;
 import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
-import com.dataocean.module.iam.entity.dto.RoleProtectedPermissionsPreviewDTO;
-import com.dataocean.module.iam.entity.dto.RoleUpdatePreviewDTO;
+import com.dataocean.module.iam.entity.dto.RoleProposalDTO;
+import com.dataocean.module.iam.entity.dto.RoleProtectedPermissionsProposalDTO;
 import com.dataocean.module.iam.entity.dto.UpdateGrantLimitDTO;
 import com.dataocean.module.iam.entity.dto.UpdateProtectedRoleDTO;
 import com.dataocean.module.iam.entity.dto.UpdateRoleDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
 import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.entity.po.UserPO;
-import com.dataocean.module.iam.entity.query.RoleMemberQuery;
+import com.dataocean.module.iam.entity.query.PersonQuery;
 import com.dataocean.module.iam.entity.query.RoleQuery;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
 import com.dataocean.module.iam.entity.vo.GrantLimitVO;
@@ -165,7 +162,7 @@ public class RoleServiceImpl implements RoleService {
      */
     @Override
     @Transactional(readOnly = true)
-    public PageVO<UserRowVO> members(String id, RoleMemberQuery query) {
+    public PageVO<UserRowVO> members(String id, PersonQuery query) {
         guard.shared();
         permissions.require("roles.view");
         views.role(Ids.parse(id));
@@ -179,7 +176,7 @@ public class RoleServiceImpl implements RoleService {
      */
     @Override
     @Transactional(readOnly = true)
-    public ImpactPreviewVO previewCreate(CreateRolePreviewDTO data) {
+    public ImpactPreviewVO previewCreate(CreatePreviewDTO<RoleProfileDTO> data) {
         guard.shared();
         permissions.require("roles.create");
         validateProfile(null, data.getProposal(), "roles.create", false);
@@ -227,22 +224,22 @@ public class RoleServiceImpl implements RoleService {
         guard.shared();
         long id = Ids.parse(textId);
         RolePO role = checked(id, data.getExpectedVersion());
-        Object proposal;
+
+        // 请求绑定时已按动作选定完整角色提案，业务分支继续单独核权。
+        RoleProposalDTO proposal = data.getProposal();
+
         List<ChangeVO> changes;
         switch (data.getAction()) {
             case "UPDATE" -> {
                 // 普通编辑保留已有受保护使用项。
-                var value = ((RoleUpdatePreviewDTO) data).getProposal();
-                proposal = value;
-                var profile = BeanUtil.copyProperties(value, RoleProfileDTO.class);
+                var value = (RoleProfileDTO) proposal;
                 permissions.require("roles.edit");
-                validateProfile(role, profile, "roles.edit", false);
-                changes = profileChanges(role, profile);
+                validateProfile(role, value, "roles.edit", false);
+                changes = profileChanges(role, value);
             }
             case "GRANT_LIMIT" -> {
                 // 上限变化不回写他人的既有使用权。
-                var value = ((RoleGrantLimitPreviewDTO) data).getProposal();
-                proposal = value;
+                var value = (RoleGrantLimitProposalDTO) proposal;
                 validateGrants(role, value.getGrantablePermissionCodes());
                 changes = List.of(change(
                         "grantablePermissionCodes",
@@ -252,20 +249,13 @@ public class RoleServiceImpl implements RoleService {
             }
             case "PROTECTED_PERMISSIONS" -> {
                 // 受保护修改只能使用当前已有资格进行授权。
-                var value = ((RoleProtectedPermissionsPreviewDTO) data).getProposal();
-                proposal = value;
-                var profile = BeanUtil.copyProperties(value, RoleProfileDTO.class);
+                var value = (RoleProtectedPermissionsProposalDTO) proposal;
                 permissions.require("roles.protected");
-                validateProfile(role, profile, "roles.protected", true);
-                changes = profileChanges(role, profile);
+                validateProfile(role, value, "roles.protected", true);
+                changes = profileChanges(role, value);
             }
             case "DISABLE", "ENABLE", "ARCHIVE" -> {
                 // 状态动作也须核对角色实际受保护内容。
-                proposal = switch (data.getAction()) {
-                    case "DISABLE" -> ((RoleDisablePreviewDTO) data).getProposal();
-                    case "ENABLE" -> ((RoleEnablePreviewDTO) data).getProposal();
-                    default -> ((RoleArchivePreviewDTO) data).getProposal();
-                };
                 validateLifecycle(role, data.getAction());
                 changes = List.of(change("lifecycle", "角色状态", role.getLifecycle(), targetLifecycle(data.getAction())));
             }

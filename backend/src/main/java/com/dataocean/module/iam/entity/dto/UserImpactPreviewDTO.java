@@ -3,39 +3,53 @@ package com.dataocean.module.iam.entity.dto;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 /**
- * 人员资料的严格影响核对输入，预览本身不写入业务事实。
+ * 人员操作共用的影响核对输入，按动作绑定明确的非秘密提案，具体权限仍由业务服务核验。
  */
-@JsonTypeInfo(
-        use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.EXISTING_PROPERTY,
-        property = "action",
-        visible = true)
-@JsonSubTypes({
-    @JsonSubTypes.Type(value = UserUpdatePreviewDTO.class, name = "UPDATE"),
-    @JsonSubTypes.Type(value = UserTransferPreviewDTO.class, name = "TRANSFER"),
-    @JsonSubTypes.Type(value = UserEnablePreviewDTO.class, name = "ENABLE"),
-    @JsonSubTypes.Type(value = UserDisablePreviewDTO.class, name = "DISABLE"),
-    @JsonSubTypes.Type(value = UserArchivePreviewDTO.class, name = "ARCHIVE"),
-    @JsonSubTypes.Type(value = UserResetPasswordPreviewDTO.class, name = "RESET_PASSWORD"),
-    @JsonSubTypes.Type(value = UserProtectedRolesPreviewDTO.class, name = "PROTECTED_ROLES")
-})
-public sealed interface UserImpactPreviewDTO
-        permits UserUpdatePreviewDTO,
-                UserTransferPreviewDTO,
-                UserEnablePreviewDTO,
-                UserDisablePreviewDTO,
-                UserArchivePreviewDTO,
-                UserResetPasswordPreviewDTO,
-                UserProtectedRolesPreviewDTO {
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public final class UserImpactPreviewDTO {
 
     /**
-     * 取得严格提案类型所绑定的业务动作编码。
+     * 本次人员业务动作编码，同时决定提案允许的具体结构。
      */
-    String getAction();
+    @NotBlank
+    private String action;
 
     /**
-     * 取得本次影响核对所依据的聚合修订。
+     * 提交者核对时的聚合版本，服务端据此检查并发变化。
      */
-    Integer getExpectedVersion();
+    @NotNull
+    @Min(1)
+    private Integer expectedVersion;
+
+    /**
+     * 按同级 action 绑定的完整提案，类型映射只作用于此字段，不进入提案摘要。
+     */
+    @NotNull
+    @Valid
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME,
+            include = JsonTypeInfo.As.EXTERNAL_PROPERTY,
+            property = "action",
+            visible = true)
+    @JsonSubTypes({
+        @JsonSubTypes.Type(value = UserProfileDTO.class, name = "UPDATE"),
+        @JsonSubTypes.Type(value = UserTransferProposalDTO.class, name = "TRANSFER"),
+        @JsonSubTypes.Type(value = UserEnableProposalDTO.class, name = "ENABLE"),
+        @JsonSubTypes.Type(value = ActionReasonDTO.class, names = {"DISABLE", "ARCHIVE"}),
+        @JsonSubTypes.Type(value = UserResetPasswordProposalDTO.class, name = "RESET_PASSWORD"),
+        @JsonSubTypes.Type(value = UserProtectedRolesProposalDTO.class, name = "PROTECTED_ROLES")
+    })
+    private UserProposalDTO proposal;
 }

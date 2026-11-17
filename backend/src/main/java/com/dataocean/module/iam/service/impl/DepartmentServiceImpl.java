@@ -11,18 +11,15 @@ import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.iam.entity.dto.AddSecondaryMembersDTO;
 import com.dataocean.module.iam.entity.dto.CreateDepartmentDTO;
-import com.dataocean.module.iam.entity.dto.CreateDepartmentPreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentAddSecondaryPreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentArchivePreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentDisablePreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentEnablePreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentEndMembershipPreviewDTO;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentAddSecondaryProposalDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentEnableProposalDTO;
 import com.dataocean.module.iam.entity.dto.DepartmentEndMembershipProposalDTO;
 import com.dataocean.module.iam.entity.dto.DepartmentImpactPreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentMoveChildrenPreviewDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentMoveMembersPreviewDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentMoveChildrenProposalDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentMoveMembersProposalDTO;
 import com.dataocean.module.iam.entity.dto.DepartmentProfileDTO;
-import com.dataocean.module.iam.entity.dto.DepartmentUpdatePreviewDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentProposalDTO;
 import com.dataocean.module.iam.entity.dto.EnableDepartmentDTO;
 import com.dataocean.module.iam.entity.dto.EndMembershipDTO;
 import com.dataocean.module.iam.entity.dto.MoveChildDepartmentsDTO;
@@ -184,7 +181,7 @@ public class DepartmentServiceImpl implements DepartmentService {
      */
     @Override
     @Transactional(readOnly = true)
-    public ImpactPreviewVO previewCreate(CreateDepartmentPreviewDTO data) {
+    public ImpactPreviewVO previewCreate(CreatePreviewDTO<DepartmentProfileDTO> data) {
         guard.shared();
         permissions.require("departments.create");
         validateProfile(null, data.getProposal());
@@ -235,36 +232,34 @@ public class DepartmentServiceImpl implements DepartmentService {
         long id = Ids.parse(textId);
         DepartmentPO department = checked(id, data.getExpectedVersion());
         permissions.require(operation(data.getAction()));
-        Object proposal;
+
+        // 请求绑定时已按动作选定完整部门提案，后续签名沿用该提案。
+        DepartmentProposalDTO proposal = data.getProposal();
+
         List<ChangeVO> changes;
         switch (data.getAction()) {
             case "UPDATE" -> {
                 // 父节点按当前祖先链检查，预览不改动组织。
-                var value = ((DepartmentUpdatePreviewDTO) data).getProposal();
-                proposal = value;
-                var profile = BeanUtil.copyProperties(value, DepartmentProfileDTO.class);
-                validateProfile(department, profile);
-                changes = profileChanges(department, profile);
+                var value = (DepartmentProfileDTO) proposal;
+                validateProfile(department, value);
+                changes = profileChanges(department, value);
             }
             case "ADD_SECONDARY" -> {
                 // 整批人员必须仍正常且当前不属于该部门。
-                var value = ((DepartmentAddSecondaryPreviewDTO) data).getProposal();
-                proposal = value;
+                var value = (DepartmentAddSecondaryProposalDTO) proposal;
                 validateAdd(department, value.getMembers());
                 changes = List.of(change("members", "加入兼任", "", names(value.getMembers())));
             }
             case "END_MEMBERSHIP" -> {
                 // 直接移除主部门没有合法中间状态，必须先调岗。
-                var value = ((DepartmentEndMembershipPreviewDTO) data).getProposal();
-                proposal = value;
+                var value = (DepartmentEndMembershipProposalDTO) proposal;
                 var membership = validateEnd(id, value.getMembershipId(), value.getUserExpectedVersion());
                 changes = List.of(change(
                         "members", "移出兼任", views.user(membership.getUserId()).getDisplayName(), "已移出"));
             }
             case "MOVE_MEMBERS" -> {
                 // 提案必须包含预览时全部直属人员。
-                var value = ((DepartmentMoveMembersPreviewDTO) data).getProposal();
-                proposal = value;
+                var value = (DepartmentMoveMembersProposalDTO) proposal;
                 validateDestination(id, value.getDestination());
                 validateCompleteMembers(id, value.getMembers());
                 changes = List.of(change(
@@ -276,8 +271,7 @@ public class DepartmentServiceImpl implements DepartmentService {
             }
             case "MOVE_CHILDREN" -> {
                 // 子部门集合和目标版本均纳入核对凭据。
-                var value = ((DepartmentMoveChildrenPreviewDTO) data).getProposal();
-                proposal = value;
+                var value = (DepartmentMoveChildrenProposalDTO) proposal;
                 validateDestination(id, value.getDestination());
                 validateChildren(id, value.getChildren());
                 changes = List.of(change(
@@ -289,14 +283,9 @@ public class DepartmentServiceImpl implements DepartmentService {
             }
             case "DISABLE", "ENABLE", "ARCHIVE" -> {
                 // 恢复组织不恢复已结束的数据来源。
-                proposal = switch (data.getAction()) {
-                    case "DISABLE" -> ((DepartmentDisablePreviewDTO) data).getProposal();
-                    case "ENABLE" -> ((DepartmentEnablePreviewDTO) data).getProposal();
-                    default -> ((DepartmentArchivePreviewDTO) data).getProposal();
-                };
-                if (data instanceof DepartmentEnablePreviewDTO enabled
-                        && !Boolean.TRUE.equals(enabled.getProposal().getReviewedMembers())) {
-                    // 核对当前动作的完整提案、影响与版本，不在预览阶段写入业务事实。
+                if (proposal instanceof DepartmentEnableProposalDTO enabled
+                        && !Boolean.TRUE.equals(enabled.getReviewedMembers())) {
+                    // 恢复部门必须显式确认已复核成员与保留配置。
                     throw BizIllegalException.invalid("请确认已复核成员与保留配置");
                 }
                 validateLifecycle(department, data.getAction());

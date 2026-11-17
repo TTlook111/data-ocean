@@ -13,7 +13,7 @@ import lombok.ToString;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class ImpactPreviewVO {
+public class ImpactPreviewVO {
 
     /**
      * 本次业务动作的契约编码，用于选择严格对应的提案类型。

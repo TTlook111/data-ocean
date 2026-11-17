@@ -4,6 +4,7 @@ import com.dataocean.common.PageQuery;
 import com.dataocean.common.TextSearch;
 
 import java.util.List;
+import java.util.Map;
 
 import jakarta.validation.constraints.Pattern;
 
@@ -11,7 +12,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 公共契约的明确查询条件，分页与排序遵循统一白名单约束。
+ * 人员列表及部门、角色成员查询共用的人员筛选和排序条件，资源范围由业务服务限定。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -45,5 +46,13 @@ public class PersonQuery extends PageQuery {
      */
     public List<String> getUsernameTerms() {
         return TextSearch.terms(username);
+    }
+
+    /**
+     * 统一映射人员查询允许的排序字段，调用方 SQL 使用人员表别名 u。
+     */
+    @Override
+    protected Map<String, String> sortColumns() {
+        return Map.of("updatedAt", "u.updated_at", "username", "u.username", "displayName", "u.display_name");
     }
 }

@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class AuditRowVO {
+public class AuditRowVO {
 
     /**
      * 该记录的稳定标识，对外长整型以十进制字符串表达。

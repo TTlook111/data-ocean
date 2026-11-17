@@ -12,12 +12,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 公共契约的严格影响核对输入，预览本身不写入业务事实。
+ * 历史角色恢复的预览输入，正式提交复用同一份历史选择、原因和并发依据。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class RecoveryPreviewDTO {
+public class RecoveryPreviewDTO {
 
     /**
      * 提交者核对时的聚合版本，服务端以当前版本检查并发变化。

@@ -167,15 +167,23 @@ public class AuditServiceImpl implements AuditService {
      * 从真实记录及主体快照组装可披露的审计列表行。
      */
     private AuditRowVO row(AuditPO data) {
-        return new AuditRowVO(
-                Ids.text(data.getId()),
-                json.read(data.getActorSnapshot(), AuditActorVO.class),
-                data.getActionCode(),
-                data.getTargetType(),
-                data.getTargetId(),
-                data.getTargetName(),
-                data.getOutcome(),
-                Times.instant(data.getOccurredAt()));
+        AuditRowVO result = new AuditRowVO();
+        fillRow(result, data);
+        return result;
+    }
+
+    /**
+     * 统一填充列表及详情共用的历史快照字段，不向列表附加业务详情。
+     */
+    private void fillRow(AuditRowVO result, AuditPO data) {
+        result.setId(Ids.text(data.getId()));
+        result.setActor(json.read(data.getActorSnapshot(), AuditActorVO.class));
+        result.setActionCode(data.getActionCode());
+        result.setTargetType(data.getTargetType());
+        result.setTargetId(data.getTargetId());
+        result.setTargetName(data.getTargetName());
+        result.setOutcome(data.getOutcome());
+        result.setOccurredAt(Times.instant(data.getOccurredAt()));
     }
 
     /**
@@ -189,21 +197,16 @@ public class AuditServiceImpl implements AuditService {
         var summary = data.getAfterSummary() == null
                 ? new AuditSummaryVO(List.of(), List.of())
                 : json.read(data.getAfterSummary(), AuditSummaryVO.class);
-        return new AuditDetailVO(
-                Ids.text(data.getId()),
-                json.read(data.getActorSnapshot(), AuditActorVO.class),
-                data.getActionCode(),
-                data.getTargetType(),
-                data.getTargetId(),
-                data.getTargetName(),
-                data.getOutcome(),
-                Times.instant(data.getOccurredAt()),
-                data.getReason(),
-                summary.getChanges(),
-                Ids.text(data.getSecurityVersion()),
-                data.getCommandId(),
-                data.getBusinessRequestId(),
-                summary.getRoleSnapshots());
+        // 详情在同一份审计概览字段上补充业务明细。
+        AuditDetailVO result = new AuditDetailVO();
+        fillRow(result, data);
+        result.setReason(data.getReason());
+        result.setChanges(summary.getChanges());
+        result.setSecurityVersion(Ids.text(data.getSecurityVersion()));
+        result.setCommandId(data.getCommandId());
+        result.setBusinessRequestId(data.getBusinessRequestId());
+        result.setRoleSnapshots(summary.getRoleSnapshots());
+        return result;
     }
 
     /**

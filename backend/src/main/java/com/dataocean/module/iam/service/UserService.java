@@ -1,9 +1,10 @@
 package com.dataocean.module.iam.service;
 
 import com.dataocean.common.PageVO;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateUserDTO;
-import com.dataocean.module.iam.entity.dto.CreateUserPreviewDTO;
 import com.dataocean.module.iam.entity.dto.EnableUserDTO;
+import com.dataocean.module.iam.entity.dto.NewUserProfileDTO;
 import com.dataocean.module.iam.entity.dto.ResetPasswordDTO;
 import com.dataocean.module.iam.entity.dto.RoleAssignmentDTO;
 import com.dataocean.module.iam.entity.dto.TransferUserDTO;
@@ -44,7 +45,7 @@ public interface UserService {
     /**
      * 校验创建提案并生成绑定操作者和完整内容的核对凭据。
      */
-    ImpactPreviewVO previewCreate(CreateUserPreviewDTO data);
+    ImpactPreviewVO previewCreate(CreatePreviewDTO<NewUserProfileDTO> data);
 
     /**
      * 在核对当前提案后原子建立人员、凭据、组织及获准角色。

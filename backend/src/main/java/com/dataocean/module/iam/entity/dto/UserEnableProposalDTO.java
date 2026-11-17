@@ -15,12 +15,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 人员资料的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 人员启用的预览与正式提交共用的非秘密资料，包含归属、角色和访问复核结论。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UserEnableProposalDTO {
+public class UserEnableProposalDTO implements UserProposalDTO {
 
     /**
      * 本次完整提交的主部门及兼任选择。

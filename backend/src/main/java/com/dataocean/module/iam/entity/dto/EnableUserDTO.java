@@ -1,28 +1,22 @@
 package com.dataocean.module.iam.entity.dto;
 
-import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
-
-import java.util.List;
-
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-import org.hibernate.validator.constraints.CodePointLength;
-
-import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 
 /**
- * 人员资料的明确传输结构，字段职责及校验与接口契约一致。
+ * 启用人员的正式输入，复用归属、角色与访问复核提案并补充提交控制字段。
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
-@AllArgsConstructor
-public final class EnableUserDTO {
+@ToString(callSuper = true)
+public final class EnableUserDTO extends UserEnableProposalDTO {
 
     /**
      * 提交者核对时的聚合版本，服务端以当前版本检查并发变化。
@@ -30,32 +24,6 @@ public final class EnableUserDTO {
     @NotNull
     @Min(1)
     private Integer expectedVersion;
-
-    /**
-     * 本次完整提交的主部门及兼任选择。
-     */
-    @NotNull
-    @Valid
-    private MembershipSelectionDTO membership;
-
-    /**
-     * 当前角色、使用与授予集合及分配历史的访问依赖。
-     */
-    @NotNull
-    private List<@Valid RoleVersionRefVO> roles;
-
-    /**
-     * 恢复账号前是否明确完成来源和保留配置复核。
-     */
-    @NotNull
-    private Boolean reviewedAccess;
-
-    /**
-     * 本次管理动作的必填原因，不写入秘密凭据。
-     */
-    @NotBlank
-    @CodePointLength(max = 500)
-    private String reason;
 
     /**
      * 绑定操作者、完整提案、当前版本和到期时间的签名凭据。

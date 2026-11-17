@@ -1,17 +1,18 @@
 package com.dataocean.module.iam.service;
 
 import com.dataocean.common.PageVO;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateRoleDTO;
-import com.dataocean.module.iam.entity.dto.CreateRolePreviewDTO;
 import com.dataocean.module.iam.entity.dto.ProtectedRoleAssignmentDTO;
 import com.dataocean.module.iam.entity.dto.RecoverUserDTO;
 import com.dataocean.module.iam.entity.dto.RecoveryPreviewDTO;
 import com.dataocean.module.iam.entity.dto.RoleImpactPreviewDTO;
+import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
 import com.dataocean.module.iam.entity.dto.UpdateGrantLimitDTO;
 import com.dataocean.module.iam.entity.dto.UpdateProtectedRoleDTO;
 import com.dataocean.module.iam.entity.dto.UpdateRoleDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
-import com.dataocean.module.iam.entity.query.RoleMemberQuery;
+import com.dataocean.module.iam.entity.query.PersonQuery;
 import com.dataocean.module.iam.entity.query.RoleQuery;
 import com.dataocean.module.iam.entity.vo.GrantLimitVO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
@@ -39,12 +40,12 @@ public interface RoleService {
     /**
      * 分页读取当前成员，包含保留分配的停用人员。
      */
-    PageVO<UserRowVO> members(String id, RoleMemberQuery query);
+    PageVO<UserRowVO> members(String id, PersonQuery query);
 
     /**
      * 核对新增角色的完整功能提案。
      */
-    ImpactPreviewVO previewCreate(CreateRolePreviewDTO data);
+    ImpactPreviewVO previewCreate(CreatePreviewDTO<RoleProfileDTO> data);
 
     /**
      * 创建普通角色并保存首版角色快照。

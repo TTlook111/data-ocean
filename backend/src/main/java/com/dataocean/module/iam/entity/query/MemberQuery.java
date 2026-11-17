@@ -1,7 +1,5 @@
 package com.dataocean.module.iam.entity.query;
 
-import java.util.Map;
-
 import jakarta.validation.constraints.NotNull;
 
 import lombok.Data;
@@ -19,12 +17,4 @@ public class MemberQuery extends PersonQuery {
      */
     @NotNull
     private Boolean includeDescendants = true;
-
-    /**
-     * 定义外部排序字段到内部数据库列的白名单，不透传外部 SQL 片段。
-     */
-    @Override
-    protected Map<String, String> sortColumns() {
-        return Map.of("updatedAt", "u.updated_at", "username", "u.username", "displayName", "u.display_name");
-    }
 }

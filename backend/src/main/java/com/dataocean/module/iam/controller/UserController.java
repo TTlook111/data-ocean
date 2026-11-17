@@ -2,9 +2,10 @@ package com.dataocean.module.iam.controller;
 
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateUserDTO;
-import com.dataocean.module.iam.entity.dto.CreateUserPreviewDTO;
 import com.dataocean.module.iam.entity.dto.EnableUserDTO;
+import com.dataocean.module.iam.entity.dto.NewUserProfileDTO;
 import com.dataocean.module.iam.entity.dto.ResetPasswordDTO;
 import com.dataocean.module.iam.entity.dto.RoleAssignmentDTO;
 import com.dataocean.module.iam.entity.dto.TransferUserDTO;
@@ -67,7 +68,7 @@ public class UserController {
      * 核对创建人员的非秘密资料。
      */
     @PostMapping("/impact-preview")
-    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreateUserPreviewDTO data) {
+    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreatePreviewDTO<NewUserProfileDTO> data) {
         return Result.success(service.previewCreate(data));
     }
 

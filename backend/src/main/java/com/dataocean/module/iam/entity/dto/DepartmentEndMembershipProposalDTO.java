@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class DepartmentEndMembershipProposalDTO {
+public final class DepartmentEndMembershipProposalDTO implements DepartmentProposalDTO {
 
     /**
      * 指定的当前成员关系标识，须与路径部门和目标人员匹配。

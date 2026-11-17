@@ -10,12 +10,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 部门与成员的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 部门启用的预览与正式提交共用的成员复核结论和操作原因。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class DepartmentEnableProposalDTO {
+public class DepartmentEnableProposalDTO implements DepartmentProposalDTO {
 
     /**
      * 恢复部门前是否明确完成成员和保留配置复核。

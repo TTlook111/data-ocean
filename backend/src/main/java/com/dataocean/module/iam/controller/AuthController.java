@@ -7,7 +7,6 @@ import com.dataocean.module.iam.entity.dto.LoginDTO;
 import com.dataocean.module.iam.entity.vo.CsrfVO;
 import com.dataocean.module.iam.entity.vo.CurrentSessionVO;
 import com.dataocean.module.iam.entity.vo.LoginVO;
-import com.dataocean.module.iam.entity.vo.LogoutVO;
 import com.dataocean.module.iam.entity.vo.PasswordChangedVO;
 import com.dataocean.module.iam.security.CurrentIdentityFilter;
 import com.dataocean.module.iam.service.AuthService;
@@ -107,9 +106,9 @@ public class AuthController {
      * 注销当前会话，已退出的调用保持幂等。
      */
     @PostMapping("/logout")
-    public Result<LogoutVO> logout(HttpServletRequest request, HttpServletResponse response) {
+    public Result<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         endSession(request, response);
-        return Result.success(new LogoutVO(true));
+        return Result.success(null);
     }
 
     /**

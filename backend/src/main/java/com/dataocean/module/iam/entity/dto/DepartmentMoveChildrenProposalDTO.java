@@ -15,12 +15,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 部门与成员的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 直属子部门迁移的预览与正式提交共用的目标、完整子部门集合和操作原因。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class DepartmentMoveChildrenProposalDTO {
+public class DepartmentMoveChildrenProposalDTO implements DepartmentProposalDTO {
 
     /**
      * 批量迁移的目标对象及预览时版本。

@@ -1,44 +1,22 @@
 package com.dataocean.module.iam.entity.dto;
 
-import java.util.List;
-
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
 import org.hibernate.validator.constraints.CodePointLength;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 /**
- * 角色与授予的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 受保护权限调整的预览与正式提交共用完整角色资料和操作原因。
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
-@AllArgsConstructor
-public final class RoleProtectedPermissionsProposalDTO {
-
-    /**
-     * 当前业务对象的显示名称，身份仍使用稳定标识。
-     */
-    @NotBlank
-    @CodePointLength(max = 80)
-    private String name;
-
-    /**
-     * 当前对象面向业务人员的职责说明。
-     */
-    @CodePointLength(max = 300)
-    private String description;
-
-    /**
-     * 完整最终功能使用集合，与可授予集合分别核对。
-     */
-    @NotNull
-    @Size(min = 1)
-    private List<@NotBlank String> permissionCodes;
+@ToString(callSuper = true)
+public class RoleProtectedPermissionsProposalDTO extends RoleProfileDTO {
 
     /**
      * 本次管理动作的必填原因，不写入秘密凭据。

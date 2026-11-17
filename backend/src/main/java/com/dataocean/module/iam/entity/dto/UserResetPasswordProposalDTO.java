@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UserResetPasswordProposalDTO {
+public final class UserResetPasswordProposalDTO implements UserProposalDTO {
 
     /**
      * 预览重置密码的明确动作标记，不包含新密码。

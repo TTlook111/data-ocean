@@ -5,8 +5,9 @@ import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.entity.dto.AddSecondaryMembersDTO;
 import com.dataocean.module.iam.entity.dto.CreateDepartmentDTO;
-import com.dataocean.module.iam.entity.dto.CreateDepartmentPreviewDTO;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.DepartmentImpactPreviewDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentProfileDTO;
 import com.dataocean.module.iam.entity.dto.EnableDepartmentDTO;
 import com.dataocean.module.iam.entity.dto.EndMembershipDTO;
 import com.dataocean.module.iam.entity.dto.MoveChildDepartmentsDTO;
@@ -91,7 +92,7 @@ public class DepartmentController {
      * 核对新增部门的完整配置。
      */
     @PostMapping("/impact-preview")
-    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreateDepartmentPreviewDTO data) {
+    public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreatePreviewDTO<DepartmentProfileDTO> data) {
         return Result.success(service.previewCreate(data));
     }
 

@@ -4,8 +4,9 @@ import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.module.iam.entity.dto.AddSecondaryMembersDTO;
 import com.dataocean.module.iam.entity.dto.CreateDepartmentDTO;
-import com.dataocean.module.iam.entity.dto.CreateDepartmentPreviewDTO;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.DepartmentImpactPreviewDTO;
+import com.dataocean.module.iam.entity.dto.DepartmentProfileDTO;
 import com.dataocean.module.iam.entity.dto.EnableDepartmentDTO;
 import com.dataocean.module.iam.entity.dto.EndMembershipDTO;
 import com.dataocean.module.iam.entity.dto.MoveChildDepartmentsDTO;
@@ -50,7 +51,7 @@ public interface DepartmentService {
     /**
      * 核对新增部门的父节点、负责人和编号。
      */
-    ImpactPreviewVO previewCreate(CreateDepartmentPreviewDTO data);
+    ImpactPreviewVO previewCreate(CreatePreviewDTO<DepartmentProfileDTO> data);
 
     /**
      * 创建根部门或子部门并写入成功审计。

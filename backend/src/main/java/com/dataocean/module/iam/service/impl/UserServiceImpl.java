@@ -10,8 +10,8 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
+import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.dto.CreateUserDTO;
-import com.dataocean.module.iam.entity.dto.CreateUserPreviewDTO;
 import com.dataocean.module.iam.entity.dto.EnableUserDTO;
 import com.dataocean.module.iam.entity.dto.MembershipSelectionDTO;
 import com.dataocean.module.iam.entity.dto.NewUserProfileDTO;
@@ -20,14 +20,12 @@ import com.dataocean.module.iam.entity.dto.RoleAssignmentDTO;
 import com.dataocean.module.iam.entity.dto.TransferUserDTO;
 import com.dataocean.module.iam.entity.dto.UpdateContactDTO;
 import com.dataocean.module.iam.entity.dto.UpdateUserDTO;
-import com.dataocean.module.iam.entity.dto.UserArchivePreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserDisablePreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserEnablePreviewDTO;
+import com.dataocean.module.iam.entity.dto.UserEnableProposalDTO;
 import com.dataocean.module.iam.entity.dto.UserImpactPreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserProtectedRolesPreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserResetPasswordPreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserTransferPreviewDTO;
-import com.dataocean.module.iam.entity.dto.UserUpdatePreviewDTO;
+import com.dataocean.module.iam.entity.dto.UserProfileDTO;
+import com.dataocean.module.iam.entity.dto.UserProposalDTO;
+import com.dataocean.module.iam.entity.dto.UserProtectedRolesProposalDTO;
+import com.dataocean.module.iam.entity.dto.UserTransferProposalDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.DepartmentOptionQuery;
@@ -182,7 +180,7 @@ public class UserServiceImpl implements UserService {
      * 校验创建提案并生成绑定操作者和完整内容的核对凭据。
      */
     @Transactional(readOnly = true)
-    public ImpactPreviewVO previewCreate(CreateUserPreviewDTO data) {
+    public ImpactPreviewVO previewCreate(CreatePreviewDTO<NewUserProfileDTO> data) {
         guard.shared();
         permissions.require("users.create");
         validateCreation(data.getProposal());
@@ -289,12 +287,15 @@ public class UserServiceImpl implements UserService {
         permissions.require(operation);
         long id = Ids.parse(textId);
         UserPO user = checked(id, data.getExpectedVersion());
-        Object proposal;
+
+        // 请求绑定时已按动作选定具体提案，后续核对始终使用同一份内容。
+        UserProposalDTO proposal = data.getProposal();
+
         List<ChangeVO> changes = new ArrayList<>();
         switch (data.getAction()) {
             case "UPDATE" -> {
-                var p = ((UserUpdatePreviewDTO) data).getProposal();
-                proposal = p;
+                // 修改预览核对完整资料与归属，不接收登录名和角色调整字段。
+                var p = (UserProfileDTO) proposal;
                 validateMembershipEdit(id, p.getMembership());
                 changes.add(change(
                         "displayName",
@@ -309,8 +310,8 @@ public class UserServiceImpl implements UserService {
                                 .getName()));
             }
             case "TRANSFER" -> {
-                var p = ((UserTransferPreviewDTO) data).getProposal();
-                proposal = p;
+                // 归属调整独立检查目标主部门与兼任关系。
+                var p = (UserTransferProposalDTO) proposal;
                 assignments.validateMembership(id, p.getMembership(), false);
                 changes.add(change(
                         "department",
@@ -325,11 +326,12 @@ public class UserServiceImpl implements UserService {
                         departmentNames(p.getMembership().getSecondaryDepartmentIds())));
             }
             case "ENABLE" -> {
-                var p = ((UserEnablePreviewDTO) data).getProposal();
-                proposal = p;
+                // 恢复人员须复核当前归属和角色，不能直接复活旧访问。
+                var p = (UserEnableProposalDTO) proposal;
                 requireState(user, "DISABLED");
                 requireProtectedTarget(user);
                 if (!Boolean.TRUE.equals(p.getReviewedAccess())) {
+                    // 恢复前必须明确确认来源和保留配置已经复核。
                     throw BizIllegalException.invalid("请完成恢复前复核");
                 }
                 assignments.validateMembership(id, p.getMembership(), true);
@@ -338,15 +340,16 @@ public class UserServiceImpl implements UserService {
                 changes.add(change("roles", "复核角色", roleNamesFromUser(user), roleNames(p.getRoles())));
             }
             case "DISABLE" -> {
-                proposal = ((UserDisablePreviewDTO) data).getProposal();
+                // 停用继续检查账号状态及受保护目标资格。
                 if (user.getLifecycle().equals("DISABLED")) {
+                    // 重复停用没有新的状态变化，按当前业务状态拒绝。
                     throw BizIllegalException.state("账号已停用");
                 }
                 requireProtectedTarget(user);
                 changes.add(change("lifecycle", "账号状态", views.status(user), "停用并停止访问"));
             }
             case "ARCHIVE" -> {
-                proposal = ((UserArchivePreviewDTO) data).getProposal();
+                // 归档前检查停用状态和外部关联，并明确结束当前分配。
                 requireState(user, "DISABLED");
                 requireProtectedTarget(user);
                 checkArchive(id);
@@ -358,13 +361,13 @@ public class UserServiceImpl implements UserService {
                         "结束当前关系，保留归档快照"));
             }
             case "RESET_PASSWORD" -> {
-                proposal = ((UserResetPasswordPreviewDTO) data).getProposal();
+                // 重置预览只核对非秘密提案，实际初始密码留在正式提交中。
                 requireProtectedTarget(user);
                 changes.add(change("credential", "登录密码", "不回显", "设置新初始密码，下次登录先改密"));
             }
             case "PROTECTED_ROLES" -> {
-                var p = ((UserProtectedRolesPreviewDTO) data).getProposal();
-                proposal = p;
+                // 受保护角色分配继续同时核对人员分配及受保护能力。
+                var p = (UserProtectedRolesProposalDTO) proposal;
                 permissions.require("users.assign");
                 assignments.validateRoles(id, p.getRoles(), "users.assign", true);
                 changes.add(change("roles", "受保护角色分配", roleNamesFromUser(user), roleNames(p.getRoles())));

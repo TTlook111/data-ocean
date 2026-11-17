@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class RoleProfileDTO {
+public class RoleProfileDTO implements RoleProposalDTO {
 
     /**
      * 当前业务对象的显示名称，身份仍使用稳定标识。

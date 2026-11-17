@@ -12,12 +12,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 人员资料的完整非秘密提案，提交时须重新核对版本和实际资格。
+ * 新增、修改及影响预览共用的非秘密人员资料，不含登录名、角色和提交凭据。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public final class UserUpdateProposalDTO {
+public class UserProfileDTO implements UserProposalDTO {
 
     /**
      * 人员当前显示姓名，不作为登录或授权依据。
