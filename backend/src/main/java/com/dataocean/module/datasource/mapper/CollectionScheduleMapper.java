@@ -7,6 +7,7 @@ import com.dataocean.module.datasource.entity.po.CollectionSchedulePO;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -14,6 +15,16 @@ import org.apache.ibatis.annotations.Select;
  * 更新各数据源的计划游标。
  */
 public interface CollectionScheduleMapper extends BaseMapper<CollectionSchedulePO> {
+
+    /**
+     * 首次发布后使用来源的成功时间建立计划，后续发布保留已有游标。
+     */
+    @Insert(
+            """
+            INSERT IGNORE INTO ds_collection_schedule (source_id,revision,anchor_at,last_admitted_cycle_no,updated_at)
+            SELECT id,1,first_success_at,0,UTC_TIMESTAMP(3) FROM ds_source WHERE id=#{source}
+            """)
+    int initialize(@Param("source") long source);
 
     /**
      * 按数据库时钟读取到期的已启用数据源。

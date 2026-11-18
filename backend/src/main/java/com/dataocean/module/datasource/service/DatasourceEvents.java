@@ -94,7 +94,7 @@ public class DatasourceEvents {
         event.setAggregateVersion(version);
         event.setCommandId(command);
         event.setPayload(json.write(payload));
-        outbox.insert(event);
+        outbox.append(event);
     }
 
     /**

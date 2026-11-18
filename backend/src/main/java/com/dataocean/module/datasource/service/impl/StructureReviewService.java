@@ -39,6 +39,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import tools.jackson.databind.JsonNode;
@@ -110,7 +111,7 @@ public class StructureReviewService {
     /**
      * 浏览当前源的实际变化记录。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<StructureChangeVO> list(long source, StructureChangeQuery query) {
         permissions.require("collections.view");
         sources.source(source, false);
@@ -135,9 +136,9 @@ public class StructureReviewService {
         String stage = Objects.toString(query.getStage(), "");
         Long object = Ids.nullable(query.getObjectId());
 
-        // 计数和取数共用筛选条件，保持数据变化后的末页行为。
-        long total = pages.changeCount(source, word, type, stage, from, until, object, query.getTaskId());
-        var page = query.<ChangeProjection>toLastAvailableMpPage(total);
+        // 分页插件用专用计数语句复用变化列表的关联和条件。
+        var page = query.<ChangeProjection>toFixedOrderMpPage();
+        page.setCountId("changeCount");
         return PageVO.from(
                 pages.changePage(page, source, word, type, stage, from, until, object, query.getTaskId()),
                 this::viewOf);

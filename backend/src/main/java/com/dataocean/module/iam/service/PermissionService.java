@@ -3,6 +3,7 @@ package com.dataocean.module.iam.service;
 import com.dataocean.module.iam.entity.vo.PermissionPageVO;
 import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -50,6 +51,11 @@ public interface PermissionService {
      * 检查角色完整使用及授予集合是否包含受保护能力。
      */
     boolean protectedRole(long roleId);
+
+    /**
+     * 按相同的使用和授予规则批量识别指定角色中的受保护角色。
+     */
+    Set<Long> protectedRoles(Collection<Long> roleIds);
 
     /**
      * 核验目录项有效性、受保护边界及动作所属页面的完整选择。

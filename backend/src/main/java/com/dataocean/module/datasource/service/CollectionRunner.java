@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.service;
 
+import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.infrastructure.SecretKeyProvider;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
@@ -199,7 +200,10 @@ public class CollectionRunner {
                 return null;
             }
             RevisionRow revision = sources.revision(source.getId(), current.getConfigRevisionId());
-            tasks.claim(current, owner, revision.limits().getTaskTimeoutSeconds());
+            if (!tasks.claim(current, owner, revision.limits().getTaskTimeoutSeconds())) {
+                // 没有获得租约时不启动源库操作。
+                return null;
+            }
             return tasks.task(id, false);
         });
         if (task == null) {
@@ -290,7 +294,10 @@ public class CollectionRunner {
                 // 候选计数只在完整枚举后对外成为已知值。
                 sources.lock(task.getSourceId());
                 pulse(task, "READING");
-                tasks.enumerated(task, discovered.size());
+                if (!tasks.enumerated(task, discovered.size())) {
+                    // 工作代次已经变化，由现任工作者继续推进。
+                    throw new WorkEnded();
+                }
             });
 
             long snapshot = tasks.snapshot(task.getId()).getId();
@@ -347,7 +354,10 @@ public class CollectionRunner {
                     structure,
                     code,
                     message);
-            tasks.attempted(task, structure != null);
+            if (!tasks.attempted(task, structure != null)) {
+                // 同一事务回滚当前工作代次已失效的候选写入。
+                throw new WorkEnded();
+            }
         });
     }
 
@@ -515,7 +525,10 @@ public class CollectionRunner {
      * 写入已结束且未发布目录的真实结果。
      */
     public void terminal(CollectionTaskPO task, String state, String code, String message) {
-        tasks.finishWithoutCatalog(task, state, code, message);
+        if (!tasks.finishWithoutCatalog(task, state, code, message)) {
+            // 终态更新失败时由调用事务回滚，不记录成功的终态审计。
+            throw BizIllegalException.conflict();
+        }
         record(task, state);
     }
 

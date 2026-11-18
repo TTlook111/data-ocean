@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.service;
 
+import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.infrastructure.SecretKeyProvider;
 import com.dataocean.module.datasource.entity.po.CollectionTaskPO;
@@ -219,7 +220,10 @@ public class CatalogPublication {
                 : source.getCurrentSnapshotId() == null ? "INITIAL_BASELINE" : "NEW_SCOPE_BASELINE";
         int catalogVersion = catalog.publish(
                 source.getId(), candidate, source.getCurrentSnapshotId(), comparison, analysis, changes);
-        tasks.finishSuccess(task);
+        if (!tasks.finishSuccess(task)) {
+            // 任务状态没有同步提交时回滚目录切换和候选发布。
+            throw BizIllegalException.conflict();
+        }
         events.catalog(source.getId(), candidate, catalogVersion);
     }
 

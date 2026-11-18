@@ -42,10 +42,4 @@ public interface GuardMapper extends BaseMapper<GuardPO> {
                 .set(GuardPO::isBootstrapCompleted, true)
                 .setSql("updated_at=UTC_TIMESTAMP(3)"));
     }
-
-    /**
-     * 在同一数据库连接中取得本次插入的稳定标识。
-     */
-    @Select("SELECT LAST_INSERT_ID()")
-    long lastId();
 }

@@ -57,6 +57,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
@@ -73,7 +74,7 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 子部门页签使用服务端分页，列表人数和负责人来自当前事实。
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<DepartmentDetailVO> children(String textId, PageQuery query) {
         guard.shared();
         permissions.require("departments.view");
@@ -81,7 +82,7 @@ public class DepartmentServiceImpl implements DepartmentService {
         views.department(id);
         Page<DepartmentPO> page = query.toMpPage("sort_order", true);
         page.addOrder(OrderItem.asc("id"));
-        return PageVO.from(departments.children(page, id), views::departmentDetail);
+        return views.departmentDetails(departments.children(page, id));
     }
 
     /**
@@ -155,14 +156,14 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 使用 EXISTS 范围过滤，在 SQL 分页前完成跨部门人员去重。
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<DepartmentMemberVO> members(String id, MemberQuery query) {
         guard.shared();
         permissions.require("departments.view");
         var branch = views.branch(Ids.parse(id), query.getIncludeDescendants());
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
         page.addOrder(OrderItem.desc("u.id"));
-        return PageVO.from(users.page(page, query, branch, null), person -> views.departmentMember(person, branch));
+        return views.departmentMembers(users.page(page, query, branch, null), branch);
     }
 
     /**
@@ -196,12 +197,11 @@ public class DepartmentServiceImpl implements DepartmentService {
             reviews.verify("CREATE", null, null, data, data.getReviewToken());
             profile.setName(profile.getName().trim());
             profile.setCode(profile.getCode().trim());
-            departments.insert(
+            long id = departments.create(
                     profile,
                     Ids.nullable(profile.getParentId()),
                     Ids.nullable(profile.getManagerUserId()),
                     UserContext.getUser());
-            long id = guard.lastId();
             if (profile.getParentId() != null) {
                 // 在核对当前提案后原子建立人员、凭据、组织及获准角色。
                 departments.touch(Ids.parse(profile.getParentId()));
@@ -371,7 +371,7 @@ public class DepartmentServiceImpl implements DepartmentService {
                     var membership = validateEnd(id, membershipId, data.getUserExpectedVersion());
                     reviews.verify(
                             "END_MEMBERSHIP", textId, data.getExpectedVersion(), proposal, data.getReviewToken());
-                    memberships.end(membership.getId(), UserContext.getUser());
+                    closeMembership(membership.getId());
                     users.touch(membership.getUserId());
                     departments.touch(id);
                     audit(
@@ -408,12 +408,12 @@ public class DepartmentServiceImpl implements DepartmentService {
                                 .filter(row -> row.getDepartmentId() == destination)
                                 .findFirst()
                                 .orElse(null);
-                        memberships.end(relation.getId(), UserContext.getUser());
+                        closeMembership(relation.getId());
                         if (existing == null) {
                             memberships.add(
                                     relation.getUserId(), destination, relation.isPrimary(), UserContext.getUser());
                         } else if (relation.isPrimary() && !existing.isPrimary()) {
-                            memberships.end(existing.getId(), UserContext.getUser());
+                            closeMembership(existing.getId());
                             memberships.add(relation.getUserId(), destination, true, UserContext.getUser());
                         }
                         users.touch(relation.getUserId());
@@ -578,8 +578,9 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 限定关系所属部门、人员版本及兼任性质。
      */
     private MembershipPO validateEnd(long id, String reference, int userVersion) {
-        var membership = memberships.find(Ids.parse(reference));
-        if (membership == null || membership.getDepartmentId() != id) {
+        var membership = memberships.findInDepartment(id, Ids.parse(reference));
+        if (membership == null) {
+            // 范围外或已经结束的关系统一按不可访问处理。
             throw BizIllegalException.missing();
         }
         if (membership.isPrimary()) {
@@ -716,6 +717,16 @@ public class DepartmentServiceImpl implements DepartmentService {
                 && Objects.equals(before.getManagerUserId(), Ids.nullable(after.getManagerUserId()))
                 && Objects.equals(before.getNote(), after.getNote())
                 && before.getSortOrder() == after.getSortOrder();
+    }
+
+    /**
+     * 只结束仍有效的成员关系，缺少实际变更时由业务事务回滚。
+     */
+    private void closeMembership(long id) {
+        if (memberships.end(id, UserContext.getUser()) != 1) {
+            // 避免关系已变化时继续递增版本或记录成功审计。
+            throw BizIllegalException.conflict();
+        }
     }
 
     /**

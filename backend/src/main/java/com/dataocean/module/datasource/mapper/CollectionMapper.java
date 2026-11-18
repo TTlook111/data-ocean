@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.mapper;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.PageQuery;
@@ -12,7 +13,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import lombok.RequiredArgsConstructor;
@@ -23,11 +23,6 @@ import lombok.RequiredArgsConstructor;
 @Repository
 @RequiredArgsConstructor
 public class CollectionMapper {
-
-    /**
-     * 平台库连接，源库 JDBC 连接由适配器单独创建。
-     */
-    private final JdbcTemplate sql;
 
     /**
      * 采集任务的单表读取和锁定。
@@ -73,43 +68,31 @@ public class CollectionMapper {
             LocalDateTime due,
             String timeZone,
             byte[] contract) {
+        // 任务和候选快照使用接收时固定的配置与范围。
         boolean scheduled = actor == null;
-        String mode = scheduled ? "SCHEDULED" : parent == null ? "MANUAL" : "RETRY";
-        sql.update(
-                """
-                INSERT INTO ds_collection_task (id,start_command_id,task_no,source_id,config_revision_id,
-                    credential_revision_id,parent_task_id,trigger_kind,actor_kind,actor_id,actor_ref,
-                    schedule_revision,schedule_cycle_no,scheduled_for,schedule_time_zone,state,
-                    execution_state,stream_epoch,created_at,queue_deadline_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED','NOT_STARTED',UUID(),UTC_TIMESTAMP(3),
-                    UTC_TIMESTAMP(3)+INTERVAL 5 MINUTE)
-                """,
-                id,
-                command,
-                "CJ-" + id,
-                source,
-                revision.id(),
-                revision.credentialId(),
-                parent,
-                mode,
-                scheduled ? "SYSTEM" : "USER",
-                actor,
-                actorRef,
-                scheduleRevision,
-                cycle,
-                due,
-                timeZone);
-        sql.update(
-                """
-                INSERT INTO ds_snapshot (source_id,config_revision_id,task_id,scope_key,comparison_contract_key,
-                   adapter_version,comparison_version,status)
-                VALUES (?,?,?,?,?,'1','1','CANDIDATE')
-                """,
-                source,
-                revision.id(),
-                id,
-                revision.scopeKey(),
-                contract);
+        var task = new CollectionTaskPO();
+        task.setId(id);
+        task.setStartCommandId(command);
+        task.setTaskNo("CJ-" + id);
+        task.setSourceId(source);
+        task.setConfigRevisionId(revision.id());
+        task.setParentTaskId(parent);
+        task.setTriggerKind(scheduled ? "SCHEDULED" : parent == null ? "MANUAL" : "RETRY");
+        task.setActorId(actor);
+        task.setActorRef(actorRef);
+        taskRecords.accept(
+                task, revision.credentialId(), scheduled ? "SYSTEM" : "USER", scheduleRevision, cycle, due, timeZone);
+
+        var snapshot = new CollectionSnapshotPO();
+        snapshot.setSourceId(source);
+        snapshot.setConfigRevisionId(revision.id());
+        snapshot.setTaskId(id);
+        snapshot.setScopeKey(revision.scopeKey());
+        snapshot.setComparisonContractKey(contract);
+        snapshot.setAdapterVersion("1");
+        snapshot.setComparisonVersion("1");
+        snapshot.setStatus("CANDIDATE");
+        snapshots.insert(snapshot);
         sources.holdTask(source, id);
     }
 
@@ -149,10 +132,8 @@ public class CollectionMapper {
                 .ge(from != null, CollectionTaskPO::getStartedAt, from)
                 .lt(until != null, CollectionTaskPO::getStartedAt, until);
 
-        long total = taskRecords.selectCount(filters);
-        var page = paging.<CollectionTaskPO>toLastAvailableMpPage(total);
-        return taskRecords.selectPage(
-                page, filters.orderByDesc(CollectionTaskPO::getCreatedAt, CollectionTaskPO::getId));
+        var page = paging.<CollectionTaskPO>toFixedOrderMpPage(OrderItem.desc("created_at"), OrderItem.desc("id"));
+        return taskRecords.selectPage(page, filters);
     }
 
     /**
@@ -190,18 +171,18 @@ public class CollectionMapper {
     /**
      * 取得排队任务的租约，执行预算从真实开始计算。
      */
-    public void claim(CollectionTaskPO task, String owner, int timeout) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET state='RUNNING',execution_state='RUNNING',phase='CONNECTING',
-                    version=version+1,lease_owner=?,lease_until=UTC_TIMESTAMP(3)+INTERVAL 35 SECOND,
-                    started_at=UTC_TIMESTAMP(3),execution_deadline_at=TIMESTAMPADD(SECOND,?,UTC_TIMESTAMP(3))
-                WHERE id=? AND state='QUEUED'
-                """,
-                owner,
-                timeout,
-                task.getId());
-        sql.update("UPDATE ds_snapshot SET read_started_at=UTC_TIMESTAMP(3) WHERE task_id=?", task.getId());
+    public boolean claim(CollectionTaskPO task, String owner, int timeout) {
+        if (taskRecords.claim(task.getId(), owner, timeout) != 1) {
+            // 没有取得任务租约时也不开始快照读取。
+            return false;
+        }
+
+        if (snapshots.startRead(task.getId()) != 1) {
+            // 任务接收时必须建立唯一候选快照，缺失时回滚领取。
+            throw new IllegalStateException("采集任务缺少候选快照");
+        }
+
+        return true;
     }
 
     /**
@@ -215,17 +196,7 @@ public class CollectionMapper {
      * 在发出实际采集 SQL 前提交本次连接的可核实标识。
      */
     public void register(CollectionTaskPO task, String id, byte[] sourceKey, byte[] envelope) {
-        sql.update(
-                """
-                INSERT INTO ds_collection_execution (id,task_id,run_version,source_instance_key,adapter_version,
-                    locator_envelope,state,registered_at)
-                VALUES (?,?,?,?,'1',?,'REGISTERED',UTC_TIMESTAMP(3))
-                """,
-                id,
-                task.getId(),
-                task.getRunVersion(),
-                sourceKey,
-                envelope);
+        executions.register(id, task.getId(), task.getRunVersion(), sourceKey, envelope);
     }
 
     /**
@@ -257,46 +228,24 @@ public class CollectionMapper {
      * 在获得同实例观察证据后保存停止事实。
      */
     public void stopped(String execution) {
-        sql.update(
-                """
-                UPDATE ds_collection_execution SET state='STOPPED',last_verified_at=UTC_TIMESTAMP(3),
-                    stopped_at=UTC_TIMESTAMP(3),stop_proof_kind='SOURCE_SESSION_CLOSED' WHERE id=? AND state<>'STOPPED'
-                """,
-                execution);
+        executions.stopped(execution);
     }
 
     /**
      * 保留任务及占位，过一段时间再观察源执行是否已停止。
      */
     public void uncertain(CollectionTaskPO task, String code, String message) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET phase='VERIFYING_STOP',execution_state='UNKNOWN',version=version+1,
-                    stop_requested_at=COALESCE(stop_requested_at,UTC_TIMESTAMP(3)),stop_next_check_at=UTC_TIMESTAMP(3)+INTERVAL 3 SECOND,
-                    lease_until=UTC_TIMESTAMP(3)+INTERVAL 35 SECOND,failure_code=?,failure_message=? WHERE id=? AND state='RUNNING'
-                """,
-                code,
-                message,
-                task.getId());
-        sql.update(
-                """
-                UPDATE ds_collection_execution SET state='UNKNOWN',last_verified_at=UTC_TIMESTAMP(3)
-                WHERE task_id=? AND state<>'STOPPED'
-                """,
-                task.getId());
+        if (taskRecords.uncertain(task.getId(), code, message) == 1) {
+            // 仅任务进入待核实状态时更新对应执行证据。
+            executions.uncertain(task.getId());
+        }
     }
 
     /**
      * 废止到期的工作代次，后续只核实此前已登记的连接。
      */
     public void takeOver(CollectionTaskPO task) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET run_version=run_version+1,stream_epoch=UUID(),lease_owner=NULL
-                WHERE id=? AND run_version=? AND state='RUNNING'
-                """,
-                task.getId(),
-                task.getRunVersion());
+        taskRecords.takeOver(task.getId(), task.getRunVersion());
         uncertain(
                 task,
                 task.getFailureCode() == null ? "WORKER_INTERRUPTED" : task.getFailureCode(),
@@ -306,78 +255,57 @@ public class CollectionMapper {
     /**
      * 接收取消意图，运行中的任务仍保有源占位。
      */
-    public void requestCancel(String task, String reason) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET cancel_requested_at=UTC_TIMESTAMP(3),stop_requested_at=UTC_TIMESTAMP(3),
-                    cancel_reason=?,execution_state='STOP_REQUESTED',version=version+1
-                WHERE id=? AND state IN ('QUEUED','RUNNING') AND cancel_requested_at IS NULL
-                """,
-                reason,
-                task);
+    public boolean requestCancel(String task, String reason) {
+        return taskRecords.requestCancel(task, reason) == 1;
     }
 
     /**
      * 枚举完成后同步总数，工作代次变更后的旧执行器不能继续推进。
      */
-    public void enumerated(CollectionTaskPO task, int size) {
-        taskRecords.update(Wrappers.<CollectionTaskPO>lambdaUpdate()
-                .eq(CollectionTaskPO::getId, task.getId())
-                .eq(CollectionTaskPO::getRunVersion, task.getRunVersion())
-                .set(CollectionTaskPO::isEnumerationComplete, true)
-                .set(CollectionTaskPO::getDiscoveredCount, size)
-                .set(CollectionTaskPO::getTotalCount, size)
-                .set(CollectionTaskPO::getPhase, "READING")
-                .setIncrBy(CollectionTaskPO::getVersion, 1));
+    public boolean enumerated(CollectionTaskPO task, int size) {
+        return taskRecords.update(Wrappers.<CollectionTaskPO>lambdaUpdate()
+                        .eq(CollectionTaskPO::getId, task.getId())
+                        .eq(CollectionTaskPO::getRunVersion, task.getRunVersion())
+                        .set(CollectionTaskPO::isEnumerationComplete, true)
+                        .set(CollectionTaskPO::getDiscoveredCount, size)
+                        .set(CollectionTaskPO::getTotalCount, size)
+                        .set(CollectionTaskPO::getPhase, "READING")
+                        .setIncrBy(CollectionTaskPO::getVersion, 1))
+                == 1;
     }
 
     /**
      * 为所属工作代次按实际读取结果原子递增进度。
      */
-    public void attempted(CollectionTaskPO task, boolean complete) {
-        taskRecords.update(Wrappers.<CollectionTaskPO>lambdaUpdate()
-                .eq(CollectionTaskPO::getId, task.getId())
-                .eq(CollectionTaskPO::getRunVersion, task.getRunVersion())
-                .setIncrBy(complete, CollectionTaskPO::getCompleteCount, 1)
-                .setIncrBy(!complete, CollectionTaskPO::getFailedCount, 1)
-                .setIncrBy(CollectionTaskPO::getVersion, 1));
+    public boolean attempted(CollectionTaskPO task, boolean complete) {
+        return taskRecords.update(Wrappers.<CollectionTaskPO>lambdaUpdate()
+                        .eq(CollectionTaskPO::getId, task.getId())
+                        .eq(CollectionTaskPO::getRunVersion, task.getRunVersion())
+                        .setIncrBy(complete, CollectionTaskPO::getCompleteCount, 1)
+                        .setIncrBy(!complete, CollectionTaskPO::getFailedCount, 1)
+                        .setIncrBy(CollectionTaskPO::getVersion, 1))
+                == 1;
     }
 
     /**
      * 归档任务终态，只有已经开始读取的快照才记录读取结束时间。
      */
-    public void finishWithoutCatalog(CollectionTaskPO task, String terminal, String code, String message) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET state=?,execution_state='STOPPED',phase=NULL,version=version+1,
-                    ended_at=UTC_TIMESTAMP(3),stop_confirmed_at=UTC_TIMESTAMP(3),failure_code=?,failure_message=?,
-                    lease_until=NULL,lease_owner=NULL WHERE id=? AND state IN ('QUEUED','RUNNING')
-                """,
-                terminal,
-                code,
-                message,
-                task.getId());
-        sql.update(
-                """
-                UPDATE ds_snapshot SET status=?,read_ended_at=IF(read_started_at IS NULL,NULL,UTC_TIMESTAMP(3))
-                WHERE task_id=? AND status='CANDIDATE'
-                """,
-                terminal,
-                task.getId());
+    public boolean finishWithoutCatalog(CollectionTaskPO task, String terminal, String code, String message) {
+        if (taskRecords.finishWithoutCatalog(task.getId(), terminal, code, message) != 1) {
+            // 原任务未进入终态时保留其快照和来源占位。
+            return false;
+        }
+
+        snapshots.abandon(task.getId(), terminal);
         sources.releaseTask(task.getSourceId(), task.getId());
+        return true;
     }
 
     /**
      * 写入成功后的权威任务状态；快照和目录指针由同一事务提交。
      */
-    public void finishSuccess(CollectionTaskPO task) {
-        sql.update(
-                """
-                UPDATE ds_collection_task SET state='SUCCEEDED',execution_state='STOPPED',phase=NULL,version=version+1,
-                    ended_at=UTC_TIMESTAMP(3),stop_confirmed_at=UTC_TIMESTAMP(3),lease_until=NULL,lease_owner=NULL
-                WHERE id=? AND state='RUNNING'
-                """,
-                task.getId());
+    public boolean finishSuccess(CollectionTaskPO task) {
+        return taskRecords.finishSuccess(task.getId()) == 1;
     }
 
     /**
@@ -387,6 +315,19 @@ public class CollectionMapper {
         return Optional.ofNullable(snapshots.selectOne(
                         Wrappers.<CollectionSnapshotPO>lambdaQuery().eq(CollectionSnapshotPO::getTaskId, task)))
                 .orElseThrow();
+    }
+
+    /**
+     * 读取当前页成功任务各自的唯一快照。
+     */
+    public List<CollectionSnapshotPO> snapshotsForTasks(List<String> taskIds) {
+        if (taskIds.isEmpty()) {
+            // 当前页没有成功任务时无需查询快照。
+            return List.of();
+        }
+
+        return snapshots.selectList(
+                Wrappers.<CollectionSnapshotPO>lambdaQuery().in(CollectionSnapshotPO::getTaskId, taskIds));
     }
 
     /**

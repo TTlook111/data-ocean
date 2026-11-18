@@ -68,6 +68,7 @@ import java.util.Set;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
@@ -158,7 +159,7 @@ public class UserServiceImpl implements UserService {
     /**
      * 在当前权限和查询范围内过滤、统计并返回有效分页记录。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<UserRowVO> list(UserQuery query) {
         guard.shared();
         permissions.require("users.view");
@@ -167,7 +168,7 @@ public class UserServiceImpl implements UserService {
                 : views.branch(Ids.parse(query.getDepartmentId()), query.getIncludeDescendants());
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
         page.addOrder(OrderItem.desc("u.id"));
-        return PageVO.from(users.page(page, query, branch, null), views::userRow);
+        return views.userRows(users.page(page, query, branch, null));
     }
 
     /**
@@ -233,8 +234,7 @@ public class UserServiceImpl implements UserService {
             reviews.verify("CREATE", null, null, data, data.getReviewToken());
             profile.setUsername(profile.getUsername().trim());
             profile.setDisplayName(profile.getDisplayName().trim());
-            users.create(profile, UserContext.getUser());
-            long id = guard.lastId();
+            long id = users.create(profile, UserContext.getUser());
             credentials.create(id, encoder.encode(data.getInitialPassword()));
             assignments.applyMembership(id, data.getMembership());
             assignments.applyRoles(id, data.getRoles());
@@ -619,7 +619,7 @@ public class UserServiceImpl implements UserService {
      * 检查人员归档前必须先处理的外部当前关联。
      */
     private void checkArchive(long id) {
-        if (departments.managedBy(id) > 0) {
+        if (departments.hasManagedDepartment(id)) {
             throw new BizIllegalException(ErrorCode.REFERENCE_IN_USE, "该人员仍是部门负责人，请先处理关联");
         }
     }

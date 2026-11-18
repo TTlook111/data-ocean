@@ -1,6 +1,7 @@
 package com.dataocean.module.datasource.entity.po;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -19,7 +20,7 @@ public class CollectionSnapshotPO {
      * 目录快照编号。
      */
     @TableId(type = IdType.AUTO)
-    private long id;
+    private Long id;
 
     /**
      * 数据源归属。
@@ -30,6 +31,33 @@ public class CollectionSnapshotPO {
      * 固定配置编号。
      */
     private long configRevisionId;
+
+    /**
+     * 快照所属的已确认采集范围摘要。
+     */
+    @TableField(select = false)
+    private byte[] scopeKey;
+
+    /**
+     * 用于判断两个快照是否可比较的协议摘要。
+     */
+    @TableField(select = false)
+    private byte[] comparisonContractKey;
+
+    /**
+     * 接收任务时固定的源库适配器版本。
+     */
+    private String adapterVersion;
+
+    /**
+     * 接收任务时固定的目录比较协议版本。
+     */
+    private String comparisonVersion;
+
+    /**
+     * 快照当前为候选、成功、失败或取消。
+     */
+    private String status;
 
     /**
      * 上一次成功快照。

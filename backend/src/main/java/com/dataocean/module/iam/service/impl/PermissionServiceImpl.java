@@ -14,6 +14,7 @@ import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.service.PermissionService;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -122,6 +123,19 @@ public class PermissionServiceImpl implements PermissionService {
      */
     public boolean protectedRole(long id) {
         return mapper.protectedRole(id) > 0;
+    }
+
+    /**
+     * 批量读取受保护角色，空范围直接返回空集合。
+     */
+    @Override
+    public Set<Long> protectedRoles(Collection<Long> roleIds) {
+        if (roleIds.isEmpty()) {
+            // 没有指定角色时无需读取功能目录。
+            return Set.of();
+        }
+
+        return Set.copyOf(mapper.protectedRoles(roleIds));
     }
 
     /**

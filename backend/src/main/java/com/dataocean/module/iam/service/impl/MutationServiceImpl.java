@@ -194,7 +194,7 @@ public class MutationServiceImpl implements MutationService {
      * 将必要身份或授权事件与业务事实在同一事务登记。
      */
     private void enqueue(String type, String aggregate, String id, int version, String command, Object payload) {
-        outbox.insert(new OutboxPO(
+        outbox.append(new OutboxPO(
                 UUID.randomUUID().toString(),
                 type,
                 1,

@@ -10,8 +10,10 @@ import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.PersonQuery;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -22,15 +24,22 @@ import org.apache.ibatis.annotations.Update;
 public interface UserMapper extends BaseMapper<UserPO> {
 
     /**
-     * 列表与总数共用的参数化过滤片段，文本条件按字面转义。
+     * 列表与总数共用参数化条件，明确传入空部门范围时不匹配任何人员。
      */
     String FILTER =
             """
         <where>
           <foreach collection="q.displayNameTerms" item="term"> AND u.display_name COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!'</foreach>
           <foreach collection="q.usernameTerms" item="term"> AND u.username COLLATE utf8mb4_0900_ai_ci LIKE #{term} ESCAPE '!'</foreach>
-          <if test="departments != null">AND EXISTS(SELECT 1 FROM iam_user_department ud WHERE ud.user_id=u.id AND ud.left_at IS NULL AND ud.department_id IN
-            <foreach collection="departments" item="id" open="(" separator="," close=")">#{id}</foreach>)</if>
+          <if test="departments != null">
+            <choose>
+              <when test="departments.size() &gt; 0">
+                AND EXISTS(SELECT 1 FROM iam_user_department ud WHERE ud.user_id=u.id AND ud.left_at IS NULL AND ud.department_id IN
+                  <foreach collection="departments" item="id" open="(" separator="," close=")">#{id}</foreach>)
+              </when>
+              <otherwise>AND 1 = 0</otherwise>
+            </choose>
+          </if>
           <if test="roleId != null">AND EXISTS(SELECT 1 FROM iam_user_role ur WHERE ur.user_id=u.id AND ur.role_id=#{roleId} AND ur.ended_at IS NULL)</if>
           <if test="q.displayStatus != null and q.displayStatus != ''">AND (CASE WHEN u.lifecycle!='ENABLED' THEN u.lifecycle
               WHEN u.must_change_password=1 AND u.first_login_at IS NULL THEN 'PENDING_FIRST_LOGIN'
@@ -69,11 +78,30 @@ public interface UserMapper extends BaseMapper<UserPO> {
     }
 
     /**
-     * 在所属业务事务内保存明确类型记录。
+     * 使用数据库时钟创建人员，并回填同一条插入返回的编号。
      */
     @Insert(
-            "INSERT INTO iam_user(username,display_name,phone,email,management_note,created_by,created_at,updated_at) VALUES(#{d.username},#{d.displayName},#{d.phone},#{d.email},#{d.managementNote},#{actor},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
-    int create(@Param("d") NewUserProfileDTO data, @Param("actor") Long actor);
+            """
+            INSERT INTO iam_user(username,display_name,phone,email,management_note,created_by,created_at,updated_at)
+            VALUES(#{username},#{displayName},#{phone},#{email},#{managementNote},#{createdBy},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertCreated(UserPO row);
+
+    /**
+     * 只将新建资料映射为待插入记录，认证和版本列使用表默认值。
+     */
+    default long create(NewUserProfileDTO data, Long actor) {
+        var row = new UserPO();
+        row.setUsername(data.getUsername());
+        row.setDisplayName(data.getDisplayName());
+        row.setPhone(data.getPhone());
+        row.setEmail(data.getEmail());
+        row.setManagementNote(data.getManagementNote());
+        row.setCreatedBy(actor);
+        insertCreated(row);
+        return Objects.requireNonNull(row.getId(), "数据库未返回人员编号");
+    }
 
     /**
      * 按当前对象版本原子更新业务资料并递增内容修订。

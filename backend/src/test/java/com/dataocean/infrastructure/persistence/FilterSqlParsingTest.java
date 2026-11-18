@@ -12,6 +12,7 @@ import com.dataocean.module.iam.entity.query.PersonQuery;
 import com.dataocean.module.iam.mapper.UserMapper;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.binding.MapperMethod;
@@ -68,6 +69,23 @@ class FilterSqlParsingTest {
 
         assertTrue(parsed.contains("u.must_change_password"));
         assertEquals(bound.getParameterMappings().size(), placeholders(parsed));
+    }
+
+    /**
+     * 显式空的部门范围生成可分页计数的恒假条件。
+     */
+    @Test
+    void emptyDepartmentScopeDoesNotMatchPeople() throws JSQLParserException {
+        var parameters = new MapperMethod.ParamMap<Object>();
+        parameters.put("page", new Page<>(1, 10));
+        parameters.put("q", new PersonQuery());
+        parameters.put("departments", List.of());
+        parameters.put("roleId", null);
+
+        BoundSql bound = generatedSql(UserMapper.class, parameters);
+        String parsed = JsqlParserGlobal.parse(bound.getSql()).toString();
+        assertTrue(parsed.contains("WHERE 1 = 0"));
+        assertTrue(bound.getParameterMappings().isEmpty());
     }
 
     /**

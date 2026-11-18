@@ -18,10 +18,10 @@ import lombok.Data;
 public class DatasourcePO {
 
     /**
-     * 数据源稳定编号。
+     * 数据源稳定编号，新增前为空，插入后由数据库生成并回填。
      */
     @TableId(type = IdType.AUTO)
-    private long id;
+    private Long id;
 
     /**
      * 数据源展示名。
@@ -85,7 +85,7 @@ public class DatasourcePO {
     private LocalDateTime createdAt;
 
     /**
-     * 数据源最近一次实际业务变更的数据库 UTC 毫秒时刻。
+     * 数据源最近一次实际业务变更的数据库 UTC 毫秒时刻，新增时与创建时间相同。
      */
     @TableField(updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime updatedAt;

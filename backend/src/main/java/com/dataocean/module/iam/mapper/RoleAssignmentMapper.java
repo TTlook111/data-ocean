@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.module.iam.entity.po.RoleAssignmentPO;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 /**
  * 读取当前角色分配及其成员范围。
@@ -18,8 +20,20 @@ public interface RoleAssignmentMapper extends BaseMapper<RoleAssignmentPO> {
      * 按角色编号读取人员尚未结束的分配。
      */
     default List<RoleAssignmentPO> assignments(long id) {
+        return assignmentsForUsers(List.of(id));
+    }
+
+    /**
+     * 按本页人员批量读取当前角色分配，按角色编号保持每个人的展示顺序。
+     */
+    default List<RoleAssignmentPO> assignmentsForUsers(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            // 空人员范围没有角色分配。
+            return List.of();
+        }
+
         return selectList(Wrappers.<RoleAssignmentPO>lambdaQuery()
-                .eq(RoleAssignmentPO::getUserId, id)
+                .in(RoleAssignmentPO::getUserId, ids)
                 .isNull(RoleAssignmentPO::getEndedAt)
                 .orderByAsc(RoleAssignmentPO::getRoleId));
     }
@@ -32,6 +46,29 @@ public interface RoleAssignmentMapper extends BaseMapper<RoleAssignmentPO> {
                 .eq(RoleAssignmentPO::getRoleId, role)
                 .isNull(RoleAssignmentPO::getEndedAt)));
     }
+
+    /**
+     * 批量统计本页角色的当前分配，停用人员仍计入。
+     */
+    @Select(
+            """
+            <script>
+              SELECT role_id AS roleId, COUNT(*) AS memberCount
+              FROM iam_user_role
+              WHERE ended_at IS NULL AND role_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+              GROUP BY role_id
+            </script>
+            """)
+    List<MemberCount> memberCounts(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 当前角色分配的统计结果。
+     *
+     * @param roleId 角色的稳定标识
+     * @param memberCount 仍保留该分配的人员数
+     */
+    record MemberCount(long roleId, long memberCount) {}
 
     /**
      * 建立角色分配并绑定当时的角色修订。

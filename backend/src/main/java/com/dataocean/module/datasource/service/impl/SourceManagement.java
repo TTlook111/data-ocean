@@ -53,6 +53,7 @@ import java.util.UUID;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
@@ -142,7 +143,7 @@ public class SourceManagement {
     /**
      * 在真实数据库分页，列表不披露连接详情。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<SourceRowVO> list(SourceQuery query) {
         permissions.require("sources.view");
 
@@ -161,9 +162,9 @@ public class SourceManagement {
                     default -> throw BizIllegalException.invalid("不支持的排序字段");
                 };
 
-        long total = pages.sourceCount(name, type, contact, lifecycle);
-        var page = query.<SourceSummary>toLastAvailableMpPage(total);
-        page.addOrder(order, OrderItem.desc("s.id"));
+        // 由分页插件使用同一组条件执行 Mapper 中的专用计数语句。
+        var page = query.<SourceSummary>toFixedOrderMpPage(order, OrderItem.desc("s.id"));
+        page.setCountId("sourceCount");
         return PageVO.from(pages.sourcePage(page, name, type, contact, lifecycle), this::summary);
     }
 
@@ -217,7 +218,7 @@ public class SourceManagement {
     /**
      * 仅向有来源编辑资格者提供安全人员选项。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<UserOptionVO> contacts(String keyword, PageQuery query) {
         permissions.requireAny("sources.create", "sources.edit");
         String text = Objects.toString(keyword, "").strip();

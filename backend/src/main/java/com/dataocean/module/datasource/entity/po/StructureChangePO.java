@@ -29,6 +29,72 @@ public class StructureChangePO {
     private Long sourceId;
 
     /**
+     * 发现变化的采集任务 UUID。
+     */
+    @TableField(select = false)
+    private String discoveryTaskId;
+
+    /**
+     * 用作比较依据的前一成功快照。
+     */
+    @TableField(select = false)
+    private Long beforeSnapshotId;
+
+    /**
+     * 本次发现变化的成功快照。
+     */
+    @TableField(select = false)
+    private Long afterSnapshotId;
+
+    /**
+     * 本次快照中的对象观察。
+     */
+    @TableField(select = false)
+    private Long afterObservationId;
+
+    /**
+     * 比较时作为依据的已确认对象。
+     */
+    @TableField(select = false)
+    private Long comparisonObjectId;
+
+    /**
+     * 同次采集内标识变化的摘要。
+     */
+    @TableField(select = false)
+    private byte[] changeKey;
+
+    /**
+     * 发生变化的对象、字段或约束类型。
+     */
+    @TableField(select = false)
+    private String targetKind;
+
+    /**
+     * 本次变化对应的具体结构属性。
+     */
+    @TableField(select = false)
+    private String attributeKind;
+
+    /**
+     * 变更前可核实的 JSON 值。
+     */
+    @TableField(select = false)
+    private String beforeValue;
+
+    /**
+     * 变更后可核实的 JSON 值。
+     */
+    @TableField(select = false)
+    private String afterValue;
+
+    /**
+     * 用于核实变化事实的 JSON 证据。
+     */
+    @TableField(select = false)
+    private String evidence;
+
+    /**
      * 原始变化前可复核的观察编号。
      */
     private Long beforeObservationId;

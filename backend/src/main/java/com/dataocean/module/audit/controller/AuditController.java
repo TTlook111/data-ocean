@@ -7,7 +7,7 @@ import com.dataocean.module.audit.entity.query.AuditQuery;
 import com.dataocean.module.audit.entity.vo.AuditDetailVO;
 import com.dataocean.module.audit.entity.vo.AuditRowVO;
 import com.dataocean.module.audit.service.AuditService;
-import com.dataocean.module.iam.service.PermissionService;
+import com.dataocean.module.iam.security.RequirePermission;
 
 import jakarta.validation.Valid;
 
@@ -33,16 +33,11 @@ public class AuditController {
     private final AuditService audits;
 
     /**
-     * 读取审计前的当前功能权限检查。
-     */
-    private final PermissionService permissions;
-
-    /**
      * 按历史操作者、目标和实际发生时间查询审计。
      */
     @GetMapping
+    @RequirePermission("audit.view")
     public Result<PageVO<AuditRowVO>> list(@Valid @ModelAttribute AuditQuery query) {
-        permissions.require("audit.view");
         return Result.success(audits.list(query));
     }
 
@@ -50,8 +45,8 @@ public class AuditController {
      * 只读查看审计差异，不在此入口开放原文资源。
      */
     @GetMapping("/{id}")
+    @RequirePermission("audit.view")
     public Result<AuditDetailVO> detail(@PathVariable String id) {
-        permissions.require("audit.view");
         return Result.success(audits.detail(Ids.parse(id)));
     }
 }

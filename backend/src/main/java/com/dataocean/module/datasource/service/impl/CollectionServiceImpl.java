@@ -11,6 +11,7 @@ import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.datasource.entity.dto.SourceActionPreviewDTO;
 import com.dataocean.module.datasource.entity.dto.StartCollectionDTO;
+import com.dataocean.module.datasource.entity.po.CollectionSnapshotPO;
 import com.dataocean.module.datasource.entity.po.CollectionTaskPO;
 import com.dataocean.module.datasource.entity.po.DatasourcePO;
 import com.dataocean.module.datasource.entity.query.CatalogQuery;
@@ -47,8 +48,11 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
@@ -266,7 +270,10 @@ public class CollectionServiceImpl {
                             current.getVersion(),
                             new CancelProposal(reason),
                             input.getReviewToken());
-                    tasks.requestCancel(id, reason);
+                    if (!tasks.requestCancel(id, reason)) {
+                        // 取消没有写入时结束本次命令，避免生成成功审计。
+                        throw BizIllegalException.conflict();
+                    }
                     if ("QUEUED".equals(current.getState())) {
                         runner.terminal(tasks.task(id, false), "CANCELLED", null, null);
                     }
@@ -294,7 +301,7 @@ public class CollectionServiceImpl {
     /**
      * 查询实际任务开始日期、状态及发起方式，使用公共分页结果。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<CollectionDetailVO> list(long sourceId, CollectionQuery query) {
         permission.require("collections.view");
         source(sourceId, false);
@@ -331,17 +338,28 @@ public class CollectionServiceImpl {
         String kind = normalize(query.getTriggerKind());
         String state = normalize(query.getState());
         var page = tasks.page(sourceId, number, kind, state, from, until, query);
-        return new PageVO<>(
-                page.getRecords().stream().map(this::view).toList(),
-                page.getTotal(),
-                page.getCurrent(),
-                page.getSize());
+
+        // 只批量补充当前页的历史修订和成功快照，任务排序与计数保持原口径。
+        var revisions = sources.revisions(
+                sourceId,
+                page.getRecords().stream()
+                        .map(CollectionTaskPO::getConfigRevisionId)
+                        .distinct()
+                        .toList());
+        var snapshotTasks = page.getRecords().stream()
+                .filter(task -> "SUCCEEDED".equals(task.getState()))
+                .map(CollectionTaskPO::getId)
+                .toList();
+        var snapshots = tasks.snapshotsForTasks(snapshotTasks).stream()
+                .collect(Collectors.toMap(CollectionSnapshotPO::getTaskId, Function.identity()));
+        return PageVO.from(
+                page, task -> view(task, revisions.get(task.getConfigRevisionId()), snapshots.get(task.getId())));
     }
 
     /**
      * 在同一目录版本读出列表、总数和来源范围。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CatalogPageVO directory(long sourceId, CatalogQuery query) {
         permission.require("catalog.view");
         DatasourcePO source = source(sourceId, false);
@@ -429,6 +447,14 @@ public class CollectionServiceImpl {
      */
     private CollectionDetailVO view(CollectionTaskPO task) {
         RevisionRow revision = sources.revision(task.getSourceId(), task.getConfigRevisionId());
+        var snapshot = "SUCCEEDED".equals(task.getState()) ? tasks.snapshot(task.getId()) : null;
+        return view(task, revision, snapshot);
+    }
+
+    /**
+     * 用已读取的配置和成功快照组装采集任务视图。
+     */
+    private CollectionDetailVO view(CollectionTaskPO task, RevisionRow revision, CollectionSnapshotPO snapshot) {
         long attempted = task.getCompleteCount() + task.getPartialCount() + task.getFailedCount();
         Content content = null;
         if ("RUNNING".equals(task.getState())) {
@@ -453,7 +479,6 @@ public class CollectionServiceImpl {
                     null,
                     null);
         } else if ("SUCCEEDED".equals(task.getState())) {
-            var snapshot = tasks.snapshot(task.getId());
             content = new Content(
                     null,
                     null,

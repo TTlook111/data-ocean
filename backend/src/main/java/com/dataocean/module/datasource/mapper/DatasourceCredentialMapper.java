@@ -2,9 +2,12 @@ package com.dataocean.module.datasource.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.dataocean.module.datasource.entity.po.DatasourceCredentialPO;
+import com.dataocean.module.datasource.mapper.DatasourceMapper.CredentialRow;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 /**
  * 提供 DatasourceCredentialPO 对应单表的持久化操作。
@@ -21,4 +24,15 @@ public interface DatasourceCredentialMapper extends BaseMapper<DatasourceCredent
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int create(DatasourceCredentialPO credential);
+
+    /**
+     * 按同源配置修订读取已绑定凭据，防止凭据跨来源匹配。
+     */
+    @Select(
+            """
+            SELECT c.key_version,c.ciphertext FROM ds_connection_revision r
+            JOIN ds_credential_revision c ON c.id=r.credential_revision_id AND c.source_id=r.source_id
+            WHERE r.source_id=#{source} AND r.id=#{revision}
+            """)
+    CredentialRow forConfiguration(@Param("source") long source, @Param("revision") long revision);
 }

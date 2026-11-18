@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.common.PageQuery;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.entity.po.CatalogColumnPO;
+import com.dataocean.module.datasource.entity.po.CatalogConstraintPO;
 import com.dataocean.module.datasource.entity.po.CatalogObjectPO;
 import com.dataocean.module.datasource.entity.po.CollectionTaskPO;
 import com.dataocean.module.datasource.entity.po.SnapshotObservationPO;
@@ -15,10 +16,8 @@ import com.dataocean.module.datasource.source.SourceMetadata.Key;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,8 +25,6 @@ import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Repository;
 
 import lombok.RequiredArgsConstructor;
@@ -38,11 +35,6 @@ import lombok.RequiredArgsConstructor;
 @Repository
 @RequiredArgsConstructor
 public class CatalogMapper {
-
-    /**
-     * 平台库事务连接。
-     */
-    private final JdbcTemplate sql;
 
     /**
      * 候选内容及变化证据采用可重读的明确类型。
@@ -60,6 +52,16 @@ public class CatalogMapper {
     private final DatasourceRecordMapper sources;
 
     /**
+     * 发布候选快照及其提交时间。
+     */
+    private final CollectionSnapshotMapper snapshots;
+
+    /**
+     * 按来源首次成功时间建立调度计划。
+     */
+    private final CollectionScheduleMapper schedules;
+
+    /**
      * 保存对象的稳定身份。
      */
     private final CatalogObjectMapper objects;
@@ -73,6 +75,16 @@ public class CatalogMapper {
      * 登记稳定的字段身份。
      */
     private final CatalogColumnMapper columns;
+
+    /**
+     * 保存对象与字段的不可变结构修订。
+     */
+    private final CatalogRevisionMapper revisions;
+
+    /**
+     * 保存单表约束及其复合主键成员。
+     */
+    private final CatalogConstraintMapper constraintRecords;
 
     /**
      * 访问变化状态与其首次核实依据。
@@ -107,20 +119,7 @@ public class CatalogMapper {
      * 最近可比较的同源成功快照。
      */
     public Long comparable(long source, long candidate) {
-        return sql
-                .query(
-                        """
-                SELECT previous.id FROM ds_snapshot previous JOIN ds_snapshot newer
-                  ON newer.scope_key=previous.scope_key AND newer.comparison_contract_key=previous.comparison_contract_key
-                WHERE previous.source_id=? AND newer.id=? AND previous.status='SUCCEEDED'
-                ORDER BY previous.committed_at DESC,previous.id DESC LIMIT 1
-                """,
-                        (row, index) -> row.getLong(1),
-                        source,
-                        candidate)
-                .stream()
-                .findFirst()
-                .orElse(null);
+        return snapshots.comparable(source, candidate);
     }
 
     /**
@@ -153,16 +152,7 @@ public class CatalogMapper {
      * 读取完整的候选或指定成功快照成员。未成功的快照仅允许工作者在内部读取。
      */
     public List<Observation> members(long snapshot) {
-        return sql.query(
-                """
-                SELECT o.*,s.committed_at,COALESCE(r.resolved_object_id,o.object_id) AS effective_object_id,
-                    COALESCE(r.resolved_object_revision_id,o.object_revision_id) AS effective_revision_id
-                FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
-                LEFT JOIN ds_change_review r ON r.change_id=o.identity_change_id AND r.resolved_object_id IS NOT NULL
-                WHERE s.id=? AND o.read_status='COMPLETE' ORDER BY o.id
-                """,
-                (row, index) -> observation(row),
-                snapshot);
+        return pages.catalogMembers(snapshot).stream().map(this::observation).toList();
     }
 
     /**
@@ -185,19 +175,7 @@ public class CatalogMapper {
      * 最近的同一观察仍可直接核实；快照成员本身保持不可变。
      */
     public Observation currentIdentityObservation(long source, long snapshot, long change) {
-        Long observed = sql
-                .query(
-                        """
-                SELECT o.id FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
-                WHERE s.source_id=? AND s.id=? AND s.status='SUCCEEDED' AND o.identity_change_id=?
-                """,
-                        (row, index) -> row.getLong(1),
-                        source,
-                        snapshot,
-                        change)
-                .stream()
-                .findFirst()
-                .orElse(null);
+        Long observed = pages.currentIdentityObservation(source, snapshot, change);
         return observed == null ? null : object(source, snapshot, observed, 0, false, true);
     }
 
@@ -229,20 +207,7 @@ public class CatalogMapper {
      * 访问丢失后继续保留同一可比较范围的最后确证身份。
      */
     public List<LostAccess> unresolvedAccess(long source, long candidate) {
-        return sql.query(
-                """
-                SELECT c.id,c.before_observation_id,c.fact_state,c.version FROM ds_change c
-                JOIN ds_snapshot p ON p.id=c.before_snapshot_id
-                JOIN ds_snapshot n ON n.id=? AND n.scope_key=p.scope_key AND n.comparison_contract_key=p.comparison_contract_key
-                WHERE c.source_id=? AND c.change_type='ACCESS_LOST' AND c.before_observation_id IS NOT NULL
-                  AND c.visibility_restored_snapshot_id IS NULL AND c.successor_change_id IS NULL
-                  AND (c.fact_state='PENDING' OR EXISTS
-                    (SELECT 1 FROM ds_change_review r WHERE r.change_id=c.id AND r.decision='STILL_EXISTS'))
-                ORDER BY c.id
-                """,
-                (row, index) -> new LostAccess(row.getLong(1), row.getLong(2), row.getString(3), row.getInt(4)),
-                candidate,
-                source);
+        return pages.unresolvedAccess(source, candidate);
     }
 
     /**
@@ -256,16 +221,7 @@ public class CatalogMapper {
                 .setSql("updated_at=UTC_TIMESTAMP(3)"));
         if ("PENDING".equals(lost.factState())) {
             // 系统只在实际成功读取且身份一致时排除未决的访问异常。
-            sql.update(
-                    """
-                    INSERT INTO ds_change_review (source_id,change_id,actor_kind,reviewed_version,decision,evidence_text,
-                        verified_observation_id,reviewed_at)
-                    VALUES (?,?,'SYSTEM',?,'READ_RESTORED','成功读取已确认的同一来源对象',?,UTC_TIMESTAMP(3))
-                    """,
-                    source,
-                    lost.changeId(),
-                    lost.version(),
-                    observation);
+            changeRecords.appendRestore(source, lost.changeId(), lost.version(), observation);
             changeRecords.update(Wrappers.<StructureChangePO>lambdaUpdate()
                     .eq(StructureChangePO::getSourceId, source)
                     .eq(StructureChangePO::getId, lost.changeId())
@@ -295,71 +251,60 @@ public class CatalogMapper {
     public long newRevision(long object, Observation current, Observation previous) {
         Structure structure = current.structure();
         ObjectRef ref = structure.object();
-        int previousVersion = Objects.requireNonNull(sql.queryForObject(
-                "SELECT COALESCE(MAX(revision),0) FROM ds_object_revision WHERE object_id=?", Integer.class, object));
-        long revision = insert(
-                """
-                INSERT INTO ds_object_revision (object_id,revision,namespace,source_name,object_type,source_comment,
-                    view_facts,definition_digest,created_at)
-                VALUES (?,?,?,?,?,?,?, ?,UTC_TIMESTAMP(3))
-                """,
-                object,
-                previousVersion + 1,
-                ref.schema(),
-                ref.name(),
-                ref.type(),
-                ref.comment(),
-                ref.parent() == null ? null : json.write(ref.parent()),
-                current.definitionDigest());
+        var row = CatalogRevisionMapper.ObjectRevision.builder()
+                .objectId(object)
+                .revision(revisions.latestObjectVersion(object) + 1)
+                .namespace(ref.schema())
+                .sourceName(ref.name())
+                .objectType(ref.type())
+                .sourceComment(ref.comment())
+                .viewFacts(ref.parent() == null ? null : json.write(ref.parent()))
+                .definitionDigest(current.definitionDigest())
+                .build();
+        revisions.insertObjectRevision(row);
+        long revision = Objects.requireNonNull(row.getId(), "数据库未返回对象修订编号");
+
         Map<String, FormerField> previousFields = new HashMap<>();
         if (previous != null && previous.revisionId() != null) {
-            // 当前对象上一个正式修订的同名字段可继续使用。
+            // 将上一版的字段身份与已保存的字段事实关联，用于判断能否复用。
             Map<String, Field> facts = new HashMap<>();
             previous.structure().fields().forEach(field -> facts.put(field.name(), field));
-            sql.query(
-                    """
-                    SELECT c.source_name,c.column_id,c.id,c.revision FROM ds_object_column f
-                    JOIN ds_column_revision c ON c.id=f.column_revision_id WHERE f.object_revision_id=?
-                    """,
-                    row -> {
-                        // 将上一版的事实与相同字段的持久化身份对应。
-                        String name = row.getString(1);
-                        previousFields.put(
-                                name, new FormerField(row.getLong(2), row.getLong(3), row.getInt(4), facts.get(name)));
-                    },
-                    previous.revisionId());
+            for (var column : revisions.columns(previous.revisionId())) {
+                // 对应同名来源字段及其上一版的稳定身份。
+                String name = column.sourceName();
+                previousFields.put(
+                        name,
+                        new FormerField(column.columnId(), column.revisionId(), column.version(), facts.get(name)));
+            }
         }
+
         Map<String, Long> fields = new HashMap<>();
         for (Field field : structure.fields()) {
-            // 字段定义变化生成新修订；字段未变时沿用原结构事实。
+            // 字段定义变化生成新修订，定义相同则复用已确认的修订。
             FormerField former = previousFields.get(field.name());
             long fieldRevision;
             if (former != null && field.equals(former.field())) {
+                // 未改动的字段沿用身份和修订。
                 fieldRevision = former.revisionId();
             } else {
+                // 首次出现时分配字段身份，之后只递增同一身份的修订。
                 long fieldId = former == null ? newColumn(object) : former.columnId();
-                fieldRevision = insert(
-                        """
-                        INSERT INTO ds_column_revision (column_id,revision,source_name,ordinal,native_type,nullable,
-                            default_expression,generated_expression,source_comment,created_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))
-                        """,
-                        fieldId,
-                        former == null ? 1 : former.version() + 1,
-                        field.name(),
-                        field.ordinal(),
-                        field.type(),
-                        field.nullable(),
-                        field.defaultValue(),
-                        field.generated() ? "GENERATED" : null,
-                        field.comment());
+                var column = CatalogRevisionMapper.ColumnRevision.builder()
+                        .columnId(fieldId)
+                        .revision(former == null ? 1 : former.version() + 1)
+                        .sourceName(field.name())
+                        .ordinal(field.ordinal())
+                        .nativeType(field.type())
+                        .nullable(field.nullable())
+                        .defaultExpression(field.defaultValue())
+                        .generatedExpression(field.generated() ? "GENERATED" : null)
+                        .sourceComment(field.comment())
+                        .build();
+                revisions.insertColumnRevision(column);
+                fieldRevision = Objects.requireNonNull(column.getId(), "数据库未返回字段修订编号");
             }
             fields.put(field.name(), fieldRevision);
-            sql.update(
-                    "INSERT INTO ds_object_column (object_revision_id,column_revision_id,ordinal) VALUES (?,?,?)",
-                    revision,
-                    fieldRevision,
-                    field.ordinal());
+            revisions.addColumn(revision, fieldRevision, field.ordinal());
         }
         constraints(revision, "PRIMARY", structure.primaryKeys(), fields);
         constraints(revision, "FOREIGN", structure.foreignKeys(), fields);
@@ -384,27 +329,23 @@ public class CatalogMapper {
         Map<String, List<Key>> groups = new LinkedHashMap<>();
         for (Key key : keys) {
             // 同名键各成员归入同一结构约束。
-            groups.computeIfAbsent(key.name(), ignored -> new java.util.ArrayList<>())
-                    .add(key);
+            groups.computeIfAbsent(key.name(), ignored -> new ArrayList<>()).add(key);
         }
         for (var group : groups.entrySet()) {
             // 约束目标保存来源可读标识，不扩展查询范围。
             Key first = group.getValue().get(0);
-            long id = insert(
-                    """
-                    INSERT INTO ds_constraint (object_revision_id,kind,source_name,target_object_ref) VALUES (?,?,?,?)
-                    """,
-                    revision,
-                    "INDEX".equals(kind) && first.unique() ? "UNIQUE_INDEX" : kind,
-                    group.getKey(),
+            var constraint = new CatalogConstraintPO();
+            constraint.setObjectRevisionId(revision);
+            constraint.setKind("INDEX".equals(kind) && first.unique() ? "UNIQUE_INDEX" : kind);
+            constraint.setSourceName(group.getKey());
+            constraint.setTargetObjectRef(
                     first.referencedObject() == null ? null : json.write(first.referencedObject()));
+            constraintRecords.insert(constraint);
+            long id = Objects.requireNonNull(constraint.getId(), "数据库未返回目录约束编号");
+
             for (Key key : group.getValue()) {
-                // 连接字段修订及原外键目标。
-                sql.update(
-                        """
-                        INSERT INTO ds_constraint_member (constraint_id,column_revision_id,ordinal,target_column_ref)
-                        VALUES (?,?,?,?)
-                        """,
+                // 以复合主键保存字段修订及原外键目标。
+                constraintRecords.addMember(
                         id,
                         fields.get(key.field()),
                         key.ordinal(),
@@ -441,62 +382,36 @@ public class CatalogMapper {
             String evidence,
             byte[] key,
             boolean pending) {
-        return insert(
-                """
-                INSERT INTO ds_change (source_id,discovery_task_id,before_snapshot_id,after_snapshot_id,
-                    before_observation_id,after_observation_id,comparison_object_id,object_id,change_key,discovery_kind,
-                    change_type,target_kind,attribute_kind,fact_state,stage,before_value,after_value,evidence,discovered_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,'COMPARISON',?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
-                """,
-                task.getSourceId(),
-                task.getId(),
-                before,
-                after,
-                prior == null ? null : prior.id(),
-                current == null ? null : current.id(),
-                prior == null ? null : prior.objectId(),
-                pending ? null : current != null ? current.objectId() : prior.objectId(),
-                key,
-                type,
-                targetKind,
-                attribute,
-                pending ? "PENDING" : "CONFIRMED",
-                pending ? "PENDING_REVIEW" : "PENDING_GOVERNANCE",
-                left,
-                right,
-                evidence);
+        // 保留原快照和实际观察关系，待核实的对象暂不绑定正式身份。
+        var row = new StructureChangePO();
+        row.setSourceId(task.getSourceId());
+        row.setDiscoveryTaskId(task.getId());
+        row.setBeforeSnapshotId(before);
+        row.setAfterSnapshotId(after);
+        row.setBeforeObservationId(prior == null ? null : prior.id());
+        row.setAfterObservationId(current == null ? null : current.id());
+        row.setComparisonObjectId(prior == null ? null : prior.objectId());
+        row.setObjectId(pending ? null : current != null ? current.objectId() : prior.objectId());
+        row.setChangeKey(key);
+        row.setChangeType(type);
+        row.setTargetKind(targetKind);
+        row.setAttributeKind(attribute);
+        row.setFactState(pending ? "PENDING" : "CONFIRMED");
+        row.setStage(pending ? "PENDING_REVIEW" : "PENDING_GOVERNANCE");
+        row.setBeforeValue(left);
+        row.setAfterValue(right);
+        row.setEvidence(evidence);
+        changeRecords.createComparison(row);
+        return Objects.requireNonNull(row.getId(), "数据库未返回结构变化编号");
     }
 
     /**
      * 确认成功快照、切换源指针并刷新数据源更新时间，由同一事务更新任务及调度。
      */
     public int publish(long source, long snapshot, Long previous, Long comparison, String analysis, long changes) {
-        sql.update(
-                """
-                UPDATE ds_snapshot SET status='SUCCEEDED',analysis=?,new_change_count=?,
-                    previous_success_snapshot_id=?,comparison_snapshot_id=?,read_ended_at=UTC_TIMESTAMP(3),
-                    committed_at=UTC_TIMESTAMP(3) WHERE id=? AND source_id=? AND status='CANDIDATE'
-                """,
-                analysis,
-                changes,
-                previous,
-                comparison,
-                snapshot,
-                source);
-        sql.update(
-                """
-                UPDATE ds_source SET current_snapshot_id=?,catalog_version=catalog_version+1,active_task_id=NULL,
-                    first_success_at=COALESCE(first_success_at,UTC_TIMESTAMP(3)),stale_since=NULL,stale_scope_key=NULL,
-                    updated_at=UTC_TIMESTAMP(3) WHERE id=?
-                """,
-                snapshot,
-                source);
-        sql.update(
-                """
-                INSERT IGNORE INTO ds_collection_schedule (source_id,revision,anchor_at,last_admitted_cycle_no,updated_at)
-                SELECT id,1,first_success_at,0,UTC_TIMESTAMP(3) FROM ds_source WHERE id=?
-                """,
-                source);
+        snapshots.publish(source, snapshot, previous, comparison, analysis, changes);
+        sources.publishSnapshot(source, snapshot);
+        schedules.initialize(source);
         return sources.catalogVersion(source);
     }
 
@@ -511,8 +426,8 @@ public class CatalogMapper {
             String type,
             String state,
             PageQuery paging) {
-        long total = pages.catalogCount(source, snapshot, configuration, keyword, type, state);
-        var page = paging.<CatalogRow>toLastAvailableMpPage(total);
+        var page = paging.<CatalogRow>toFixedOrderMpPage();
+        page.setCountId("catalogCount");
         var rows = pages.catalogPage(page, source, snapshot, configuration, keyword, type, state);
         return rows.convert(this::observation);
     }
@@ -529,45 +444,8 @@ public class CatalogMapper {
      */
     public Observation object(
             long source, Long snapshot, long object, long configuration, boolean useCurrentScope, boolean observed) {
-        String column = observed ? "o.id" : "COALESCE(r.resolved_object_id,o.object_id)";
-        return sql
-                .query(
-                        """
-                SELECT o.*,s.committed_at,COALESCE(r.resolved_object_id,o.object_id) AS effective_object_id,
-                    COALESCE(r.resolved_object_revision_id,o.object_revision_id) AS effective_revision_id
-                FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
-                LEFT JOIN ds_change_review r ON r.change_id=o.identity_change_id AND r.resolved_object_id IS NOT NULL
-                WHERE s.source_id=? AND (? IS NULL OR s.id=?) AND s.status='SUCCEEDED' AND %s=?
-                    AND (?=0 OR o.namespace='' OR EXISTS
-                      (SELECT 1 FROM ds_connection_schema c WHERE c.connection_revision_id=? AND BINARY c.schema_name=BINARY o.namespace))
-                """
-                                .formatted(column),
-                        (row, index) -> observation(row),
-                        source,
-                        snapshot,
-                        snapshot,
-                        object,
-                        useCurrentScope ? 1 : 0,
-                        configuration)
-                .stream()
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * 汇合手工查询与 MyBatis 分页的目录观测投影，采用同一结构解码规则。
-     */
-    private Observation observation(ResultSet row) throws SQLException {
-        return observation(new CatalogRow(
-                row.getLong("id"),
-                row.getLong("snapshot_id"),
-                row.getObject("effective_object_id", Long.class),
-                row.getObject("effective_revision_id", Long.class),
-                row.getObject("identity_change_id", Long.class),
-                row.getBytes("object_path_key"),
-                row.getBytes("definition_digest"),
-                row.getString("candidate_structure"),
-                row.getObject("committed_at", LocalDateTime.class)));
+        var row = pages.catalogObject(source, snapshot, object, configuration, useCurrentScope, observed);
+        return row == null ? null : observation(row);
     }
 
     /**
@@ -594,23 +472,5 @@ public class CatalogMapper {
         column.setObjectId(object);
         columns.insert(column);
         return column.getId();
-    }
-
-    /**
-     * 读取数据库生成的主键，所有值由 JDBC 参数绑定。
-     */
-    private long insert(String statement, Object... values) {
-        GeneratedKeyHolder holder = new GeneratedKeyHolder();
-        sql.update(
-                connection -> {
-                    // 禁止将元数据字段或目录内容拼入平台库 SQL。
-                    var prepared = connection.prepareStatement(statement, Statement.RETURN_GENERATED_KEYS);
-                    for (int index = 0; index < values.length; index++) {
-                        prepared.setObject(index + 1, values[index]);
-                    }
-                    return prepared;
-                },
-                holder);
-        return Objects.requireNonNull(holder.getKey()).longValue();
     }
 }

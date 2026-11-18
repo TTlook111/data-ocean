@@ -125,7 +125,7 @@ public class IdentityBootstrap implements ApplicationRunner {
      */
     @Override
     public void run(ApplicationArguments args) throws IOException {
-        if (properties.getBootstrapUsername() == null || users.selectCount(null) > 0) {
+        if (properties.getBootstrapUsername() == null || users.exists(null)) {
             // 普通启动不重新读取密码文件，也不修改现有权限。
             return;
         }
@@ -143,14 +143,13 @@ public class IdentityBootstrap implements ApplicationRunner {
                 IdentitySeedsDTO.class);
         transactions.executeWithoutResult(status -> {
             // 竞争启动时锁后再次检查，避免初始化两份首管理员。
-            if (guard.lock().isBootstrapCompleted() || users.selectCount(null) > 0) {
+            if (guard.lock().isBootstrapCompleted() || users.exists(null)) {
                 return;
             }
             NewUserProfileDTO admin = new NewUserProfileDTO();
             admin.setUsername(properties.getBootstrapUsername());
             admin.setDisplayName(properties.getBootstrapDisplayName());
-            users.create(admin, null);
-            long userId = guard.lastId();
+            long userId = users.create(admin, null);
             credentials.create(userId, hash);
             DepartmentProfileDTO root = new DepartmentProfileDTO(
                     properties.getBootstrapDepartmentName(),
@@ -159,8 +158,8 @@ public class IdentityBootstrap implements ApplicationRunner {
                     null,
                     null,
                     0);
-            departments.insert(root, null, null, userId);
-            memberships.add(userId, guard.lastId(), true, userId);
+            long rootId = departments.create(root, null, null, userId);
+            memberships.add(userId, rootId, true, userId);
             int order = 0;
             for (var page : seeds.getPages()) {
                 // 页面权与动作的显式归属来自版本化目录，不以名称推断权限。
@@ -184,13 +183,12 @@ public class IdentityBootstrap implements ApplicationRunner {
             for (int index = 0; index < seeds.getRoles().size(); index++) {
                 // 四个模板只初始化功能，不创建任何业务源访问。
                 var seed = seeds.getRoles().get(index);
-                roles.insert(
+                long roleId = roles.create(
                         new RoleProfileDTO(seed.getName(), seed.getDescription(), seed.getPermissions()),
                         seed.getId(),
                         TextSearch.key(seed.getName()),
                         true,
                         userId);
-                long roleId = guard.lastId();
                 seed.getPermissions().forEach(code -> roles.addPermission(roleId, code, userId));
                 List<String> grants = index == 0
                         ? permissions.all().stream().map(PermissionPO::getCode).toList()

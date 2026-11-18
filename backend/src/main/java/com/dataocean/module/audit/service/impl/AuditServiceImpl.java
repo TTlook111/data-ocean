@@ -28,6 +28,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -129,7 +130,7 @@ public class AuditServiceImpl implements AuditService {
      * 确保关键业务变化已在同一事务保存对应的成功审计。
      */
     public void assertRecorded(long actor, String command, String action, String target) {
-        if (mapper.recorded(actor, command, action, target) < 1) {
+        if (!mapper.recorded(actor, command, action, target)) {
             throw new IllegalStateException("Critical mutation has no matching audit");
         }
     }
@@ -137,7 +138,7 @@ public class AuditServiceImpl implements AuditService {
     /**
      * 在当前权限和查询范围内过滤、统计并返回有效分页记录。
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<AuditRowVO> list(AuditQuery query) {
         LocalDateTime from = null, until = null;
         if ((query.getFromDate() == null) != (query.getToDate() == null)) {
@@ -216,11 +217,9 @@ public class AuditServiceImpl implements AuditService {
      * 从真实关联目标人员的成功审计读取可核验的历史角色依据。
      */
     public List<RoleVersionRefVO> recoveryRoles(long userId, long auditId) {
-        var data = mapper.selectById(auditId);
-        if (data == null
-                || !data.getTargetType().equals("user")
-                || !data.getTargetId().equals(Long.toString(userId))
-                || !data.getOutcome().equals("SUCCESS")) {
+        var data = mapper.successfulUserAction(auditId, userId);
+        if (data == null) {
+            // 非当前人员或非成功记录按原契约返回不可访问。
             throw BizIllegalException.missing();
         }
         var before = data.getBeforeSummary() == null ? null : json.read(data.getBeforeSummary(), AuditSummaryVO.class);

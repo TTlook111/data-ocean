@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.mapper;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.PageQuery;
@@ -126,16 +127,14 @@ public class SourceStateMapper {
                 .eq(UserPO::getLifecycle, "ENABLED")
                 .apply("(LOCATE({0}, username) > 0 OR LOCATE({0}, display_name) > 0)", keyword);
 
-        long total = users.selectCount(filters);
-        var page = paging.<UserPO>toLastAvailableMpPage(total);
+        var page = paging.<UserPO>toFixedOrderMpPage(OrderItem.asc("display_name"), OrderItem.asc("id"));
         return users.selectPage(
                 page,
                 filters.select(
-                                UserPO::getId,
-                                UserPO::getUsername,
-                                UserPO::getDisplayName,
-                                UserPO::getLifecycle,
-                                UserPO::getVersion)
-                        .orderByAsc(UserPO::getDisplayName, UserPO::getId));
+                        UserPO::getId,
+                        UserPO::getUsername,
+                        UserPO::getDisplayName,
+                        UserPO::getLifecycle,
+                        UserPO::getVersion));
     }
 }

@@ -232,7 +232,11 @@ public class CredentialMaintenance {
                     sourceRecords.holdCredentialChange(id, changeId);
                     if (source.getActiveTaskId() != null) {
                         var original = tasks.task(source.getActiveTaskId(), true);
-                        tasks.requestCancel(original.getId(), "数据源凭据替换");
+                        if (original.getCancelRequestedAt() == null
+                                && !tasks.requestCancel(original.getId(), "数据源凭据替换")) {
+                            // 进行中的任务必须已接收停止意图，凭据切换才可继续。
+                            throw BizIllegalException.conflict();
+                        }
                         if ("QUEUED".equals(original.getState())) {
                             runner.terminal(tasks.task(original.getId(), false), "CANCELLED", null, null);
                         }

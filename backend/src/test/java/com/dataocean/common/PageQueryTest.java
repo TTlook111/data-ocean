@@ -2,34 +2,37 @@ package com.dataocean.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
+
 import org.junit.jupiter.api.Test;
 
 /**
- * 验证先计数再分页的列表保留原有页码契约。
+ * 验证服务端固定排序列表的分页参数交由插件处理。
  */
 class PageQueryTest {
 
     /**
-     * 越界时定位最后有效页，并沿用已统计的总数。
+     * 带默认排序的查询也将极大页码交给分页插件统一校正。
      */
     @Test
-    void clampsToLastPageWithoutCountingAgain() {
-        var query = new PageQuery().setPageNum(9L).setPageSize(2L);
-        var page = query.toLastAvailableMpPage(5L);
-        assertThat(page.getCurrent()).isEqualTo(3L);
-        assertThat(page.offset()).isEqualTo(4L);
-        assertThat(page.getTotal()).isEqualTo(5L);
-        assertThat(page.searchCount()).isFalse();
+    void leavesOffsetCalculationToPluginWithDefaultSort() {
+        var query = new PageQuery().setPageNum(Long.MAX_VALUE).setPageSize(2L);
+        var page = query.toMpPage("updated_at", false);
+        assertThat(page.getCurrent()).isEqualTo(Long.MAX_VALUE);
+        assertThat(page.searchCount()).isTrue();
+        assertThat(page.orders()).extracting(OrderItem::getColumn).containsExactly("updated_at");
     }
 
     /**
-     * 空结果固定在第一页，合法页码和页大小保持原值。
+     * 极大页码在取数前由计数校正，服务端固定排序覆盖外部排序。
      */
     @Test
-    void keepsFirstPageForEmptyResultsAndRespectsValidPage() {
-        var query = new PageQuery().setPageNum(2L).setPageSize(3L);
-        assertThat(query.toLastAvailableMpPage(0).getCurrent()).isEqualTo(1L);
-        assertThat(query.toLastAvailableMpPage(5).getCurrent()).isEqualTo(2L);
-        assertThat(query.toLastAvailableMpPage(5).getSize()).isEqualTo(3L);
+    void leavesPageClampingToThePaginationInterceptor() {
+        var query = new PageQuery().setPageNum(Long.MAX_VALUE).setPageSize(2L).setSortBy("username");
+        var page = query.toFixedOrderMpPage(OrderItem.desc("created_at"), OrderItem.desc("id"));
+        assertThat(page.getCurrent()).isEqualTo(Long.MAX_VALUE);
+        assertThat(page.getSize()).isEqualTo(2L);
+        assertThat(page.searchCount()).isTrue();
+        assertThat(page.orders()).extracting(OrderItem::getColumn).containsExactly("created_at", "id");
     }
 }

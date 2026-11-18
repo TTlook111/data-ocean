@@ -7,8 +7,10 @@ import com.dataocean.module.iam.entity.dto.DepartmentProfileDTO;
 import com.dataocean.module.iam.entity.po.DepartmentPO;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -33,15 +35,31 @@ public interface DepartmentMapper extends BaseMapper<DepartmentPO> {
     DepartmentPO lock(long id);
 
     /**
-     * 在所属业务事务内保存明确类型记录。
+     * 使用数据库时钟创建部门，并回填数据库生成的编号。
      */
     @Insert(
-            "INSERT INTO iam_department(parent_id,code,name,manager_user_id,note,sort_order,created_by,created_at,updated_at) VALUES(#{parent},#{d.code},#{d.name},#{manager},#{d.note},#{d.sortOrder},#{actor},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
-    int insert(
-            @Param("d") DepartmentProfileDTO data,
-            @Param("parent") Long parent,
-            @Param("manager") Long manager,
-            @Param("actor") long actor);
+            """
+            INSERT INTO iam_department(parent_id,code,name,manager_user_id,note,sort_order,created_by,created_at,updated_at)
+            VALUES(#{parentId},#{code},#{name},#{managerUserId},#{note},#{sortOrder},#{createdBy},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertCreated(DepartmentPO row);
+
+    /**
+     * 以已核验的父部门和负责人创建部门，状态及版本使用表默认值。
+     */
+    default long create(DepartmentProfileDTO data, Long parent, Long manager, long actor) {
+        var row = new DepartmentPO();
+        row.setParentId(parent);
+        row.setCode(data.getCode());
+        row.setName(data.getName());
+        row.setManagerUserId(manager);
+        row.setNote(data.getNote());
+        row.setSortOrder(data.getSortOrder());
+        row.setCreatedBy(actor);
+        insertCreated(row);
+        return Objects.requireNonNull(row.getId(), "数据库未返回部门编号");
+    }
 
     /**
      * 按当前对象版本原子更新业务资料并递增内容修订。
@@ -88,12 +106,12 @@ public interface DepartmentMapper extends BaseMapper<DepartmentPO> {
     int lifecycle(@Param("id") long id, @Param("lifecycle") String lifecycle, @Param("reason") String reason);
 
     /**
-     * 统计人员仍担任负责人的非归档部门，供归档前关联核对。
+     * 核对人员是否仍担任任一非归档部门的负责人。
      */
-    default int managedBy(long id) {
-        return Math.toIntExact(selectCount(Wrappers.<DepartmentPO>lambdaQuery()
+    default boolean hasManagedDepartment(long id) {
+        return exists(Wrappers.<DepartmentPO>lambdaQuery()
                 .eq(DepartmentPO::getManagerUserId, id)
-                .ne(DepartmentPO::getLifecycle, "ARCHIVED")));
+                .ne(DepartmentPO::getLifecycle, "ARCHIVED"));
     }
 
     /**

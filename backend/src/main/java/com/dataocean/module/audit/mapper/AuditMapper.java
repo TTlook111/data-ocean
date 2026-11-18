@@ -19,13 +19,24 @@ public interface AuditMapper extends BaseMapper<AuditPO> {
     /**
      * 核对本次命令与真实动作、目标是否已有对应成功审计。
      */
-    default long recorded(long actor, String command, String action, String target) {
-        return selectCount(Wrappers.<AuditPO>lambdaQuery()
+    default boolean recorded(long actor, String command, String action, String target) {
+        return exists(Wrappers.<AuditPO>lambdaQuery()
                 .eq(AuditPO::getActorUserId, actor)
                 .eq(AuditPO::getCommandId, command)
                 .eq(AuditPO::getActionCode, action)
                 .eq(AuditPO::getTargetId, target)
                 .eq(AuditPO::getOutcome, "SUCCESS"));
+    }
+
+    /**
+     * 仅回读指定人员的成功审计，历史目标标识按接口原值精确匹配。
+     */
+    default AuditPO successfulUserAction(long auditId, long userId) {
+        return selectOne(Wrappers.<AuditPO>lambdaQuery()
+                .eq(AuditPO::getId, auditId)
+                .apply("CAST(target_type AS BINARY) = {0}", "user")
+                .apply("CAST(target_id AS BINARY) = {0}", Long.toString(userId))
+                .apply("CAST(outcome AS BINARY) = {0}", "SUCCESS"));
     }
 
     /**

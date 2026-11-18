@@ -111,7 +111,10 @@ public class AssignmentServiceImpl implements AssignmentService {
             if (desired.contains(row.getDepartmentId()) && row.isPrimary() == (row.getDepartmentId() == primary)) {
                 unchanged.add(row.getDepartmentId());
             } else {
-                memberships.end(row.getId(), UserContext.getUser());
+                if (memberships.end(row.getId(), UserContext.getUser()) != 1) {
+                    // 原成员关系已变化，整次调整回滚并重新核对。
+                    throw BizIllegalException.conflict();
+                }
                 affected.add(row.getDepartmentId());
             }
         }
@@ -197,7 +200,10 @@ public class AssignmentServiceImpl implements AssignmentService {
         for (var row : roleAssignments.assignments(id)) {
             before.add(row.getRoleId());
             if (!after.contains(row.getRoleId())) {
-                roleAssignments.endAssignment(row.getId(), UserContext.getUser());
+                if (roleAssignments.endAssignment(row.getId(), UserContext.getUser()) != 1) {
+                    // 原角色分配已变化，终止本次替换。
+                    throw BizIllegalException.conflict();
+                }
             }
         }
         for (var ref : selected) {

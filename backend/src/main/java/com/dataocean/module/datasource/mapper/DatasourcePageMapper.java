@@ -1,8 +1,10 @@
 package com.dataocean.module.datasource.mapper;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.module.datasource.mapper.CatalogMapper.LostAccess;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -40,12 +42,29 @@ public interface DatasourcePageMapper {
             """;
 
     /**
-     * 当前 Schema 范围与已核实身份共同限定成功目录。
+     * 目录列表、成员和详情共用的观察投影，已核实身份优先。
      */
-    String CATALOG_FILTER =
+    String CATALOG_SELECTION =
+            """
+            SELECT o.id,o.snapshot_id,COALESCE(r.resolved_object_id,o.object_id) AS effective_object_id,
+              COALESCE(r.resolved_object_revision_id,o.object_revision_id) AS effective_revision_id,
+              o.identity_change_id,o.object_path_key,o.definition_digest,o.candidate_structure,s.committed_at
+            """;
+
+    /**
+     * 观察与其快照、已核实身份的共用关联。
+     */
+    String CATALOG_JOINS =
             """
             FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
             LEFT JOIN ds_change_review r ON r.change_id=o.identity_change_id AND r.resolved_object_id IS NOT NULL
+            """;
+
+    /**
+     * 当前 Schema 范围与已核实身份共同限定成功目录。
+     */
+    String CATALOG_FILTER = CATALOG_JOINS
+            + """
             WHERE s.source_id=#{source} AND s.id=#{snapshot} AND s.status='SUCCEEDED'
               AND (LOCATE(#{keyword},o.source_name)>0
                    OR LOCATE(#{keyword},COALESCE(JSON_UNQUOTE(JSON_EXTRACT(o.candidate_structure,'$.object.comment')),''))>0)
@@ -134,13 +153,7 @@ public interface DatasourcePageMapper {
     /**
      * 读取成功目录中的可披露观测，按限定名称和观察编号稳定排序。
      */
-    @Select(
-            """
-            SELECT o.id,o.snapshot_id,COALESCE(r.resolved_object_id,o.object_id) AS effective_object_id,
-              COALESCE(r.resolved_object_revision_id,o.object_revision_id) AS effective_revision_id,
-              o.identity_change_id,o.object_path_key,o.definition_digest,o.candidate_structure,s.committed_at
-            """
-                    + CATALOG_FILTER + "ORDER BY o.namespace,o.source_name,o.id")
+    @Select(CATALOG_SELECTION + CATALOG_FILTER + "ORDER BY o.namespace,o.source_name,o.id")
     Page<CatalogRow> catalogPage(
             Page<CatalogRow> page,
             @Param("source") long source,
@@ -161,6 +174,66 @@ public interface DatasourcePageMapper {
             @Param("keyword") String keyword,
             @Param("type") String type,
             @Param("state") String state);
+
+    /**
+     * 内部读取指定快照的完整成员，支持尚处于候选状态的快照。
+     */
+    @Select(CATALOG_SELECTION + CATALOG_JOINS + "WHERE s.id=#{snapshot} AND o.read_status='COMPLETE' ORDER BY o.id")
+    List<CatalogRow> catalogMembers(@Param("snapshot") long snapshot);
+
+    /**
+     * 仅在源和成功快照范围内查成员，按调用语义使用观察或稳定对象编号。
+     */
+    @Select(
+            "<script>" + CATALOG_SELECTION + CATALOG_JOINS
+                    + """
+            WHERE s.source_id=#{source} AND (#{snapshot} IS NULL OR s.id=#{snapshot}) AND s.status='SUCCEEDED'
+            <choose>
+              <when test="observed">AND o.id=#{object}</when>
+              <otherwise>AND COALESCE(r.resolved_object_id,o.object_id)=#{object}</otherwise>
+            </choose>
+            AND (#{useCurrentScope}=0 OR o.namespace='' OR EXISTS
+                (SELECT 1 FROM ds_connection_schema c WHERE c.connection_revision_id=#{configuration}
+                  AND BINARY c.schema_name=BINARY o.namespace))
+            LIMIT 1
+            </script>
+            """)
+    CatalogRow catalogObject(
+            @Param("source") long source,
+            @Param("snapshot") Long snapshot,
+            @Param("object") long object,
+            @Param("configuration") long configuration,
+            @Param("useCurrentScope") boolean useCurrentScope,
+            @Param("observed") boolean observed);
+
+    /**
+     * 只在指定源的成功快照中定位待核实变化的观察编号。
+     */
+    @Select(
+            """
+            SELECT o.id FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
+            WHERE s.source_id=#{source} AND s.id=#{snapshot} AND s.status='SUCCEEDED'
+                AND o.identity_change_id=#{change} LIMIT 1
+            """)
+    Long currentIdentityObservation(
+            @Param("source") long source, @Param("snapshot") long snapshot, @Param("change") long change);
+
+    /**
+     * 读取同一可比较范围仍未证实删除的原访问丢失记录。
+     */
+    @Select(
+            """
+            SELECT c.id AS change_id,c.before_observation_id AS observation_id,c.fact_state,c.version FROM ds_change c
+            JOIN ds_snapshot p ON p.id=c.before_snapshot_id
+            JOIN ds_snapshot n ON n.id=#{candidate}
+                AND n.scope_key=p.scope_key AND n.comparison_contract_key=p.comparison_contract_key
+            WHERE c.source_id=#{source} AND c.change_type='ACCESS_LOST' AND c.before_observation_id IS NOT NULL
+              AND c.visibility_restored_snapshot_id IS NULL AND c.successor_change_id IS NULL
+              AND (c.fact_state='PENDING' OR EXISTS
+                (SELECT 1 FROM ds_change_review r WHERE r.change_id=c.id AND r.decision='STILL_EXISTS'))
+            ORDER BY c.id
+            """)
+    List<LostAccess> unresolvedAccess(@Param("source") long source, @Param("candidate") long candidate);
 
     /**
      * 读取结构变化记录，最新发现优先。

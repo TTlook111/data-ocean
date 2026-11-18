@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.module.datasource.entity.po.DatasourcePO;
 
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -12,6 +14,17 @@ import org.apache.ibatis.annotations.Update;
  * 执行数据源身份表的查询和更新。
  */
 public interface DatasourceRecordMapper extends BaseMapper<DatasourcePO> {
+
+    /**
+     * 建立数据源身份，用同一数据库时刻初始化创建和更新时间并回填主键。
+     */
+    @Insert(
+            """
+            INSERT INTO ds_source (name,name_key,lifecycle,created_by,created_at,updated_at)
+            VALUES (#{row.name},#{nameKey},#{row.lifecycle},#{actor},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "row.id")
+    int create(@Param("row") DatasourcePO row, @Param("nameKey") byte[] nameKey, @Param("actor") long actor);
 
     /**
      * 锁定来源当前行，使运行配置切换和采集任务接收串行化。
@@ -84,6 +97,21 @@ public interface DatasourceRecordMapper extends BaseMapper<DatasourcePO> {
                         .select(DatasourcePO::getCatalogVersion)
                         .eq(DatasourcePO::getId, source))
                 .getCatalogVersion();
+    }
+
+    /**
+     * 发布当前成功快照时同步更新目录版本、占位和数据源更新时间。
+     */
+    default int publishSnapshot(long source, long snapshot) {
+        return update(Wrappers.<DatasourcePO>lambdaUpdate()
+                .eq(DatasourcePO::getId, source)
+                .set(DatasourcePO::getCurrentSnapshotId, snapshot)
+                .setIncrBy(DatasourcePO::getCatalogVersion, 1)
+                .set(DatasourcePO::getActiveTaskId, null)
+                .set(DatasourcePO::getStaleSince, null)
+                .set(DatasourcePO::getStaleScopeKey, null)
+                .setSql("first_success_at=COALESCE(first_success_at,UTC_TIMESTAMP(3))")
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
     }
 
     /**

@@ -85,7 +85,7 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     # 构造方法自动映射按参数名匹配，避免依赖列的位置。
     arg-name-based-constructor-auto-mapping: true
-    # 平台事务内 JDBC 写入与 MyBatis 查询混用，每条语句重新读取当前事务状态。
+    # 平台事务内按语句读取当前数据库状态，避免复用会话级查询结果。
     local-cache-scope: STATEMENT
     # 关闭 MyBatis SQL 日志，避免记录业务数据及敏感参数。
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl

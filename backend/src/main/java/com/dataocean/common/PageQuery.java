@@ -81,53 +81,30 @@ public class PageQuery {
     }
 
     /**
-     * 安全计算页偏移，拒绝数值溢出。
-     */
-    public long from() {
-        try {
-            return Math.multiplyExact(getPageNum() - 1, getPageSize());
-        } catch (ArithmeticException error) {
-            throw BizIllegalException.invalid("分页偏移量超出允许范围");
-        }
-    }
-
-    /**
-     * 沿用现有分页类：前端分页参数生效，后端只兜底及保护，不限制为界面上的几个选项。
-     */
-    public <T> Page<T> toMpPage(OrderItem... orders) {
-        from();
-        Page<T> page = new Page<>(getPageNum(), getPageSize());
-        page.setOptimizeCountSql(false);
-        if (orders != null && orders.length > 0) {
-            page.addOrder(orders);
-        } else if (StrUtil.isNotBlank(sortBy)) {
-            String column = sortColumns().get(sortBy);
-            if (column == null) {
-                throw BizIllegalException.invalid("不支持的排序字段");
-            }
-            page.addOrder(new OrderItem().setColumn(column).setAsc(Boolean.TRUE.equals(isAsc)));
-        }
-        return page;
-    }
-
-    /**
-     * 复用分页参数、单页上限和白名单排序构造数据库分页对象。
+     * 根据排序白名单构建分页，实际偏移由插件在页码校正后计算。
      */
     public <T> Page<T> toMpPage(String defaultSortBy, boolean ascending) {
-        Page<T> page = toMpPage();
-        if (page.orders().isEmpty()) {
-            page.addOrder(new OrderItem().setColumn(defaultSortBy).setAsc(ascending));
+        OrderItem order = new OrderItem().setColumn(defaultSortBy).setAsc(ascending);
+        if (StrUtil.isNotBlank(sortBy)) {
+            // 外部排序名必须先解析为当前查询允许的列。
+            String column = sortColumns().get(sortBy);
+            if (column == null) {
+                // 无对应列时终止，避免将任意字段拼到 SQL 中。
+                throw BizIllegalException.invalid("不支持的排序字段");
+            }
+            order.setColumn(column).setAsc(Boolean.TRUE.equals(isAsc));
         }
+        Page<T> page = toFixedOrderMpPage(order);
+        page.setOptimizeCountSql(false);
         return page;
     }
 
     /**
-     * 根据已统计的总数定位最后一个可用页，供原本在越界时回到末页的列表使用。
+     * 创建采用服务端固定排序的分页对象，由插件计数后校正页码再计算偏移。
      */
-    public <T> Page<T> toLastAvailableMpPage(long total) {
-        long size = getPageSize();
-        long lastPage = total == 0 ? 1 : (total - 1) / size + 1;
-        Page<T> page = new Page<>(Math.min(getPageNum(), lastPage), size, total, false);
+    public <T> Page<T> toFixedOrderMpPage(OrderItem... orders) {
+        Page<T> page = new Page<>(getPageNum(), getPageSize());
+        page.addOrder(orders);
         return page;
     }
 

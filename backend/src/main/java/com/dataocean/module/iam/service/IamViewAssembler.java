@@ -1,11 +1,15 @@
 package com.dataocean.module.iam.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.dataocean.common.Ids;
+import com.dataocean.common.PageVO;
 import com.dataocean.common.TextSearch;
 import com.dataocean.common.Times;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.iam.entity.po.DepartmentPO;
+import com.dataocean.module.iam.entity.po.MembershipPO;
+import com.dataocean.module.iam.entity.po.RoleAssignmentPO;
 import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.DepartmentTreeQuery;
@@ -36,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -134,7 +139,13 @@ public class IamViewAssembler {
      * 组装人员标识、姓名、登录名和当前展示状态的安全引用。
      */
     public UserRefVO userRef(long id) {
-        var data = user(id);
+        return userRef(user(id));
+    }
+
+    /**
+     * 用已加载的人员记录组装安全引用。
+     */
+    private UserRefVO userRef(UserPO data) {
         return new UserRefVO(Ids.text(data.getId()), data.getUsername(), data.getDisplayName(), status(data));
     }
 
@@ -142,7 +153,13 @@ public class IamViewAssembler {
      * 组装不带数据授权含义的安全部门引用。
      */
     public DepartmentRefVO departmentRef(long id) {
-        var data = department(id);
+        return departmentRef(department(id));
+    }
+
+    /**
+     * 用已加载的部门记录组装安全引用。
+     */
+    private DepartmentRefVO departmentRef(DepartmentPO data) {
         return new DepartmentRefVO(Ids.text(data.getId()), data.getCode(), data.getName(), data.getLifecycle());
     }
 
@@ -150,14 +167,20 @@ public class IamViewAssembler {
      * 组装带当前修订及受保护标记的安全角色引用。
      */
     public RoleRefVO roleRef(long id) {
-        var data = role(id);
+        return roleRef(role(id), permissions.protectedRole(id));
+    }
+
+    /**
+     * 用已加载的角色和受保护标记组装安全引用。
+     */
+    private RoleRefVO roleRef(RolePO data, boolean protectedRole) {
         return new RoleRefVO(
                 Ids.text(data.getId()),
                 data.getCode(),
                 data.getName(),
                 data.getLifecycle(),
                 data.getVersion(),
-                permissions.protectedRole(id));
+                protectedRole);
     }
 
     /**
@@ -165,29 +188,136 @@ public class IamViewAssembler {
      */
     public UserAffiliationVO affiliation(UserPO data) {
         if (data.getLifecycle().equals("ARCHIVED")) {
+            // 归档人员显示归档前的关系快照。
             return json.read(data.getArchivedAffiliation(), UserAffiliationVO.class);
         }
-        var selected = memberships.forUser(data.getId());
-        DepartmentRefVO primary = selected.stream()
-                .filter(item -> item.isPrimary())
-                .findFirst()
-                .map(item -> departmentRef(item.getDepartmentId()))
-                .orElse(null);
-        var secondary = selected.stream()
-                .filter(item -> !item.isPrimary())
-                .map(item -> departmentRef(item.getDepartmentId()))
+
+        var selected = memberships.forUser(data.getId()).stream()
+                .map(item -> membershipRef(item, departmentRef(item.getDepartmentId())))
                 .toList();
         var roleRefs = roleAssignments.assignments(data.getId()).stream()
                 .map(item -> roleRef(item.getRoleId()))
+                .toList();
+        return affiliation(selected, roleRefs);
+    }
+
+    /**
+     * 将已加载的当前关系按主任、兼任和角色分组。
+     */
+    private UserAffiliationVO affiliation(List<MembershipRefVO> selected, List<RoleRefVO> roleRefs) {
+        DepartmentRefVO primary = selected.stream()
+                .filter(MembershipRefVO::isPrimary)
+                .findFirst()
+                .map(MembershipRefVO::getDepartment)
+                .orElse(null);
+        var secondary = selected.stream()
+                .filter(item -> !item.isPrimary())
+                .map(MembershipRefVO::getDepartment)
                 .toList();
         return new UserAffiliationVO(primary, secondary, roleRefs);
     }
 
     /**
+     * 先加载本页人员的全部关系，再按原分页顺序组装摘要。
+     */
+    public PageVO<UserRowVO> userRows(IPage<UserPO> page) {
+        var relations = userRelations(page.getRecords());
+        return PageVO.from(page, person -> userRow(person, affiliation(person, relations)));
+    }
+
+    /**
+     * 复用本页关系组装人员行，并保留命中当前部门范围的全部主兼任关系。
+     */
+    public PageVO<DepartmentMemberVO> departmentMembers(IPage<UserPO> page, List<Long> branch) {
+        var relations = userRelations(page.getRecords());
+        var selected = Set.copyOf(branch);
+        return PageVO.from(page, person -> {
+            // 返回其完整人员摘要，但单独标明本次部门搜索命中的关系。
+            var row = userRow(person, affiliation(person, relations));
+            var result = BeanUtil.copyProperties(row, DepartmentMemberVO.class);
+            result.setMatchingMemberships(relations.memberships().getOrDefault(person.getId(), List.of()).stream()
+                    .filter(item ->
+                            selected.contains(Ids.parse(item.getDepartment().getId())))
+                    .toList());
+            return result;
+        });
+    }
+
+    /**
+     * 批量加载本页人员的组织和角色关系，并一次解析关联的展示引用。
+     */
+    private UserRelations userRelations(List<UserPO> people) {
+        var userIds = people.stream().map(UserPO::getId).toList();
+
+        if (userIds.isEmpty()) {
+            // 空页无需访问任何关联表。
+            return new UserRelations(Map.of(), Map.of());
+        }
+
+        var selected = memberships.forUsers(userIds);
+        var departmentIds = selected.stream().map(MembershipPO::getDepartmentId).collect(Collectors.toSet());
+        var departmentRefs = departmentIds.isEmpty()
+                ? Map.<Long, DepartmentRefVO>of()
+                : departments.selectByIds(departmentIds).stream()
+                        .collect(Collectors.toMap(DepartmentPO::getId, this::departmentRef));
+
+        var assigned = roleAssignments.assignmentsForUsers(userIds);
+        var roleIds = assigned.stream().map(RoleAssignmentPO::getRoleId).collect(Collectors.toSet());
+        var protectedRoles = permissions.protectedRoles(roleIds);
+        var roleRefs = roleIds.isEmpty()
+                ? Map.<Long, RoleRefVO>of()
+                : roles.selectByIds(roleIds).stream()
+                        .collect(Collectors.toMap(
+                                RolePO::getId, role -> roleRef(role, protectedRoles.contains(role.getId()))));
+
+        // 按人员分组，保留 Mapper 返回的主兼任和角色顺序。
+        var membershipsByUser = selected.stream()
+                .collect(Collectors.groupingBy(
+                        MembershipPO::getUserId,
+                        Collectors.mapping(
+                                row -> membershipRef(row, departmentRefs.get(row.getDepartmentId())),
+                                Collectors.toList())));
+        var rolesByUser = assigned.stream()
+                .collect(Collectors.groupingBy(
+                        RoleAssignmentPO::getUserId,
+                        Collectors.mapping(row -> roleRefs.get(row.getRoleId()), Collectors.toList())));
+        return new UserRelations(membershipsByUser, rolesByUser);
+    }
+
+    /**
+     * 组装当前成员关系及用于展示的部门引用。
+     */
+    private MembershipRefVO membershipRef(MembershipPO row, DepartmentRefVO department) {
+        return new MembershipRefVO(
+                Ids.text(row.getId()), department, row.isPrimary(), Times.instant(row.getJoinedAt()));
+    }
+
+    /**
+     * 归档人员沿用历史快照，其余人员使用本页已加载的当前关系。
+     */
+    private UserAffiliationVO affiliation(UserPO data, UserRelations relations) {
+        if (data.getLifecycle().equals("ARCHIVED")) {
+            // 快照中的名称和角色修订保留归档时的值。
+            return json.read(data.getArchivedAffiliation(), UserAffiliationVO.class);
+        }
+
+        return affiliation(
+                relations.memberships().getOrDefault(data.getId(), List.of()),
+                relations.roles().getOrDefault(data.getId(), List.of()));
+    }
+
+    /**
+     * 一页人员当前关系的分组结果。
+     *
+     * @param memberships 按人员编号分组的当前主兼任关系
+     * @param roles 按人员编号分组的当前角色引用
+     */
+    private record UserRelations(Map<Long, List<MembershipRefVO>> memberships, Map<Long, List<RoleRefVO>> roles) {}
+
+    /**
      * 组装列表使用的当前或归档主兼任与角色摘要。
      */
-    public UserRowVO userRow(UserPO data) {
-        var affiliation = affiliation(data);
+    private UserRowVO userRow(UserPO data, UserAffiliationVO affiliation) {
         return new UserRowVO(
                 Ids.text(data.getId()),
                 data.getUsername(),
@@ -204,7 +334,7 @@ public class IamViewAssembler {
      * 组装人员详情及必要状态时间，归档归属从当时快照读取。
      */
     public UserDetailVO userDetail(UserPO data) {
-        UserDetailVO result = BeanUtil.copyProperties(userRow(data), UserDetailVO.class);
+        UserDetailVO result = BeanUtil.copyProperties(userRow(data, affiliation(data)), UserDetailVO.class);
         result.setLifecycle(data.getLifecycle());
         result.setMustChangePassword(data.isMustChangePassword());
         result.setPhone(data.getPhone());
@@ -248,6 +378,36 @@ public class IamViewAssembler {
      * 组装角色状态、实际成员数量及当前修订的列表视图。
      */
     public RoleRowVO roleRow(RolePO data) {
+        return roleRow(data, permissions.protectedRole(data.getId()), roleAssignments.memberCount(data.getId()));
+    }
+
+    /**
+     * 批量读取本页角色的受保护标记及统计，保留数据库分页顺序。
+     */
+    public PageVO<RoleRowVO> roleRows(IPage<RolePO> page) {
+        var ids = page.getRecords().stream().map(RolePO::getId).toList();
+
+        if (ids.isEmpty()) {
+            // 空页直接沿用数据库分页元数据。
+            return PageVO.from(page, this::roleRow);
+        }
+
+        var protectedRoles = permissions.protectedRoles(ids);
+        var memberCounts = roleAssignments.memberCounts(ids).stream()
+                .collect(Collectors.toMap(
+                        RoleAssignmentMapper.MemberCount::roleId, RoleAssignmentMapper.MemberCount::memberCount));
+        return PageVO.from(
+                page,
+                role -> roleRow(
+                        role,
+                        protectedRoles.contains(role.getId()),
+                        Math.toIntExact(memberCounts.getOrDefault(role.getId(), 0L))));
+    }
+
+    /**
+     * 用已加载的辅助字段组装角色列表行。
+     */
+    private RoleRowVO roleRow(RolePO data, boolean protectedRole, int memberCount) {
         return new RoleRowVO(
                 Ids.text(data.getId()),
                 data.getCode(),
@@ -255,8 +415,8 @@ public class IamViewAssembler {
                 data.getDescription(),
                 data.getLifecycle(),
                 data.isBuiltin(),
-                permissions.protectedRole(data.getId()),
-                roleAssignments.memberCount(data.getId()),
+                protectedRole,
+                memberCount,
                 data.getVersion(),
                 Times.instant(data.getUpdatedAt()));
     }
@@ -275,17 +435,24 @@ public class IamViewAssembler {
      */
     public List<Long> branch(long id, boolean descendants) {
         department(id);
+        return descendants ? branch(id, departments.all()) : List.of(id);
+    }
+
+    /**
+     * 从同一批部门记录找出指定部门及其完整后代。
+     */
+    private List<Long> branch(long id, List<DepartmentPO> all) {
         Set<Long> selected = new HashSet<>();
         selected.add(id);
-        if (descendants) {
-            List<DepartmentPO> all = departments.all();
-            boolean changed = true;
-            while (changed) {
-                changed = false;
-                for (var item : all) {
-                    if (item.getParentId() != null && selected.contains(item.getParentId())) {
-                        changed |= selected.add(item.getId());
-                    }
+        boolean changed = true;
+        while (changed) {
+            // 逐层纳入后代，直到当前范围不再扩大。
+            changed = false;
+            for (var item : all) {
+                // 父部门已经命中时纳入这个部门。
+                if (item.getParentId() != null && selected.contains(item.getParentId())) {
+                    // 只有新增部门才需要继续扫描后续层级。
+                    changed |= selected.add(item.getId());
                 }
             }
         }
@@ -296,11 +463,9 @@ public class IamViewAssembler {
      * 按稳定人员标识合并指定部门范围成员并去重。
      */
     public Set<Long> memberIds(List<Long> branch) {
-        Set<Long> ids = new HashSet<>();
-        for (long id : branch) {
-            memberships.forDepartment(id).forEach(item -> ids.add(item.getUserId()));
-        }
-        return ids;
+        return memberships.forDepartments(branch).stream()
+                .map(MembershipPO::getUserId)
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -308,42 +473,88 @@ public class IamViewAssembler {
      */
     public DepartmentDetailVO departmentDetail(DepartmentPO data) {
         var all = branch(data.getId(), true);
-        int direct = memberIds(List.of(data.getId())).size();
-        int descendants = memberIds(
-                        all.stream().filter(id -> !id.equals(data.getId())).toList())
-                .size();
-        var result = new DepartmentDetailVO(
+        var parent = data.getParentId() == null ? null : departmentRef(data.getParentId());
+        var manager = data.getManagerUserId() == null ? null : userRef(data.getManagerUserId());
+        return departmentDetail(data, parent, manager, all, membersByDepartment(Set.copyOf(all)));
+    }
+
+    /**
+     * 用一次层级读取和一批关系查询组装子部门分页统计与负责人引用。
+     */
+    public PageVO<DepartmentDetailVO> departmentDetails(IPage<DepartmentPO> page) {
+        var records = page.getRecords();
+        if (records.isEmpty()) {
+            // 没有当前页部门时无需读取层级和成员。
+            return PageVO.from(page, this::departmentDetail);
+        }
+
+        var nodes = departments.all();
+        var nodesById = nodes.stream().collect(Collectors.toMap(DepartmentPO::getId, this::departmentRef));
+        var branches =
+                records.stream().collect(Collectors.toMap(DepartmentPO::getId, data -> branch(data.getId(), nodes)));
+        var scope = branches.values().stream().flatMap(List::stream).collect(Collectors.toSet());
+        var members = membersByDepartment(scope);
+
+        var managerIds = records.stream()
+                .map(DepartmentPO::getManagerUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        var managers = managerIds.isEmpty()
+                ? Map.<Long, UserRefVO>of()
+                : users.selectByIds(managerIds).stream().collect(Collectors.toMap(UserPO::getId, this::userRef));
+
+        return PageVO.from(
+                page,
+                data -> departmentDetail(
+                        data,
+                        data.getParentId() == null ? null : nodesById.get(data.getParentId()),
+                        data.getManagerUserId() == null ? null : managers.get(data.getManagerUserId()),
+                        branches.get(data.getId()),
+                        members));
+    }
+
+    /**
+     * 将当前任职关系按部门聚合为去重人员编号。
+     */
+    private Map<Long, Set<Long>> membersByDepartment(Set<Long> scope) {
+        return memberships.forDepartments(scope).stream()
+                .collect(Collectors.groupingBy(
+                        MembershipPO::getDepartmentId,
+                        Collectors.mapping(MembershipPO::getUserId, Collectors.toSet())));
+    }
+
+    /**
+     * 分别统计本部门、后代及二者合并范围内的去重人数。
+     */
+    private DepartmentDetailVO departmentDetail(
+            DepartmentPO data,
+            DepartmentRefVO parent,
+            UserRefVO manager,
+            List<Long> branch,
+            Map<Long, Set<Long>> members) {
+        var direct = members.getOrDefault(data.getId(), Set.of());
+        var descendants = branch.stream()
+                .filter(id -> !id.equals(data.getId()))
+                .flatMap(id -> members.getOrDefault(id, Set.of()).stream())
+                .collect(Collectors.toSet());
+
+        int descendantCount = descendants.size();
+        descendants.addAll(direct);
+        return new DepartmentDetailVO(
                 Ids.text(data.getId()),
                 data.getCode(),
                 data.getName(),
-                data.getParentId() == null ? null : departmentRef(data.getParentId()),
-                data.getManagerUserId() == null ? null : userRef(data.getManagerUserId()),
+                parent,
+                manager,
                 data.getNote(),
                 data.getSortOrder(),
                 data.getLifecycle(),
                 data.getVersion(),
-                direct,
-                descendants,
-                memberIds(all).size(),
+                direct.size(),
+                descendantCount,
+                descendants.size(),
                 data.isAccessReviewRequired(),
                 Times.instant(data.getUpdatedAt()));
-        return result;
-    }
-
-    /**
-     * 为去重人员保留本次部门范围实际命中的全部主兼任关系。
-     */
-    public DepartmentMemberVO departmentMember(UserPO data, List<Long> branch) {
-        DepartmentMemberVO result = BeanUtil.copyProperties(userRow(data), DepartmentMemberVO.class);
-        result.setMatchingMemberships(memberships.forUser(data.getId()).stream()
-                .filter(item -> branch.contains(item.getDepartmentId()))
-                .map(item -> new MembershipRefVO(
-                        Ids.text(item.getId()),
-                        departmentRef(item.getDepartmentId()),
-                        item.isPrimary(),
-                        Times.instant(item.getJoinedAt())))
-                .toList());
-        return result;
     }
 
     /**

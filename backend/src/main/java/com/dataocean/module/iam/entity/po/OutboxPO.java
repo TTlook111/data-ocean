@@ -1,5 +1,9 @@
 package com.dataocean.module.iam.entity.po;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.time.LocalDateTime;
 
 import lombok.AllArgsConstructor;
@@ -12,11 +16,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("sys_outbox")
 public final class OutboxPO {
 
     /**
      * 可靠事件的全局标识，消费者据此防重。
      */
+    @TableId(type = IdType.INPUT)
     private String eventId;
 
     /**

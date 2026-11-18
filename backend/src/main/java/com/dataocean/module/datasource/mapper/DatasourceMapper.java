@@ -6,15 +6,16 @@ import com.dataocean.module.datasource.entity.dto.SourceConfigurationDTO;
 import com.dataocean.module.datasource.entity.po.CapabilityCheckPO;
 import com.dataocean.module.datasource.entity.po.DatasourceCredentialPO;
 import com.dataocean.module.datasource.entity.po.DatasourcePO;
+import com.dataocean.module.datasource.mapper.DatasourceConfigurationMapper.RevisionData;
+import com.dataocean.module.datasource.mapper.DatasourceConfigurationMapper.RevisionSchema;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.Statement;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Repository;
 
 import lombok.RequiredArgsConstructor;
@@ -27,9 +28,9 @@ import lombok.RequiredArgsConstructor;
 public class DatasourceMapper {
 
     /**
-     * DataOcean 平台库的 JDBC 接口，业务源连接独立建立。
+     * 保存和回读连接配置修订及其 Schema。
      */
-    private final JdbcTemplate sql;
+    private final DatasourceConfigurationMapper configurations;
 
     /**
      * 数据源身份与配置指针的单表访问。
@@ -120,92 +121,89 @@ public class DatasourceMapper {
      * 读取固定配置的明确字段，当前账户秘密由专用凭据查询取得。
      */
     public RevisionRow revision(long source, long revision) {
-        List<String> schemas = sql.queryForList(
-                """
-                SELECT x.schema_name FROM ds_connection_schema x JOIN ds_connection_revision r ON r.id=x.connection_revision_id
-                WHERE r.source_id=? AND r.id=? ORDER BY x.ordinal
-                """,
-                String.class,
-                source,
-                revision);
-        return sql
-                .query(
-                        """
-                SELECT r.*,s.name AS source_label FROM ds_connection_revision r JOIN ds_source s ON s.id=r.source_id
-                WHERE r.source_id=? AND r.id=?
-                """,
-                        (row, index) -> {
-                            // 连接、Schema 与运行参数均来自同一修订。
-                            var configuration = new SourceConfigurationDTO();
-                            configuration.setName(row.getString("source_label"));
-                            configuration.setDatabaseType(row.getString("database_type"));
-                            configuration.setHost(row.getString("host"));
-                            configuration.setPort(row.getObject("port", Integer.class));
-                            configuration.setDatabaseName(row.getString("database_name"));
-                            configuration.setAccount(row.getString("account"));
-                            configuration.setPurpose(row.getString("purpose"));
-                            configuration.setTechnicalContactId(row.getString("technical_contact_id"));
-                            configuration.setBusinessContactId(row.getString("business_contact_id"));
-                            configuration.setSchemas(schemas);
-                            var runtime = new RuntimePolicyDTO();
-                            runtime.setMaxConnections(row.getInt("max_connections"));
-                            runtime.setCollectionConcurrency(row.getInt("collection_concurrency"));
-                            runtime.setRetryLimit(row.getInt("retry_limit"));
-                            runtime.setTaskTimeoutSeconds(row.getInt("task_timeout_seconds"));
-                            runtime.setQueryTimeoutSeconds(row.getInt("query_timeout_seconds"));
-                            runtime.setRowLimit(row.getInt("row_limit"));
-                            runtime.setSyncHours(row.getInt("sync_hours"));
-                            runtime.setWindowStart(LocalTime.ofSecondOfDay(row.getInt("window_start_minute") * 60L)
-                                    .toString());
-                            runtime.setWindowEnd(LocalTime.ofSecondOfDay(row.getInt("window_end_minute") * 60L)
-                                    .toString());
-                            return new RevisionRow(
-                                    row.getLong("id"),
-                                    row.getInt("revision"),
-                                    row.getObject("credential_revision_id", Long.class),
-                                    configuration,
-                                    runtime,
-                                    row.getBytes("scope_key"));
-                        },
-                        source,
-                        revision)
-                .stream()
-                .findFirst()
-                .orElse(null);
+        var schemas = configurations.schemas(source, revision);
+        var row = configurations.revision(source, revision);
+        if (row == null) {
+            // 指定的配置修订可能不属于该来源，按原约定返回空结果。
+            return null;
+        }
+
+        return revision(row, schemas);
+    }
+
+    /**
+     * 读取同一来源下本页任务引用的不可变配置及各自的 Schema。
+     */
+    public Map<Long, RevisionRow> revisions(long source, List<Long> ids) {
+        if (ids.isEmpty()) {
+            // 空页无需读取历史配置。
+            return Map.of();
+        }
+
+        var schemas = configurations.revisionSchemas(source, ids).stream()
+                .collect(Collectors.groupingBy(
+                        RevisionSchema::revisionId,
+                        Collectors.mapping(RevisionSchema::schemaName, Collectors.toList())));
+        return configurations.revisions(source, ids).stream()
+                .collect(Collectors.toMap(
+                        RevisionData::getId, data -> revision(data, schemas.getOrDefault(data.getId(), List.of()))));
+    }
+
+    /**
+     * 由连接修订字段和已加载的 Schema 组装内部配置。
+     */
+    private RevisionRow revision(RevisionData row, List<String> schemas) {
+        // 源连接参数和调度限制都来自同一持久化修订。
+        var configuration = new SourceConfigurationDTO();
+        configuration.setName(row.getSourceLabel());
+        configuration.setDatabaseType(row.getDatabaseType());
+        configuration.setHost(row.getHost());
+        configuration.setPort(row.getPort());
+        configuration.setDatabaseName(row.getDatabaseName());
+        configuration.setAccount(row.getAccount());
+        configuration.setPurpose(row.getPurpose());
+        configuration.setTechnicalContactId(row.getTechnicalContactId());
+        configuration.setBusinessContactId(row.getBusinessContactId());
+        configuration.setSchemas(schemas);
+
+        var runtime = new RuntimePolicyDTO();
+        runtime.setMaxConnections(row.getMaxConnections());
+        runtime.setCollectionConcurrency(row.getCollectionConcurrency());
+        runtime.setRetryLimit(row.getRetryLimit());
+        runtime.setTaskTimeoutSeconds(row.getTaskTimeoutSeconds());
+        runtime.setQueryTimeoutSeconds(row.getQueryTimeoutSeconds());
+        runtime.setRowLimit(row.getRowLimit());
+        runtime.setSyncHours(row.getSyncHours());
+        runtime.setWindowStart(
+                LocalTime.ofSecondOfDay(row.getWindowStartMinute() * 60L).toString());
+        runtime.setWindowEnd(
+                LocalTime.ofSecondOfDay(row.getWindowEndMinute() * 60L).toString());
+        return new RevisionRow(
+                row.getId(),
+                row.getRevision(),
+                row.getCredentialRevisionId(),
+                configuration,
+                runtime,
+                row.getScopeKey());
     }
 
     /**
      * 取得指定源、指定配置的已加密运行凭据。
      */
     public CredentialRow credential(long id, long revision) {
-        return sql
-                .query(
-                        """
-                        SELECT c.key_version,c.ciphertext FROM ds_connection_revision r
-                        JOIN ds_credential_revision c ON c.id=r.credential_revision_id AND c.source_id=r.source_id
-                        WHERE r.source_id=? AND r.id=?
-                        """,
-                        (row, index) -> new CredentialRow(row.getString(1), row.getBytes(2)),
-                        id,
-                        revision)
-                .stream()
-                .findFirst()
-                .orElse(null);
+        return credentials.forConfiguration(id, revision);
     }
 
     /**
      * 写入新数据源身份，配置指针由同一事务在创建修订后补齐。
      */
     public long insertSource(String name, byte[] nameKey, String lifecycle, long actor) {
-        return insert(
-                """
-                INSERT INTO ds_source (name,name_key,lifecycle,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
-                """,
-                name,
-                nameKey,
-                lifecycle,
-                actor);
+        // 配置修订需要使用数据库生成的数据源编号，缺少主键时终止本次创建事务。
+        var source = new DatasourcePO();
+        source.setName(name);
+        source.setLifecycle(lifecycle);
+        records.create(source, nameKey, actor);
+        return Objects.requireNonNull(source.getId(), "数据库未返回数据源编号");
     }
 
     /**
@@ -232,47 +230,38 @@ public class DatasourceMapper {
             SourceConfigurationDTO config,
             RuntimePolicyDTO limits,
             byte[] scopeKey) {
-        long configurationId = insert(
-                """
-                INSERT INTO ds_connection_revision (source_id,revision,database_type,host,port,database_name,account,
-                    credential_revision_id,purpose,technical_contact_id,business_contact_id,max_connections,collection_concurrency,
-                    retry_limit,task_timeout_seconds,query_timeout_seconds,row_limit,sync_hours,window_start_minute,
-                    window_end_minute,scope_key,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))
-                """,
-                id,
-                revision,
-                config.getDatabaseType(),
-                config.getHost(),
-                config.getPort(),
-                config.getDatabaseName(),
-                config.getAccount(),
-                credential,
-                config.getPurpose(),
-                config.getTechnicalContactId(),
-                config.getBusinessContactId(),
-                limits.getMaxConnections(),
-                limits.getCollectionConcurrency(),
-                limits.getRetryLimit(),
-                limits.getTaskTimeoutSeconds(),
-                limits.getQueryTimeoutSeconds(),
-                limits.getRowLimit(),
-                limits.getSyncHours(),
-                LocalTime.parse(limits.getWindowStart()).toSecondOfDay() / 60,
-                LocalTime.parse(limits.getWindowEnd()).toSecondOfDay() / 60,
-                scopeKey,
-                actor);
+        // 按配置修订表绑定参数，运行窗口按距当日零点的分钟保存。
+        var row = new DatasourceConfigurationMapper.RevisionData();
+        row.setSourceId(id);
+        row.setRevision(revision);
+        row.setDatabaseType(config.getDatabaseType());
+        row.setHost(config.getHost());
+        row.setPort(config.getPort());
+        row.setDatabaseName(config.getDatabaseName());
+        row.setAccount(config.getAccount());
+        row.setCredentialRevisionId(credential);
+        row.setPurpose(config.getPurpose());
+        row.setTechnicalContactId(config.getTechnicalContactId());
+        row.setBusinessContactId(config.getBusinessContactId());
+        row.setMaxConnections(limits.getMaxConnections());
+        row.setCollectionConcurrency(limits.getCollectionConcurrency());
+        row.setRetryLimit(limits.getRetryLimit());
+        row.setTaskTimeoutSeconds(limits.getTaskTimeoutSeconds());
+        row.setQueryTimeoutSeconds(limits.getQueryTimeoutSeconds());
+        row.setRowLimit(limits.getRowLimit());
+        row.setSyncHours(limits.getSyncHours());
+        row.setWindowStartMinute(LocalTime.parse(limits.getWindowStart()).toSecondOfDay() / 60);
+        row.setWindowEndMinute(LocalTime.parse(limits.getWindowEnd()).toSecondOfDay() / 60);
+        row.setScopeKey(scopeKey);
+        row.setCreatedBy(actor);
+        configurations.create(row);
+        long configurationId = Objects.requireNonNull(row.getId(), "数据库未返回配置修订编号");
 
         List<String> schemas = config.getSchemas();
         for (int index = 0; index < schemas.size(); index++) {
-            // Schema 的原始名称作为来源身份，显示顺序不进入采集范围摘要。
+            // 原始 Schema 名作为来源身份，显示顺序不进入采集范围摘要。
             String schema = schemas.get(index);
-            sql.update(
-                    "INSERT INTO ds_connection_schema VALUES (?,?,?,?)",
-                    configurationId,
-                    schema,
-                    schema.getBytes(StandardCharsets.UTF_8),
-                    index + 1);
+            configurations.addSchema(configurationId, schema, schema.getBytes(StandardCharsets.UTF_8), index + 1);
         }
         return configurationId;
     }
@@ -303,14 +292,11 @@ public class DatasourceMapper {
             String results,
             String safety,
             String business) {
-        return insert(
-                """
-                INSERT INTO ds_capability_check (source_id,actor_id,base_version,connection_fingerprint,credential_fingerprint,
-                    fingerprint_key_version,adapter_version,policy_version,detected_version,verified_scope,coverage,results,
-                    read_only_safety,business_read_status,checked_at,expires_at)
-                VALUES (?,?,?,?,?,'1',?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)+INTERVAL 5 MINUTE)
-                """,
-                source,
+        // 持久层生成检查编号，命令回执使用同一条插入返回的主键。
+        var row = new CapabilityCheckPO();
+        row.setSourceId(source);
+        checks.create(
+                row,
                 actor,
                 version,
                 connection,
@@ -323,37 +309,14 @@ public class DatasourceMapper {
                 results,
                 safety,
                 business);
+        return Objects.requireNonNull(row.getId(), "数据库未返回连接检查编号");
     }
 
     /**
      * 在平台数据库时间内判断测试是否过期。
      */
     public CheckRow check(long id) {
-        return sql
-                .query(
-                        """
-                        SELECT *, expires_at>UTC_TIMESTAMP(3) AS valid,
-                               DATE_FORMAT(checked_at,'%Y-%m-%dT%H:%i:%s.%fZ') AS created_text,
-                               DATE_FORMAT(expires_at,'%Y-%m-%dT%H:%i:%s.%fZ') AS expires_text
-                        FROM ds_capability_check WHERE id=?
-                        """,
-                        (row, index) -> new CheckRow(
-                                row.getLong("id"),
-                                row.getLong("actor_id"),
-                                row.getObject("source_id", Long.class),
-                                row.getObject("base_version", Integer.class),
-                                row.getBytes("connection_fingerprint"),
-                                row.getBytes("credential_fingerprint"),
-                                row.getString("adapter_version"),
-                                row.getString("policy_version"),
-                                row.getString("created_text"),
-                                row.getString("expires_text"),
-                                row.getBoolean("valid"),
-                                row.getString("results")),
-                        id)
-                .stream()
-                .findFirst()
-                .orElse(null);
+        return checks.evidence(id);
     }
 
     /**
@@ -365,23 +328,5 @@ public class DatasourceMapper {
                         .isNull(CapabilityCheckPO::getSourceId)
                         .set(CapabilityCheckPO::getSourceId, source))
                 == 1;
-    }
-
-    /**
-     * 插入一条有自增编号的记录并取得平台数据库返回的主键。
-     */
-    private long insert(String statement, Object... parameters) {
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
-        sql.update(
-                connection -> {
-                    // 参数值以 JDBC 绑定，不将源库连接资料拼入平台 SQL。
-                    var prepared = connection.prepareStatement(statement, Statement.RETURN_GENERATED_KEYS);
-                    for (int index = 0; index < parameters.length; index++) {
-                        prepared.setObject(index + 1, parameters[index]);
-                    }
-                    return prepared;
-                },
-                key);
-        return Objects.requireNonNull(key.getKey()).longValue();
     }
 }

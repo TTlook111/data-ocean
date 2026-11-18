@@ -151,7 +151,11 @@ public class AuthServiceImpl implements AuthService {
                     || latest.getCredentialRevision() != credential.getCredentialRevision()) {
                 throw new BizIllegalException(ErrorCode.AUTH_INVALID_CREDENTIALS, "登录名或密码不正确");
             }
-            users.firstLogin(current.getId(), current.getAuthenticationVersion());
+            if (current.getFirstLoginAt() == null
+                    && users.firstLogin(current.getId(), current.getAuthenticationVersion()) != 1) {
+                // 首次登录须成功登记，认证修订不匹配时拒绝建立会话。
+                throw new BizIllegalException(ErrorCode.AUTH_INVALID_CREDENTIALS, "登录名或密码不正确");
+            }
             return new IamPrincipal(
                     current.getId(),
                     current.getAuthenticationVersion(),

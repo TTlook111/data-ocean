@@ -7,6 +7,7 @@ import com.dataocean.module.iam.entity.dto.AuthenticationInvalidatedDTO;
 import com.dataocean.module.iam.entity.po.OutboxPO;
 import com.dataocean.module.iam.mapper.OutboxMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,13 +77,17 @@ public class OutboxDispatcher {
             List<OutboxPO> pending = transactions.execute(status -> {
                 // 选取到期记录和设置租约在同一短事务内完成。
                 var rows = outbox.pending();
+                var claimed = new ArrayList<OutboxPO>(rows.size());
                 for (var row : rows) {
                     // 每次接管使用新令牌，旧持有者不能确认本次租约。
                     String lease = UUID.randomUUID().toString();
-                    outbox.claim(row.getEventId(), lease);
-                    row.setLeaseToken(lease);
+                    if (outbox.claim(row.getEventId(), lease) == 1) {
+                        // 只在实际取得租约后派发该事件。
+                        row.setLeaseToken(lease);
+                        claimed.add(row);
+                    }
                 }
-                return rows;
+                return claimed;
             });
             for (var event : pending) {
                 // 网络调用在领取事务外执行，每条失败独立登记重试。
@@ -101,7 +106,7 @@ public class OutboxDispatcher {
         try {
             // 本地会话消费者先执行幂等失效，权威认证版本独立阻断旧会话。
             if (event.getEventType().equals("iam.authentication.invalidated")
-                    && outbox.received(event.getEventId(), "SESSION_INVALIDATION") == 0) {
+                    && !outbox.hasReceipt(event.getEventId(), "SESSION_INVALIDATION")) {
                 var payload = json.read(event.getPayload(), AuthenticationInvalidatedDTO.class);
                 sessions.findByPrincipalName(payload.getUserId()).values().forEach(session -> {
                     // 延迟或重投事件只结束旧版本会话，不能删除改密后新建立的登录。
@@ -130,17 +135,21 @@ public class OutboxDispatcher {
                 // 旧进程迟到时不能确认已经转交的新租约。
                 if (outbox.delivered(event.getEventId(), event.getLeaseToken()) == 1
                         && event.getEventType().equals("iam.authentication.invalidated")
-                        && outbox.received(event.getEventId(), "SESSION_INVALIDATION") == 0) {
+                        && !outbox.hasReceipt(event.getEventId(), "SESSION_INVALIDATION")) {
                     outbox.receipt(event.getEventId(), "SESSION_INVALIDATION");
                 }
             });
         } catch (DataAccessException error) {
             // 已发布但确认失败允许重投，消费者依 eventId 去重。
-            transactions.executeWithoutResult(status -> outbox.retry(event.getEventId(), event.getLeaseToken()));
-            log.warn(
-                    "事件派发等待重试，eventId={}, errorType={}",
-                    event.getEventId(),
-                    error.getClass().getSimpleName());
+            var rescheduled =
+                    transactions.execute(status -> outbox.retry(event.getEventId(), event.getLeaseToken()) == 1);
+            if (Boolean.TRUE.equals(rescheduled)) {
+                // 只有当前持有者登记成功时才记录已安排重试。
+                log.warn(
+                        "事件派发等待重试，eventId={}, errorType={}",
+                        event.getEventId(),
+                        error.getClass().getSimpleName());
+            }
         }
     }
 }

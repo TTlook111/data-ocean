@@ -62,6 +62,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
@@ -138,13 +139,13 @@ public class RoleServiceImpl implements RoleService {
      * 在同一读取边界内统计并分页返回角色。
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<RoleRowVO> list(RoleQuery query) {
         guard.shared();
         permissions.require("roles.view");
         Page<RolePO> page = query.toMpPage("updated_at", false);
         page.addOrder(OrderItem.desc("id"));
-        return PageVO.from(roles.page(page, query), views::roleRow);
+        return views.roleRows(roles.page(page, query));
     }
 
     /**
@@ -162,14 +163,14 @@ public class RoleServiceImpl implements RoleService {
      * 当前分配按人员分页，停用人员不会被误作已移出。
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageVO<UserRowVO> members(String id, PersonQuery query) {
         guard.shared();
         permissions.require("roles.view");
         views.role(Ids.parse(id));
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
         page.addOrder(OrderItem.desc("u.id"));
-        return PageVO.from(users.page(page, query, null, Ids.parse(id)), views::userRow);
+        return views.userRows(users.page(page, query, null, Ids.parse(id)));
     }
 
     /**
@@ -202,13 +203,12 @@ public class RoleServiceImpl implements RoleService {
             validateProfile(null, profile, "roles.create", false);
             reviews.verify("CREATE", null, null, data, data.getReviewToken());
             profile.setName(profile.getName().trim());
-            roles.insert(
+            long id = roles.create(
                     profile,
                     "role-" + UUID.randomUUID(),
                     TextSearch.key(profile.getName()),
                     false,
                     UserContext.getUser());
-            long id = guard.lastId();
             profile.getPermissionCodes().forEach(code -> roles.addPermission(id, code, UserContext.getUser()));
             snapshot(id);
             audit(id, "roles.create", null, profileChanges(null, profile), command);

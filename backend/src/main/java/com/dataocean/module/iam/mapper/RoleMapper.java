@@ -9,9 +9,11 @@ import com.dataocean.module.iam.entity.po.RoleSnapshotPO;
 import com.dataocean.module.iam.entity.query.RoleQuery;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -67,16 +69,30 @@ public interface RoleMapper extends BaseMapper<RolePO> {
     List<String> grantable(long id);
 
     /**
-     * 在所属业务事务内保存明确类型记录。
+     * 使用数据库时钟创建角色，并回填数据库生成的编号。
      */
     @Insert(
-            "INSERT INTO iam_role(code,name,name_key,description,is_builtin,created_by,created_at,updated_at) VALUES(#{code},#{d.name},#{key},#{d.description},#{builtin},#{actor},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
-    int insert(
-            @Param("d") RoleProfileDTO data,
-            @Param("code") String code,
-            @Param("key") String key,
-            @Param("builtin") boolean builtin,
-            @Param("actor") Long actor);
+            """
+            INSERT INTO iam_role(code,name,name_key,description,is_builtin,created_by,created_at,updated_at)
+            VALUES(#{code},#{name},#{nameKey},#{description},#{builtin},#{createdBy},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertCreated(RolePO row);
+
+    /**
+     * 创建角色资料，返回同一条插入的主键供权限和快照写入使用。
+     */
+    default long create(RoleProfileDTO data, String code, String key, boolean builtin, Long actor) {
+        var row = new RolePO();
+        row.setCode(code);
+        row.setName(data.getName());
+        row.setNameKey(key);
+        row.setDescription(data.getDescription());
+        row.setBuiltin(builtin);
+        row.setCreatedBy(actor);
+        insertCreated(row);
+        return Objects.requireNonNull(row.getId(), "数据库未返回角色编号");
+    }
 
     /**
      * 按当前对象版本原子更新业务资料并递增内容修订。
