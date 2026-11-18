@@ -1,8 +1,9 @@
 package com.dataocean.module.iam.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
-import com.dataocean.module.iam.entity.po.RoleAssignmentPO;
 import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.entity.po.RoleSnapshotPO;
 import com.dataocean.module.iam.entity.query.RoleQuery;
@@ -18,26 +19,28 @@ import org.apache.ibatis.annotations.Update;
 /**
  * 角色与授予的持久化适配，业务状态和权限由所属服务核验。
  */
-public interface RoleMapper {
+public interface RoleMapper extends BaseMapper<RolePO> {
 
     /**
      * 在数据库中使用同一过滤范围完成排序、统计及分页。
      */
-    @Select(
-            "<script>SELECT r.* FROM iam_role r <where><foreach collection='q.nameTerms' item='term'>AND r.name_key LIKE #{term} ESCAPE '!'</foreach><if test='q.lifecycle != null and q.lifecycle != &quot;&quot;'> AND r.lifecycle=#{q.lifecycle}</if></where></script>")
-    Page<RolePO> page(Page<RolePO> page, @Param("q") RoleQuery query);
+    default Page<RolePO> page(Page<RolePO> page, RoleQuery query) {
+        String lifecycle = query.getLifecycle();
+        var conditions = Wrappers.<RolePO>lambdaQuery()
+                .eq(lifecycle != null && !lifecycle.isEmpty(), RolePO::getLifecycle, lifecycle);
+        for (String term : query.getNameTerms()) {
+            // 搜索词已按字面匹配规则转义，保持名称键原有的 SQL 比较语义。
+            conditions.apply("name_key LIKE {0} ESCAPE '!'", term);
+        }
+        return selectPage(page, conditions);
+    }
 
     /**
      * 读取所属业务范围的完整当前记录，供服务在可信边界内核对。
      */
-    @Select("SELECT * FROM iam_role ORDER BY id")
-    List<RolePO> all();
-
-    /**
-     * 按稳定标识读取当前记录，由所属服务继续校验可见性和状态。
-     */
-    @Select("SELECT * FROM iam_role WHERE id=#{id}")
-    RolePO find(long id);
+    default List<RolePO> all() {
+        return selectList(Wrappers.<RolePO>lambdaQuery().orderByAsc(RolePO::getId));
+    }
 
     /**
      * 领取当前配置或业务记录的排他锁，提交前重新核验权威事实。
@@ -64,24 +67,6 @@ public interface RoleMapper {
     List<String> grantable(long id);
 
     /**
-     * 读取人员尚未结束的当前角色分配。
-     */
-    @Select("SELECT * FROM iam_user_role WHERE user_id=#{id} AND ended_at IS NULL ORDER BY role_id")
-    List<RoleAssignmentPO> assignments(long id);
-
-    /**
-     * 统计角色尚未结束的当前分配，停用人员仍属于保留分配。
-     */
-    @Select("SELECT COUNT(*) FROM iam_user_role WHERE role_id=#{id} AND ended_at IS NULL")
-    int memberCount(long id);
-
-    /**
-     * 检查人员是否仍持有指定角色的当前分配。
-     */
-    @Select("SELECT COUNT(*) FROM iam_user_role WHERE role_id=#{role} AND user_id=#{user} AND ended_at IS NULL")
-    int assigned(@Param("role") long role, @Param("user") long user);
-
-    /**
      * 在所属业务事务内保存明确类型记录。
      */
     @Insert(
@@ -96,15 +81,25 @@ public interface RoleMapper {
     /**
      * 按当前对象版本原子更新业务资料并递增内容修订。
      */
-    @Update(
-            "UPDATE iam_role SET name=#{d.name},name_key=#{key},description=#{d.description},version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int profile(@Param("id") long id, @Param("d") RoleProfileDTO data, @Param("key") String key);
+    default int profile(long id, RoleProfileDTO data, String key) {
+        return update(Wrappers.<RolePO>lambdaUpdate()
+                .eq(RolePO::getId, id)
+                .set(RolePO::getName, data.getName())
+                .set(RolePO::getNameKey, key)
+                .set(RolePO::getDescription, data.getDescription())
+                .setIncrBy(RolePO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 因当前关系或内容实际变化递增聚合修订和更新时间。
      */
-    @Update("UPDATE iam_role SET version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int touch(long id);
+    default int touch(long id) {
+        return update(Wrappers.<RolePO>lambdaUpdate()
+                .eq(RolePO::getId, id)
+                .setIncrBy(RolePO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 在所属配置事务内清空待重建的角色使用集合。
@@ -142,30 +137,6 @@ public interface RoleMapper {
             @Param("permissions") String permissions,
             @Param("grants") String grants,
             @Param("actor") Long actor);
-
-    /**
-     * 建立角色分配并绑定当时的角色修订。
-     */
-    @Insert(
-            "INSERT INTO iam_user_role(user_id,role_id,assigned_role_version,assigned_by,assigned_at) VALUES(#{user},#{role},#{version},#{actor},UTC_TIMESTAMP(3))")
-    int assign(
-            @Param("user") long user,
-            @Param("role") long role,
-            @Param("version") int version,
-            @Param("actor") long actor);
-
-    /**
-     * 结束指定当前角色分配，历史记录继续保留。
-     */
-    @Update("UPDATE iam_user_role SET ended_by=#{actor},ended_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND ended_at IS NULL")
-    int endAssignment(@Param("id") long id, @Param("actor") long actor);
-
-    /**
-     * 结束人员当前关联关系，用于归档事务而非历史硬删除。
-     */
-    @Update(
-            "UPDATE iam_user_role SET ended_by=#{actor},ended_at=UTC_TIMESTAMP(3) WHERE user_id=#{user} AND ended_at IS NULL")
-    int endUser(@Param("user") long user, @Param("actor") long actor);
 
     /**
      * 在所属事务中变更对象生命周期及真实状态时间。

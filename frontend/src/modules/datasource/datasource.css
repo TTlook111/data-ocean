@@ -1,0 +1,121 @@
+/* 数据源列表共享可伸缩的结果区。 */
+.record-page {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 搜索输入按业务字段组换行。 */
+.record-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 筛选项保留与同类页面一致的阅读宽度。 */
+.record-filters .ant-form-item {
+  margin: 0;
+  min-width: 124px;
+}
+
+/* 记录来源和主要操作处在同一工具栏。 */
+.ds-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* 长来源名在选择框内收起，打开时可完整回看。 */
+.ds-source-picker {
+  width: min(340px, 60%);
+}
+
+/* 二级数据与主项保持同一阅读起点。 */
+.ds-secondary {
+  display: block;
+  color: #646e7f;
+}
+
+/* 连接配置在模态内部，两列字段可按视口收缩。 */
+.ds-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+/* 折叠时保留运行参数值。 */
+.ds-form-grid[hidden] {
+  display: none;
+}
+
+/* 数字控件使用配置区预留的完整列宽。 */
+.ds-form-grid .ant-input-number {
+  width: 100%;
+}
+
+/* 表单内容内部滚动，底部动作始终可操作。 */
+.ds-connection-form {
+  max-height: 64vh;
+  overflow: auto;
+  padding-inline-end: 4px;
+}
+
+/* 分项测试的名称、结果和原因分别对齐。 */
+.ds-check-row {
+  display: grid;
+  grid-template-columns: 116px 70px minmax(0, 1fr);
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+
+/* 结构详情独占工作区，给横向字段表留足宽度。 */
+.ds-object-page {
+  max-width: 100%;
+  align-self: stretch;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e8edf4;
+  border-radius: 8px;
+}
+
+/* 对象名和当前来源状态在同一阅读层级。 */
+.ds-object-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+
+/* 对象名称紧接来源类型。 */
+.ds-object-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+/* 详情中的进度和证据与基础信息保持可读间距。 */
+.ds-detail-block {
+  margin-top: 20px;
+}
+
+/* 变化前后的原文并列阅读。 */
+.ds-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* 保留真实前后值的空白和换行，限制侧栏正文溢出。 */
+.ds-compare pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #f5f7fb;
+  border-radius: 6px;
+}

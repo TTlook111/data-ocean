@@ -45,9 +45,11 @@ import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 import com.dataocean.module.iam.entity.vo.UserDetailVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
 import com.dataocean.module.iam.entity.vo.UserRowVO;
+import com.dataocean.module.iam.mapper.CredentialMapper;
 import com.dataocean.module.iam.mapper.DepartmentMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.MembershipMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.AssignmentService;
@@ -84,6 +86,11 @@ public class UserServiceImpl implements UserService {
     private final UserMapper users;
 
     /**
+     * 保存账号凭据及其历史修订。
+     */
+    private final CredentialMapper credentials;
+
+    /**
      * 部门树和聚合版本的持久化访问依赖。
      */
     private final DepartmentMapper departments;
@@ -97,6 +104,11 @@ public class UserServiceImpl implements UserService {
      * 当前角色、使用与授予集合及分配历史的访问依赖。
      */
     private final RoleMapper roles;
+
+    /**
+     * 查询当前角色分配关系。
+     */
+    private final RoleAssignmentMapper roleAssignments;
 
     /**
      * 跨组织与权限变更共用的配置锁和安全版本存储。
@@ -155,15 +167,7 @@ public class UserServiceImpl implements UserService {
                 : views.branch(Ids.parse(query.getDepartmentId()), query.getIncludeDescendants());
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
         page.addOrder(OrderItem.desc("u.id"));
-        users.page(page, query, branch, null);
-        if (page.getTotal() == 0) {
-            page.setCurrent(1);
-        } else if (page.getCurrent() > page.getPages()) {
-            page.setCurrent(page.getPages());
-            page.setSearchCount(false);
-            users.page(page, query, branch, null);
-        }
-        return PageVO.from(page, views::userRow);
+        return PageVO.from(users.page(page, query, branch, null), views::userRow);
     }
 
     /**
@@ -229,9 +233,9 @@ public class UserServiceImpl implements UserService {
             reviews.verify("CREATE", null, null, data, data.getReviewToken());
             profile.setUsername(profile.getUsername().trim());
             profile.setDisplayName(profile.getDisplayName().trim());
-            users.insert(profile, UserContext.getUser());
+            users.create(profile, UserContext.getUser());
             long id = guard.lastId();
-            users.insertCredential(id, encoder.encode(data.getInitialPassword()));
+            credentials.create(id, encoder.encode(data.getInitialPassword()));
             assignments.applyMembership(id, data.getMembership());
             assignments.applyRoles(id, data.getRoles());
             audit(
@@ -593,7 +597,7 @@ public class UserServiceImpl implements UserService {
                     .sorted()
                     .forEach(departments::touch);
             memberships.endUser(id, UserContext.getUser());
-            roles.endUser(id, UserContext.getUser());
+            roleAssignments.endUser(id, UserContext.getUser());
             users.lifecycle(id, "ARCHIVED", data.getReason(), affiliation);
             mutations.invalidateAuthentication(id, "USER_ARCHIVED");
             audit(
@@ -632,7 +636,7 @@ public class UserServiceImpl implements UserService {
                     UserPO user = checked(id, data.getExpectedVersion());
                     requireProtectedTarget(user);
                     reviews.verify("RESET_PASSWORD", textId, data.getExpectedVersion(), data, data.getReviewToken());
-                    users.password(id, encoded);
+                    credentials.password(id, encoded);
                     users.invalidate(id, true);
                     mutations.invalidateAuthentication(id, "PASSWORD_RESET");
                     audit(
@@ -740,7 +744,7 @@ public class UserServiceImpl implements UserService {
         Set<String> upper = permissions.grantable(UserContext.getUser(), operation);
         Set<Long> selected = query.getUserId() == null
                 ? Set.of()
-                : new HashSet<>(roles.assignments(Ids.parse(query.getUserId())).stream()
+                : new HashSet<>(roleAssignments.assignments(Ids.parse(query.getUserId())).stream()
                         .map(row -> row.getRoleId())
                         .toList());
         var result = roles.all().stream()
@@ -929,16 +933,17 @@ public class UserServiceImpl implements UserService {
             List<RoleVersionRefVO> after,
             String command,
             boolean authChange) {
-        audits.record(new AuditWriteDTO(
-                operation,
-                "user",
-                Long.toString(id),
-                views.user(id).getDisplayName(),
-                reason,
-                changes,
-                before,
-                after,
-                mutations.auditSecurityVersion(authChange),
-                command));
+        audits.record(AuditWriteDTO.builder()
+                .actionCode(operation)
+                .targetType("user")
+                .targetId(Long.toString(id))
+                .targetName(views.user(id).getDisplayName())
+                .reason(reason)
+                .changes(changes)
+                .beforeRoles(before)
+                .afterRoles(after)
+                .securityVersion(mutations.auditSecurityVersion(authChange))
+                .commandId(command)
+                .build());
     }
 }

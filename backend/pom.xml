@@ -84,6 +84,13 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- 业务源 PostgreSQL 驱动由 Spring Boot BOM 管理，平台库继续使用 MySQL。 -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
     <!-- 数据库迁移：执行版本化 SQL，并提供 MySQL 支持。 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

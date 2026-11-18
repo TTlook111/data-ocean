@@ -68,7 +68,7 @@ class ReviewBoundaryTest {
 
         var state = new GuardPO();
         state.setSecurityVersion(1);
-        when(guard.current()).thenReturn(state);
+        when(guard.selectById(1)).thenReturn(state);
 
         var properties = new DataOceanProperties();
         properties.setReviewSeconds(300);
@@ -132,7 +132,7 @@ class ReviewBoundaryTest {
         var profile = new RoleProfileDTO("角色", null, List.of("users.view"));
 
         var preview = reviews.preview("UPDATE", "10", 1, profile, List.of(), List.of(), List.of());
-        when(guard.current()).thenThrow(new DataAccessResourceFailureException("test storage unavailable"));
+        when(guard.selectById(1)).thenThrow(new DataAccessResourceFailureException("test storage unavailable"));
         assertThrows(
                 DataAccessResourceFailureException.class,
                 () -> reviews.verify("UPDATE", "10", 1, profile, preview.getReviewToken()));

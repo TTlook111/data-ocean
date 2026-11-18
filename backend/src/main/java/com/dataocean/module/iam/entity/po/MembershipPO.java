@@ -1,5 +1,9 @@
 package com.dataocean.module.iam.entity.po;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.time.LocalDateTime;
 
 import lombok.AllArgsConstructor;
@@ -12,11 +16,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("iam_user_department")
 public final class MembershipPO {
 
     /**
      * 该记录的稳定标识，对外长整型以十进制字符串表达。
      */
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**

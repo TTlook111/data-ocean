@@ -1,5 +1,9 @@
 package com.dataocean.module.iam.entity.po;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.time.LocalDateTime;
 
 import lombok.AllArgsConstructor;
@@ -14,11 +18,13 @@ import lombok.ToString;
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
+@TableName("iam_user_credential")
 public final class CredentialPO {
 
     /**
      * 当前人员的稳定标识，客户端自报值不能替代登录身份。
      */
+    @TableId(type = IdType.INPUT)
     private Long userId;
 
     /**

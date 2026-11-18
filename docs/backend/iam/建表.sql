@@ -231,7 +231,7 @@ CREATE TABLE audit_record (
     command_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     business_request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     trace_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
-    occurred_at DATETIME(3) NOT NULL,
+    occurred_at DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
     PRIMARY KEY (id),
     KEY ix_audit_actor_time (actor_user_id, occurred_at, id),
     KEY ix_audit_target_time (target_type, target_id, occurred_at, id),

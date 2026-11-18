@@ -115,7 +115,7 @@ public class MutationServiceImpl implements MutationService {
             }
             locked.forEach(users::lock);
         }
-        var actor = users.find(principal.userId());
+        var actor = users.selectById(principal.userId());
         if (actor == null
                 || !actor.getLifecycle().equals("ENABLED")
                 || actor.getAuthenticationVersion() != principal.authenticationVersion()) {
@@ -149,7 +149,7 @@ public class MutationServiceImpl implements MutationService {
             if (authorizationChange) {
                 guard.increment();
                 var payloadEvent = new AuthorizationChangedDTO(
-                        Long.toString(guard.current().getSecurityVersion()),
+                        Long.toString(guard.selectById(1).getSecurityVersion()),
                         operation,
                         List.of(new SubjectRefDTO(
                                 result.getTargetType().toUpperCase(Locale.ROOT), result.getTargetId())),
@@ -173,14 +173,14 @@ public class MutationServiceImpl implements MutationService {
      * 按当前事务是否改变授权计算应记录的安全修订。
      */
     public long auditSecurityVersion(boolean authorizationChange) {
-        return guard.current().getSecurityVersion() + (authorizationChange ? 1 : 0);
+        return guard.selectById(1).getSecurityVersion() + (authorizationChange ? 1 : 0);
     }
 
     /**
      * 登记认证失效的可靠事件，权威版本校验不等待事件送达。
      */
     public void invalidateAuthentication(long id, String reason) {
-        var user = users.find(id);
+        var user = users.selectById(id);
         enqueue(
                 "iam.authentication.invalidated",
                 "user",

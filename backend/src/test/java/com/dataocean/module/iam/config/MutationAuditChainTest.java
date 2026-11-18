@@ -77,7 +77,7 @@ class MutationAuditChainTest {
             person.setAuthenticationVersion(1);
             person.setUsername("tester");
             person.setDisplayName("验收人员");
-            when(users.find(7)).thenReturn(person);
+            when(users.selectById(7L)).thenReturn(person);
             var audits = context.getBean(AuditService.class);
             doAnswer(invocation -> {
                         // 真实外层安全过滤器此时尚未清理本次请求主体。

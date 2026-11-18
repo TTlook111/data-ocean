@@ -1,5 +1,11 @@
 package com.dataocean.module.iam.entity.po;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.time.LocalDateTime;
 
 import lombok.AllArgsConstructor;
@@ -12,11 +18,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("iam_role")
 public final class RolePO {
 
     /**
      * 该记录的稳定标识，对外长整型以十进制字符串表达。
      */
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
@@ -75,12 +83,14 @@ public final class RolePO {
     private Long createdBy;
 
     /**
-     * 该记录创建的 UTC 时刻。
+     * 数据库生成的创建时刻，使用 UTC，精度为毫秒。
      */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 
     /**
-     * 该记录最近实际变化的 UTC 时刻。
+     * 记录实际业务变更的数据库 UTC 时刻，精度为毫秒。
      */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime updatedAt;
 }

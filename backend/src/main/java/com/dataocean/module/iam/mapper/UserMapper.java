@@ -1,10 +1,11 @@
 package com.dataocean.module.iam.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.iam.entity.dto.NewUserProfileDTO;
 import com.dataocean.module.iam.entity.dto.UpdateContactDTO;
 import com.dataocean.module.iam.entity.dto.UpdateUserDTO;
-import com.dataocean.module.iam.entity.po.CredentialPO;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.PersonQuery;
 
@@ -18,7 +19,7 @@ import org.apache.ibatis.annotations.Update;
 /**
  * 人员资料的持久化适配，业务状态和权限由所属服务核验。
  */
-public interface UserMapper {
+public interface UserMapper extends BaseMapper<UserPO> {
 
     /**
      * 列表与总数共用的参数化过滤片段，文本条件按字面转义。
@@ -48,12 +49,6 @@ public interface UserMapper {
             @Param("roleId") Long roleId);
 
     /**
-     * 按稳定标识读取当前记录，由所属服务继续校验可见性和状态。
-     */
-    @Select("SELECT * FROM iam_user WHERE id=#{id}")
-    UserPO find(long id);
-
-    /**
      * 领取当前配置或业务记录的排他锁，提交前重新核验权威事实。
      */
     @Select("SELECT * FROM iam_user WHERE id=#{id} FOR UPDATE")
@@ -62,80 +57,86 @@ public interface UserMapper {
     /**
      * 按契约的精确登录名读取人员，不进行大小写折叠。
      */
-    @Select("SELECT * FROM iam_user WHERE username=#{username}")
-    UserPO byUsername(String username);
-
-    /**
-     * 读取指定人员的受控凭据记录，仅用于服务内部验密。
-     */
-    @Select("SELECT * FROM iam_user_credential WHERE user_id=#{id}")
-    CredentialPO credential(long id);
-
-    /**
-     * 读取平台人员记录数量，仅用于受控空库初始化判断。
-     */
-    @Select("SELECT COUNT(*) FROM iam_user")
-    int count();
+    default UserPO byUsername(String username) {
+        return selectOne(Wrappers.<UserPO>lambdaQuery().eq(UserPO::getUsername, username));
+    }
 
     /**
      * 读取所属业务范围的完整当前记录，供服务在可信边界内核对。
      */
-    @Select("SELECT * FROM iam_user ORDER BY id")
-    List<UserPO> all();
+    default List<UserPO> all() {
+        return selectList(Wrappers.<UserPO>lambdaQuery().orderByAsc(UserPO::getId));
+    }
 
     /**
      * 在所属业务事务内保存明确类型记录。
      */
     @Insert(
             "INSERT INTO iam_user(username,display_name,phone,email,management_note,created_by,created_at,updated_at) VALUES(#{d.username},#{d.displayName},#{d.phone},#{d.email},#{d.managementNote},#{actor},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
-    int insert(@Param("d") NewUserProfileDTO data, @Param("actor") Long actor);
-
-    /**
-     * 只向受控凭据表保存框架编码的安全散列。
-     */
-    @Insert("INSERT INTO iam_user_credential(user_id,password_hash,changed_at) VALUES(#{id},#{hash},UTC_TIMESTAMP(3))")
-    int insertCredential(@Param("id") long id, @Param("hash") String hash);
+    int create(@Param("d") NewUserProfileDTO data, @Param("actor") Long actor);
 
     /**
      * 按当前对象版本原子更新业务资料并递增内容修订。
      */
-    @Update(
-            "UPDATE iam_user SET display_name=#{d.displayName},phone=#{d.phone},email=#{d.email},management_note=#{d.managementNote},version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND version=#{d.expectedVersion}")
-    int profile(@Param("id") long id, @Param("d") UpdateUserDTO data);
+    default int profile(long id, UpdateUserDTO data) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .eq(UserPO::getVersion, data.getExpectedVersion())
+                .set(UserPO::getDisplayName, data.getDisplayName())
+                .set(UserPO::getPhone, data.getPhone())
+                .set(UserPO::getEmail, data.getEmail())
+                .set(UserPO::getManagementNote, data.getManagementNote())
+                .setIncrBy(UserPO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 以当前本人身份和版本原子保存联系方式，允许显式清空。
      */
-    @Update(
-            "UPDATE iam_user SET phone=#{d.phone},email=#{d.email},version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND version=#{d.expectedVersion}")
-    int contact(@Param("id") long id, @Param("d") UpdateContactDTO data);
+    default int contact(long id, UpdateContactDTO data) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .eq(UserPO::getVersion, data.getExpectedVersion())
+                .set(UserPO::getPhone, data.getPhone())
+                .set(UserPO::getEmail, data.getEmail())
+                .setIncrBy(UserPO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 因当前关系或内容实际变化递增聚合修订和更新时间。
      */
-    @Update("UPDATE iam_user SET version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int touch(long id);
+    default int touch(long id) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .setIncrBy(UserPO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 仅在认证版本仍匹配且尚未登录时记录首次认证事实。
      */
-    @Update(
-            "UPDATE iam_user SET first_login_at=UTC_TIMESTAMP(3),version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND authentication_version=#{authenticationVersion} AND first_login_at IS NULL")
-    int firstLogin(@Param("id") long id, @Param("authenticationVersion") long authenticationVersion);
-
-    /**
-     * 在原子凭据变更中写入安全散列并递增凭据修订。
-     */
-    @Update(
-            "UPDATE iam_user_credential SET password_hash=#{hash},credential_revision=credential_revision+1,changed_at=UTC_TIMESTAMP(3) WHERE user_id=#{id}")
-    int password(@Param("id") long id, @Param("hash") String hash);
+    default int firstLogin(long id, long authenticationVersion) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .eq(UserPO::getAuthenticationVersion, authenticationVersion)
+                .isNull(UserPO::getFirstLoginAt)
+                .setSql("first_login_at=UTC_TIMESTAMP(3)")
+                .setIncrBy(UserPO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 递增认证修订并设置必要改密标记，使所有旧版本会话失效。
      */
-    @Update(
-            "UPDATE iam_user SET must_change_password=#{mustChange},authentication_version=authentication_version+1,version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int invalidate(@Param("id") long id, @Param("mustChange") boolean mustChange);
+    default int invalidate(long id, boolean mustChange) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .set(UserPO::isMustChangePassword, mustChange)
+                .setIncrBy(UserPO::getAuthenticationVersion, 1)
+                .setIncrBy(UserPO::getVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 在所属事务中变更对象生命周期及真实状态时间。

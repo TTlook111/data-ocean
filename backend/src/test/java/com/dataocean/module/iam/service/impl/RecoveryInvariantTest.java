@@ -10,6 +10,7 @@ import com.dataocean.module.iam.entity.po.GuardPO;
 import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.PermissionMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 
 import java.util.List;
@@ -40,7 +41,8 @@ class RecoveryInvariantTest {
     /**
      * 直接验证同一业务规则，不替代真实事务并发验收。
      */
-    private final PermissionServiceImpl service = new PermissionServiceImpl(mapper, guard, roles);
+    private final PermissionServiceImpl service =
+            new PermissionServiceImpl(mapper, guard, roles, mock(RoleAssignmentMapper.class));
 
     /**
      * 候选已经完成改密且具备页面与恢复操作，后续测试分别改变授予边界。
@@ -49,7 +51,7 @@ class RecoveryInvariantTest {
     void currentCandidate() {
         var state = new GuardPO();
         state.setBootstrapCompleted(true);
-        when(guard.current()).thenReturn(state);
+        when(guard.selectById(1)).thenReturn(state);
         when(mapper.recoveryCandidates()).thenReturn(List.of(1L));
         when(mapper.used(1L)).thenReturn(List.of("users.view", "users.recover"));
     }

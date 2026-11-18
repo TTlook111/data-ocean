@@ -1,42 +1,58 @@
 package com.dataocean.module.iam.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.module.iam.entity.po.MembershipPO;
 
 import java.util.List;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 公共契约的持久化适配，业务状态和权限由所属服务核验。
  */
-public interface MembershipMapper {
+public interface MembershipMapper extends BaseMapper<MembershipPO> {
 
     /**
      * 一次读取当前关系，用于组织树各层去重统计，避免逐节点查询。
      */
-    @Select("SELECT * FROM iam_user_department WHERE left_at IS NULL ORDER BY department_id,user_id")
-    List<MembershipPO> current();
+    default List<MembershipPO> current() {
+        return selectList(Wrappers.<MembershipPO>lambdaQuery()
+                .isNull(MembershipPO::getLeftAt)
+                .orderByAsc(MembershipPO::getDepartmentId, MembershipPO::getUserId));
+    }
 
     /**
      * 读取指定人员尚未结束的主兼任关系。
      */
-    @Select("SELECT * FROM iam_user_department WHERE user_id=#{id} AND left_at IS NULL ORDER BY is_primary DESC,id")
-    List<MembershipPO> forUser(long id);
+    default List<MembershipPO> forUser(long id) {
+        // 保留 is_primary 的库列排序，布尔属性由 Lombok 暴露为 primary。
+        return selectList(Wrappers.<MembershipPO>query()
+                .orderByDesc("is_primary")
+                .lambda()
+                .eq(MembershipPO::getUserId, id)
+                .isNull(MembershipPO::getLeftAt)
+                .orderByAsc(MembershipPO::getId));
+    }
 
     /**
      * 读取指定部门尚未结束的当前成员关系。
      */
-    @Select("SELECT * FROM iam_user_department WHERE department_id=#{id} AND left_at IS NULL ORDER BY user_id")
-    List<MembershipPO> forDepartment(long id);
+    default List<MembershipPO> forDepartment(long id) {
+        return selectList(Wrappers.<MembershipPO>lambdaQuery()
+                .eq(MembershipPO::getDepartmentId, id)
+                .isNull(MembershipPO::getLeftAt)
+                .orderByAsc(MembershipPO::getUserId));
+    }
 
     /**
      * 按稳定标识读取当前记录，由所属服务继续校验可见性和状态。
      */
-    @Select("SELECT * FROM iam_user_department WHERE id=#{id} AND left_at IS NULL")
-    MembershipPO find(long id);
+    default MembershipPO find(long id) {
+        return selectOne(
+                Wrappers.<MembershipPO>lambdaQuery().eq(MembershipPO::getId, id).isNull(MembershipPO::getLeftAt));
+    }
 
     /**
      * 建立一条明确主兼任性质的当前成员关系。
@@ -52,14 +68,22 @@ public interface MembershipMapper {
     /**
      * 结束当前成员关系并保留真实结束人员和时间。
      */
-    @Update(
-            "UPDATE iam_user_department SET left_by=#{actor},left_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND left_at IS NULL")
-    int end(@Param("id") long id, @Param("actor") long actor);
+    default int end(long id, long actor) {
+        return update(Wrappers.<MembershipPO>lambdaUpdate()
+                .eq(MembershipPO::getId, id)
+                .isNull(MembershipPO::getLeftAt)
+                .set(MembershipPO::getLeftBy, actor)
+                .setSql("left_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 结束人员当前关联关系，用于归档事务而非历史硬删除。
      */
-    @Update(
-            "UPDATE iam_user_department SET left_by=#{actor},left_at=UTC_TIMESTAMP(3) WHERE user_id=#{user} AND left_at IS NULL")
-    int endUser(@Param("user") long user, @Param("actor") long actor);
+    default int endUser(long user, long actor) {
+        return update(Wrappers.<MembershipPO>lambdaUpdate()
+                .eq(MembershipPO::getUserId, user)
+                .isNull(MembershipPO::getLeftAt)
+                .set(MembershipPO::getLeftBy, actor)
+                .setSql("left_at=UTC_TIMESTAMP(3)"));
+    }
 }

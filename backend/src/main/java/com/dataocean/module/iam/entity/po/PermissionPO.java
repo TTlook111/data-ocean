@@ -1,5 +1,9 @@
 package com.dataocean.module.iam.entity.po;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,11 +14,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("iam_permission")
 public final class PermissionPO {
 
     /**
      * 所属业务对象或系统契约的稳定编码，不以名称替代身份。
      */
+    @TableId(type = IdType.INPUT)
     private String code;
 
     /**

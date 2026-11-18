@@ -48,7 +48,7 @@ export interface ReviewSubmission {
   /**
    * 提交确认后携带真实目标标识，回看该记录或恢复原查询。
    */
-  done: (targetId: string) => void;
+  done: (targetId: string, commandId?: string) => void;
   /**
    * 危险或生命周期动作使用准确的确认名称，普通编辑默认确认保存。
    */
@@ -101,7 +101,7 @@ export function ReviewDialog({
       );
       await cache.invalidateQueries();
       message.success('已保存');
-      submission.done(result.targetId);
+      submission.done(result.targetId, command);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作未完成');
     } finally {

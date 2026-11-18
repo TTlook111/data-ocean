@@ -122,6 +122,16 @@ public class PageQuery {
     }
 
     /**
+     * 根据已统计的总数定位最后一个可用页，供原本在越界时回到末页的列表使用。
+     */
+    public <T> Page<T> toLastAvailableMpPage(long total) {
+        long size = getPageSize();
+        long lastPage = total == 0 ? 1 : (total - 1) / size + 1;
+        Page<T> page = new Page<>(Math.min(getPageNum(), lastPage), size, total, false);
+        return page;
+    }
+
+    /**
      * 定义外部排序字段到内部数据库列的白名单，不透传外部 SQL 片段。
      */
     protected Map<String, String> sortColumns() {

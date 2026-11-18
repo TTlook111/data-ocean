@@ -1,14 +1,15 @@
 package com.dataocean.module.iam.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.module.iam.entity.po.GuardPO;
 
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 公共契约的持久化适配，业务状态和权限由所属服务核验。
  */
-public interface GuardMapper {
+public interface GuardMapper extends BaseMapper<GuardPO> {
 
     /**
      * 领取当前配置或业务记录的排他锁，提交前重新核验权威事实。
@@ -23,22 +24,24 @@ public interface GuardMapper {
     GuardPO shared();
 
     /**
-     * 读取当前权威状态或可信登录主体，缺失时不回退默认身份。
-     */
-    @Select("SELECT * FROM iam_security_guard WHERE id=1")
-    GuardPO current();
-
-    /**
      * 在已持有配置锁的事务中递增全局安全版本。
      */
-    @Update("UPDATE iam_security_guard SET security_version=security_version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=1")
-    int increment();
+    default int increment() {
+        return update(Wrappers.<GuardPO>lambdaUpdate()
+                .eq(GuardPO::getId, 1)
+                .setIncrBy(GuardPO::getSecurityVersion, 1)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 首次必要改密成功后永久关闭空库初始化例外。
      */
-    @Update("UPDATE iam_security_guard SET bootstrap_completed=1,updated_at=UTC_TIMESTAMP(3) WHERE id=1")
-    int completeBootstrap();
+    default int completeBootstrap() {
+        return update(Wrappers.<GuardPO>lambdaUpdate()
+                .eq(GuardPO::getId, 1)
+                .set(GuardPO::isBootstrapCompleted, true)
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 在同一数据库连接中取得本次插入的稳定标识。

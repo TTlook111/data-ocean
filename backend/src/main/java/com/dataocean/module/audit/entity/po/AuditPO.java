@@ -1,8 +1,16 @@
 package com.dataocean.module.audit.entity.po;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.time.LocalDateTime;
 
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -10,13 +18,16 @@ import lombok.NoArgsConstructor;
  * 真实操作及必要历史身份快照，普通接口不提供修改或删除。
  */
 @Data
+@Builder
 @NoArgsConstructor
-@AllArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@TableName("audit_record")
 public final class AuditPO {
 
     /**
      * 该记录的稳定标识，对外长整型以十进制字符串表达。
      */
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
@@ -95,7 +106,8 @@ public final class AuditPO {
     private String traceId;
 
     /**
-     * 事件或审计真实发生的 UTC 毫秒时刻。
+     * 审计发生的 UTC 毫秒时刻，由数据库在插入时生成。
      */
+    @TableField(insertStrategy = FieldStrategy.NEVER)
     private LocalDateTime occurredAt;
 }

@@ -31,6 +31,11 @@ public interface AuditService {
     void bootstrap(AuditWriteDTO data);
 
     /**
+     * 记录由平台任务提交的业务事实，任务模块提供固定的系统主体名称。
+     */
+    void system(AuditWriteDTO data, String actorName);
+
+    /**
      * 确保关键业务变化已在同一事务保存对应的成功审计。
      */
     void assertRecorded(long actor, String command, String action, String target);

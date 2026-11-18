@@ -1,5 +1,6 @@
 package com.dataocean.module.iam.service.impl;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
@@ -78,15 +79,9 @@ public class DepartmentServiceImpl implements DepartmentService {
         permissions.require("departments.view");
         long id = Ids.parse(textId);
         views.department(id);
-        Page<DepartmentPO> page = query.toMpPage("d.sort_order", true);
-        departments.children(page, id);
-        if (page.getCurrent() > Math.max(1, page.getPages())) {
-            // 关系迁移后校正为最后有效页，避免空白越界页。
-            page.setCurrent(Math.max(1, page.getPages()));
-            page.setSearchCount(false);
-            departments.children(page, id);
-        }
-        return PageVO.from(page, views::departmentDetail);
+        Page<DepartmentPO> page = query.toMpPage("sort_order", true);
+        page.addOrder(OrderItem.asc("id"));
+        return PageVO.from(departments.children(page, id), views::departmentDetail);
     }
 
     /**
@@ -166,14 +161,8 @@ public class DepartmentServiceImpl implements DepartmentService {
         permissions.require("departments.view");
         var branch = views.branch(Ids.parse(id), query.getIncludeDescendants());
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
-        users.page(page, query, branch, null);
-        if (page.getCurrent() > Math.max(1, page.getPages())) {
-            // 成员迁移或过滤后重取最后有效页。
-            page.setCurrent(Math.max(1, page.getPages()));
-            page.setSearchCount(false);
-            users.page(page, query, branch, null);
-        }
-        return PageVO.from(page, person -> views.departmentMember(person, branch));
+        page.addOrder(OrderItem.desc("u.id"));
+        return PageVO.from(users.page(page, query, branch, null), person -> views.departmentMember(person, branch));
     }
 
     /**
@@ -808,16 +797,17 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 同事务记录组织变化，不将诊断日志代替成功审计。
      */
     private void audit(long id, String operation, String reason, List<ChangeVO> changes, String command) {
-        audits.record(new AuditWriteDTO(
-                operation,
-                "department",
-                Long.toString(id),
-                views.department(id).getName(),
-                reason,
-                changes,
-                List.of(),
-                List.of(),
-                mutations.auditSecurityVersion(true),
-                command));
+        audits.record(AuditWriteDTO.builder()
+                .actionCode(operation)
+                .targetType("department")
+                .targetId(Long.toString(id))
+                .targetName(views.department(id).getName())
+                .reason(reason)
+                .changes(changes)
+                .beforeRoles(List.of())
+                .afterRoles(List.of())
+                .securityVersion(mutations.auditSecurityVersion(true))
+                .commandId(command)
+                .build());
     }
 }

@@ -122,8 +122,8 @@ class IdentityFilterBoundaryTest {
      */
     @Test
     void reusableWorkerDoesNotKeepPreviousIdentity() throws InterruptedException, ExecutionException {
-        when(users.find(1)).thenReturn(user(1));
-        when(users.find(2)).thenReturn(user(2));
+        when(users.selectById(1L)).thenReturn(user(1));
+        when(users.selectById(2L)).thenReturn(user(2));
 
         var pool = Executors.newSingleThreadExecutor();
         try {
@@ -151,7 +151,7 @@ class IdentityFilterBoundaryTest {
      */
     @Test
     void downstreamExceptionStillClearsIdentity() {
-        when(users.find(1)).thenReturn(user(1));
+        when(users.selectById(1L)).thenReturn(user(1));
 
         var request = new MockHttpServletRequest("GET", "/api/v1/account");
         request.setSession(session(1));
@@ -165,7 +165,7 @@ class IdentityFilterBoundaryTest {
      */
     @Test
     void storageFailureCannotUseRestoredOldContext() throws ServletException, IOException {
-        when(users.find(1)).thenThrow(new DataAccessResourceFailureException("synthetic storage failure"));
+        when(users.selectById(1L)).thenThrow(new DataAccessResourceFailureException("synthetic storage failure"));
 
         var entered = new AtomicBoolean();
 
@@ -184,7 +184,7 @@ class IdentityFilterBoundaryTest {
      */
     @Test
     void passiveIdentityPollingDoesNotExtendIdleTime() throws ServletException, IOException {
-        when(users.find(1)).thenReturn(user(1));
+        when(users.selectById(1L)).thenReturn(user(1));
 
         var session = session(1);
 

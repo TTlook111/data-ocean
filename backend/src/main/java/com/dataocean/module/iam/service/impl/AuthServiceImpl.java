@@ -14,6 +14,7 @@ import com.dataocean.module.iam.entity.dto.LoginDTO;
 import com.dataocean.module.iam.entity.po.CredentialPO;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
 import com.dataocean.module.iam.entity.vo.CurrentSessionVO;
+import com.dataocean.module.iam.mapper.CredentialMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.AuthService;
@@ -56,6 +57,11 @@ public class AuthServiceImpl implements AuthService {
      * 人员与凭据的权威存储。
      */
     private final UserMapper users;
+
+    /**
+     * 按人员主键访问独立的凭据记录。
+     */
+    private final CredentialMapper credentials;
 
     /**
      * 认证及权限变更的串行化边界。
@@ -125,7 +131,7 @@ public class AuthServiceImpl implements AuthService {
         limit("user:" + username, properties.getLoginAttemptLimit());
         limit("address:" + remoteAddress, properties.getLoginAttemptLimit() * 10);
         var candidate = users.byUsername(username);
-        CredentialPO credential = candidate == null ? null : users.credential(candidate.getId());
+        CredentialPO credential = candidate == null ? null : credentials.selectById(candidate.getId());
         // 未知账号也执行散列计算，统一返回可披露的凭据错误。
         boolean matched =
                 encoder.matches(data.getPassword(), credential == null ? dummyHash : credential.getPasswordHash());
@@ -139,7 +145,7 @@ public class AuthServiceImpl implements AuthService {
             // 与重置、停用串行；验证期间发生的任何凭据变化均拒绝。
             guard.shared();
             var current = users.lock(candidate.getId());
-            var latest = users.credential(candidate.getId());
+            var latest = credentials.selectById(candidate.getId());
             if (!current.getLifecycle().equals("ENABLED")
                     || current.getAuthenticationVersion() != candidate.getAuthenticationVersion()
                     || latest.getCredentialRevision() != credential.getCredentialRevision()) {
@@ -175,7 +181,7 @@ public class AuthServiceImpl implements AuthService {
         return transactions.execute(status -> {
             // 当前用户资料和权限版本在同一读取边界内组成响应。
             guard.shared();
-            var user = users.find(principal.userId());
+            var user = users.selectById(principal.userId());
             if (user == null
                     || !user.getLifecycle().equals("ENABLED")
                     || user.getAuthenticationVersion() != principal.authenticationVersion()) {
@@ -195,7 +201,7 @@ public class AuthServiceImpl implements AuthService {
                             : permissions.effective(user.getId()).stream()
                                     .sorted()
                                     .toList(),
-                    Long.toString(guard.current().getSecurityVersion()));
+                    Long.toString(guard.selectById(1).getSecurityVersion()));
         });
     }
 
@@ -230,7 +236,7 @@ public class AuthServiceImpl implements AuthService {
             throw BizIllegalException.invalid("两次新密码不一致");
         }
         long id = UserContext.getUser();
-        var credential = users.credential(id);
+        var credential = credentials.selectById(id);
         if (!initial && !encoder.matches(currentPassword, credential.getPasswordHash())) {
             throw new BizIllegalException(ErrorCode.IAM_CURRENT_PASSWORD_INVALID, "原密码不正确");
         }
@@ -243,7 +249,7 @@ public class AuthServiceImpl implements AuthService {
             guard.lock();
             var user = users.lock(id);
             if (user.getVersion() != version
-                    || users.credential(id).getCredentialRevision() != credential.getCredentialRevision()) {
+                    || credentials.selectById(id).getCredentialRevision() != credential.getCredentialRevision()) {
                 throw BizIllegalException.conflict();
             }
             if (user.getAuthenticationVersion() != UserContext.current().authenticationVersion()
@@ -253,25 +259,24 @@ public class AuthServiceImpl implements AuthService {
             if (user.isMustChangePassword() != initial) {
                 throw BizIllegalException.state("当前账号不适用此改密入口");
             }
-            users.password(id, encoded);
+            credentials.password(id, encoded);
             users.invalidate(id, false);
-            if (!guard.current().isBootstrapCompleted()) {
+            if (!guard.selectById(1).isBootstrapCompleted()) {
                 // 空库初始化的唯一例外在首次必要改密后永久关闭。
                 guard.completeBootstrap();
             }
             permissions.ensureRecovery();
             mutations.invalidateAuthentication(id, "PASSWORD_CHANGED");
-            audits.record(new AuditWriteDTO(
-                    initial ? "auth.password.initial" : "account.password",
-                    "user",
-                    Long.toString(id),
-                    user.getDisplayName(),
-                    null,
-                    List.of(new ChangeVO("credential", "登录凭据", null, "已变更")),
-                    List.of(),
-                    List.of(),
-                    guard.current().getSecurityVersion(),
-                    null));
+            audits.record(AuditWriteDTO.builder()
+                    .actionCode(initial ? "auth.password.initial" : "account.password")
+                    .targetType("user")
+                    .targetId(Long.toString(id))
+                    .targetName(user.getDisplayName())
+                    .changes(List.of(new ChangeVO("credential", "登录凭据", null, "已变更")))
+                    .beforeRoles(List.of())
+                    .afterRoles(List.of())
+                    .securityVersion(guard.selectById(1).getSecurityVersion())
+                    .build());
         });
         log.info("本人密码更新完成，userId={}", id);
     }

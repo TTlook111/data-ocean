@@ -74,7 +74,7 @@ public class ReviewServiceImpl implements ReviewService {
             List<ChangeVO> changes,
             List<ImpactCountVO> affected,
             List<String> warnings) {
-        String security = Long.toString(guard.current().getSecurityVersion());
+        String security = Long.toString(guard.selectById(1).getSecurityVersion());
         var claims = new ReviewClaimsDTO(
                 Long.toString(UserContext.getUser()),
                 action,
@@ -96,7 +96,7 @@ public class ReviewServiceImpl implements ReviewService {
      */
     public void verify(String action, String target, Integer version, Object proposal, String token) {
         // 权威存储故障必须保留依赖错误语义，不混入客户端核对失效。
-        String currentSecurityVersion = Long.toString(guard.current().getSecurityVersion());
+        String currentSecurityVersion = Long.toString(guard.selectById(1).getSecurityVersion());
         try {
             String[] parts = token.split("\\.", -1);
             if (parts.length != 2

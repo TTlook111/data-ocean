@@ -1,5 +1,6 @@
 package com.dataocean.module.iam.service.impl;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageVO;
@@ -40,6 +41,7 @@ import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 import com.dataocean.module.iam.entity.vo.UserRowVO;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.PermissionMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.AssignmentService;
@@ -76,6 +78,11 @@ public class RoleServiceImpl implements RoleService {
      * 当前角色、分配关系及不可变版本快照。
      */
     private final RoleMapper roles;
+
+    /**
+     * 查询当前角色分配关系。
+     */
+    private final RoleAssignmentMapper roleAssignments;
 
     /**
      * 成员列表和人员聚合版本。
@@ -135,15 +142,9 @@ public class RoleServiceImpl implements RoleService {
     public PageVO<RoleRowVO> list(RoleQuery query) {
         guard.shared();
         permissions.require("roles.view");
-        Page<RolePO> page = query.toMpPage("r.updated_at", false);
-        roles.page(page, query);
-        if (page.getCurrent() > Math.max(1, page.getPages())) {
-            // 筛选或状态改变后回到最后有效页，重新读取当前事实。
-            page.setCurrent(Math.max(1, page.getPages()));
-            page.setSearchCount(false);
-            roles.page(page, query);
-        }
-        return PageVO.from(page, views::roleRow);
+        Page<RolePO> page = query.toMpPage("updated_at", false);
+        page.addOrder(OrderItem.desc("id"));
+        return PageVO.from(roles.page(page, query), views::roleRow);
     }
 
     /**
@@ -167,8 +168,8 @@ public class RoleServiceImpl implements RoleService {
         permissions.require("roles.view");
         views.role(Ids.parse(id));
         Page<UserPO> page = query.toMpPage("u.updated_at", false);
-        users.page(page, query, null, Ids.parse(id));
-        return PageVO.from(page, views::userRow);
+        page.addOrder(OrderItem.desc("u.id"));
+        return PageVO.from(users.page(page, query, null, Ids.parse(id)), views::userRow);
     }
 
     /**
@@ -267,7 +268,7 @@ public class RoleServiceImpl implements RoleService {
                 role.getVersion(),
                 proposal,
                 changes,
-                List.of(new ImpactCountVO("USER", roles.memberCount(id))),
+                List.of(new ImpactCountVO("USER", roleAssignments.memberCount(id))),
                 List.of());
     }
 
@@ -501,7 +502,7 @@ public class RoleServiceImpl implements RoleService {
                     role.getId(), roles.permissions(role.getId()), roles.grantable(role.getId()), "ENABLED");
         } else if (action.equals("ARCHIVE")) {
             // 保留的当前分配必须先通过有权流程移出。
-            if (!role.getLifecycle().equals("DISABLED") || roles.memberCount(role.getId()) > 0) {
+            if (!role.getLifecycle().equals("DISABLED") || roleAssignments.memberCount(role.getId()) > 0) {
                 throw new BizIllegalException(ErrorCode.REFERENCE_IN_USE, "角色须先停用并移出所有当前成员");
             }
         } else if (!role.getLifecycle().equals("ENABLED")) {
@@ -580,17 +581,18 @@ public class RoleServiceImpl implements RoleService {
         }
         assignments.applyRoles(id, selected);
         users.touch(id);
-        audits.record(new AuditWriteDTO(
-                operation,
-                "user",
-                Long.toString(id),
-                views.user(id).getDisplayName(),
-                reason,
-                List.of(change("roles", "个人管理分配", before, selected)),
-                before,
-                selected,
-                mutations.auditSecurityVersion(true),
-                command));
+        audits.record(AuditWriteDTO.builder()
+                .actionCode(operation)
+                .targetType("user")
+                .targetId(Long.toString(id))
+                .targetName(views.user(id).getDisplayName())
+                .reason(reason)
+                .changes(List.of(change("roles", "个人管理分配", before, selected)))
+                .beforeRoles(before)
+                .afterRoles(selected)
+                .securityVersion(mutations.auditSecurityVersion(true))
+                .commandId(command)
+                .build());
         return new MutationVO(command, "user", Long.toString(id), views.user(id).getVersion());
     }
 
@@ -696,16 +698,17 @@ public class RoleServiceImpl implements RoleService {
      * 审计与当前角色事实在同一业务事务提交。
      */
     private void audit(long id, String operation, String reason, List<ChangeVO> changes, String command) {
-        audits.record(new AuditWriteDTO(
-                operation,
-                "role",
-                Long.toString(id),
-                views.role(id).getName(),
-                reason,
-                changes,
-                List.of(),
-                List.of(),
-                mutations.auditSecurityVersion(true),
-                command));
+        audits.record(AuditWriteDTO.builder()
+                .actionCode(operation)
+                .targetType("role")
+                .targetId(Long.toString(id))
+                .targetName(views.role(id).getName())
+                .reason(reason)
+                .changes(changes)
+                .beforeRoles(List.of())
+                .afterRoles(List.of())
+                .securityVersion(mutations.auditSecurityVersion(true))
+                .commandId(command)
+                .build());
     }
 }

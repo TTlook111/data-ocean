@@ -19,6 +19,17 @@
 
 以上仅说明已存在的源码位置，不代表逐接口、界面或跨端链路全部验收通过。离线原型的定位仍由[页面专题](../frontend/pages/README.md#原型定位与衔接)维护。
 
+## 数据源接入与采集
+
+| 范围 | 入口 |
+| --- | --- |
+| 数据源管理、采集记录、目录与结构变化 | [React 数据源模块](../../frontend/src/modules/datasource/) |
+| 连接启用、分项测试、配置与凭据替换 | [数据源接口](../../backend/src/main/java/com/dataocean/module/datasource/controller/DatasourceController.java) |
+| 采集接收、状态、停止与恢复、目录提交 | [采集接口](../../backend/src/main/java/com/dataocean/module/datasource/controller/CollectionController.java)、[采集工作者](../../backend/src/main/java/com/dataocean/module/datasource/service/CollectionRunner.java)、[快照提交](../../backend/src/main/java/com/dataocean/module/datasource/service/CatalogPublication.java) |
+| 双库适配、采集计划及平台库表 | [源库适配](../../backend/src/main/java/com/dataocean/module/datasource/source/SourceJdbc.java)、[定时](../../backend/src/main/java/com/dataocean/module/datasource/service/DatasourceScheduler.java)、[Flyway V3](../../backend/src/main/resources/db/migration/V3__datasource_collection.sql) |
+
+真实覆盖见[数据源验收](../backend/datasource/验收.md#当前验证范围)。
+
 ## 模块定位专题
 
 001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。

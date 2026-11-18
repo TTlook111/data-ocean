@@ -11,7 +11,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableScheduling
-@MapperScan({"com.dataocean.module.iam.mapper", "com.dataocean.module.audit.mapper"})
+@MapperScan({
+    "com.dataocean.module.iam.mapper",
+    "com.dataocean.module.audit.mapper",
+    "com.dataocean.module.datasource.mapper"
+})
 public class DataOceanApplication {
 
     /**

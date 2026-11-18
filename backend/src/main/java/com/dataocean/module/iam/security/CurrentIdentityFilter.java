@@ -113,7 +113,7 @@ public class CurrentIdentityFilter extends OncePerRequestFilter {
 
         var session = request.getSession(false);
 
-        var user = users.find(principal.userId());
+        var user = users.selectById(principal.userId());
 
         long now = clock.instant().getEpochSecond();
 

@@ -5,16 +5,14 @@ import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 
 import java.util.List;
 
-import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * 历史审计的明确传输结构，字段职责及校验与接口契约一致。
  */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
+@Builder
 public class AuditWriteDTO {
 
     /**

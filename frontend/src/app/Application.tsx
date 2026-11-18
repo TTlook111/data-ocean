@@ -26,6 +26,11 @@ import { UsersPage } from '../modules/iam/UsersPage';
 import { DepartmentsPage } from '../modules/iam/DepartmentsPage';
 import { RolesPage, RoleEditor } from '../modules/iam/RolesPage';
 import { AuditPage } from '../modules/iam/AuditPage';
+import { DatasourcePage } from '../modules/datasource/DatasourcePage';
+import { CollectionPage } from '../modules/datasource/CollectionPage';
+import { CatalogObjectPage, CatalogPage } from '../modules/datasource/CatalogPage';
+import { StandaloneStructureChangePage } from '../modules/datasource/StructureChangePage';
+import '../modules/datasource/datasource.css';
 
 /**
  * 已实现页面与真实页面权限的对应关系。
@@ -40,6 +45,19 @@ const navigation = [
   },
   { key: '/iam/roles', label: '角色与功能权限', permission: 'roles.view', icon: <ReadOutlined /> },
   { key: '/iam/audit', label: '权限审计', permission: 'audit.view', icon: <AuditOutlined /> },
+  {
+    key: '/datasources',
+    label: '数据源管理',
+    permission: 'sources.view',
+    icon: <DatabaseOutlined />,
+  },
+  {
+    key: '/collections',
+    label: '采集记录',
+    permission: 'collections.view',
+    icon: <DatabaseOutlined />,
+  },
+  { key: '/catalog', label: '元数据目录', permission: 'catalog.view', icon: <DatabaseOutlined /> },
 ];
 
 /**
@@ -215,13 +233,32 @@ export function Application() {
     ...(session.permissionCodes.includes('dashboard.view')
       ? [{ key: 'pending-dashboard', label: '总览', icon: <DashboardOutlined />, disabled: true }]
       : []),
-    ...futureGroup('sources-group', '数据源接入', <DatabaseOutlined />, [
-      ['sources-dashboard', '接入概览'],
-      ['sources', '数据源管理'],
-      ['collections', '采集记录'],
-      ['catalog', '元数据目录'],
-      ['business-notes', '企业业务说明'],
-    ]),
+    ...([
+      'sources-dashboard.view',
+      'sources.view',
+      'collections.view',
+      'catalog.view',
+      'business-notes.view',
+    ].some((code) => session.permissionCodes.includes(code))
+      ? [
+          {
+            key: 'sources-group',
+            label: '数据源接入',
+            icon: <DatabaseOutlined />,
+            children: [
+              ...(session.permissionCodes.includes('sources-dashboard.view')
+                ? [{ key: 'pending-sources-dashboard', label: '接入概览', disabled: true }]
+                : []),
+              ...visible
+                .filter((item) => ['/datasources', '/collections', '/catalog'].includes(item.key))
+                .map(({ key, label }) => ({ key, label })),
+              ...(session.permissionCodes.includes('business-notes.view')
+                ? [{ key: 'pending-business-notes', label: '企业业务说明', disabled: true }]
+                : []),
+            ],
+          },
+        ]
+      : []),
     ...futureGroup('governance-group', '数据治理', <DeploymentUnitOutlined />, [
       ['governance-dashboard', '治理概览'],
       ['governance', '治理工作台'],
@@ -236,7 +273,7 @@ export function Application() {
       ['feedback-dashboard', '反馈概览'],
       ['feedback', '问题队列与处理'],
     ]),
-    ...(visible.length
+    ...(visible.some((item) => item.key.startsWith('/iam/'))
       ? [
           {
             key: 'people-group',
@@ -244,7 +281,7 @@ export function Application() {
             icon: <TeamOutlined />,
             children: [
               ...visible
-                .filter((item) => item.key !== '/iam/audit')
+                .filter((item) => item.key.startsWith('/iam/') && item.key !== '/iam/audit')
                 .map(({ key, label }) => ({ key, label })),
               ...[
                 ['output-rules', '输出限制规则'],
@@ -357,7 +394,7 @@ export function Application() {
               mode="inline"
               inlineIndent={12}
               aria-label="后台管理菜单"
-              defaultOpenKeys={['people-group', 'personal-group']}
+              defaultOpenKeys={['sources-group', 'people-group', 'personal-group']}
               selectedKeys={[location.pathname === '/account' ? '/account' : (selected?.key ?? '')]}
               onClick={({ key }) => openPage(key)}
               items={menus}
@@ -388,6 +425,11 @@ export function Application() {
                 <Route path="/iam/roles/new" element={<RoleEditor />} />
                 <Route path="/iam/roles/:id/edit" element={<RoleEditor />} />
                 <Route path="/iam/audit" element={<AuditPage />} />
+                <Route path="/datasources" element={<DatasourcePage />} />
+                <Route path="/collections" element={<CollectionPage />} />
+                <Route path="/collections/changes" element={<StandaloneStructureChangePage />} />
+                <Route path="/catalog" element={<CatalogPage />} />
+                <Route path="/catalog/:id" element={<CatalogObjectPage />} />
                 <Route path="*" element={<Navigate to={visible[0]?.key ?? '/account'} replace />} />
               </Routes>
             )}

@@ -38,6 +38,6 @@ public class RoleQuery extends PageQuery {
      */
     @Override
     protected Map<String, String> sortColumns() {
-        return Map.of("updatedAt", "r.updated_at", "name", "r.name_key");
+        return Map.of("updatedAt", "updated_at", "name", "name_key");
     }
 }

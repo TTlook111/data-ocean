@@ -9,6 +9,7 @@ import com.dataocean.module.iam.entity.po.MembershipPO;
 import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 import com.dataocean.module.iam.mapper.DepartmentMapper;
 import com.dataocean.module.iam.mapper.MembershipMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.service.AssignmentService;
 import com.dataocean.module.iam.service.PermissionService;
@@ -45,6 +46,11 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final RoleMapper roles;
 
     /**
+     * 查询当前角色分配关系。
+     */
+    private final RoleAssignmentMapper roleAssignments;
+
+    /**
      * 当前操作者实际使用能力与显式授予资格的业务服务。
      */
     private final PermissionService permissions;
@@ -63,7 +69,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         var selected = new ArrayList<Long>(secondary);
         selected.add(primary);
         for (long departmentId : selected) {
-            var department = departments.find(departmentId);
+            var department = departments.selectById(departmentId);
             if (department == null) {
                 throw BizIllegalException.missing();
             }
@@ -125,8 +131,9 @@ public class AssignmentServiceImpl implements AssignmentService {
     public boolean rolesMatch(long id, List<RoleVersionRefVO> selected) {
         Set<Long> expected = new HashSet<>();
         selected.forEach(ref -> expected.add(Ids.parse(ref.getRoleId())));
-        return expected.equals(new HashSet<>(
-                roles.assignments(id).stream().map(row -> row.getRoleId()).toList()));
+        return expected.equals(new HashSet<>(roleAssignments.assignments(id).stream()
+                .map(row -> row.getRoleId())
+                .toList()));
     }
 
     /**
@@ -136,7 +143,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         Set<Long> before = new HashSet<>(
                 id == 0
                         ? List.of()
-                        : roles.assignments(id).stream()
+                        : roleAssignments.assignments(id).stream()
                                 .map(row -> row.getRoleId())
                                 .toList());
         Set<Long> after = new HashSet<>();
@@ -146,7 +153,7 @@ public class AssignmentServiceImpl implements AssignmentService {
             if (!after.add(roleId)) {
                 throw BizIllegalException.invalid("角色不能重复选择");
             }
-            var role = roles.find(roleId);
+            var role = roles.selectById(roleId);
             if (role == null) {
                 throw BizIllegalException.missing();
             }
@@ -187,16 +194,16 @@ public class AssignmentServiceImpl implements AssignmentService {
         Set<Long> after = new HashSet<>();
         selected.forEach(ref -> after.add(Ids.parse(ref.getRoleId())));
         Set<Long> before = new HashSet<>();
-        for (var row : roles.assignments(id)) {
+        for (var row : roleAssignments.assignments(id)) {
             before.add(row.getRoleId());
             if (!after.contains(row.getRoleId())) {
-                roles.endAssignment(row.getId(), UserContext.getUser());
+                roleAssignments.endAssignment(row.getId(), UserContext.getUser());
             }
         }
         for (var ref : selected) {
             long role = Ids.parse(ref.getRoleId());
             if (!before.contains(role)) {
-                roles.assign(id, role, ref.getVersion(), UserContext.getUser());
+                roleAssignments.assign(id, role, ref.getVersion(), UserContext.getUser());
             }
         }
         return true;

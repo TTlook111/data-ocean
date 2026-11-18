@@ -12,10 +12,12 @@ import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
 import com.dataocean.module.iam.entity.po.PermissionPO;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
 import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
+import com.dataocean.module.iam.mapper.CredentialMapper;
 import com.dataocean.module.iam.mapper.DepartmentMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.MembershipMapper;
 import com.dataocean.module.iam.mapper.PermissionMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PasswordPolicy;
@@ -62,6 +64,11 @@ public class IdentityBootstrap implements ApplicationRunner {
     private final UserMapper users;
 
     /**
+     * 保存账号凭据及其历史修订。
+     */
+    private final CredentialMapper credentials;
+
+    /**
      * 根组织记录。
      */
     private final DepartmentMapper departments;
@@ -80,6 +87,11 @@ public class IdentityBootstrap implements ApplicationRunner {
      * 预设角色及显式授予集合。
      */
     private final RoleMapper roles;
+
+    /**
+     * 初始化默认管理员的角色分配。
+     */
+    private final RoleAssignmentMapper roleAssignments;
 
     /**
      * 初始化业务审计。
@@ -113,7 +125,7 @@ public class IdentityBootstrap implements ApplicationRunner {
      */
     @Override
     public void run(ApplicationArguments args) throws IOException {
-        if (properties.getBootstrapUsername() == null || users.count() > 0) {
+        if (properties.getBootstrapUsername() == null || users.selectCount(null) > 0) {
             // 普通启动不重新读取密码文件，也不修改现有权限。
             return;
         }
@@ -131,15 +143,15 @@ public class IdentityBootstrap implements ApplicationRunner {
                 IdentitySeedsDTO.class);
         transactions.executeWithoutResult(status -> {
             // 竞争启动时锁后再次检查，避免初始化两份首管理员。
-            if (guard.lock().isBootstrapCompleted() || users.count() > 0) {
+            if (guard.lock().isBootstrapCompleted() || users.selectCount(null) > 0) {
                 return;
             }
             NewUserProfileDTO admin = new NewUserProfileDTO();
             admin.setUsername(properties.getBootstrapUsername());
             admin.setDisplayName(properties.getBootstrapDisplayName());
-            users.insert(admin, null);
+            users.create(admin, null);
             long userId = guard.lastId();
-            users.insertCredential(userId, hash);
+            credentials.create(userId, hash);
             DepartmentProfileDTO root = new DepartmentProfileDTO(
                     properties.getBootstrapDepartmentName(),
                     properties.getBootstrapDepartmentCode(),
@@ -195,18 +207,17 @@ public class IdentityBootstrap implements ApplicationRunner {
                     superRole = roleId;
                 }
             }
-            roles.assign(userId, superRole, 1, userId);
-            audits.bootstrap(new AuditWriteDTO(
-                    "iam.bootstrap",
-                    "user",
-                    Long.toString(userId),
-                    admin.getDisplayName(),
-                    null,
-                    List.of(new ChangeVO("identity", "首管理员", null, admin.getUsername())),
-                    List.of(),
-                    List.of(new RoleVersionRefVO(Long.toString(superRole), 1)),
-                    guard.current().getSecurityVersion(),
-                    null));
+            roleAssignments.assign(userId, superRole, 1, userId);
+            audits.bootstrap(AuditWriteDTO.builder()
+                    .actionCode("iam.bootstrap")
+                    .targetType("user")
+                    .targetId(Long.toString(userId))
+                    .targetName(admin.getDisplayName())
+                    .changes(List.of(new ChangeVO("identity", "首管理员", null, admin.getUsername())))
+                    .beforeRoles(List.of())
+                    .afterRoles(List.of(new RoleVersionRefVO(Long.toString(superRole), 1)))
+                    .securityVersion(guard.selectById(1).getSecurityVersion())
+                    .build());
         });
         log.info("空库身份初始化完成，需首次改密后建立有效恢复途径");
     }

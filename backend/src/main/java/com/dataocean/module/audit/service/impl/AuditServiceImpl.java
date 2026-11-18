@@ -59,24 +59,19 @@ public class AuditServiceImpl implements AuditService {
         var principal = UserContext.current();
         var actor = new AuditActorVO(
                 "USER", Long.toString(principal.userId()), principal.username(), principal.displayName());
-        var row = new AuditPO(
-                null,
-                "USER",
-                principal.userId(),
-                json.write(actor),
-                data.getActionCode(),
-                data.getTargetType(),
-                data.getTargetId() == null ? "not-created" : data.getTargetId(),
-                data.getTargetId(),
-                data.getHttpStatus() >= 500 ? "FAILED" : "REJECTED",
-                "HTTP " + data.getHttpStatus(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null);
+
+        // 未创建目标时使用固定标识，失败审计仅记录可披露的请求结果。
+        var row = AuditPO.builder()
+                .actorKind(actor.getKind())
+                .actorUserId(principal.userId())
+                .actorSnapshot(json.write(actor))
+                .actionCode(data.getActionCode())
+                .targetType(data.getTargetType())
+                .targetId(data.getTargetId() == null ? "not-created" : data.getTargetId())
+                .targetName(data.getTargetId())
+                .outcome(data.getHttpStatus() >= 500 ? "FAILED" : "REJECTED")
+                .reason("HTTP " + data.getHttpStatus())
+                .build();
         mapper.insert(row);
     }
 
@@ -96,30 +91,37 @@ public class AuditServiceImpl implements AuditService {
     }
 
     /**
+     * 以明确系统主体写入同事务的业务审计。
+     */
+    @Override
+    public void system(AuditWriteDTO data, String actorName) {
+        persist(data, new AuditActorVO("SYSTEM", null, null, actorName));
+    }
+
+    /**
      * 保存必要主体快照、字段差异和角色版本，不复制秘密或完整业务原文。
      */
     private void persist(AuditWriteDTO data, AuditActorVO actor) {
         var before = new AuditSummaryVO(List.of(), data.getBeforeRoles() == null ? List.of() : data.getBeforeRoles());
         var after =
                 new AuditSummaryVO(data.getChanges(), data.getAfterRoles() == null ? List.of() : data.getAfterRoles());
-        var row = new AuditPO(
-                null,
-                actor.getKind(),
-                Ids.nullable(actor.getUserId()),
-                json.write(actor),
-                data.getActionCode(),
-                data.getTargetType(),
-                data.getTargetId(),
-                data.getTargetName(),
-                "SUCCESS",
-                data.getReason(),
-                json.write(before),
-                json.write(after),
-                data.getSecurityVersion(),
-                data.getCommandId(),
-                null,
-                null,
-                null);
+
+        // 写入主体快照、命令关联和必要差异，由数据库生成审计编号及时间。
+        var row = AuditPO.builder()
+                .actorKind(actor.getKind())
+                .actorUserId(Ids.nullable(actor.getUserId()))
+                .actorSnapshot(json.write(actor))
+                .actionCode(data.getActionCode())
+                .targetType(data.getTargetType())
+                .targetId(data.getTargetId())
+                .targetName(data.getTargetName())
+                .outcome("SUCCESS")
+                .reason(data.getReason())
+                .beforeSummary(json.write(before))
+                .afterSummary(json.write(after))
+                .securityVersion(data.getSecurityVersion())
+                .commandId(data.getCommandId())
+                .build();
         mapper.insert(row);
     }
 
@@ -135,6 +137,7 @@ public class AuditServiceImpl implements AuditService {
     /**
      * 在当前权限和查询范围内过滤、统计并返回有效分页记录。
      */
+    @Transactional(readOnly = true)
     public PageVO<AuditRowVO> list(AuditQuery query) {
         LocalDateTime from = null, until = null;
         if ((query.getFromDate() == null) != (query.getToDate() == null)) {
@@ -190,7 +193,7 @@ public class AuditServiceImpl implements AuditService {
      * 按当前查看资格读取完整业务详情或真实历史快照。
      */
     public AuditDetailVO detail(long id) {
-        var data = mapper.find(id);
+        var data = mapper.selectById(id);
         if (data == null) {
             throw BizIllegalException.missing();
         }
@@ -213,7 +216,7 @@ public class AuditServiceImpl implements AuditService {
      * 从真实关联目标人员的成功审计读取可核验的历史角色依据。
      */
     public List<RoleVersionRefVO> recoveryRoles(long userId, long auditId) {
-        var data = mapper.find(auditId);
+        var data = mapper.selectById(auditId);
         if (data == null
                 || !data.getTargetType().equals("user")
                 || !data.getTargetId().equals(Long.toString(userId))

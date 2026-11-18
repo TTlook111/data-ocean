@@ -10,6 +10,7 @@ import com.dataocean.module.iam.entity.vo.PermissionVO;
 import com.dataocean.module.iam.entity.vo.RoleVersionRefVO;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.PermissionMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.service.PermissionService;
 
@@ -46,6 +47,11 @@ public class PermissionServiceImpl implements PermissionService {
      * 当前角色、使用与授予集合及分配历史的访问依赖。
      */
     private final RoleMapper roles;
+
+    /**
+     * 查询当前角色分配关系。
+     */
+    private final RoleAssignmentMapper roleAssignments;
 
     /**
      * 合并当前有效角色的使用能力，不在会话保存永久权限快照。
@@ -193,7 +199,7 @@ public class PermissionServiceImpl implements PermissionService {
      * 读取当前操作者真实持有的角色，用于计算变更前后的管理上限。
      */
     private List<AuthorityRole> actorRoles() {
-        return roles.assignments(UserContext.getUser()).stream()
+        return roleAssignments.assignments(UserContext.getUser()).stream()
                 .map(a -> authority(a.getRoleId()))
                 .toList();
     }
@@ -202,7 +208,7 @@ public class PermissionServiceImpl implements PermissionService {
      * 将角色当前使用、授予和启用状态组成管理资格依据。
      */
     private AuthorityRole authority(long id) {
-        var role = roles.find(id);
+        var role = roles.selectById(id);
         return new AuthorityRole(
                 id,
                 roles.permissions(id),
@@ -272,7 +278,7 @@ public class PermissionServiceImpl implements PermissionService {
      * 在配置锁内检查变更后仍至少存在一条实际可用恢复途径。
      */
     public void ensureRecovery() {
-        if (!guard.current().isBootstrapCompleted()) {
+        if (!guard.selectById(1).isBootstrapCompleted()) {
             // 首次受控初始化的唯一例外，完成必要改密后不再进入此分支。
             return;
         }

@@ -25,6 +25,7 @@ import com.dataocean.module.iam.entity.vo.UserRefVO;
 import com.dataocean.module.iam.entity.vo.UserRowVO;
 import com.dataocean.module.iam.mapper.DepartmentMapper;
 import com.dataocean.module.iam.mapper.MembershipMapper;
+import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 
@@ -59,6 +60,11 @@ public class IamViewAssembler {
     private final RoleMapper roles;
 
     /**
+     * 查询当前角色分配关系。
+     */
+    private final RoleAssignmentMapper roleAssignments;
+
+    /**
      * 部门树和聚合版本的持久化访问依赖。
      */
     private final DepartmentMapper departments;
@@ -82,7 +88,7 @@ public class IamViewAssembler {
      * 按稳定人员标识读取当前权威记录，不返回默认管理身份。
      */
     public UserPO user(long id) {
-        var user = users.find(id);
+        var user = users.selectById(id);
         if (user == null) {
             throw BizIllegalException.missing();
         }
@@ -93,7 +99,7 @@ public class IamViewAssembler {
      * 按稳定标识核对并读取当前角色。
      */
     public RolePO role(long id) {
-        var role = roles.find(id);
+        var role = roles.selectById(id);
         if (role == null) {
             throw BizIllegalException.missing();
         }
@@ -104,7 +110,7 @@ public class IamViewAssembler {
      * 读取并核对指定稳定部门记录，不按名称引用。
      */
     public DepartmentPO department(long id) {
-        var department = departments.find(id);
+        var department = departments.selectById(id);
         if (department == null) {
             throw BizIllegalException.missing();
         }
@@ -171,7 +177,7 @@ public class IamViewAssembler {
                 .filter(item -> !item.isPrimary())
                 .map(item -> departmentRef(item.getDepartmentId()))
                 .toList();
-        var roleRefs = roles.assignments(data.getId()).stream()
+        var roleRefs = roleAssignments.assignments(data.getId()).stream()
                 .map(item -> roleRef(item.getRoleId()))
                 .toList();
         return new UserAffiliationVO(primary, secondary, roleRefs);
@@ -232,7 +238,7 @@ public class IamViewAssembler {
      * 取得人员当前角色引用及实际角色修订，供核对和历史审计。
      */
     public List<RoleVersionRefVO> roleVersions(long id) {
-        return roles.assignments(id).stream()
+        return roleAssignments.assignments(id).stream()
                 .map(item -> new RoleVersionRefVO(
                         Ids.text(item.getRoleId()), role(item.getRoleId()).getVersion()))
                 .toList();
@@ -250,7 +256,7 @@ public class IamViewAssembler {
                 data.getLifecycle(),
                 data.isBuiltin(),
                 permissions.protectedRole(data.getId()),
-                roles.memberCount(data.getId()),
+                roleAssignments.memberCount(data.getId()),
                 data.getVersion(),
                 Times.instant(data.getUpdatedAt()));
     }
