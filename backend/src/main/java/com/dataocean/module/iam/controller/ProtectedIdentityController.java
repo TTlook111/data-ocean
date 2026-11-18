@@ -6,6 +6,7 @@ import com.dataocean.module.iam.entity.dto.RecoverUserDTO;
 import com.dataocean.module.iam.entity.dto.RecoveryPreviewDTO;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.RecoveryPreviewVO;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.RoleService;
 
 import jakarta.validation.Valid;
@@ -37,6 +38,7 @@ public class ProtectedIdentityController {
      * 单独办理个人受保护角色分配。
      */
     @PutMapping("/{id}/protected-roles")
+    @RequirePermission({"users.assign", "roles.protected"})
     public Result<MutationVO> assign(
             @PathVariable String id,
             @Valid @RequestBody ProtectedRoleAssignmentDTO data,
@@ -48,6 +50,7 @@ public class ProtectedIdentityController {
      * 根据指定历史记录构造恢复提案。
      */
     @PostMapping("/{id}/recovery-preview")
+    @RequirePermission("users.recover")
     public Result<RecoveryPreviewVO> preview(@PathVariable String id, @Valid @RequestBody RecoveryPreviewDTO data) {
         return Result.success(service.previewRecovery(id, data));
     }
@@ -56,6 +59,7 @@ public class ProtectedIdentityController {
      * 重核历史和当前资格后建立恢复分配。
      */
     @PostMapping("/{id}/recover")
+    @RequirePermission("users.recover")
     public Result<MutationVO> recover(
             @PathVariable String id,
             @Valid @RequestBody RecoverUserDTO data,

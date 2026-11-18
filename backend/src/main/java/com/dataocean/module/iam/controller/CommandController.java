@@ -3,6 +3,7 @@ package com.dataocean.module.iam.controller;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.entity.query.CommandLookupQuery;
 import com.dataocean.module.iam.entity.vo.CommandStatusVO;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.MutationService;
 
 import jakarta.validation.Valid;
@@ -30,6 +31,7 @@ public class CommandController {
      * commandId 与当前用户及原动作共同定位唯一命令。
      */
     @GetMapping("/api/v1/commands/{commandId}")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<CommandStatusVO> status(
             @PathVariable String commandId, @Valid @ModelAttribute CommandLookupQuery query) {
         return Result.success(mutations.status(commandId, query.getOperationCode()));

@@ -9,6 +9,7 @@ import com.dataocean.module.iam.entity.vo.CurrentSessionVO;
 import com.dataocean.module.iam.entity.vo.LoginVO;
 import com.dataocean.module.iam.entity.vo.PasswordChangedVO;
 import com.dataocean.module.iam.security.CurrentIdentityFilter;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.AuthService;
 
 import java.time.Clock;
@@ -63,6 +64,7 @@ public class AuthController {
      * 触发服务端令牌生成，仅返回 CSRF 信息。
      */
     @GetMapping("/csrf")
+    @RequirePermission(access = RequirePermission.Access.PUBLIC)
     public Result<CsrfVO> csrf(HttpServletRequest request) {
         CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
         return Result.success(new CsrfVO(token.getHeaderName(), token.getToken()));
@@ -72,6 +74,7 @@ public class AuthController {
      * 认证成功后轮换会话编号与 CSRF，显式保存安全上下文。
      */
     @PostMapping("/login")
+    @RequirePermission(access = RequirePermission.Access.PUBLIC)
     public Result<LoginVO> login(
             @Valid @RequestBody LoginDTO data, HttpServletRequest request, HttpServletResponse response) {
         var principal = auth.authenticate(data, request.getRemoteAddr());
@@ -97,6 +100,7 @@ public class AuthController {
      * 返回受限或完整身份，被动读取不延长用户活动时限。
      */
     @GetMapping("/me")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<CurrentSessionVO> me(HttpServletRequest request) {
         return Result.success(auth.current(
                 UserContext.current(), (Long) request.getSession(false).getAttribute(CurrentIdentityFilter.AUTH_AT)));
@@ -106,6 +110,7 @@ public class AuthController {
      * 注销当前会话，已退出的调用保持幂等。
      */
     @PostMapping("/logout")
+    @RequirePermission(access = RequirePermission.Access.PUBLIC)
     public Result<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         endSession(request, response);
         return Result.success(null);
@@ -115,6 +120,7 @@ public class AuthController {
      * 完成受限身份改密后清理当前 Cookie 对应的会话。
      */
     @PostMapping("/password/initial")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<PasswordChangedVO> initial(
             @Valid @RequestBody InitialPasswordDTO data, HttpServletRequest request, HttpServletResponse response) {
         auth.initialPassword(data);

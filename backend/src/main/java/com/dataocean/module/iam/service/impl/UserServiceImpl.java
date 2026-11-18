@@ -52,6 +52,7 @@ import com.dataocean.module.iam.mapper.MembershipMapper;
 import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
+import com.dataocean.module.iam.security.IamRequestPermission;
 import com.dataocean.module.iam.service.AssignmentService;
 import com.dataocean.module.iam.service.IamViewAssembler;
 import com.dataocean.module.iam.service.MutationService;
@@ -125,6 +126,11 @@ public class UserServiceImpl implements UserService {
      * 当前操作者实际使用能力与显式授予资格的业务服务。
      */
     private final PermissionService permissions;
+
+    /**
+     * 复用接口声明的动态准入规则，在共享授权锁内再次核对。
+     */
+    private final IamRequestPermission requestPermission;
 
     /**
      * 主兼任及角色分配的共用业务能力。
@@ -277,18 +283,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public ImpactPreviewVO preview(String textId, UserImpactPreviewDTO data) {
         guard.shared();
-        String operation =
-                switch (data.getAction()) {
-                    case "UPDATE" -> "users.edit";
-                    case "TRANSFER" -> "users.transfer";
-                    case "DISABLE" -> "users.disable";
-                    case "ENABLE" -> "users.enable";
-                    case "ARCHIVE" -> "users.archive";
-                    case "RESET_PASSWORD" -> "users.password";
-                    case "PROTECTED_ROLES" -> "roles.protected";
-                    default -> throw BizIllegalException.invalid("未知人员操作");
-                };
-        permissions.require(operation);
+        requestPermission.requireUserPreview(data.getAction());
         long id = Ids.parse(textId);
         UserPO user = checked(id, data.getExpectedVersion());
 
@@ -372,7 +367,6 @@ public class UserServiceImpl implements UserService {
             case "PROTECTED_ROLES" -> {
                 // 受保护角色分配继续同时核对人员分配及受保护能力。
                 var p = (UserProtectedRolesProposalDTO) proposal;
-                permissions.require("users.assign");
                 assignments.validateRoles(id, p.getRoles(), "users.assign", true);
                 changes.add(change("roles", "受保护角色分配", roleNamesFromUser(user), roleNames(p.getRoles())));
             }
@@ -700,14 +694,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public List<DepartmentOptionVO> departmentOptions(DepartmentOptionQuery query) {
         guard.shared();
-        switch (String.valueOf(query.getPurpose())) {
-            case "USER_CREATE" -> permissions.require("users.create");
-            case "USER_TRANSFER" -> permissions.require("users.transfer");
-            case "USER_ENABLE" -> permissions.require("users.enable");
-            case "DEPARTMENT_EDIT" -> permissions.requireAny("departments.create", "departments.edit");
-            case "MEMBER_TRANSFER" -> permissions.require("departments.transfer-members");
-            default -> throw BizIllegalException.invalid("部门选项用途不正确");
-        }
+        requestPermission.requireDepartmentOptions(query.getPurpose());
         Set<String> selected = new HashSet<>(query.getSelectedIds());
         var result = departments.all().stream()
                 .filter(item -> item.getLifecycle().equals("ENABLED") || selected.contains(Ids.text(item.getId())))
@@ -730,13 +717,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public List<RoleOptionVO> roleOptions(RoleOptionQuery query) {
         guard.shared();
-        String operation =
-                switch (String.valueOf(query.getPurpose())) {
-                    case "USER_CREATE" -> "users.create";
-                    case "USER_ASSIGN" -> "users.assign";
-                    case "USER_ENABLE" -> "users.enable";
-                    default -> throw BizIllegalException.invalid("角色选项用途不正确");
-                };
+        String operation = IamRequestPermission.roleOptionOperation(query.getPurpose());
         permissions.require(operation);
         if (query.getPurpose().equals("USER_CREATE")) {
             operation = "users.assign";
@@ -779,15 +760,12 @@ public class UserServiceImpl implements UserService {
     public List<UserOptionVO> userOptions(UserOptionQuery query) {
         guard.shared();
         Set<Long> existing = new HashSet<>();
-        switch (String.valueOf(query.getPurpose())) {
-            case "DEPARTMENT_MANAGER" -> permissions.requireAny("departments.create", "departments.edit");
-            case "MEMBER_ADD" -> {
-                permissions.require("departments.add-member");
-                long department = Ids.parse(query.getDepartmentId());
-                views.department(department);
-                memberships.forDepartment(department).forEach(row -> existing.add(row.getUserId()));
-            }
-            default -> throw BizIllegalException.invalid("人员选项用途不正确");
+        requestPermission.requireUserOptions(query.getPurpose());
+        if ("MEMBER_ADD".equals(query.getPurpose())) {
+            // 加入成员时排除已在目标部门的人员。
+            long department = Ids.parse(query.getDepartmentId());
+            views.department(department);
+            memberships.forDepartment(department).forEach(row -> existing.add(row.getUserId()));
         }
         var result = users.all().stream()
                 .filter(item -> !item.getLifecycle().equals("ARCHIVED") && !existing.contains(item.getId()))

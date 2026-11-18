@@ -45,6 +45,7 @@ import com.dataocean.module.iam.mapper.DepartmentMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.MembershipMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
+import com.dataocean.module.iam.security.IamRequestPermission;
 import com.dataocean.module.iam.service.DepartmentService;
 import com.dataocean.module.iam.service.IamViewAssembler;
 import com.dataocean.module.iam.service.MutationService;
@@ -220,7 +221,7 @@ public class DepartmentServiceImpl implements DepartmentService {
         guard.shared();
         long id = Ids.parse(textId);
         DepartmentPO department = checked(id, data.getExpectedVersion());
-        permissions.require(operation(data.getAction()));
+        permissions.require(IamRequestPermission.departmentOperation(data.getAction()));
 
         // 请求绑定时已按动作选定完整部门提案，后续签名沿用该提案。
         DepartmentProposalDTO proposal = data.getProposal();
@@ -493,7 +494,8 @@ public class DepartmentServiceImpl implements DepartmentService {
     private MutationVO changeLifecycle(
             String textId, String action, int version, String reason, String token, Object payload, String command) {
         long id = Ids.parse(textId);
-        return mutations.execute(operation(action), command, textId, payload, version, true, false, () -> {
+        String operation = IamRequestPermission.departmentOperation(action);
+        return mutations.execute(operation, command, textId, payload, version, true, false, () -> {
             // 归档条件必须在提交时重新核对，不能沿用预览计数。
             var department = checked(id, version);
             validateLifecycle(department, action);
@@ -504,7 +506,7 @@ public class DepartmentServiceImpl implements DepartmentService {
             }
             audit(
                     id,
-                    operation(action),
+                    operation,
                     reason,
                     List.of(change("lifecycle", "部门状态", department.getLifecycle(), targetLifecycle(action))),
                     command);
@@ -677,22 +679,6 @@ public class DepartmentServiceImpl implements DepartmentService {
             throw BizIllegalException.state("归档部门仅供回看");
         }
         return department;
-    }
-
-    /**
-     * 将动作映射到系统目录中的显式权限代码。
-     */
-    private String operation(String action) {
-        return switch (action) {
-            case "UPDATE" -> "departments.edit";
-            case "ADD_SECONDARY" -> "departments.add-member";
-            case "END_MEMBERSHIP" -> "departments.remove-member";
-            case "MOVE_MEMBERS", "MOVE_CHILDREN" -> "departments.transfer-members";
-            case "DISABLE" -> "departments.disable";
-            case "ENABLE" -> "departments.enable";
-            case "ARCHIVE" -> "departments.archive";
-            default -> throw BizIllegalException.invalid("未知部门操作");
-        };
     }
 
     /**

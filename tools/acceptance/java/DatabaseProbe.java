@@ -1,9 +1,13 @@
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.apache.ibatis.annotations.Update;
 import tools.jackson.databind.json.JsonMapper;
@@ -27,6 +31,11 @@ public class DatabaseProbe {
             output.put("schema", connection.getCatalog());
             output.put("version", connection.getMetaData().getDatabaseProductVersion());
 
+            if (args.length > 1 && args[1].equals("hold-role-grant")) {
+                // 双 HTTP 事务的并发验收需要暂时锁住要收回的一条授予记录。
+                holdRoleGrant(connection);
+                return;
+            }
             String sql = new String(System.in.readAllBytes(), StandardCharsets.UTF_8);
             if (args.length > 1 && args[1].equals("outbox-delivered")) {
                 // 租约验收直接执行生产 Mapper 注解中的 SQL，不复制另一份条件造成假通过。
@@ -77,5 +86,39 @@ public class DatabaseProbe {
             output.put("vendorCode", error.getErrorCode());
         }
         System.out.println(JsonMapper.builder().build().writeValueAsString(output));
+    }
+
+    /**
+     * 锁定调用方本轮创建的一条角色授予，等待关闭输入后回滚只持锁的事务。
+     */
+    private static void holdRoleGrant(Connection connection) throws Exception {
+        var json = JsonMapper.builder().build();
+        var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        var fixture = json.readTree(input.readLine());
+        connection.setAutoCommit(false);
+        try (var statement = connection.prepareStatement("""
+                SELECT gp.role_id FROM iam_role_grant_permission gp
+                WHERE gp.role_id=? AND gp.permission_code=?
+                  AND EXISTS (SELECT 1 FROM iam_role r WHERE r.id=gp.role_id AND r.name=?)
+                FOR UPDATE
+                """)) {
+            // 同时匹配角色 ID、权限编码和本轮角色名称，按主键锁住待收回的授予。
+            statement.setLong(1, Long.parseLong(fixture.path("id").asString()));
+            statement.setString(2, fixture.path("permission").asString());
+            statement.setString(3, fixture.path("name").asString());
+            statement.setQueryTimeout(5);
+            try (var result = statement.executeQuery()) {
+                // 缺少测试角色时中止，不能误报已持锁。
+                if (!result.next()) {
+                    throw new IllegalStateException("未找到本轮角色授予记录");
+                }
+            }
+            System.out.println(json.writeValueAsString(Map.of("locked", true)));
+            System.out.flush();
+            input.readLine();
+        } finally {
+            // 持锁探针不提交任何业务变更。
+            connection.rollback();
+        }
     }
 }

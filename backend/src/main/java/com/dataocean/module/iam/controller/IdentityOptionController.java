@@ -7,6 +7,8 @@ import com.dataocean.module.iam.entity.query.UserOptionQuery;
 import com.dataocean.module.iam.entity.vo.DepartmentOptionVO;
 import com.dataocean.module.iam.entity.vo.RoleOptionVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
+import com.dataocean.module.iam.security.IamRequestPermission;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.UserService;
 
 import java.util.List;
@@ -37,6 +39,7 @@ public class IdentityOptionController {
      * 读取本次动作可选择或只读保留的部门。
      */
     @GetMapping("/department-options")
+    @RequirePermission(policy = IamRequestPermission.class)
     public Result<List<DepartmentOptionVO>> departments(@Valid @ModelAttribute DepartmentOptionQuery query) {
         return Result.success(service.departmentOptions(query));
     }
@@ -45,6 +48,7 @@ public class IdentityOptionController {
      * 读取完整能力在操作者上限内的角色。
      */
     @GetMapping("/role-options")
+    @RequirePermission(policy = IamRequestPermission.class)
     public Result<List<RoleOptionVO>> roles(@Valid @ModelAttribute RoleOptionQuery query) {
         return Result.success(service.roleOptions(query));
     }
@@ -53,6 +57,7 @@ public class IdentityOptionController {
      * 读取部门负责人或兼任加入的可选人员。
      */
     @GetMapping("/user-options")
+    @RequirePermission(policy = IamRequestPermission.class)
     public Result<List<UserOptionVO>> users(@Valid @ModelAttribute UserOptionQuery query) {
         return Result.success(service.userOptions(query));
     }

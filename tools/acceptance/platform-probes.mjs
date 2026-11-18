@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -17,9 +19,9 @@ const root = path.resolve(
 const configuration = process.env.DATAOCEAN_LOCAL_CONFIG;
 
 /**
- * 用标准输入调用 Java 探针，SQL 或会话凭据不进入进程命令行。
+ * 使用共用编译产物组装 Java 命令，仅传递本机配置路径。
  */
-function probe(name, input, mode) {
+function probeCommand(name, mode) {
   if (!configuration)
     throw new Error("请用 DATAOCEAN_LOCAL_CONFIG 指定已核实的新平台本机配置");
   const dependencies = fs
@@ -33,9 +35,9 @@ function probe(name, input, mode) {
     ? path.join(process.env.JAVA_HOME, "bin/java.exe")
     : "java";
 
-  const result = spawnSync(
+  return {
     java,
-    [
+    args: [
       "-Xms16m",
       "-Xmx128m",
       "-Dfile.encoding=UTF-8",
@@ -45,6 +47,17 @@ function probe(name, input, mode) {
       configuration,
       ...(mode ? [mode] : []),
     ],
+  };
+}
+
+/**
+ * 用标准输入调用 Java 探针，SQL 或会话凭据不进入进程命令行。
+ */
+function probe(name, input, mode) {
+  const { java, args } = probeCommand(name, mode);
+  const result = spawnSync(
+    java,
+    args,
     { input, encoding: "utf8", timeout: 60000, windowsHide: true },
   );
   if (result.status !== 0)
@@ -59,6 +72,53 @@ function probe(name, input, mode) {
  */
 export function sql(statement) {
   return probe("DatabaseProbe", statement);
+}
+
+/**
+ * 持有本轮角色的一条授予记录行锁，直到两个真实 HTTP 事务均在等待。
+ */
+export async function lockFixtureGrant({ id, name }, permission) {
+  const { java, args } = probeCommand("DatabaseProbe", "hold-role-grant");
+  const child = spawn(java, args, {
+    stdio: ["pipe", "pipe", "ignore"],
+    timeout: 20000,
+    windowsHide: true,
+  });
+  const exit = once(child, "close");
+  const output = createInterface({ input: child.stdout });
+  child.stdin.on("error", () => {
+    // 子进程早退由退出状态和握手结果统一报告。
+  });
+  try {
+    // 在返回释放函数之前，等待探针确实取得行锁。
+    const signal = AbortSignal.timeout(6000);
+    const ready = once(output, "line", { signal });
+    child.stdin.write(JSON.stringify({ id, name, permission }) + "\n");
+    const [line] = await Promise.race([
+      ready,
+      exit.then(([code]) => {
+        throw new Error(`角色授予行锁探针未就绪，退出码 ${code}`);
+      }),
+    ]);
+    if (!JSON.parse(line).locked) {
+      throw new Error("角色授予行锁探针没有取得行锁");
+    }
+  } catch (error) {
+    // 即使握手未完成也关闭输入，保证探针释放锁。
+    child.stdin.end();
+    await exit.catch(() => {});
+    throw error;
+  } finally {
+    output.close();
+  }
+  return async () => {
+    // 关闭输入触发回滚，等待连接实际释放。
+    child.stdin.end();
+    const [code] = await exit;
+    if (code !== 0) {
+      throw new Error(`角色授予行锁探针未正常释放，退出码 ${code}`);
+    }
+  };
 }
 
 /**

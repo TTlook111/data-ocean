@@ -16,6 +16,7 @@ import com.dataocean.module.datasource.entity.vo.ConnectionCheckVO;
 import com.dataocean.module.datasource.entity.vo.CredentialChangeVO;
 import com.dataocean.module.datasource.entity.vo.SourceDetailVO;
 import com.dataocean.module.datasource.entity.vo.SourceRowVO;
+import com.dataocean.module.datasource.security.DatasourceRequestPermission;
 import com.dataocean.module.datasource.service.DatasourceService;
 import com.dataocean.module.datasource.service.impl.CredentialMaintenance;
 import com.dataocean.module.datasource.service.impl.SourceManagement;
@@ -24,6 +25,7 @@ import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
+import com.dataocean.module.iam.security.RequirePermission;
 
 import java.util.List;
 
@@ -70,6 +72,7 @@ public class DatasourceController {
      * 数据源管理列表复用公共分页。
      */
     @GetMapping
+    @RequirePermission("sources.view")
     public Result<PageVO<SourceRowVO>> list(SourceQuery query) {
         return Result.success(management.list(query));
     }
@@ -78,6 +81,7 @@ public class DatasourceController {
      * 仅管理权限可以读取来源连接配置。
      */
     @GetMapping("/{sourceId}")
+    @RequirePermission("sources.view")
     public Result<SourceDetailVO> detail(@PathVariable String sourceId) {
         return Result.success(management.detail(Ids.parse(sourceId)));
     }
@@ -86,6 +90,7 @@ public class DatasourceController {
      * 元数据目录与采集记录的选项范围分别核权。
      */
     @GetMapping("/options")
+    @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<List<SourceOption>> options(@RequestParam String purpose) {
         return Result.success(management.options(purpose));
     }
@@ -94,6 +99,7 @@ public class DatasourceController {
      * 只返回当前可选的联系人和安全引用。
      */
     @GetMapping("/contact-options")
+    @RequirePermission(anyOf = {"sources.create", "sources.edit"})
     public Result<PageVO<UserOptionVO>> contacts(@RequestParam(required = false) String keyword, PageQuery query) {
         return Result.success(management.contacts(keyword, query));
     }
@@ -102,6 +108,7 @@ public class DatasourceController {
      * 保存核对过的非秘密配置与草稿凭据。
      */
     @PutMapping("/{sourceId}/configuration")
+    @RequirePermission("sources.edit")
     public Result<MutationVO> edit(
             @PathVariable String sourceId,
             @RequestHeader("Idempotency-Key") String command,
@@ -113,6 +120,7 @@ public class DatasourceController {
      * 用本源有效测试启用已有草稿。
      */
     @PostMapping("/{sourceId}/enable")
+    @RequirePermission("sources.enable")
     public Result<MutationVO> enable(
             @PathVariable String sourceId,
             @RequestHeader("Idempotency-Key") String command,
@@ -124,6 +132,7 @@ public class DatasourceController {
      * 暂停或恢复未来的定时接收。
      */
     @PostMapping("/{sourceId}/schedule/state")
+    @RequirePermission("sources.pause")
     public Result<SourceDetailVO> schedule(
             @PathVariable String sourceId,
             @RequestHeader("Idempotency-Key") String command,
@@ -136,6 +145,7 @@ public class DatasourceController {
      */
     @PostMapping("/{sourceId}/credential-changes")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @RequirePermission("sources.edit")
     public Result<CredentialChangeVO> replace(
             @PathVariable String sourceId,
             @RequestHeader("Idempotency-Key") String command,
@@ -147,6 +157,7 @@ public class DatasourceController {
      * 回看原操作及其真实停止状态。
      */
     @GetMapping("/{sourceId}/credential-changes/{changeId}")
+    @RequirePermission("sources.view")
     public Result<CredentialChangeVO> replacement(@PathVariable String sourceId, @PathVariable String changeId) {
         return Result.success(credentials.detail(Ids.parse(sourceId), changeId));
     }
@@ -155,6 +166,7 @@ public class DatasourceController {
      * 回包丢失时使用同一原命令定位替换。
      */
     @GetMapping("/{sourceId}/credential-changes/by-command/{commandId}")
+    @RequirePermission("sources.edit")
     public Result<CredentialChangeVO> replacementByCommand(
             @PathVariable String sourceId, @PathVariable String commandId) {
         return Result.success(credentials.byCommand(Ids.parse(sourceId), commandId));
@@ -165,6 +177,7 @@ public class DatasourceController {
      */
     @PostMapping("/connection-checks")
     @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("sources.test")
     public Result<ConnectionCheckVO> test(
             @RequestHeader(value = "Idempotency-Key", required = false) String command,
             @Valid @RequestBody ConnectionCheckDTO input) {
@@ -176,6 +189,7 @@ public class DatasourceController {
      */
     @PostMapping("/{sourceId}/connection-checks")
     @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("sources.test")
     public Result<ConnectionCheckVO> testSaved(
             @PathVariable String sourceId,
             @RequestHeader(value = "Idempotency-Key", required = false) String command,
@@ -187,6 +201,7 @@ public class DatasourceController {
      * 查看原检查回执，无须为刷新页面重新连接业务库。
      */
     @GetMapping("/connection-checks/{checkId}")
+    @RequirePermission("sources.test")
     public Result<ConnectionCheckVO> check(@PathVariable String checkId) {
         return Result.success(sources.check(Ids.parse(checkId)));
     }
@@ -195,6 +210,7 @@ public class DatasourceController {
      * 为新增或启用源签发同一操作者的只读核对凭据。
      */
     @PostMapping("/impact-preview")
+    @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<ImpactPreviewVO> review(@Valid @RequestBody CreatePreviewDTO<SourceCreateProposalDTO> input) {
         return Result.success(sources.reviewCreate(input.getProposal()));
     }
@@ -204,6 +220,7 @@ public class DatasourceController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<MutationVO> create(
             @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody SourceCreateDTO input) {
         return Result.success(sources.create(command, input));

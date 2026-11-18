@@ -5,6 +5,7 @@ import com.dataocean.module.iam.entity.dto.ChangePasswordDTO;
 import com.dataocean.module.iam.entity.dto.UpdateContactDTO;
 import com.dataocean.module.iam.entity.vo.AccountVO;
 import com.dataocean.module.iam.entity.vo.PasswordChangedVO;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.AuthService;
 import com.dataocean.module.iam.service.UserService;
 
@@ -51,6 +52,7 @@ public class AccountController {
      * 返回当前本人资料，不依赖人员管理权限。
      */
     @GetMapping
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<AccountVO> account() {
         return Result.success(users.account());
     }
@@ -59,6 +61,7 @@ public class AccountController {
      * 用完整版本和防重命令保存本人联系方式。
      */
     @PutMapping("/contact")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<AccountVO> contact(
             @Valid @RequestBody UpdateContactDTO data, @RequestHeader("Idempotency-Key") String command) {
         return Result.success(users.contact(data, command));
@@ -68,6 +71,7 @@ public class AccountController {
      * 验证原密码后更新凭据，并立即结束当前浏览器会话。
      */
     @PostMapping("/password")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
     public Result<PasswordChangedVO> password(
             @Valid @RequestBody ChangePasswordDTO data, HttpServletRequest request, HttpServletResponse response) {
         auth.changePassword(data);

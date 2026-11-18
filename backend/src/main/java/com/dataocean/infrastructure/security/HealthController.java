@@ -1,6 +1,7 @@
 package com.dataocean.infrastructure.security;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.iam.security.RequirePermission;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,7 @@ public class HealthController {
      * 同时验证平台存储和会话存储，失败由统一边界返回。
      */
     @GetMapping("/api/v1/health")
+    @RequirePermission(access = RequirePermission.Access.PUBLIC)
     public Result<HealthVO> health() {
         jdbc.queryForObject("SELECT 1", Integer.class);
         redis.execute(connection -> connection.ping(), true);

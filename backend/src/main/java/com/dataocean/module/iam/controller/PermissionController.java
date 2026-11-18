@@ -2,6 +2,7 @@ package com.dataocean.module.iam.controller;
 
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.entity.vo.PermissionPageVO;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.PermissionService;
 
 import java.util.List;
@@ -27,8 +28,8 @@ public class PermissionController {
      * 先核验配置入口，再读取角色可选功能目录。
      */
     @GetMapping("/api/v1/iam/permissions")
+    @RequirePermission(anyOf = {"roles.view", "roles.create", "roles.edit", "roles.protected"})
     public Result<List<PermissionPageVO>> catalog() {
-        permissions.requireAny("roles.view", "roles.create", "roles.edit", "roles.protected");
         return Result.success(permissions.catalog());
     }
 }

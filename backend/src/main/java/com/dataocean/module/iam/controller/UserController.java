@@ -17,6 +17,8 @@ import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.UserDetailVO;
 import com.dataocean.module.iam.entity.vo.UserRowVO;
+import com.dataocean.module.iam.security.IamRequestPermission;
+import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.iam.service.UserService;
 
 import jakarta.validation.Valid;
@@ -52,6 +54,7 @@ public class UserController {
      * 按应用条件读取人员及总数。
      */
     @GetMapping
+    @RequirePermission("users.view")
     public Result<PageVO<UserRowVO>> list(@Valid @ModelAttribute UserQuery query) {
         return Result.success(service.list(query));
     }
@@ -60,6 +63,7 @@ public class UserController {
      * 读取人员当前资料或归档快照。
      */
     @GetMapping("/{id}")
+    @RequirePermission("users.view")
     public Result<UserDetailVO> detail(@PathVariable String id) {
         return Result.success(service.detail(id));
     }
@@ -68,6 +72,7 @@ public class UserController {
      * 核对创建人员的非秘密资料。
      */
     @PostMapping("/impact-preview")
+    @RequirePermission("users.create")
     public Result<ImpactPreviewVO> previewCreate(@Valid @RequestBody CreatePreviewDTO<NewUserProfileDTO> data) {
         return Result.success(service.previewCreate(data));
     }
@@ -77,6 +82,7 @@ public class UserController {
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("users.create")
     public Result<MutationVO> create(
             @Valid @RequestBody CreateUserDTO data, @RequestHeader("Idempotency-Key") String command) {
         return Result.success(service.create(data, command));
@@ -86,6 +92,7 @@ public class UserController {
      * 核对目标人员的具体动作和影响。
      */
     @PostMapping("/{id}/impact-preview")
+    @RequirePermission(policy = IamRequestPermission.class)
     public Result<ImpactPreviewVO> preview(@PathVariable String id, @Valid @RequestBody UserImpactPreviewDTO data) {
         return Result.success(service.preview(id, data));
     }
@@ -94,6 +101,7 @@ public class UserController {
      * 完整保存人员资料及获准归属变化。
      */
     @PutMapping("/{id}")
+    @RequirePermission("users.edit")
     public Result<MutationVO> update(
             @PathVariable String id,
             @Valid @RequestBody UpdateUserDTO data,
@@ -105,6 +113,7 @@ public class UserController {
      * 调整主兼任归属而不改变角色。
      */
     @PutMapping("/{id}/memberships")
+    @RequirePermission("users.transfer")
     public Result<MutationVO> transfer(
             @PathVariable String id,
             @Valid @RequestBody TransferUserDTO data,
@@ -116,6 +125,7 @@ public class UserController {
      * 直接保存完整个人角色分配。
      */
     @PutMapping("/{id}/roles")
+    @RequirePermission("users.assign")
     public Result<MutationVO> assignRoles(
             @PathVariable String id,
             @Valid @RequestBody RoleAssignmentDTO data,
@@ -127,6 +137,7 @@ public class UserController {
      * 停用人员并检查最后恢复途径。
      */
     @PostMapping("/{id}/disable")
+    @RequirePermission("users.disable")
     public Result<MutationVO> disable(
             @PathVariable String id,
             @Valid @RequestBody VersionActionDTO data,
@@ -138,6 +149,7 @@ public class UserController {
      * 复核当前归属和角色后恢复人员。
      */
     @PostMapping("/{id}/enable")
+    @RequirePermission("users.enable")
     public Result<MutationVO> enable(
             @PathVariable String id,
             @Valid @RequestBody EnableUserDTO data,
@@ -149,6 +161,7 @@ public class UserController {
      * 结束当前关系并保留归档身份快照。
      */
     @PostMapping("/{id}/archive")
+    @RequirePermission("users.archive")
     public Result<MutationVO> archive(
             @PathVariable String id,
             @Valid @RequestBody VersionActionDTO data,
@@ -160,6 +173,7 @@ public class UserController {
      * 重置初始凭据并使旧会话失效。
      */
     @PostMapping("/{id}/password-reset")
+    @RequirePermission("users.password")
     public Result<MutationVO> resetPassword(
             @PathVariable String id,
             @Valid @RequestBody ResetPasswordDTO data,

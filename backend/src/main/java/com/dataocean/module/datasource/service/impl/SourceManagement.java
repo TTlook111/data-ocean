@@ -31,6 +31,7 @@ import com.dataocean.module.datasource.mapper.DatasourcePageMapper;
 import com.dataocean.module.datasource.mapper.DatasourcePageMapper.SourceSummary;
 import com.dataocean.module.datasource.mapper.DatasourceRecordMapper;
 import com.dataocean.module.datasource.mapper.SourceStateMapper;
+import com.dataocean.module.datasource.security.DatasourceRequestPermission;
 import com.dataocean.module.datasource.service.DatasourceEvents;
 import com.dataocean.module.datasource.service.DatasourceScheduler;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
@@ -172,12 +173,7 @@ public class SourceManagement {
      * 页面用途分别核对目录、采集或管理权限。
      */
     public List<SourceOption> options(String purpose) {
-        permissions.require(
-                switch (purpose) {
-                    case "CATALOG" -> "catalog.view";
-                    case "COLLECTIONS" -> "collections.view";
-                    default -> throw BizIllegalException.invalid("无效的来源选项用途");
-                });
+        permissions.require(DatasourceRequestPermission.optionPermission(purpose));
         return state.options().stream()
                 // 将数据库 ID 转为接口字符串，保留页面所需的核对版本。
                 .map(source -> new SourceOption(
@@ -259,7 +255,7 @@ public class SourceManagement {
      */
     public ImpactPreviewVO review(long id, SourceActionPreviewDTO input) {
         String action = input.getAction();
-        permissions.require(permission(action));
+        permissions.require(DatasourceRequestPermission.previewOperation(input));
         DatasourcePO source = source(id, false);
         verifyVersion(source, input.getExpectedVersion());
         RevisionRow revision = sources.revision(id, source.getCurrentConnectionRevisionId());
@@ -612,18 +608,6 @@ public class SourceManagement {
         if (!Objects.equals(requested, source.getVersion())) {
             throw BizIllegalException.conflict();
         }
-    }
-
-    /**
-     * 源预览动作显式映射到各自的业务权限。
-     */
-    private String permission(String action) {
-        return switch (action) {
-            case "UPDATE_CONFIG" -> "sources.edit";
-            case "ENABLE" -> "sources.enable";
-            case "PAUSE_SCHEDULE", "RESUME_SCHEDULE" -> "sources.pause";
-            default -> throw BizIllegalException.invalid("无效的来源维护动作");
-        };
     }
 
     /**

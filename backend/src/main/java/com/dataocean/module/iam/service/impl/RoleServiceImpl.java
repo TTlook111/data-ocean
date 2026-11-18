@@ -44,6 +44,8 @@ import com.dataocean.module.iam.mapper.PermissionMapper;
 import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
+import com.dataocean.module.iam.security.IamRequestPermission;
+import com.dataocean.module.iam.security.RoleProfilePermission;
 import com.dataocean.module.iam.service.AssignmentService;
 import com.dataocean.module.iam.service.IamViewAssembler;
 import com.dataocean.module.iam.service.MutationService;
@@ -104,6 +106,16 @@ public class RoleServiceImpl implements RoleService {
      * 当前操作者的使用及授予资格。
      */
     private final PermissionService permissions;
+
+    /**
+     * 预览和写入使用同一套角色操作与完整提案授权规则。
+     */
+    private final IamRequestPermission requestPermission;
+
+    /**
+     * 对受保护内容和当前授予上限做角色提案授权。
+     */
+    private final RoleProfilePermission profilePermission;
 
     /**
      * 当前事实的安全视图组装。
@@ -223,6 +235,7 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(readOnly = true)
     public ImpactPreviewVO preview(String textId, RoleImpactPreviewDTO data) {
         guard.shared();
+        requestPermission.requireRolePreview(data.getAction());
         long id = Ids.parse(textId);
         RolePO role = checked(id, data.getExpectedVersion());
 
@@ -234,8 +247,7 @@ public class RoleServiceImpl implements RoleService {
             case "UPDATE" -> {
                 // 普通编辑保留已有受保护使用项。
                 var value = (RoleProfileDTO) proposal;
-                permissions.require("roles.edit");
-                validateProfile(role, value, "roles.edit", false);
+                validateProfile(role, value, RoleProfilePermission.EDIT, false);
                 changes = profileChanges(role, value);
             }
             case "GRANT_LIMIT" -> {
@@ -251,7 +263,6 @@ public class RoleServiceImpl implements RoleService {
             case "PROTECTED_PERMISSIONS" -> {
                 // 受保护修改只能使用当前已有资格进行授权。
                 var value = (RoleProtectedPermissionsProposalDTO) proposal;
-                permissions.require("roles.protected");
                 validateProfile(role, value, "roles.protected", true);
                 changes = profileChanges(role, value);
             }
@@ -278,14 +289,15 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public MutationVO update(String textId, UpdateRoleDTO data, String command) {
         long id = Ids.parse(textId);
-        return mutations.execute("roles.edit", command, textId, data, data.getExpectedVersion(), true, false, () -> {
-            // 完整能力与核对凭据都在配置锁后重新检查。
-            RolePO role = checked(id, data.getExpectedVersion());
-            RoleProfileDTO profile = BeanUtil.copyProperties(data, RoleProfileDTO.class);
-            validateProfile(role, profile, "roles.edit", false);
-            reviews.verify("UPDATE", textId, role.getVersion(), data, data.getReviewToken());
-            return saveProfile(role, profile, "roles.edit", null, command);
-        });
+        return mutations.execute(
+                RoleProfilePermission.EDIT, command, textId, data, data.getExpectedVersion(), true, false, () -> {
+                    // 完整能力与核对凭据都在配置锁后重新检查。
+                    RolePO role = checked(id, data.getExpectedVersion());
+                    RoleProfileDTO profile = BeanUtil.copyProperties(data, RoleProfileDTO.class);
+                    validateProfile(role, profile, RoleProfilePermission.EDIT, false);
+                    reviews.verify("UPDATE", textId, role.getVersion(), data, data.getReviewToken());
+                    return saveProfile(role, profile, RoleProfilePermission.EDIT, null, command);
+                });
     }
 
     /**
@@ -446,26 +458,7 @@ public class RoleServiceImpl implements RoleService {
             throw new BizIllegalException(ErrorCode.IAM_ROLE_NAME_EXISTS, "角色名称已存在");
         }
         permissions.validateCodes(profile.getPermissionCodes(), true);
-        var protectedBefore = role == null
-                ? List.<String>of()
-                : roles.permissions(role.getId()).stream()
-                        .filter(permissions::protectedCode)
-                        .sorted()
-                        .toList();
-        var protectedAfter = profile.getPermissionCodes().stream()
-                .filter(permissions::protectedCode)
-                .sorted()
-                .toList();
-        if (!protectedFlow && !protectedBefore.equals(protectedAfter)) {
-            throw new BizIllegalException(ErrorCode.PROTECTED_FLOW_REQUIRED, "受保护能力须单独核验");
-        }
-        permissions.checkGrant(profile.getPermissionCodes(), operation);
-        if (role != null) {
-            // 现有授予集合也是完整实际能力的一部分。
-            permissions.checkGrant(roles.grantable(role.getId()), operation);
-            permissions.checkSelfRoleChange(
-                    role.getId(), profile.getPermissionCodes(), roles.grantable(role.getId()), role.getLifecycle());
-        }
+        profilePermission.requireChange(role, profile.getPermissionCodes(), operation, protectedFlow);
     }
 
     /**

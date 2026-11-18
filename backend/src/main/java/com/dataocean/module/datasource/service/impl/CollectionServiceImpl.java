@@ -30,6 +30,7 @@ import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
 import com.dataocean.module.datasource.mapper.CollectionMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper.RevisionRow;
+import com.dataocean.module.datasource.security.DatasourceRequestPermission;
 import com.dataocean.module.datasource.service.CollectionRunner;
 import com.dataocean.module.datasource.service.DatasourceEvents;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
@@ -127,7 +128,7 @@ public class CollectionServiceImpl {
             throw BizIllegalException.invalid("不支持的采集核对动作");
         }
         StartProposal proposal = json.mapper().treeToValue(preview.getProposal(), StartProposal.class);
-        permission.require(action(proposal.retryOfTaskId()));
+        permission.require(DatasourceRequestPermission.collectionOperation(proposal.retryOfTaskId() != null));
         DatasourcePO source = source(sourceId, false);
         requireVersion(source.getVersion(), preview.getExpectedVersion());
         RevisionRow revision = admissible(source, proposal.retryOfTaskId());
@@ -149,7 +150,7 @@ public class CollectionServiceImpl {
      */
     public CollectionDetailVO start(long sourceId, String command, StartCollectionDTO input) {
         StartProposal proposal = new StartProposal(input.getRetryOfTaskId());
-        String operation = action(proposal.retryOfTaskId());
+        String operation = DatasourceRequestPermission.collectionOperation(proposal.retryOfTaskId() != null);
         commands.execute(
                 operation,
                 command,
@@ -312,7 +313,7 @@ public class CollectionServiceImpl {
             if (task == null) {
                 return new PageVO<>(List.of(), 0, 1, size);
             }
-            permission.require(action(task.getParentTaskId()));
+            permission.require(DatasourceRequestPermission.collectionOperation(task.getParentTaskId() != null));
             return new PageVO<>(List.of(view(task)), 1, 1, size);
         }
         LocalDateTime from = null;
@@ -639,13 +640,6 @@ public class CollectionServiceImpl {
             throw BizIllegalException.missing();
         }
         return task;
-    }
-
-    /**
-     * 普通发起和重试使用各自现有动作权限。
-     */
-    private String action(String parent) {
-        return parent == null ? "collections.collect" : "collections.retry";
     }
 
     /**

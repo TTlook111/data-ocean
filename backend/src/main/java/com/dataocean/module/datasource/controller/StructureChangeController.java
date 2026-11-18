@@ -9,6 +9,7 @@ import com.dataocean.module.datasource.entity.query.StructureChangeQuery;
 import com.dataocean.module.datasource.entity.vo.StructureChangeVO;
 import com.dataocean.module.datasource.service.impl.StructureReviewService;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
+import com.dataocean.module.iam.security.RequirePermission;
 
 import jakarta.validation.Valid;
 
@@ -39,6 +40,7 @@ public class StructureChangeController {
      * 分页列出明确来源的变化。
      */
     @GetMapping
+    @RequirePermission("collections.view")
     public Result<PageVO<StructureChangeVO>> list(@PathVariable String sourceId, StructureChangeQuery query) {
         return Result.success(changes.list(Ids.parse(sourceId), query));
     }
@@ -47,6 +49,7 @@ public class StructureChangeController {
      * 回看实际快照和事实证据。
      */
     @GetMapping("/{changeId}")
+    @RequirePermission("collections.view")
     public Result<StructureChangeVO> detail(@PathVariable String sourceId, @PathVariable String changeId) {
         return Result.success(changes.detail(Ids.parse(sourceId), Ids.parse(changeId)));
     }
@@ -55,6 +58,7 @@ public class StructureChangeController {
      * 核对选择的结论和依据。
      */
     @PostMapping("/{changeId}/impact-preview")
+    @RequirePermission("collections.review")
     public Result<ImpactPreviewVO> preview(
             @PathVariable String sourceId,
             @PathVariable String changeId,
@@ -66,6 +70,7 @@ public class StructureChangeController {
      * 实际追加人工核实并更新目录投影。
      */
     @PostMapping("/{changeId}/reviews")
+    @RequirePermission("collections.review")
     public Result<StructureChangeVO> review(
             @PathVariable String sourceId,
             @PathVariable String changeId,

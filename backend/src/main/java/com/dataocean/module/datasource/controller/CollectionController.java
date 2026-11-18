@@ -10,12 +10,14 @@ import com.dataocean.module.datasource.entity.query.CollectionQuery;
 import com.dataocean.module.datasource.entity.vo.CatalogObjectDetailVO;
 import com.dataocean.module.datasource.entity.vo.CatalogPageVO;
 import com.dataocean.module.datasource.entity.vo.CollectionDetailVO;
+import com.dataocean.module.datasource.security.DatasourceRequestPermission;
 import com.dataocean.module.datasource.service.impl.CollectionEventStream;
 import com.dataocean.module.datasource.service.impl.CollectionServiceImpl;
 import com.dataocean.module.datasource.service.impl.CredentialMaintenance;
 import com.dataocean.module.datasource.service.impl.SourceManagement;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
+import com.dataocean.module.iam.security.RequirePermission;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -67,6 +69,7 @@ public class CollectionController {
      * 订阅同源采集状态，恢复连接时按当前许可读取最新任务。
      */
     @GetMapping(value = "/collection-tasks/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RequirePermission("collections.view")
     public SseEmitter events(@PathVariable String taskId, HttpServletRequest request) {
         return streams.open(taskId, request.getSession(false).getId());
     }
@@ -75,6 +78,7 @@ public class CollectionController {
      * 从当前来源核对一次手动或重新采集请求。
      */
     @PostMapping("/datasources/{sourceId}/impact-preview")
+    @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<ImpactPreviewVO> review(
             @PathVariable String sourceId, @Valid @RequestBody SourceActionPreviewDTO input) {
         long id = Ids.parse(sourceId);
@@ -91,6 +95,7 @@ public class CollectionController {
      */
     @PostMapping("/datasources/{sourceId}/collections")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<CollectionDetailVO> start(
             @PathVariable String sourceId,
             @RequestHeader("Idempotency-Key") String command,
@@ -102,6 +107,7 @@ public class CollectionController {
      * 分页读当前源的实际采集记录。
      */
     @GetMapping("/datasources/{sourceId}/collections")
+    @RequirePermission("collections.view")
     public Result<PageVO<CollectionDetailVO>> list(@PathVariable String sourceId, CollectionQuery query) {
         return Result.success(collections.list(Ids.parse(sourceId), query));
     }
@@ -110,6 +116,7 @@ public class CollectionController {
      * 读取当前任务的可披露状态和证据。
      */
     @GetMapping("/collection-tasks/{taskId}")
+    @RequirePermission("collections.view")
     public Result<CollectionDetailVO> detail(@PathVariable String taskId) {
         return Result.success(collections.detail(taskId));
     }
@@ -118,6 +125,7 @@ public class CollectionController {
      * 核对本次取消的原任务及影响。
      */
     @PostMapping("/collection-tasks/{taskId}/impact-preview")
+    @RequirePermission("collections.cancel")
     public Result<ImpactPreviewVO> reviewCancel(
             @PathVariable String taskId, @Valid @RequestBody SourceActionPreviewDTO input) {
         return Result.success(collections.reviewCancel(taskId, input));
@@ -128,6 +136,7 @@ public class CollectionController {
      */
     @PostMapping("/collection-tasks/{taskId}/cancel")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @RequirePermission("collections.cancel")
     public Result<CollectionDetailVO> cancel(
             @PathVariable String taskId,
             @RequestHeader("Idempotency-Key") String command,
@@ -139,6 +148,7 @@ public class CollectionController {
      * 读取当前配置范围内的成功目录及分页结果。
      */
     @GetMapping("/datasources/{sourceId}/catalog")
+    @RequirePermission("catalog.view")
     public Result<CatalogPageVO> directory(@PathVariable String sourceId, CatalogQuery query) {
         return Result.success(collections.directory(Ids.parse(sourceId), query));
     }
@@ -147,6 +157,7 @@ public class CollectionController {
      * 读取当前或指定的同源成功结构。
      */
     @GetMapping("/datasources/{sourceId}/objects/{objectId}")
+    @RequirePermission("catalog.view")
     public Result<CatalogObjectDetailVO> object(
             @PathVariable String sourceId,
             @PathVariable String objectId,
@@ -159,6 +170,7 @@ public class CollectionController {
      * 从成功快照读取尚未绑定稳定对象编号的实际观察。
      */
     @GetMapping("/datasources/{sourceId}/catalog-observations/{observationId}")
+    @RequirePermission("catalog.view")
     public Result<CatalogObjectDetailVO> observation(
             @PathVariable String sourceId, @PathVariable String observationId) {
         return Result.success(collections.object(Ids.parse(sourceId), null, Ids.parse(observationId), true));
