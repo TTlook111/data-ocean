@@ -4,6 +4,7 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
+  Empty,
   Form,
   Input,
   Modal,
@@ -11,11 +12,18 @@ import {
   Select,
   Space,
 } from 'antd';
+import {
+  CheckOutlined,
+  DatabaseOutlined,
+  PlayCircleOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
-import { DetailFooter, displayTime, ReadState } from '../../shared/Records';
+import { displayTime, ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
@@ -56,11 +64,30 @@ export function SourcePicker({
       showSearch
       optionFilterProp="label"
       placeholder="选择数据源"
+      prefix={<DatabaseOutlined aria-hidden="true" />}
       aria-label="当前数据源"
+      disabled={!sources?.length}
       value={selected?.id}
       options={sources?.map((source) => ({ value: source.id, label: source.name })) ?? []}
       onChange={choose}
     />
+  );
+}
+
+/**
+ * 当前没有可选源时保留数据源管理入口，按页面权限展示。
+ */
+export function SourceUnavailable() {
+  const session = useSession();
+  const navigate = useNavigate();
+  return (
+    <div className="panel ds-source-empty">
+      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可选数据源">
+        {allowed(session, 'sources.view') && (
+          <Button onClick={() => navigate('/datasources')}>前往数据源管理</Button>
+        )}
+      </Empty>
+    </div>
   );
 }
 
@@ -127,6 +154,27 @@ export function CollectionPage() {
       ['QUEUED', 'RUNNING'].includes(query.state.data?.state ?? '') ? 1000 : false,
   });
   const active = ['QUEUED', 'RUNNING'].includes(detail.data?.state ?? '') && !detail.error;
+  // 读回失败时不在底栏保留旧状态计算出的动作。
+  const task = detail.error ? undefined : detail.data;
+  const from = params.get('fromDate');
+  const to = params.get('toDate');
+  const hasFilters = ['taskNoKeyword', 'triggerKind', 'fromDate', 'toDate', 'state'].some((key) =>
+    params.has(key),
+  );
+
+  /**
+   * 清空任务筛选时保留当前源和每页条数。
+   */
+  function reset() {
+    form.setFieldsValue({
+      taskNoKeyword: undefined,
+      triggerKind: undefined,
+      dates: undefined,
+      state: undefined,
+    });
+    setParams({ source: selected?.id ?? '', pageSize: String(size) });
+    form.focusField('taskNoKeyword');
+  }
 
   useEffect(() => {
     // 订阅真实任务版本，事件只触发读取，同步失败时仍由查询回读原任务。
@@ -208,216 +256,275 @@ export function CollectionPage() {
   return (
     <section className="record-page" aria-label="采集记录">
       {/* 来源、记录查询及主要操作沿用同一工作区。 */}
-      <div className="ds-toolbar">
+      <div className="panel ds-toolbar">
         <SourcePicker
           sources={sources.data}
           selected={selected}
           choose={(source) => {
+            // 切换来源时清理原任务及未应用的筛选输入。
             setOpened(null);
+            form.setFieldsValue({
+              taskNoKeyword: undefined,
+              triggerKind: undefined,
+              dates: undefined,
+              state: undefined,
+            });
             setParams({ source });
           }}
         />
         {selected?.lifecycle === 'ENABLED' && allowed(session, 'collections.collect') && (
-          <Button type="primary" onClick={() => void start()}>
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>
             发起采集
           </Button>
         )}
       </div>
-      <Form
-        className="record-filters"
-        layout="inline"
-        form={form}
-        initialValues={Object.fromEntries(params)}
-        onFinish={(values) => {
-          // 将实际开始日区间放入查询参数，切页时保留已确认条件。
-          const range = values.dates;
-          setParams(
-            new URLSearchParams(
-              queryString({
-                source: selected?.id,
-                taskNoKeyword: values.taskNoKeyword,
-                triggerKind: values.triggerKind,
-                fromDate: range?.[0]?.format('YYYY-MM-DD'),
-                toDate: range?.[1]?.format('YYYY-MM-DD'),
-                state: values.state,
-                pageSize: size,
-              }).replace(/^\?/, ''),
-            ),
-          );
-        }}
-      >
-        <Form.Item name="taskNoKeyword">
-          <Input aria-label="采集编号" placeholder="采集编号" allowClear />
-        </Form.Item>
-        <Form.Item name="triggerKind">
-          <Select
-            aria-label="发起方式"
-            placeholder="发起方式"
-            allowClear
-            options={datasourceOptions(['MANUAL', 'RETRY', 'SCHEDULED'])}
-          />
-        </Form.Item>
-        <Form.Item name="dates">
-          <DatePicker.RangePicker placeholder={['开始日期', '结束日期']} />
-        </Form.Item>
-        <Form.Item name="state">
-          <Select
-            aria-label="任务状态"
-            placeholder="任务状态"
-            allowClear
-            options={datasourceOptions(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'])}
-          />
-        </Form.Item>
-        <Space>
-          <Button htmlType="submit">查询</Button>
-          <Button
-            onClick={() => {
-              form.setFieldsValue({
-                taskNoKeyword: undefined,
-                triggerKind: undefined,
-                dates: undefined,
-                state: undefined,
-              });
-              setParams(selected ? { source: selected.id } : {});
-            }}
-          >
-            重置
-          </Button>
-        </Space>
-      </Form>
       <ReadState
         error={sources.error}
         loading={sources.isPending}
-        empty={!selected && !sources.isPending}
         retry={() => void sources.refetch()}
       >
-        <RecordTable<CollectionTask>
-          rowKey="taskId"
-          dataSource={list.data?.items}
-          loading={list.isPending}
-          error={list.error}
-          retry={() => void list.refetch()}
-          pagination={{
-            current: list.data?.pageNum ?? page,
-            pageSize: size,
-            total: list.data?.total ?? 0,
-            onChange: (pageNum, pageSize) =>
-              setParams({
-                ...Object.fromEntries(params),
-                source: selected?.id ?? '',
-                pageNum: String(pageNum),
-                pageSize: String(pageSize),
-              }),
-          }}
-          columns={[
-            {
-              title: '采集编号',
-              width: 188,
-              render: (_, item) => (
-                <Button type="link" onClick={() => setOpened(item.taskId)}>
-                  {item.taskNo}
-                </Button>
-              ),
-            },
-            {
-              title: '发起方式',
-              width: 110,
-              render: (_, item) => (
-                <>
-                  {datasourceLabel(item.triggerKind)}
-                  <small className="ds-secondary">{item.actor.name}</small>
-                </>
-              ),
-            },
-            { title: '采集范围', dataIndex: 'scopeLabel', width: 170 },
-            { title: '开始时间', width: 145, render: (_, item) => displayTime(item.startedAt) },
-            {
-              title: '任务状态',
-              width: 100,
-              render: (_, item) => <DatasourceStatus value={item.state} />,
-            },
-            {
-              title: '结果',
-              width: 190,
-              render: (_, item) =>
-                item.content?.failureMessage ??
-                item.stopProgress?.message ??
-                (item.state === 'SUCCEEDED' ? item.content?.collectedObjectCount + ' 个对象' : '—'),
-            },
-            {
-              title: '操作',
-              width: 130,
-              fixed: 'right',
-              render: (_, item) => (
-                <Button type="link" onClick={() => setOpened(item.taskId)}>
-                  详情
-                </Button>
-              ),
-            },
-          ]}
-        />
+        {selected ? (
+          <>
+            {/* 仅在存在可用来源时显示该源的记录筛选。 */}
+            <div className="panel query-panel ds-query-panel">
+              <Form
+                name="collection-query"
+                layout="inline"
+                form={form}
+                initialValues={{
+                  ...Object.fromEntries(params),
+                  dates:
+                    from || to ? [from ? dayjs(from) : null, to ? dayjs(to) : null] : undefined,
+                }}
+                onFinish={(values) => {
+                  // 将实际开始日区间放入查询参数，切页时保留已确认条件。
+                  const range = values.dates;
+                  setParams(
+                    new URLSearchParams(
+                      queryString({
+                        source: selected?.id,
+                        taskNoKeyword: values.taskNoKeyword,
+                        triggerKind: values.triggerKind,
+                        fromDate: range?.[0]?.format('YYYY-MM-DD'),
+                        toDate: range?.[1]?.format('YYYY-MM-DD'),
+                        state: values.state,
+                        pageSize: size,
+                      }).replace(/^\?/, ''),
+                    ),
+                  );
+                }}
+              >
+                <Form.Item name="taskNoKeyword">
+                  <Input
+                    aria-label="采集编号"
+                    placeholder="采集编号"
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item name="triggerKind">
+                  <Select
+                    aria-label="发起方式"
+                    placeholder="发起方式"
+                    allowClear
+                    options={datasourceOptions(['MANUAL', 'RETRY', 'SCHEDULED'])}
+                  />
+                </Form.Item>
+                {/* 日期区间、状态和按钮共同换行，保持既定的筛选顺序。 */}
+                <div className="query-tail ds-date-query-tail">
+                  <Form.Item name="dates">
+                    <DatePicker.RangePicker placeholder={['开始日期', '结束日期']} />
+                  </Form.Item>
+                  <Form.Item name="state" className="status-query">
+                    <Select
+                      aria-label="任务状态"
+                      placeholder="任务状态"
+                      allowClear
+                      options={datasourceOptions([
+                        'QUEUED',
+                        'RUNNING',
+                        'SUCCEEDED',
+                        'FAILED',
+                        'CANCELLED',
+                      ])}
+                    />
+                  </Form.Item>
+                  <Space>
+                    <Button htmlType="submit">查询</Button>
+                    <Button onClick={reset}>重置</Button>
+                  </Space>
+                </div>
+              </Form>
+            </div>
+            {/* 任务结果与分页沿用后台共用表格。 */}
+            <section className="panel records-panel" aria-label="采集任务列表">
+              <RecordTable<CollectionTask>
+                rowKey="taskId"
+                dataSource={list.data?.items}
+                loading={list.isPending}
+                error={list.error}
+                retry={() => void list.refetch()}
+                filtered={hasFilters}
+                onReset={reset}
+                emptyDescription="该数据源暂无采集记录"
+                pagination={{
+                  current: list.data?.pageNum ?? page,
+                  pageSize: size,
+                  total: list.data?.total ?? 0,
+                  onChange: (pageNum, pageSize) =>
+                    setParams({
+                      ...Object.fromEntries(params),
+                      source: selected?.id ?? '',
+                      pageNum: String(pageNum),
+                      pageSize: String(pageSize),
+                    }),
+                }}
+                columns={[
+                  {
+                    title: '采集编号',
+                    width: 188,
+                    render: (_, item) => (
+                      <Button
+                        type="link"
+                        className="cell-title ds-task-number"
+                        title={item.taskNo}
+                        onClick={() => setOpened(item.taskId)}
+                      >
+                        {item.taskNo}
+                      </Button>
+                    ),
+                  },
+                  {
+                    title: '发起方式',
+                    width: 110,
+                    render: (_, item) => (
+                      <>
+                        {datasourceLabel(item.triggerKind)}
+                        <small className="ds-secondary">{item.actor.name}</small>
+                      </>
+                    ),
+                  },
+                  {
+                    title: '采集范围',
+                    width: 190,
+                    render: (_, item) => (
+                      <span className="cell-text" title={item.scopeLabel}>
+                        {item.scopeLabel}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: '开始时间',
+                    width: 145,
+                    render: (_, item) => displayTime(item.startedAt),
+                  },
+                  {
+                    title: '任务状态',
+                    width: 100,
+                    render: (_, item) => <DatasourceStatus value={item.state} />,
+                  },
+                  {
+                    title: '结果',
+                    width: 190,
+                    render: (_, item) =>
+                      item.content?.failureMessage ??
+                      item.stopProgress?.message ??
+                      (item.state === 'SUCCEEDED'
+                        ? item.content?.collectedObjectCount + ' 个对象'
+                        : '—'),
+                  },
+                  {
+                    title: '操作',
+                    width: 130,
+                    fixed: 'right',
+                    className: 'record-actions-cell',
+                    render: (_, item) => (
+                      <Button type="link" onClick={() => setOpened(item.taskId)}>
+                        详情
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            </section>
+          </>
+        ) : (
+          <SourceUnavailable />
+        )}
       </ReadState>
       {/* 任务详情只显示本状态实际拥有的证据和操作。 */}
       <Drawer
-        title={detail.data?.taskNo ?? '采集任务'}
+        title={
+          task ? (
+            <span className="cell-text" title={task.taskNo}>
+              {task.taskNo}
+            </span>
+          ) : (
+            '采集任务'
+          )
+        }
         width={600}
+        className="record-details-drawer ds-task-drawer"
+        closable={{ placement: 'end' }}
         open={Boolean(opened)}
         onClose={() => setOpened(null)}
         destroyOnHidden
-      >
-        <ReadState
-          error={detail.error}
-          loading={detail.isPending}
-          retry={() => void detail.refetch()}
-        >
-          {detail.data && (
-            <>
-              <TaskInformation task={detail.data} />
-              <DetailFooter close={() => setOpened(null)}>
-                {detail.data.state === 'SUCCEEDED' && allowed(session, 'catalog.view') && (
-                  <Button
-                    type="primary"
-                    onClick={() => navigate('/catalog?source=' + detail.data?.sourceId)}
-                  >
-                    查看元数据目录
-                  </Button>
-                )}
-                {detail.data.state === 'SUCCEEDED' && (
+        footer={
+          task && (
+            <div className="detail-footer">
+              {/* 阅读区滚动时保留返回与当前状态允许的办理入口。 */}
+              <Button onClick={() => setOpened(null)}>关闭</Button>
+              <Space wrap>
+                {task.state === 'SUCCEEDED' && (
                   <Button
                     onClick={() =>
                       navigate(
-                        '/collections/changes?source=' +
-                          detail.data?.sourceId +
-                          '&taskId=' +
-                          detail.data?.taskId,
+                        '/collections/changes?source=' + task.sourceId + '&taskId=' + task.taskId,
                       )
                     }
                   >
                     查看结构变化
                   </Button>
                 )}
-                {['FAILED', 'CANCELLED'].includes(detail.data.state) &&
+                {task.state === 'SUCCEEDED' && allowed(session, 'catalog.view') && (
+                  <Button
+                    type="primary"
+                    onClick={() => navigate('/catalog?source=' + task.sourceId)}
+                  >
+                    查看元数据目录
+                  </Button>
+                )}
+                {['FAILED', 'CANCELLED'].includes(task.state) &&
                   allowed(session, 'collections.retry') && (
-                    <Button type="primary" onClick={() => void start(opened ?? undefined)}>
+                    <Button type="primary" onClick={() => void start(task.taskId)}>
                       重新采集
                     </Button>
                   )}
-                {['QUEUED', 'RUNNING'].includes(detail.data.state) &&
-                  !detail.data.stopProgress &&
+                {['QUEUED', 'RUNNING'].includes(task.state) &&
+                  !task.stopProgress &&
                   allowed(session, 'collections.cancel') && (
                     <Button
                       danger
                       onClick={() => {
-                        setCancelling(detail.data ?? null);
+                        // 取消核对基于当前详情任务，更新时拉取最新版本。
+                        setCancelling(task);
                         setReason('');
                       }}
                     >
                       取消采集
                     </Button>
                   )}
-              </DetailFooter>
-            </>
-          )}
+              </Space>
+            </div>
+          )
+        }
+      >
+        <ReadState
+          error={detail.error}
+          loading={detail.isPending}
+          retry={() => void detail.refetch()}
+        >
+          {task && <TaskInformation task={task} />}
         </ReadState>
       </Drawer>
       {cancelling && (
@@ -485,12 +592,16 @@ function TaskInformation({ task }: { task: CollectionTask }) {
         </section>
       )}
       {task.state === 'SUCCEEDED' && (
-        <section className="ds-detail-block">
-          <h3>采集结果</h3>
-          <p>
-            {content?.collectedObjectCount} 个对象 · {datasourceLabel(content?.analysis)}
-          </p>
-          <small>采集快照 {content?.snapshotId}</small>
+        <section className="ds-detail-block ds-task-result" aria-label="采集结果">
+          <span className="ds-identity-icon" aria-hidden="true">
+            <CheckOutlined />
+          </span>
+          <div>
+            <h3 className="ds-section-heading">{datasourceLabel(content?.analysis)}</h3>
+            <p>
+              {content?.collectedObjectCount} 个对象 · 快照 {content?.snapshotId}
+            </p>
+          </div>
         </section>
       )}
       {content?.failureMessage && (

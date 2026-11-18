@@ -1,6 +1,6 @@
 import { Button, Empty, Pagination, Result, Select, Table } from 'antd';
 import type { TableProps } from 'antd';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from './api';
 import { ReadFailure } from './Records';
@@ -26,6 +26,10 @@ interface RecordTableProps<T extends object> extends TableProps<T> {
    */
   onReset?: () => void;
   /**
+   * 未应用筛选时的业务空态文案。
+   */
+  emptyDescription?: ReactNode;
+  /**
    * 可选指定弹性列；默认所有非固定数据列按字段预算分配余宽，操作列保持固定。
    */
   flexibleColumns?: number[];
@@ -39,6 +43,7 @@ export function RecordTable<T extends object>({
   retry,
   filtered = false,
   onReset,
+  emptyDescription = '暂无记录',
   flexibleColumns,
   ...props
 }: RecordTableProps<T>) {
@@ -147,7 +152,7 @@ export function RecordTable<T extends object>({
       ) : (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={busy ? '正在加载' : filtered ? '没有匹配的记录' : '暂无记录'}
+          description={busy ? '正在加载' : filtered ? '没有匹配的记录' : emptyDescription}
         >
           {filtered && onReset && <Button onClick={onReset}>清空条件</Button>}
         </Empty>
@@ -194,9 +199,7 @@ export function RecordTable<T extends object>({
               total={total}
               disabled={Boolean(error) || total === 0}
               showSizeChanger={false}
-              simple={compactPagination}
-              showQuickJumper={!compactPagination && availableWidth > 0}
-              locale={{ jump_to: '前往', page: '页' }}
+              simple={compactPagination ? { readOnly: true } : false}
               hideOnSinglePage={false}
               onChange={config.onChange}
             />

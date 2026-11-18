@@ -1,14 +1,26 @@
-import { App, Button, Descriptions, Form, Input, Select, Space, Table, Tabs } from 'antd';
+import { App, Button, Collapse, Descriptions, Form, Input, Select, Space, Table, Tabs } from 'antd';
+import {
+  ArrowLeftOutlined,
+  EyeOutlined,
+  PlayCircleOutlined,
+  SearchOutlined,
+  TableOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { ReadState, displayTime } from '../../shared/Records';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
-import { prepareCollection, SourcePicker, useSourceSelection } from './CollectionPage';
+import {
+  prepareCollection,
+  SourcePicker,
+  SourceUnavailable,
+  useSourceSelection,
+} from './CollectionPage';
 import { DatasourceStatus, datasourceLabel, datasourceOptions } from './Presentation';
 import { StructureChanges } from './StructureChangePage';
 import type {
@@ -25,12 +37,16 @@ import type {
 export function CatalogPage() {
   const session = useSession();
   const navigate = useNavigate();
+  const { state } = useLocation();
+  const returnTo = (state as { catalogReturnTo?: string } | null)?.catalogReturnTo;
+  const restoredFocus = useRef(false);
   const { message } = App.useApp();
   const { params, setParams, sources, selected } = useSourceSelection('CATALOG');
   const [form] = Form.useForm();
   const [review, setReview] = useState<ReviewSubmission | null>(null);
   const page = Number(params.get('pageNum') ?? 1);
   const size = Number(params.get('pageSize') ?? 10);
+  const hasFilters = ['objectKeyword', 'objectType', 'catalogState'].some((key) => params.has(key));
   const tab =
     params.get('tab') === 'changes' && allowed(session, 'collections.view') ? 'changes' : 'objects';
   const catalog = useQuery({
@@ -41,6 +57,14 @@ export function CatalogPage() {
       ),
     enabled: Boolean(selected) && tab === 'objects',
   });
+
+  useEffect(() => {
+    // 详情返回后将焦点交还所在行，随后的刷新不重复移动焦点。
+    if (returnTo && catalog.isSuccess && !restoredFocus.current) {
+      restoredFocus.current = true;
+      document.getElementById('catalog-object-' + returnTo)?.focus();
+    }
+  }, [catalog.isSuccess, returnTo]);
 
   /**
    * 首次采集和日常手动采集共享当前源核对。
@@ -70,164 +94,216 @@ export function CatalogPage() {
     navigate('/catalog/' + (item.objectId ?? item.observationId) + '?' + detailParams.toString());
   }
 
+  /**
+   * 清空目录条件并保留当前来源和分页尺寸。
+   */
+  function reset() {
+    form.setFieldsValue({
+      objectKeyword: undefined,
+      objectType: undefined,
+      catalogState: undefined,
+    });
+    setParams({ source: selected?.id ?? '', pageSize: String(size) });
+    form.focusField('objectKeyword');
+  }
+
   return (
     <section className="record-page" aria-label="元数据目录">
       {/* 来源选择、首次采集和目录页签保持紧凑。 */}
-      <div className="ds-toolbar">
+      <div className="panel ds-toolbar ds-catalog-toolbar">
         <SourcePicker
           sources={sources.data}
           selected={selected}
-          choose={(source) => setParams({ source, ...(tab === 'changes' ? { tab } : {}) })}
+          choose={(source) => {
+            // 来源变更后表单与新来源的结果同步。
+            if (tab === 'objects') {
+              form.setFieldsValue({
+                objectKeyword: undefined,
+                objectType: undefined,
+                catalogState: undefined,
+              });
+            }
+            setParams({ source, ...(tab === 'changes' ? { tab } : {}) });
+          }}
         />
+        {/* 页签紧邻所属数据源，源级采集按钮统一靠右。 */}
+        {selected && allowed(session, 'collections.view') && (
+          <Tabs
+            className="ds-catalog-tabs"
+            activeKey={tab}
+            onChange={(next) =>
+              setParams({
+                source: selected?.id ?? '',
+                ...(next === 'changes' ? { tab: next } : {}),
+              })
+            }
+            items={[
+              { key: 'objects', label: '元数据目录' },
+              { key: 'changes', label: '结构变化' },
+            ]}
+          />
+        )}
         {selected?.lifecycle === 'ENABLED' && allowed(session, 'collections.collect') && (
-          <Button type="primary" onClick={() => void start()}>
-            发起采集
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>
+            {catalog.data && !catalog.data.currentSnapshotId ? '发起首次采集' : '发起采集'}
           </Button>
         )}
       </div>
-      {allowed(session, 'collections.view') && (
-        <Tabs
-          activeKey={tab}
-          onChange={(next) =>
-            setParams({ source: selected?.id ?? '', ...(next === 'changes' ? { tab: next } : {}) })
-          }
-          items={[
-            { key: 'objects', label: '元数据目录' },
-            { key: 'changes', label: '结构变化' },
-          ]}
-        />
-      )}
       <ReadState
         error={sources.error}
         loading={sources.isPending}
-        empty={!selected && !sources.isPending}
         retry={() => void sources.refetch()}
       >
-        {selected && tab === 'changes' && <StructureChanges source={selected.id} />}
+        {!selected && <SourceUnavailable />}
+        {selected && tab === 'changes' && (
+          <StructureChanges key={selected.id} source={selected.id} />
+        )}
         {selected && tab === 'objects' && (
           <>
-            <Form
-              form={form}
-              layout="inline"
-              className="record-filters"
-              initialValues={Object.fromEntries(params)}
-              onFinish={(values) =>
-                setParams(
-                  new URLSearchParams(
-                    queryString({ ...values, source: selected.id, pageSize: size }),
-                  ),
-                )
-              }
-            >
-              <Form.Item name="objectKeyword">
-                <Input aria-label="对象名或解释" placeholder="对象名或解释" allowClear />
-              </Form.Item>
-              <Form.Item name="objectType">
-                <Select
-                  aria-label="对象类型"
-                  placeholder="对象类型"
-                  allowClear
-                  options={datasourceOptions([
-                    'TABLE',
-                    'VIEW',
-                    'MATERIALIZED_VIEW',
-                    'PARTITION',
-                    'SYSTEM',
-                    'TEMPORARY',
-                    'FOREIGN',
-                  ])}
-                />
-              </Form.Item>
-              <Form.Item name="catalogState">
-                <Select
-                  aria-label="目录状态"
-                  placeholder="目录状态"
-                  allowClear
-                  options={datasourceOptions(['COLLECTED', 'IDENTITY_UNCERTAIN'])}
-                />
-              </Form.Item>
-              <Space>
-                <Button htmlType="submit">查询</Button>
-                <Button
-                  onClick={() => {
-                    form.setFieldsValue({
-                      objectKeyword: undefined,
-                      objectType: undefined,
-                      catalogState: undefined,
-                    });
-                    setParams({ source: selected.id });
-                  }}
-                >
-                  重置
-                </Button>
-              </Space>
-            </Form>
-            <RecordTable<CatalogRecord>
-              dataSource={catalog.data?.page.items}
-              loading={catalog.isPending}
-              error={catalog.error}
-              rowKey="observationId"
-              retry={() => void catalog.refetch()}
-              locale={{
-                emptyText:
-                  catalog.data && !catalog.data.currentSnapshotId ? '尚无结构目录' : undefined,
-              }}
-              pagination={{
-                current: catalog.data?.page.pageNum ?? page,
-                pageSize: size,
-                total: catalog.data?.page.total ?? 0,
-                onChange: (pageNum, pageSize) =>
-                  setParams({
-                    ...Object.fromEntries(params),
-                    source: selected.id,
-                    pageNum: String(pageNum),
-                    pageSize: String(pageSize),
-                  }),
-              }}
-              columns={[
-                {
-                  title: '对象 / 解释',
-                  width: 200,
-                  render: (_, item) => (
-                    <>
+            {/* 目录筛选与结果面板分别占据统一的工作区边界。 */}
+            <div className="panel query-panel ds-query-panel ds-catalog-query">
+              <Form
+                name="catalog-query"
+                form={form}
+                layout="inline"
+                initialValues={Object.fromEntries(params)}
+                onFinish={(values) =>
+                  setParams(
+                    new URLSearchParams(
+                      queryString({ ...values, source: selected.id, pageSize: size }),
+                    ),
+                  )
+                }
+              >
+                <Form.Item name="objectKeyword">
+                  <Input
+                    aria-label="对象名或解释"
+                    placeholder="对象名或解释"
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item name="objectType">
+                  <Select
+                    aria-label="对象类型"
+                    placeholder="对象类型"
+                    allowClear
+                    options={datasourceOptions([
+                      'TABLE',
+                      'VIEW',
+                      'MATERIALIZED_VIEW',
+                      'PARTITION',
+                      'SYSTEM',
+                      'TEMPORARY',
+                      'FOREIGN',
+                    ])}
+                  />
+                </Form.Item>
+                {/* 末项状态与查询动作一起换行，按钮继续贴在所在行右侧。 */}
+                <div className="query-tail status-tail">
+                  <Form.Item name="catalogState" className="status-query">
+                    <Select
+                      aria-label="目录状态"
+                      placeholder="目录状态"
+                      allowClear
+                      options={datasourceOptions(['COLLECTED', 'IDENTITY_UNCERTAIN'])}
+                    />
+                  </Form.Item>
+                  <Space>
+                    <Button htmlType="submit">查询</Button>
+                    <Button onClick={reset}>重置</Button>
+                  </Space>
+                </div>
+              </Form>
+            </div>
+            <section className="panel records-panel" aria-label="目录对象列表">
+              <RecordTable<CatalogRecord>
+                dataSource={catalog.data?.page.items}
+                loading={catalog.isPending}
+                error={catalog.error}
+                rowKey="observationId"
+                retry={() => void catalog.refetch()}
+                filtered={hasFilters && Boolean(catalog.data?.currentSnapshotId)}
+                onReset={reset}
+                emptyDescription={
+                  catalog.data?.currentSnapshotId ? '目录暂无表或视图' : '等待首次采集成功'
+                }
+                pagination={{
+                  current: catalog.data?.page.pageNum ?? page,
+                  pageSize: size,
+                  total: catalog.data?.page.total ?? 0,
+                  onChange: (pageNum, pageSize) =>
+                    setParams({
+                      ...Object.fromEntries(params),
+                      source: selected.id,
+                      pageNum: String(pageNum),
+                      pageSize: String(pageSize),
+                    }),
+                }}
+                columns={[
+                  {
+                    title: '对象 / 解释',
+                    width: 224,
+                    render: (_, item) => (
+                      <div className="ds-row-identity">
+                        <span className="ds-identity-icon" aria-hidden="true">
+                          {item.objectType.includes('VIEW') ? <EyeOutlined /> : <TableOutlined />}
+                        </span>
+                        <div className="ds-row-name">
+                          <Button
+                            type="link"
+                            id={'catalog-object-' + item.observationId}
+                            className="cell-title"
+                            title={item.qualifiedName}
+                            onClick={() => openObject(item)}
+                          >
+                            {item.qualifiedName}
+                          </Button>
+                          {item.sourceComment && (
+                            <small className="table-secondary" title={item.sourceComment}>
+                              {item.sourceComment}
+                            </small>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '对象类型',
+                    width: 108,
+                    render: (_, item) => datasourceLabel(item.objectType),
+                  },
+                  {
+                    title: '目录状态',
+                    width: 112,
+                    render: (_, item) => (
+                      <Space size={4} wrap>
+                        {item.catalogStates.map((value) => (
+                          <DatasourceStatus key={value} value={value} />
+                        ))}
+                      </Space>
+                    ),
+                  },
+                  { title: '采集快照', dataIndex: 'snapshotId', width: 90 },
+                  {
+                    title: '采集时间',
+                    width: 145,
+                    render: (_, item) => displayTime(item.collectedAt),
+                  },
+                  {
+                    title: '操作',
+                    width: 115,
+                    fixed: 'right',
+                    className: 'record-actions-cell',
+                    render: (_, item) => (
                       <Button type="link" onClick={() => openObject(item)}>
-                        {item.qualifiedName}
+                        查看结构
                       </Button>
-                      <small className="ds-secondary">{item.sourceComment}</small>
-                    </>
-                  ),
-                },
-                {
-                  title: '对象类型',
-                  width: 125,
-                  render: (_, item) => datasourceLabel(item.objectType),
-                },
-                {
-                  title: '目录状态',
-                  width: 125,
-                  render: (_, item) =>
-                    item.catalogStates.map((value) => (
-                      <DatasourceStatus key={value} value={value} />
-                    )),
-                },
-                { title: '采集快照', dataIndex: 'snapshotId', width: 110 },
-                {
-                  title: '采集时间',
-                  width: 145,
-                  render: (_, item) => displayTime(item.collectedAt),
-                },
-                {
-                  title: '操作',
-                  width: 115,
-                  fixed: 'right',
-                  render: (_, item) => (
-                    <Button type="link" onClick={() => openObject(item)}>
-                      查看结构
-                    </Button>
-                  ),
-                },
-              ]}
-            />
+                    ),
+                  },
+                ]}
+              />
+            </section>
           </>
         )}
       </ReadState>
@@ -260,6 +336,8 @@ export function CatalogObjectPage() {
     enabled: Boolean(source && id),
   });
 
+  const primaryFields = new Set(detail.data?.primaryKeys.map((key) => key.field));
+
   /**
    * 返回当前来源的原始查询和有效分页。
    */
@@ -267,11 +345,19 @@ export function CatalogObjectPage() {
     const previous = new URLSearchParams(params);
     previous.delete('snapshotId');
     previous.delete('observation');
-    navigate('/catalog?' + previous.toString());
+    navigate('/catalog?' + previous.toString(), {
+      state: { catalogReturnTo: detail.data?.object.observationId },
+    });
   }
 
   return (
     <section className="ds-object-page" aria-label="对象结构">
+      {/* 返回入口在字段读取失败或内容较长时也保持可用。 */}
+      <div className="ds-object-toolbar">
+        <Button icon={<ArrowLeftOutlined />} type="text" onClick={back}>
+          元数据目录
+        </Button>
+      </div>
       <ReadState
         error={detail.error}
         loading={detail.isPending && Boolean(source)}
@@ -280,89 +366,26 @@ export function CatalogObjectPage() {
       >
         {detail.data && (
           <>
-            {/* 对象摘要和字段表按来源真实定义展示。 */}
+            {/* 对象身份、状态和对象级操作共用一行，完整名称可自然换行。 */}
             <header className="ds-object-header">
-              <div>
-                <h2>{detail.data.object.qualifiedName}</h2>
-                <span className="muted">{datasourceLabel(detail.data.object.objectType)}</span>
+              <div className="ds-object-identity">
+                <span className="ds-identity-icon" aria-hidden="true">
+                  {detail.data.object.objectType.includes('VIEW') ? (
+                    <EyeOutlined />
+                  ) : (
+                    <TableOutlined />
+                  )}
+                </span>
+                <div>
+                  <h1>{detail.data.object.qualifiedName}</h1>
+                  <Space className="ds-object-meta" size={8} wrap>
+                    <span>{datasourceLabel(detail.data.object.objectType)}</span>
+                    {detail.data.object.catalogStates.map((value) => (
+                      <DatasourceStatus key={value} value={value} />
+                    ))}
+                  </Space>
+                </div>
               </div>
-              <Space>
-                {detail.data.object.catalogStates.map((value) => (
-                  <DatasourceStatus key={value} value={value} />
-                ))}
-              </Space>
-            </header>
-            <Descriptions
-              size="small"
-              column={2}
-              items={[
-                {
-                  key: 'comment',
-                  label: detail.data.object.objectType === 'VIEW' ? '视图注释' : '表注释',
-                  children: detail.data.object.sourceComment || '无注释',
-                  span: 2,
-                },
-                { key: 'snapshot', label: '采集快照', children: detail.data.object.snapshotId },
-                {
-                  key: 'time',
-                  label: '采集时间',
-                  children: displayTime(detail.data.object.collectedAt),
-                },
-                ...(detail.data.parent
-                  ? [{ key: 'parent', label: '父表', children: detail.data.parent }]
-                  : []),
-              ]}
-            />
-            <h3>字段</h3>
-            <Table<CatalogField>
-              size="middle"
-              rowKey="ordinal"
-              dataSource={detail.data.columns}
-              pagination={false}
-              scroll={{ x: 860 }}
-              columns={[
-                { title: '字段', dataIndex: 'name', width: 160 },
-                { title: '类型', dataIndex: 'type', width: 145 },
-                { title: '可空', width: 78, render: (_, field) => (field.nullable ? '是' : '否') },
-                ...(detail.data.object.objectType === 'VIEW'
-                  ? []
-                  : [
-                      {
-                        title: '默认值 / 生成',
-                        width: 180,
-                        render: (_: unknown, field: CatalogField) =>
-                          field.generated ? '由数据库生成' : (field.defaultValue ?? '无默认值'),
-                      },
-                    ]),
-                {
-                  title: '字段注释',
-                  dataIndex: 'comment',
-                  width: 210,
-                  render: (value) => value || '无注释',
-                },
-              ]}
-            />
-            {detail.data.object.objectType !== 'VIEW' && (
-              <section className="ds-detail-block">
-                <h3>键、关系与索引</h3>
-                <Descriptions
-                  column={2}
-                  size="small"
-                  items={[
-                    { key: 'pk', label: '主键', children: formatKeys(detail.data.primaryKeys) },
-                    { key: 'fk', label: '外键', children: formatKeys(detail.data.foreignKeys) },
-                    {
-                      key: 'indexes',
-                      label: '索引',
-                      children: formatKeys(detail.data.indexes),
-                      span: 2,
-                    },
-                  ]}
-                />
-              </section>
-            )}
-            <div className="detail-footer">
-              <Button onClick={back}>返回元数据目录</Button>
               {allowed(session, 'collections.view') && detail.data.object.objectId && (
                 <Button
                   onClick={() =>
@@ -377,7 +400,155 @@ export function CatalogObjectPage() {
                   查看变化
                 </Button>
               )}
-            </div>
+            </header>
+            {/* 字段区作为主要内容，保持与工作区同宽。 */}
+            <section className="panel ds-fields-panel" aria-labelledby="ds-fields-title">
+              <header className="ds-fields-heading">
+                <h2 id="ds-fields-title" className="ds-section-heading">
+                  字段
+                </h2>
+                <span className="ds-field-count">{detail.data.columns.length} 个字段</span>
+              </header>
+              <Table<CatalogField>
+                className="full-text-table ds-field-table"
+                size="middle"
+                rowKey="ordinal"
+                dataSource={detail.data.columns}
+                pagination={false}
+                scroll={{ x: 780 }}
+                columns={[
+                  {
+                    title: '字段',
+                    width: 210,
+                    render: (_, field) => (
+                      <div className="ds-field-name">
+                        <code>{field.name}</code>
+                        {primaryFields.has(field.name) && (
+                          <span className="ds-field-key">主键</span>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '类型',
+                    dataIndex: 'type',
+                    width: 160,
+                    render: (value) => <code>{value}</code>,
+                  },
+                  {
+                    title: '可空',
+                    width: 76,
+                    render: (_, field) => (field.nullable ? '是' : '否'),
+                  },
+                  ...(detail.data.object.objectType === 'VIEW'
+                    ? []
+                    : [
+                        {
+                          title: '默认值 / 生成',
+                          width: 180,
+                          /** 区分数据库生成、显式空字符串和没有默认定义。 */
+                          render: (_: unknown, field: CatalogField) => {
+                            if (field.generated) return '由数据库生成';
+                            if (field.defaultValue != null)
+                              return <code>{field.defaultValue || "''"}</code>;
+                            return (
+                              <span className="muted" title="无默认值">
+                                —
+                              </span>
+                            );
+                          },
+                        },
+                      ]),
+                  {
+                    title: '字段注释',
+                    dataIndex: 'comment',
+                    render: (value) =>
+                      value || (
+                        <span className="muted" title="无注释">
+                          —
+                        </span>
+                      ),
+                  },
+                ]}
+              />
+            </section>
+            {detail.data.object.objectType !== 'VIEW' && (
+              <section className="panel ds-keys-panel">
+                <h2 className="ds-section-heading">键、关系与索引</h2>
+                <Descriptions
+                  column={3}
+                  layout="vertical"
+                  colon={false}
+                  size="small"
+                  items={[
+                    { key: 'pk', label: '主键', children: formatKeys(detail.data.primaryKeys) },
+                    { key: 'fk', label: '外键', children: formatKeys(detail.data.foreignKeys) },
+                    {
+                      key: 'indexes',
+                      label: '索引',
+                      children: formatKeys(detail.data.indexes),
+                    },
+                  ]}
+                />
+              </section>
+            )}
+            {/* 源库原文与追溯信息按需展开，保证长注释不抢占字段的首屏空间。 */}
+            <Collapse
+              className="ds-object-origin"
+              size="small"
+              items={[
+                {
+                  key: 'origin',
+                  label: '来源与采集信息',
+                  children: (
+                    <Descriptions
+                      column={2}
+                      size="small"
+                      items={[
+                        {
+                          key: 'snapshot',
+                          label: '采集快照',
+                          children: detail.data.object.snapshotId,
+                        },
+                        {
+                          key: 'time',
+                          label: '采集时间',
+                          children: displayTime(detail.data.object.collectedAt),
+                        },
+                        ...(detail.data.objectRevision
+                          ? [
+                              {
+                                key: 'revision',
+                                label: '结构修订',
+                                children: detail.data.objectRevision,
+                              },
+                            ]
+                          : []),
+                        ...(detail.data.parent
+                          ? [{ key: 'parent', label: '父表', children: detail.data.parent }]
+                          : []),
+                        ...(detail.data.object.sourceComment
+                          ? [
+                              {
+                                key: 'comment',
+                                label: detail.data.object.objectType.includes('VIEW')
+                                  ? '源视图注释'
+                                  : '源表注释',
+                                children: (
+                                  <p className="ds-object-comment">
+                                    {detail.data.object.sourceComment}
+                                  </p>
+                                ),
+                                span: 2,
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
+                  ),
+                },
+              ]}
+            />
           </>
         )}
       </ReadState>

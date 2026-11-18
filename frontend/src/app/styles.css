@@ -10,6 +10,9 @@
   --do-primary-hover: #244eaa;
   --do-selected: #eaf0fc;
   --do-hover: #f3f5f8;
+  --do-control-height: 40px;
+  --do-font-meta: 12px;
+  --do-line-meta: 18px;
   font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
   color: var(--do-ink);
   background: var(--do-canvas);
@@ -295,8 +298,17 @@ h3 {
 }
 /* 查询操作整体保持 40px 高度。 */
 .query-panel .ant-space {
-  min-height: 40px;
+  min-height: var(--do-control-height);
   flex: none;
+}
+/* 使用统一的成品外框高度，单选框和日期不随内部文字基线变化。 */
+.query-panel :is(.ant-input-affix-wrapper, .ant-select-single, .ant-picker, .ant-btn),
+.query-panel .ant-form-item-control-input-content > .ant-input,
+:is(.ds-toolbar, .record-pagination, .ds-connection-form) .ant-select-single.ant-select-lg,
+.ds-connection-form
+  .ant-form-item-control-input-content
+  > :is(input.ant-input, .ant-input-number, .ant-input-affix-wrapper) {
+  block-size: var(--do-control-height);
 }
 /* 主操作保持在查询区右侧。 */
 .query-panel > .ant-btn {
@@ -469,6 +481,16 @@ h3 {
 .record-pagination-controls > .ant-select {
   width: 128px;
 }
+/* 总数、每页条数和页码都是辅助信息，点击区域仍沿用 40px。 */
+.record-pagination,
+.record-pagination .ant-select .ant-select-content,
+.record-pagination .ant-pagination :is(.ant-pagination-item, .ant-pagination-simple-pager) {
+  font-size: var(--do-font-meta);
+}
+/* 总数在固定高度内保持辅助文字行高。 */
+.record-pagination > span {
+  line-height: var(--do-line-meta);
+}
 /* 分页数字采用原型的轻量选中样式，悬停和键盘焦点仍然明确。 */
 .record-pagination .ant-pagination-item {
   border-color: transparent;
@@ -482,11 +504,6 @@ h3 {
 /* 独立分页不叠加表格默认外边距。 */
 .record-pagination-controls .ant-pagination {
   margin: 0;
-}
-/* 原生分页沿用原型的前往输入，窄容器使用组件的当前页与总页数组合。 */
-.record-pagination .ant-pagination-options-quick-jumper input,
-.record-pagination .ant-pagination-simple-pager input {
-  height: 40px;
 }
 /* 人员与角色名称是原型中的记录查看入口。 */
 .cell-title.ant-btn {
@@ -555,6 +572,11 @@ h3 {
 }
 /* 行内动作具有完整的 32px 点击区域和浅底悬停反馈。 */
 .record-actions-cell .ant-btn-link:hover {
+  background: var(--do-hover);
+  color: var(--do-primary-hover);
+}
+/* 文字菜单打开时保持可辨识的按钮轮廓，并沿用现有悬停底色。 */
+.ant-btn.ant-dropdown-trigger[aria-expanded='true'] {
   background: var(--do-hover);
   color: var(--do-primary-hover);
 }
@@ -1688,7 +1710,7 @@ h3 {
     height: auto;
   }
 }
-/* 窄结果区按原型分为总数与条数、上一页与可输入页码及下一页两行。 */
+/* 窄结果区分为总数与条数、前后翻页与当前页两行。 */
 .record-pagination.is-compact {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1707,9 +1729,24 @@ h3 {
 .record-pagination.is-compact .record-pagination-controls > .ant-pagination {
   grid-row: 2;
   grid-column: 1 / -1;
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--do-control-height) minmax(0, 1fr) var(--do-control-height);
   width: 100%;
-  justify-content: space-between;
+}
+
+/* 去掉旧浮动清除节点在网格里的额外占位，页码居中。 */
+.record-pagination.is-compact .ant-pagination::after {
+  display: none;
+}
+
+/* 紧凑页脚的间距由网格提供，页码组件的默认外边距会偏移中线。 */
+.record-pagination.is-compact .ant-pagination > li {
+  margin-inline: 0;
+}
+
+/* 只读页码对齐两端翻页按钮之间的中线。 */
+.record-pagination.is-compact .ant-pagination-simple-pager {
+  justify-self: center;
 }
 /* 键盘焦点始终可见。 */
 :focus-visible {

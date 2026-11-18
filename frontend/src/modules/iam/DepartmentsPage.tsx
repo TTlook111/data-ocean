@@ -1,9 +1,9 @@
 import { RecordTable } from '../../shared/RecordTable';
+import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import {
   App,
   Button,
   Descriptions,
-  Dropdown,
   Empty,
   Form,
   Input,
@@ -13,7 +13,7 @@ import {
   Tabs,
   Tree,
 } from 'antd';
-import { DownOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
@@ -586,15 +586,12 @@ export function DepartmentsPage() {
                 {department && <Status value={department.lifecycle} />}
               </div>
               {actions.length > 0 && (
-                <Dropdown
-                  trigger={['click']}
+                <ActionMenuButton
+                  placement="bottomRight"
                   menu={{ items: actions, onClick: ({ key }) => chooseAction(key) }}
                 >
-                  <Button>
-                    部门操作
-                    <DownOutlined />
-                  </Button>
-                </Dropdown>
+                  部门操作
+                </ActionMenuButton>
               )}
             </div>
             <Descriptions

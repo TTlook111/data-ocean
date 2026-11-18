@@ -10,6 +10,8 @@ import {
   Select,
   Space,
 } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -20,7 +22,7 @@ import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
 import type { Page, Preview } from '../iam/types';
-import { SourcePicker, useSourceSelection } from './CollectionPage';
+import { SourcePicker, SourceUnavailable, useSourceSelection } from './CollectionPage';
 import { DatasourceStatus, datasourceLabel, datasourceOptions } from './Presentation';
 import type { StructureChange } from './types';
 
@@ -31,7 +33,7 @@ export function StandaloneStructureChangePage() {
   const { setParams, sources, selected } = useSourceSelection('COLLECTIONS');
   return (
     <section className="record-page" aria-label="结构变化">
-      <div className="ds-toolbar">
+      <div className="panel ds-toolbar">
         <SourcePicker
           sources={sources.data}
           selected={selected}
@@ -41,10 +43,13 @@ export function StandaloneStructureChangePage() {
       <ReadState
         error={sources.error}
         loading={sources.isPending}
-        empty={!selected && !sources.isPending}
         retry={() => void sources.refetch()}
       >
-        {selected && <StructureChanges source={selected.id} />}
+        {selected ? (
+          <StructureChanges key={selected.id} source={selected.id} />
+        ) : (
+          <SourceUnavailable />
+        )}
       </ReadState>
     </section>
   );
@@ -72,127 +77,164 @@ export function StructureChanges({ source }: { source: string }) {
     enabled: Boolean(id),
   });
   const size = Number(params.get('pageSize') ?? 10);
+  const from = params.get('fromDate');
+  const to = params.get('toDate');
+  const hasFilters = [
+    'keyword',
+    'changeType',
+    'fromDate',
+    'toDate',
+    'stage',
+    'objectId',
+    'taskId',
+  ].some((key) => params.has(key));
+
+  /**
+   * 清除用户和来源链接带入的条件，同时保留当前源、页签与分页尺寸。
+   */
+  function reset() {
+    form.setFieldsValue({
+      keyword: undefined,
+      changeType: undefined,
+      dates: undefined,
+      stage: undefined,
+    });
+    setParams({ source, pageSize: String(size), ...(params.get('tab') ? { tab: 'changes' } : {}) });
+    form.focusField('keyword');
+  }
   return (
     <>
       {/* 过滤顺序按变化对象、类型、发现时间与处理阶段。 */}
-      <Form
-        form={form}
-        layout="inline"
-        className="record-filters"
-        initialValues={Object.fromEntries(params)}
-        onFinish={(values) => {
-          const next = {
+      <div className="panel query-panel ds-query-panel">
+        <Form
+          name="structure-change-query"
+          form={form}
+          layout="inline"
+          initialValues={{
             ...Object.fromEntries(params),
-            pageNum: 1,
-            pageSize: size,
-            keyword: values.keyword,
-            changeType: values.changeType,
-            stage: values.stage,
-            fromDate: values.dates?.[0]?.format('YYYY-MM-DD'),
-            toDate: values.dates?.[1]?.format('YYYY-MM-DD'),
-          };
-          setParams(new URLSearchParams(queryString(next)));
-        }}
-      >
-        <Form.Item name="keyword">
-          <Input aria-label="变化对象" placeholder="对象名或变化项" allowClear />
-        </Form.Item>
-        <Form.Item name="changeType">
-          <Select
-            aria-label="变化类型"
-            placeholder="变化类型"
-            allowClear
-            options={datasourceOptions([
-              'OBJECT_ADDED',
-              'OBJECT_REMOVED',
-              'OBJECT_RENAMED',
-              'OBJECT_REBUILT',
-              'ACCESS_LOST',
-              'IDENTITY_UNCERTAIN',
-              'COLUMN_ADDED',
-              'COLUMN_REMOVED',
-              'ATTRIBUTE_CHANGED',
-            ])}
-          />
-        </Form.Item>
-        <Form.Item name="dates">
-          <DatePicker.RangePicker placeholder={['发现开始日期', '发现结束日期']} />
-        </Form.Item>
-        <Form.Item name="stage">
-          <Select
-            aria-label="处理阶段"
-            placeholder="处理阶段"
-            allowClear
-            options={datasourceOptions(['PENDING_REVIEW', 'PENDING_GOVERNANCE', 'COMPLETED'])}
-          />
-        </Form.Item>
-        <Space>
-          <Button htmlType="submit">查询</Button>
-          <Button
-            onClick={() => {
-              form.setFieldsValue({
-                keyword: undefined,
-                changeType: undefined,
-                dates: undefined,
-                stage: undefined,
-              });
-              setParams({ source, ...(params.get('tab') ? { tab: 'changes' } : {}) });
-            }}
-          >
-            重置
-          </Button>
-        </Space>
-      </Form>
-      <RecordTable<StructureChange>
-        rowKey="changeId"
-        dataSource={list.data?.items}
-        loading={list.isPending}
-        error={list.error}
-        retry={() => void list.refetch()}
-        pagination={{
-          current: list.data?.pageNum ?? 1,
-          pageSize: size,
-          total: list.data?.total ?? 0,
-          onChange: (pageNum, pageSize) =>
-            setParams({
+            dates: from || to ? [from ? dayjs(from) : null, to ? dayjs(to) : null] : undefined,
+          }}
+          onFinish={(values) => {
+            const next = {
               ...Object.fromEntries(params),
-              source,
-              pageNum: String(pageNum),
-              pageSize: String(pageSize),
-            }),
-        }}
-        columns={[
-          {
-            title: '变化对象',
-            width: 195,
-            render: (_, item) => (
-              <>
+              pageNum: 1,
+              pageSize: size,
+              keyword: values.keyword,
+              changeType: values.changeType,
+              stage: values.stage,
+              fromDate: values.dates?.[0]?.format('YYYY-MM-DD'),
+              toDate: values.dates?.[1]?.format('YYYY-MM-DD'),
+            };
+            setParams(new URLSearchParams(queryString(next)));
+          }}
+        >
+          <Form.Item name="keyword">
+            <Input
+              aria-label="变化对象"
+              placeholder="对象名或变化项"
+              prefix={<SearchOutlined />}
+              allowClear
+            />
+          </Form.Item>
+          <Form.Item name="changeType">
+            <Select
+              aria-label="变化类型"
+              placeholder="变化类型"
+              allowClear
+              options={datasourceOptions([
+                'OBJECT_ADDED',
+                'OBJECT_REMOVED',
+                'OBJECT_RENAMED',
+                'OBJECT_REBUILT',
+                'ACCESS_LOST',
+                'IDENTITY_UNCERTAIN',
+                'COLUMN_ADDED',
+                'COLUMN_REMOVED',
+                'ATTRIBUTE_CHANGED',
+              ])}
+            />
+          </Form.Item>
+          {/* 变化筛选和采集记录共用完整的日期及查询操作布局。 */}
+          <div className="query-tail ds-date-query-tail">
+            <Form.Item name="dates">
+              <DatePicker.RangePicker placeholder={['发现开始日期', '发现结束日期']} />
+            </Form.Item>
+            <Form.Item name="stage" className="status-query">
+              <Select
+                aria-label="处理阶段"
+                placeholder="处理阶段"
+                allowClear
+                options={datasourceOptions(['PENDING_REVIEW', 'PENDING_GOVERNANCE', 'COMPLETED'])}
+              />
+            </Form.Item>
+            <Space>
+              <Button htmlType="submit">查询</Button>
+              <Button onClick={reset}>重置</Button>
+            </Space>
+          </div>
+        </Form>
+      </div>
+      {/* 结构事实结果与分页使用后台同款结果面板。 */}
+      <section className="panel records-panel" aria-label="结构变化列表">
+        <RecordTable<StructureChange>
+          rowKey="changeId"
+          dataSource={list.data?.items}
+          loading={list.isPending}
+          error={list.error}
+          retry={() => void list.refetch()}
+          filtered={hasFilters}
+          onReset={reset}
+          emptyDescription="暂无结构变化"
+          pagination={{
+            current: list.data?.pageNum ?? 1,
+            pageSize: size,
+            total: list.data?.total ?? 0,
+            onChange: (pageNum, pageSize) =>
+              setParams({
+                ...Object.fromEntries(params),
+                source,
+                pageNum: String(pageNum),
+                pageSize: String(pageSize),
+              }),
+          }}
+          columns={[
+            {
+              title: '变化对象',
+              width: 195,
+              render: (_, item) => (
+                <>
+                  <Button type="link" onClick={() => setId(item.changeId)}>
+                    {item.target}
+                  </Button>
+                  <small className="ds-secondary">{datasourceLabel(item.attributeKind)}</small>
+                </>
+              ),
+            },
+            {
+              title: '变化类型',
+              width: 150,
+              render: (_, item) => datasourceLabel(item.changeType),
+            },
+            { title: '发现时间', width: 145, render: (_, item) => displayTime(item.discoveredAt) },
+            {
+              title: '处理阶段',
+              width: 135,
+              render: (_, item) => <DatasourceStatus value={item.stage} />,
+            },
+            {
+              title: '操作',
+              width: 105,
+              fixed: 'right',
+              className: 'record-actions-cell',
+              render: (_, item) => (
                 <Button type="link" onClick={() => setId(item.changeId)}>
-                  {item.target}
+                  查看详情
                 </Button>
-                <small className="ds-secondary">{datasourceLabel(item.attributeKind)}</small>
-              </>
-            ),
-          },
-          { title: '变化类型', width: 150, render: (_, item) => datasourceLabel(item.changeType) },
-          { title: '发现时间', width: 145, render: (_, item) => displayTime(item.discoveredAt) },
-          {
-            title: '处理阶段',
-            width: 135,
-            render: (_, item) => <DatasourceStatus value={item.stage} />,
-          },
-          {
-            title: '操作',
-            width: 105,
-            fixed: 'right',
-            render: (_, item) => (
-              <Button type="link" onClick={() => setId(item.changeId)}>
-                查看详情
-              </Button>
-            ),
-          },
-        ]}
-      />
+              ),
+            },
+          ]}
+        />
+      </section>
       <Drawer
         title={detail.data?.target ?? '结构变化'}
         width={600}

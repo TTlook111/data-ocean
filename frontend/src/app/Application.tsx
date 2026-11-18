@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { App, Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Modal, Result, Spin } from 'antd';
+import { App, Avatar, Breadcrumb, Button, Layout, Menu, Modal, Result, Spin } from 'antd';
 import {
   ApartmentOutlined,
   AuditOutlined,
@@ -7,7 +7,6 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
-  DownOutlined,
   InboxOutlined,
   ReadOutlined,
   SettingOutlined,
@@ -19,6 +18,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { api, ApiError, resetCsrf } from '../shared/api';
 import { SessionContext } from '../shared/session';
 import { readErrorMessage } from '../shared/Records';
+import { ActionMenuButton } from '../shared/ActionMenuButton';
 import type { Person, Session } from '../modules/iam/types';
 import { InitialPasswordPage, LoginPage } from '../modules/iam/LoginPage';
 import { AccountPage } from '../modules/iam/AccountPage';
@@ -357,8 +357,11 @@ export function Application() {
           <Button type="text" className="workbench-link" disabled>
             问数工作台
           </Button>
-          <Dropdown
-            trigger={['click']}
+          <ActionMenuButton
+            placement="bottomRight"
+            type="text"
+            className="admin-identity"
+            label={`${session.displayName}，${account.data?.primaryDepartment?.name ?? ''}，用户菜单`}
             menu={{
               items: [
                 { key: 'account', label: '账号信息' },
@@ -374,19 +377,13 @@ export function Application() {
               },
             }}
           >
-            <Button
-              type="text"
-              className="admin-identity"
-              aria-label={`${session.displayName}，${account.data?.primaryDepartment?.name ?? ''}，用户菜单`}
-            >
-              <Avatar size={32}>{session.displayName.slice(0, 1)}</Avatar>
-              <span className="identity-text">
-                {session.displayName}
-                <small>{account.data?.primaryDepartment?.name ?? '—'}</small>
-              </span>
-              <DownOutlined />
-            </Button>
-          </Dropdown>
+            {/* 头像、姓名和部门共同形成账号菜单的触发区。 */}
+            <Avatar size={32}>{session.displayName.slice(0, 1)}</Avatar>
+            <span className="identity-text">
+              {session.displayName}
+              <small>{account.data?.primaryDepartment?.name ?? '—'}</small>
+            </span>
+          </ActionMenuButton>
         </Layout.Header>
         <Layout className="admin-body">
           <Layout.Sider width={216} theme="light" className="admin-sidebar">

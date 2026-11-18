@@ -249,6 +249,10 @@ export interface ConnectionCheck {
    */
   items: CheckItem[];
   /**
+   * 业务行读取能力的独立结论，采集就绪不代表业务行已验证。
+   */
+  businessReadStatus: string;
+  /**
    * 具备启用条件。
    */
   canEnable: boolean;

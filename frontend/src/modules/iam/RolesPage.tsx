@@ -1,11 +1,11 @@
 import { RecordTable } from '../../shared/RecordTable';
+import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import {
   Alert,
   App,
   Button,
   Checkbox,
   Descriptions,
-  Dropdown,
   Drawer,
   Form,
   Input,
@@ -15,12 +15,7 @@ import {
   Tabs,
   Tag,
 } from 'antd';
-import {
-  DownOutlined,
-  PlusOutlined,
-  SafetyCertificateOutlined,
-  SearchOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -334,17 +329,11 @@ export function RolesPage() {
       },
     ].filter((item) => item.visible && allowed(session, item.code));
 
-    const items = [...(inDetail ? [] : [{ key: 'members', label: '查看已分配人员' }]), ...extras];
-
     /**
      * 配置走独立页面，状态和上限操作在当前列表上下文核对。
      */
     function choose(key: string) {
-      if (key === 'members') {
-        // 列表快捷入口与详情页签读取同一角色的当前成员。
-        setDetailTab('members');
-        setMembers(role);
-      } else if (key === 'copy') void configure(role, true);
+      if (key === 'copy') void configure(role, true);
       else if (key === 'protected') void configure(role, false, true);
       else {
         // 详情底栏切换办理时先退出回看，避免两个对象浮层相互遮挡。
@@ -359,25 +348,26 @@ export function RolesPage() {
             编辑
           </Button>
         )}
-        {items.length === 1 ? (
-          <Button type={inDetail ? 'default' : 'link'} onClick={() => choose(items[0].key)}>
-            {items[0].label}
+        {extras.length === 1 ? (
+          <Button
+            type={inDetail ? 'default' : 'link'}
+            danger={extras[0].danger}
+            onClick={() => choose(extras[0].key)}
+          >
+            {extras[0].label}
           </Button>
         ) : (
-          items.length > 1 && (
-            <Dropdown
-              trigger={['click']}
+          extras.length > 1 && (
+            <ActionMenuButton
+              type={inDetail ? 'default' : 'link'}
               placement={inDetail ? 'topLeft' : 'bottomLeft'}
               menu={{
-                items,
+                items: extras,
                 onClick: ({ key }) => choose(key),
               }}
             >
-              <Button type={inDetail ? 'default' : 'link'}>
-                更多
-                <DownOutlined />
-              </Button>
-            </Dropdown>
+              更多
+            </ActionMenuButton>
           )
         )}
       </Space>
@@ -454,7 +444,6 @@ export function RolesPage() {
             pageSize: records.data?.pageSize ?? 10,
             total: records.data?.total,
             showTotal: (total) => `共 ${total} 条`,
-            showQuickJumper: true,
             showSizeChanger: true,
             onChange: (pageNum, pageSize) =>
               setParams((previous) => {
@@ -507,7 +496,9 @@ export function RolesPage() {
               render: (_, role) => (
                 <Button
                   type="link"
+                  aria-label={`查看 ${role.name} 的已分配人员（${role.memberCount} 人）`}
                   onClick={() => {
+                    // 人数已经是完整入口，行操作不重复提供查看成员。
                     setDetailTab('members');
                     setMembers(role);
                   }}

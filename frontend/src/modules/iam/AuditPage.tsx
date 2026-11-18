@@ -266,7 +266,6 @@ export function AuditPage() {
             pageSize: records.data?.pageSize ?? 10,
             total: records.data?.total,
             showSizeChanger: true,
-            showQuickJumper: true,
             onChange: (pageNum, pageSize) =>
               setParams((previous) => {
                 const next = new URLSearchParams(previous);

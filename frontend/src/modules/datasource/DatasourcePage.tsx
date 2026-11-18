@@ -1,4 +1,5 @@
 import {
+  Alert,
   App,
   Button,
   Descriptions,
@@ -10,15 +11,24 @@ import {
   Select,
   Space,
 } from 'antd';
+import {
+  DatabaseOutlined,
+  DownOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  UpOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
-import { DetailFooter, displayTime, ReadState } from '../../shared/Records';
+import { displayTime, readErrorMessage, ReadState } from '../../shared/Records';
+import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { RecordTable } from '../../shared/RecordTable';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
+import { useFormClose } from '../../shared/useFormClose';
 import type { Page, Preview } from '../iam/types';
 import { DatasourceStatus, datasourceLabel, datasourceOptions } from './Presentation';
 import { CredentialDialog } from './CredentialDialog';
@@ -95,6 +105,11 @@ const numericLimits = [
 ] as const;
 
 /**
+ * 区分业务筛选与分页参数，清空筛选时保留每页条数。
+ */
+const sourceFilters = ['name', 'databaseType', 'technicalContactKeyword', 'lifecycle'];
+
+/**
  * 数据源概况保留正式列表、条件与详情入口。
  */
 export function DatasourcePage() {
@@ -165,142 +180,178 @@ export function DatasourcePage() {
    * 提交服务器分页；条件变化回到第一页。
    */
   function search(values: Record<string, string | undefined>) {
-    setParams(new URLSearchParams(queryString({ ...values, pageSize: size }).replace(/^\?/, '')));
+    setParams(new URLSearchParams(queryString({ ...values, pageSize: size })));
+  }
+
+  /**
+   * 工具栏和无匹配状态共用恢复入口，将焦点交回名称搜索框。
+   */
+  function reset() {
+    form.setFieldsValue(Object.fromEntries(sourceFilters.map((key) => [key, undefined])));
+    setParams({ pageSize: String(size) });
+    form.focusField('name');
   }
 
   return (
     <section className="record-page" aria-label="数据源管理">
       {/* 将查询项按对应列表列顺序排列。 */}
-      <Form
-        form={form}
-        className="record-filters"
-        layout="inline"
-        initialValues={Object.fromEntries(params)}
-        onFinish={search}
-      >
-        <Form.Item name="name">
-          <Input aria-label="数据源名称" placeholder="数据源名称" allowClear />
-        </Form.Item>
-        <Form.Item name="databaseType">
-          <Select
-            aria-label="数据库类型"
-            placeholder="数据库类型"
-            allowClear
-            options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
-          />
-        </Form.Item>
-        <Form.Item name="technicalContactKeyword">
-          <Input aria-label="技术联系人" placeholder="技术联系人姓名或登录名" allowClear />
-        </Form.Item>
-        <Form.Item name="lifecycle">
-          <Select
-            aria-label="配置状态"
-            placeholder="配置状态"
-            allowClear
-            options={datasourceOptions(['DRAFT', 'ENABLED', 'DISABLED', 'RETIRED'])}
-          />
-        </Form.Item>
-        <Space className="record-query-actions">
-          <Button htmlType="submit">查询</Button>
-          <Button
-            onClick={() => {
-              form.resetFields();
-              form.setFieldsValue({
-                name: undefined,
-                databaseType: undefined,
-                technicalContactKeyword: undefined,
-                lifecycle: undefined,
-              });
-              setParams({});
-            }}
-          >
-            重置
-          </Button>
-        </Space>
+      <div className="panel query-panel ds-query-panel" aria-label="数据源查询">
+        <Form
+          name="datasource-query"
+          form={form}
+          layout="inline"
+          initialValues={Object.fromEntries(params)}
+          onFinish={search}
+        >
+          <Form.Item name="name">
+            <Input
+              aria-label="数据源名称"
+              placeholder="数据源名称"
+              prefix={<SearchOutlined />}
+              allowClear
+            />
+          </Form.Item>
+          <Form.Item name="databaseType">
+            <Select
+              aria-label="数据库类型"
+              placeholder="数据库类型"
+              allowClear
+              options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
+            />
+          </Form.Item>
+          <Form.Item name="technicalContactKeyword">
+            <Input aria-label="技术联系人" placeholder="技术联系人姓名或登录名" allowClear />
+          </Form.Item>
+          {/* 状态与查询动作一起换行，保持检索操作紧邻。 */}
+          <div className="query-tail status-tail">
+            <Form.Item name="lifecycle" className="status-query">
+              <Select
+                aria-label="配置状态"
+                placeholder="配置状态"
+                allowClear
+                options={datasourceOptions(['DRAFT', 'ENABLED', 'DISABLED', 'RETIRED'])}
+              />
+            </Form.Item>
+            <Space>
+              <Button htmlType="submit">查询</Button>
+              <Button onClick={reset}>重置</Button>
+            </Space>
+          </div>
+        </Form>
+        {/* 新增为整张列表的主操作，位于查询面板右侧。 */}
         {allowed(session, 'sources.create') && (
-          <Button type="primary" onClick={() => setEditor('new')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditor('new')}>
             新增数据源
           </Button>
         )}
-      </Form>
-      <RecordTable<SourceSummary>
-        rowKey="id"
-        dataSource={list.data?.items}
-        loading={list.isPending}
-        error={list.error}
-        retry={() => void list.refetch()}
-        pagination={{
-          current: list.data?.pageNum ?? page,
-          pageSize: size,
-          total: list.data?.total ?? 0,
-          onChange: (next, pageSize) =>
-            setParams({
-              ...Object.fromEntries(params),
-              pageNum: String(next),
-              pageSize: String(pageSize),
-            }),
-        }}
-        columns={[
-          {
-            title: '数据源',
-            width: 190,
-            render: (_, item) => (
-              <Button type="link" onClick={() => setOpened(item.id)}>
-                {item.name}
-              </Button>
-            ),
-          },
-          {
-            title: '数据库类型',
-            width: 130,
-            render: (_, item) => (
-              <div>
-                {datasourceLabel(item.databaseType)}
-                <small className="ds-secondary">{item.detectedVersion}</small>
-              </div>
-            ),
-          },
-          {
-            title: '技术联系人',
-            dataIndex: 'technicalContact',
-            width: 120,
-            render: (value) => value ?? '—',
-          },
-          {
-            title: '配置状态',
-            width: 110,
-            render: (_, item) => <DatasourceStatus value={item.lifecycle} />,
-          },
-          {
-            title: '最近结构采集',
-            width: 170,
-            render: (_, item) => (
-              <>
-                {datasourceLabel(item.latestTaskState)}
-                <small className="ds-secondary">{displayTime(item.latestTaskEndedAt)}</small>
-              </>
-            ),
-          },
-          {
-            title: '最近采集成功',
-            width: 160,
-            render: (_, item) => displayTime(item.lastSuccessfulAt),
-          },
-          {
-            title: '操作',
-            width: 126,
-            fixed: 'right',
-            render: (_, item) => (
-              <Button type="link" onClick={() => setOpened(item.id)}>
-                查看详情
-              </Button>
-            ),
-          },
-        ]}
-      />
+      </div>
+      {/* 表格及分页共用一个完整结果面板。 */}
+      <section className="panel records-panel" aria-label="数据源列表">
+        <RecordTable<SourceSummary>
+          rowKey="id"
+          dataSource={list.data?.items}
+          loading={list.isPending}
+          error={list.error}
+          retry={() => void list.refetch()}
+          filtered={sourceFilters.some((key) => params.has(key))}
+          onReset={reset}
+          emptyDescription="尚未添加数据源"
+          pagination={{
+            current: list.data?.pageNum ?? page,
+            pageSize: size,
+            total: list.data?.total ?? 0,
+            onChange: (next, pageSize) =>
+              setParams({
+                ...Object.fromEntries(params),
+                pageNum: String(next),
+                pageSize: String(pageSize),
+              }),
+          }}
+          columns={[
+            {
+              title: '数据源',
+              width: 210,
+              render: (_, item) => (
+                <div className="ds-row-identity">
+                  <span className="ds-identity-icon" aria-hidden="true">
+                    <DatabaseOutlined />
+                  </span>
+                  <Button
+                    type="link"
+                    className="cell-title"
+                    title={item.name}
+                    onClick={() => setOpened(item.id)}
+                  >
+                    {item.name}
+                  </Button>
+                </div>
+              ),
+            },
+            {
+              title: '数据库类型',
+              width: 130,
+              render: (_, item) => (
+                <div>
+                  {datasourceLabel(item.databaseType)}
+                  {item.detectedVersion && (
+                    <small className="table-secondary" title={item.detectedVersion}>
+                      {item.detectedVersion}
+                    </small>
+                  )}
+                </div>
+              ),
+            },
+            {
+              title: '技术联系人',
+              dataIndex: 'technicalContact',
+              width: 120,
+              render: (value) => value ?? '—',
+            },
+            {
+              title: '配置状态',
+              width: 110,
+              render: (_, item) => <DatasourceStatus value={item.lifecycle} />,
+            },
+            {
+              title: '最近结构采集',
+              width: 170,
+              render: (_, item) => (
+                <>
+                  {item.latestTaskState ? (
+                    <DatasourceStatus value={item.latestTaskState} />
+                  ) : (
+                    <span className="muted">尚无采集记录</span>
+                  )}
+                  {item.latestTaskEndedAt && (
+                    <small className="table-secondary">{displayTime(item.latestTaskEndedAt)}</small>
+                  )}
+                </>
+              ),
+            },
+            {
+              title: '最近采集成功',
+              width: 160,
+              render: (_, item) => displayTime(item.lastSuccessfulAt),
+            },
+            {
+              title: '操作',
+              width: 126,
+              fixed: 'right',
+              className: 'record-actions-cell',
+              render: (_, item) => (
+                <Button type="link" onClick={() => setOpened(item.id)}>
+                  查看详情
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </section>
       {/* 连接与定时详情保持侧栏内，与原列表条件和页码独立。 */}
       <Drawer
         width={580}
+        className="record-details-drawer ds-source-drawer"
+        closable={{ placement: 'end' }}
         title={detail.data?.source.name ?? '数据源详情'}
         open={Boolean(opened)}
         onClose={() => setOpened(null)}
@@ -314,7 +365,6 @@ export function DatasourcePage() {
           {detail.data && (
             <SourceInformation
               detail={detail.data}
-              onClose={() => setOpened(null)}
               edit={() => setEditor(detail.data ?? null)}
               replace={() => setReplace(detail.data ?? null)}
               schedule={schedule}
@@ -353,13 +403,11 @@ export function DatasourcePage() {
  */
 function SourceInformation({
   detail,
-  onClose,
   edit,
   replace,
   schedule,
 }: {
   detail: SourceDetail;
-  onClose: () => void;
   edit: () => void;
   replace: () => void;
   schedule: (source: SourceDetail, reason: string) => Promise<void>;
@@ -369,56 +417,113 @@ function SourceInformation({
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState('');
   const { configuration, schedule: plan, source } = detail;
+  const canOpenCatalog = allowed(session, 'catalog.view');
+  const canEdit = allowed(session, 'sources.edit') && source.lifecycle !== 'RETIRED';
+  // 只有当前启用源提供定时管理和凭据替换，按实际权限收进底栏。
+  const maintenance = [
+    ...(source.lifecycle === 'ENABLED' && allowed(session, 'sources.pause')
+      ? [
+          {
+            key: 'schedule',
+            label: plan.paused ? '恢复定时' : '暂停定时',
+            onClick: () => setShowReason(true),
+          },
+        ]
+      : []),
+    ...(source.lifecycle === 'ENABLED' && canEdit
+      ? [{ key: 'credential', label: '更换凭据', onClick: replace }]
+      : []),
+  ];
   return (
-    <>
-      <Descriptions
-        column={2}
-        size="small"
-        items={[
-          {
-            key: 'lifecycle',
-            label: '配置状态',
-            children: <DatasourceStatus value={source.lifecycle} />,
-          },
-          { key: 'database', label: '数据库', children: configuration.databaseName ?? '—' },
-          {
-            key: 'address',
-            label: '连接地址',
-            children: configuration.host ? configuration.host + ':' + configuration.port : '—',
-          },
-          { key: 'account', label: '数据库只读账号', children: configuration.account ?? '—' },
-          {
-            key: 'schema',
-            label: 'Schema 范围',
-            children: configuration.schemas?.join('、') || '—',
-          },
-          { key: 'version', label: '配置修订', children: detail.configurationRevision },
-          { key: 'plan', label: '定时采集', children: <DatasourceStatus value={plan.state} /> },
-          { key: 'next', label: '下次采集', children: displayTime(plan.nextScheduledAt) },
-          { key: 'timezone', label: '时区', children: plan.timeZone },
-          { key: 'stale', label: '陈旧开始时间', children: displayTime(plan.staleSince) },
-          { key: 'purpose', label: '用途说明', children: configuration.purpose ?? '—', span: 2 },
-        ]}
-      />
-      {/* 来源动作以实际当前状态和权限决定，始终能回到原列表。 */}
-      <DetailFooter close={onClose}>
-        {allowed(session, 'catalog.view') && (
-          <Button onClick={() => navigate('/catalog?source=' + source.id)}>查看元数据目录</Button>
-        )}
-        {allowed(session, 'sources.pause') && source.lifecycle === 'ENABLED' && (
-          <Button onClick={() => setShowReason(true)}>
-            {plan.paused ? '恢复定时' : '暂停定时'}
-          </Button>
-        )}
-        {allowed(session, 'sources.edit') && source.lifecycle === 'ENABLED' && (
-          <Button onClick={replace}>更换凭据</Button>
-        )}
-        {allowed(session, 'sources.edit') && source.lifecycle !== 'RETIRED' && (
-          <Button type="primary" onClick={edit}>
-            编辑连接
-          </Button>
-        )}
-      </DetailFooter>
+    <div className="ds-source-detail">
+      {/* 查看当前连接和调度事实，长内容单独滚动。 */}
+      <div className="ds-source-detail-body">
+        <Descriptions
+          title="数据库连接"
+          column={2}
+          size="small"
+          items={[
+            {
+              key: 'lifecycle',
+              label: '配置状态',
+              children: <DatasourceStatus value={source.lifecycle} />,
+            },
+            { key: 'version', label: '配置修订', children: detail.configurationRevision },
+            {
+              key: 'database',
+              label: '数据库',
+              children: configuration.databaseName ?? '—',
+              span: 2,
+            },
+            {
+              key: 'address',
+              label: '连接地址',
+              children: configuration.host ? configuration.host + ':' + configuration.port : '—',
+              span: 2,
+            },
+            {
+              key: 'account',
+              label: '数据库只读账号',
+              children: configuration.account ?? '—',
+              span: 2,
+            },
+            ...(configuration.databaseType === 'POSTGRESQL'
+              ? [
+                  {
+                    key: 'schema',
+                    label: 'Schema 范围',
+                    children: configuration.schemas?.join('、') || '—',
+                    span: 2,
+                  },
+                ]
+              : []),
+            ...(configuration.purpose
+              ? [{ key: 'purpose', label: '用途说明', children: configuration.purpose, span: 2 }]
+              : []),
+          ]}
+        />
+        <Descriptions
+          className="ds-detail-block"
+          title="定时采集"
+          column={2}
+          size="small"
+          items={[
+            { key: 'plan', label: '状态', children: <DatasourceStatus value={plan.state} /> },
+            { key: 'next', label: '下次采集', children: displayTime(plan.nextScheduledAt) },
+            { key: 'timezone', label: '时区', children: plan.timeZone },
+            ...(plan.staleSince
+              ? [{ key: 'stale', label: '陈旧开始时间', children: displayTime(plan.staleSince) }]
+              : []),
+          ]}
+        />
+      </div>
+      {/* 页脚左侧是低频维护入口，右侧保留当前有权执行的常用动作。 */}
+      {(canOpenCatalog || canEdit || maintenance.length > 0) && (
+        <div className="detail-footer ds-source-detail-footer">
+          <span>
+            {maintenance.length === 1 && (
+              <Button onClick={maintenance[0].onClick}>{maintenance[0].label}</Button>
+            )}
+            {maintenance.length > 1 && (
+              <ActionMenuButton placement="topLeft" menu={{ items: maintenance }}>
+                更多
+              </ActionMenuButton>
+            )}
+          </span>
+          <Space wrap>
+            {canOpenCatalog && (
+              <Button onClick={() => navigate('/catalog?source=' + source.id)}>
+                查看元数据目录
+              </Button>
+            )}
+            {canEdit && (
+              <Button type="primary" onClick={edit}>
+                编辑连接
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
       {showReason && (
         <Modal
           centered
@@ -441,7 +546,7 @@ function SourceInformation({
           />
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 
@@ -460,13 +565,17 @@ function SourceEditor({
   saved: () => void;
 }) {
   const session = useSession();
-  const { message } = App.useApp();
   const [form] = Form.useForm<EditorValues>();
   const [review, setReview] = useState<ReviewSubmission | null>(null);
   const [check, setCheck] = useState<ConnectionCheck | null>(null);
   const [testing, setTesting] = useState(false);
+  const [preparing, setPreparing] = useState<'draft' | 'save' | 'enable' | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showLimits, setShowLimits] = useState(false);
   const [contactKeyword, setContactKeyword] = useState('');
+  const testResult = useRef<HTMLElement>(null);
+  const busy = testing || Boolean(preparing);
+  const requestClose = useFormClose(form, close, busy);
   const selectedType = Form.useWatch(['configuration', 'databaseType'], form) ?? 'MYSQL';
   const contacts = useQuery({
     queryKey: ['source-contact-options', contactKeyword],
@@ -478,6 +587,7 @@ function SourceEditor({
   const immutable = source?.source.lifecycle === 'ENABLED';
   const canTest = allowed(session, 'sources.test');
   const canEnable = allowed(session, 'sources.enable');
+  const enableReady = canEnable && !immutable && Boolean(check?.canEnable);
   const id = source?.source.id;
   const path = '/datasources' + (id ? '/' + id : '');
   const options =
@@ -485,6 +595,11 @@ function SourceEditor({
       value: person.id,
       label: person.displayName + '（' + person.username + '）',
     })) ?? [];
+
+  useEffect(() => {
+    // 测试完成后将分项结果带入弹窗可见区域，保留底部提交操作。
+    if (check) testResult.current?.scrollIntoView({ block: 'start' });
+  }, [check]);
 
   /**
    * 从表单取得明确的请求数据，保留数据库密码原样。
@@ -501,9 +616,35 @@ function SourceEditor({
    * 分项连接测试只提交实际数据库配置，结果回显位置保留在表单。
    */
   async function test() {
+    setError(null);
+    setCheck(null);
+    const input = values();
+    const required: {
+      name: ['configuration', keyof SourceConfiguration] | ['password'];
+      label: string;
+    }[] = [
+      { name: ['configuration', 'host'], label: '连接地址' },
+      { name: ['configuration', 'port'], label: '端口' },
+      { name: ['configuration', 'databaseName'], label: '数据库' },
+      { name: ['configuration', 'account'], label: '数据库只读账号' },
+    ];
+    if (!source?.credentialConfigured) {
+      // 已保存的凭据允许沿用，新增连接则必须先输入密码。
+      required.push({ name: ['password'], label: '数据库密码' });
+    }
+    const missing = required.filter(({ name }) => {
+      // 数据库密码原样校验，普通连接字段忽略首尾空白。
+      const value = form.getFieldValue(name);
+      return name[0] === 'password' ? !value : !String(value ?? '').trim();
+    });
+    if (missing.length) {
+      // 只在测试时要求完整连接，保存草稿仍允许配置不完整。
+      form.setFields(missing.map(({ name, label }) => ({ name, errors: ['请输入' + label] })));
+      form.scrollToField(missing[0].name, { focus: true, block: 'nearest' });
+      return;
+    }
     setTesting(true);
     try {
-      const input = values();
       const next = await api<ConnectionCheck>(path + '/connection-checks', {
         method: 'POST',
         command: crypto.randomUUID(),
@@ -519,7 +660,8 @@ function SourceEditor({
         form.setFieldValue(['configuration', 'schemas'], next.availableSchemas);
       }
     } catch (error) {
-      message.error((error as Error).message);
+      // 保留输入，让失败反馈随连接表单回看。
+      setError(readErrorMessage(error as Error));
     } finally {
       setTesting(false);
     }
@@ -529,8 +671,17 @@ function SourceEditor({
    * 已核对内容与有权提交的动作保持一致。
    */
   async function prepare(mode: 'draft' | 'save' | 'enable') {
+    setError(null);
     try {
+      // 草稿只要求名称，连接完整性由分项测试与服务端核对。
       await form.validateFields([['configuration', 'name']]);
+    } catch {
+      // 校验失败时回到字段，避免在底栏提示含义重复的全局错误。
+      form.scrollToField(['configuration', 'name'], { focus: true, block: 'nearest' });
+      return;
+    }
+    setPreparing(mode);
+    try {
       const input = values();
       const { password, configuration, runtimePolicy } = input;
       const proposal = {
@@ -549,7 +700,15 @@ function SourceEditor({
         });
         setReview({
           title: mode === 'enable' ? '核对连接启用' : '核对连接草稿',
-          preview,
+          preview: {
+            ...preview,
+            // 仅转换核对页的生命周期文本，签名及提交参数沿用服务端原值。
+            changes: preview.changes.map((change) =>
+              change.field === 'lifecycle'
+                ? { ...change, after: datasourceLabel(change.after) }
+                : change,
+            ),
+          },
           path: '/datasources',
           method: 'POST',
           operation: 'sources.create',
@@ -594,7 +753,10 @@ function SourceEditor({
         });
       }
     } catch (error) {
-      if (error instanceof Error) message.error(error.message);
+      // 核对失败保留原表单和连接测试结果。
+      setError(readErrorMessage(error as Error));
+    } finally {
+      setPreparing(null);
     }
   }
 
@@ -603,35 +765,61 @@ function SourceEditor({
       <Modal
         centered
         open={!review}
-        title={source ? '编辑连接' : '新增数据源'}
-        width={760}
-        onCancel={close}
+        title={<span className="sr-only">{source ? '编辑连接' : '新增数据源'}</span>}
+        width={848}
+        className="ds-editor"
+        onCancel={requestClose}
+        closable={!busy}
+        keyboard={!busy}
         footer={
-          <Space wrap>
-            <Button onClick={close}>取消</Button>
-            <Button onClick={() => void prepare(id ? 'save' : 'draft')}>
-              {id ? '核对并保存' : '保存草稿'}
-            </Button>
-            {canTest && (
-              <Button loading={testing} onClick={() => void test()}>
-                {check ? '重新测试' : '测试连接'}
+          <>
+            {/* 连接和核对异常留在操作前，以便在表单滚动时仍能阅读。 */}
+            {error && <Alert className="ds-editor-error" type="error" title={error} showIcon />}
+            <div className="ds-editor-actions">
+              <Button onClick={requestClose} disabled={busy}>
+                取消
               </Button>
-            )}
-            {canEnable && !immutable && (
-              <Button
-                type="primary"
-                disabled={!check?.canEnable}
-                onClick={() => void prepare('enable')}
-              >
-                核对并启用
-              </Button>
-            )}
-          </Space>
+              <Space wrap>
+                <Button
+                  type={immutable || !canTest ? 'primary' : 'default'}
+                  loading={preparing === 'draft' || preparing === 'save'}
+                  disabled={testing || preparing === 'enable'}
+                  onClick={() => void prepare(id ? 'save' : 'draft')}
+                >
+                  {id ? '核对并保存' : '保存草稿'}
+                </Button>
+                {canTest && (
+                  <Button
+                    type={immutable || enableReady ? 'default' : 'primary'}
+                    loading={testing}
+                    disabled={Boolean(preparing)}
+                    onClick={() => void test()}
+                  >
+                    {check ? '重新测试' : '测试连接'}
+                  </Button>
+                )}
+                {canEnable && !immutable && (
+                  <Button
+                    type="primary"
+                    loading={preparing === 'enable'}
+                    disabled={
+                      !enableReady || testing || preparing === 'draft' || preparing === 'save'
+                    }
+                    onClick={() => void prepare('enable')}
+                  >
+                    核对并启用
+                  </Button>
+                )}
+              </Space>
+            </div>
+          </>
         }
       >
         <Form
           form={form}
+          name="datasource-editor"
           layout="vertical"
+          disabled={busy}
           className="ds-connection-form"
           initialValues={{
             configuration: source?.configuration ?? {
@@ -642,6 +830,8 @@ function SourceEditor({
             runtimePolicy: source?.runtimePolicy ?? runtimeDefaults,
           }}
           onValuesChange={(patch) => {
+            // 操作反馈随着用户继续修正表单清除，连接依据变化使旧结论失效。
+            setError(null);
             if (
               patch.password !== undefined ||
               patch.runtimePolicy ||
@@ -660,115 +850,145 @@ function SourceEditor({
           }}
         >
           {/* 基本信息和实际数据库参数分组，避免配置和运行结果混在一起。 */}
-          <h3>基本信息</h3>
-          <Form.Item
-            name={['configuration', 'name']}
-            label="数据源名称"
-            rules={[{ required: true, message: '请输入数据源名称' }]}
-          >
-            <Input maxLength={80} />
-          </Form.Item>
-          <div className="ds-form-grid">
-            <Form.Item name={['configuration', 'technicalContactId']} label="技术联系人">
-              <Select
-                allowClear
-                showSearch
-                filterOption={false}
-                onSearch={setContactKeyword}
-                options={options}
-              />
+          <section className="ds-editor-section" aria-labelledby="ds-basic-title">
+            <h3 id="ds-basic-title">基本信息</h3>
+            <Form.Item
+              name={['configuration', 'name']}
+              label="数据源名称"
+              rules={[{ required: true, whitespace: true, message: '请输入数据源名称' }]}
+            >
+              <Input maxLength={80} />
             </Form.Item>
-            <Form.Item name={['configuration', 'businessContactId']} label="业务联系人">
-              <Select
-                allowClear
-                showSearch
-                filterOption={false}
-                onSearch={setContactKeyword}
-                options={options}
-              />
-            </Form.Item>
-          </div>
-          <Form.Item name={['configuration', 'purpose']} label="用途说明">
-            <Input.TextArea rows={2} maxLength={1000} />
-          </Form.Item>
-          <h3>数据库连接</h3>
-          <div className="ds-form-grid">
-            <Form.Item name={['configuration', 'databaseType']} label="数据库类型">
-              <Select
-                disabled={immutable}
-                options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
-                onChange={(type) => {
-                  form.setFieldValue(['configuration', 'port'], type === 'MYSQL' ? 3306 : 5432);
-                  form.setFieldValue(['configuration', 'schemas'], []);
-                }}
-              />
-            </Form.Item>
-            <Form.Item label="数据库版本">
-              <span>
-                {check?.detectedVersion ?? source?.source.detectedVersion ?? '测试后识别'}
-              </span>
-            </Form.Item>
-            <Form.Item name={['configuration', 'host']} label="连接地址">
-              <Input disabled={immutable} maxLength={253} />
-            </Form.Item>
-            <Form.Item name={['configuration', 'port']} label="端口">
-              <InputNumber disabled={immutable} min={1} max={65535} precision={0} />
-            </Form.Item>
-            <Form.Item name={['configuration', 'databaseName']} label="数据库">
-              <Input disabled={immutable} maxLength={160} />
-            </Form.Item>
-            <Form.Item name={['configuration', 'account']} label="数据库只读账号">
-              <Input disabled={immutable} maxLength={160} />
-            </Form.Item>
-          </div>
-          {selectedType === 'POSTGRESQL' && (
-            <Form.Item name={['configuration', 'schemas']} label="Schema 范围">
-              <Select
-                mode="multiple"
-                disabled={!check?.availableSchemas.length}
-                placeholder="测试连接后选择"
-                options={(check?.availableSchemas ?? source?.configuration.schemas ?? []).map(
-                  (value) => ({ value, label: value }),
-                )}
-              />
-            </Form.Item>
-          )}
-          {!immutable && (
-            <Form.Item name="password" label="数据库密码">
-              <Input.Password
-                autoComplete="new-password"
-                maxLength={1024}
-                placeholder={source?.credentialConfigured ? '留空沿用已设置密码' : undefined}
-              />
-            </Form.Item>
-          )}
-          <Button type="link" onClick={() => setShowLimits(!showLimits)} aria-expanded={showLimits}>
-            运行与定时采集
-          </Button>
-          {/* 高级参数折叠保留已填写配置及真实后端限额。 */}
-          <div className="ds-form-grid" hidden={!showLimits}>
-            {numericLimits.map(([key, label, min, max]) => (
-              <Form.Item key={key} name={['runtimePolicy', key]} label={label}>
-                <InputNumber min={min} max={max} precision={0} />
+            <div className="ds-form-grid">
+              <Form.Item name={['configuration', 'technicalContactId']} label="技术联系人">
+                <Select
+                  allowClear
+                  showSearch
+                  filterOption={false}
+                  onSearch={setContactKeyword}
+                  options={options}
+                />
               </Form.Item>
-            ))}
-            <Form.Item name={['runtimePolicy', 'windowStart']} label="采集时段开始">
-              <Input type="time" />
+              <Form.Item name={['configuration', 'businessContactId']} label="业务联系人">
+                <Select
+                  allowClear
+                  showSearch
+                  filterOption={false}
+                  onSearch={setContactKeyword}
+                  options={options}
+                />
+              </Form.Item>
+            </div>
+            <Form.Item name={['configuration', 'purpose']} label="用途说明">
+              <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} maxLength={1000} />
             </Form.Item>
-            <Form.Item name={['runtimePolicy', 'windowEnd']} label="采集时段结束">
-              <Input type="time" />
-            </Form.Item>
-          </div>
+          </section>
+          {/* 地址、账号和范围与基本信息分组，已识别版本紧邻数据库类型。 */}
+          <section className="ds-editor-section" aria-labelledby="ds-connection-title">
+            <h3 id="ds-connection-title">数据库连接</h3>
+            <div className="ds-form-grid">
+              <Form.Item name={['configuration', 'databaseType']} label="数据库类型">
+                <Select
+                  disabled={immutable}
+                  options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
+                  onChange={(type) => {
+                    form.setFieldValue(['configuration', 'port'], type === 'MYSQL' ? 3306 : 5432);
+                    form.setFieldValue(['configuration', 'schemas'], []);
+                  }}
+                />
+              </Form.Item>
+              <div className="ds-version">
+                <span className="ds-version-label">数据库版本</span>
+                <span className="ds-version-value">
+                  {check?.detectedVersion ?? source?.source.detectedVersion ?? '测试后识别'}
+                </span>
+              </div>
+              <Form.Item name={['configuration', 'host']} label="连接地址">
+                <Input disabled={immutable} maxLength={253} />
+              </Form.Item>
+              <Form.Item name={['configuration', 'port']} label="端口">
+                <InputNumber disabled={immutable} min={1} max={65535} precision={0} />
+              </Form.Item>
+              <Form.Item name={['configuration', 'databaseName']} label="数据库">
+                <Input disabled={immutable} maxLength={160} />
+              </Form.Item>
+              <Form.Item name={['configuration', 'account']} label="数据库只读账号">
+                <Input disabled={immutable} maxLength={160} />
+              </Form.Item>
+            </div>
+            {selectedType === 'POSTGRESQL' && (
+              <Form.Item name={['configuration', 'schemas']} label="Schema 范围">
+                <Select
+                  mode="multiple"
+                  disabled={!check?.availableSchemas.length}
+                  placeholder="测试连接后选择"
+                  options={(check?.availableSchemas ?? source?.configuration.schemas ?? []).map(
+                    (value) => ({ value, label: value }),
+                  )}
+                />
+              </Form.Item>
+            )}
+            {!immutable && (
+              <Form.Item name="password" label="数据库密码">
+                <Input.Password
+                  autoComplete="new-password"
+                  maxLength={1024}
+                  placeholder={source?.credentialConfigured ? '留空沿用已设置密码' : undefined}
+                />
+              </Form.Item>
+            )}
+          </section>
+          {/* 运行设置收起时保留字段值，仅在用户需要时展开。 */}
+          <section className="ds-editor-section ds-advanced-section">
+            <Button
+              type="text"
+              className="ds-advanced-toggle"
+              icon={showLimits ? <UpOutlined /> : <DownOutlined />}
+              onClick={() => setShowLimits(!showLimits)}
+              aria-expanded={showLimits}
+              aria-controls="ds-runtime-fields"
+            >
+              运行与定时采集
+            </Button>
+            {/* 高级参数折叠保留已填写配置及真实后端限额。 */}
+            <div id="ds-runtime-fields" className="ds-form-grid" hidden={!showLimits}>
+              {numericLimits.map(([key, label, min, max]) => (
+                <Form.Item key={key} name={['runtimePolicy', key]} label={label}>
+                  <InputNumber min={min} max={max} precision={0} />
+                </Form.Item>
+              ))}
+              <Form.Item name={['runtimePolicy', 'windowStart']} label="采集时段开始">
+                <Input type="time" />
+              </Form.Item>
+              <Form.Item name={['runtimePolicy', 'windowEnd']} label="采集时段结束">
+                <Input type="time" />
+              </Form.Item>
+            </div>
+          </section>
           {check && (
-            <section aria-label="分项连接测试">
+            <section
+              className="ds-editor-section"
+              ref={testResult}
+              aria-label="分项连接测试"
+              aria-live="polite"
+            >
               <h3>分项连接测试</h3>
               {check.items.map((item) => (
                 <div className="ds-check-row" key={item.code}>
-                  <span>{item.label}</span>
+                  <span>{item.code === 'BUSINESS_READ' ? '只读安全' : item.label}</span>
                   <DatasourceStatus value={item.status} />
-                  <span>{item.message}</span>
+                  <span>
+                    {item.code === 'BUSINESS_READ' && item.status === 'PASS'
+                      ? '已核对专用只读权限'
+                      : item.message}
+                  </span>
                 </div>
               ))}
+              {/* 业务行的核验结论由接口独立提供，不借用只读安全的通过状态。 */}
+              <div className="ds-check-row">
+                <span>业务行读取</span>
+                <DatasourceStatus value={check.businessReadStatus} />
+              </div>
             </section>
           )}
         </Form>

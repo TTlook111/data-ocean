@@ -1,17 +1,7 @@
 import { RecordTable } from '../../shared/RecordTable';
-import {
-  App,
-  Avatar,
-  Button,
-  Descriptions,
-  Drawer,
-  Dropdown,
-  Form,
-  Input,
-  Select,
-  Space,
-} from 'antd';
-import { DownOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { ActionMenuButton } from '../../shared/ActionMenuButton';
+import { App, Avatar, Button, Descriptions, Drawer, Form, Input, Select, Space } from 'antd';
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { useEffect, useRef, useState } from 'react';
@@ -169,8 +159,8 @@ export function UsersPage() {
           {extras[0].label}
         </Button>
       ) : extras.length > 1 ? (
-        <Dropdown
-          trigger={['click']}
+        <ActionMenuButton
+          type={inDetail ? 'default' : 'link'}
           placement={inDetail ? 'topLeft' : 'bottomLeft'}
           menu={{
             items: extras,
@@ -181,11 +171,8 @@ export function UsersPage() {
             },
           }}
         >
-          <Button type={inDetail ? 'default' : 'link'}>
-            更多
-            <DownOutlined />
-          </Button>
-        </Dropdown>
+          更多
+        </ActionMenuButton>
       ) : null;
 
     // 查看型详情沿用原型的左侧低频菜单和右侧常用操作。
@@ -320,7 +307,6 @@ export function UsersPage() {
             total: records.data?.total,
             showTotal: (total) => `共 ${total} 条`,
             showSizeChanger: true,
-            showQuickJumper: true,
             onChange: (page, size) =>
               setParams((previous) => {
                 const next = new URLSearchParams(previous);

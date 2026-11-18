@@ -78,4 +78,31 @@ describe('列表结果状态', () => {
     );
     expect(change).toHaveBeenCalledWith(2, 10);
   });
+
+  /**
+   * 大量页和不同容器宽度都通过页码控制翻页，避免快速输入悄悄恢复。
+   */
+  it.each([1200, 620])('宽度 %ipx 时翻页不显示页码输入', (width) => {
+    const geometry = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
+    const change = vi.fn();
+    try {
+      // 固定宽度仅用于进入两种组件分支，实际排版由浏览器核对。
+      render(
+        <RecordTable
+          columns={[{ title: '姓名', dataIndex: 'name' }]}
+          dataSource={[]}
+          pagination={{ current: 1, pageSize: 10, total: 100, onChange: change }}
+        />,
+      );
+      const footer = screen.getByLabelText('结果分页');
+      expect(footer.querySelector('.ant-pagination input')).toBeNull();
+      const next = footer.querySelector('.ant-pagination-next button');
+      expect(next).not.toBeNull();
+      fireEvent.click(next!);
+      expect(change).toHaveBeenCalledWith(2, 10);
+    } finally {
+      // 只影响本用例的布局分支。
+      geometry.mockRestore();
+    }
+  });
 });
