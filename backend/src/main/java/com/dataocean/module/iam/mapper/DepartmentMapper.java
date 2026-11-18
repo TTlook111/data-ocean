@@ -11,9 +11,7 @@ import java.util.Objects;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
-import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 部门与成员的持久化适配，业务状态和权限由所属服务核验。
@@ -101,9 +99,17 @@ public interface DepartmentMapper extends BaseMapper<DepartmentPO> {
     /**
      * 在所属事务中变更对象生命周期及真实状态时间。
      */
-    @Update(
-            "UPDATE iam_department SET lifecycle=#{lifecycle},access_review_required=CASE WHEN #{lifecycle}='ENABLED' THEN 1 ELSE access_review_required END,status_reason=#{reason},version=version+1,disabled_at=CASE WHEN #{lifecycle}='DISABLED' THEN UTC_TIMESTAMP(3) ELSE disabled_at END,archived_at=CASE WHEN #{lifecycle}='ARCHIVED' THEN UTC_TIMESTAMP(3) ELSE archived_at END,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int lifecycle(@Param("id") long id, @Param("lifecycle") String lifecycle, @Param("reason") String reason);
+    default int lifecycle(long id, String lifecycle, String reason) {
+        return update(Wrappers.<DepartmentPO>lambdaUpdate()
+                .eq(DepartmentPO::getId, id)
+                .set(DepartmentPO::getLifecycle, lifecycle)
+                .set("ENABLED".equals(lifecycle), DepartmentPO::isAccessReviewRequired, true)
+                .set(DepartmentPO::getStatusReason, reason)
+                .setIncrBy(DepartmentPO::getVersion, 1)
+                .setSql("DISABLED".equals(lifecycle), "disabled_at=UTC_TIMESTAMP(3)")
+                .setSql("ARCHIVED".equals(lifecycle), "archived_at=UTC_TIMESTAMP(3)")
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 核对人员是否仍担任任一非归档部门的负责人。

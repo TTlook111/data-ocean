@@ -1,6 +1,7 @@
 package com.dataocean.module.iam.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageVO;
@@ -25,6 +26,7 @@ import com.dataocean.module.iam.entity.dto.UpdateGrantLimitDTO;
 import com.dataocean.module.iam.entity.dto.UpdateProtectedRoleDTO;
 import com.dataocean.module.iam.entity.dto.UpdateRoleDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
+import com.dataocean.module.iam.entity.po.PermissionPO;
 import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.PersonQuery;
@@ -447,12 +449,13 @@ public class RoleServiceImpl implements RoleService {
                 || profile.getPermissionCodes().isEmpty()) {
             throw BizIllegalException.invalid("角色名称或功能选择不完整");
         }
-        if (roles.all().stream()
-                .anyMatch(item -> item.getNameKey().equals(key)
-                        && (role == null || !item.getId().equals(role.getId())))) {
+        if (roles.exists(Wrappers.<RolePO>lambdaQuery()
+                .eq(RolePO::getNameKey, key)
+                .ne(role != null, RolePO::getId, role == null ? null : role.getId()))) {
+            // 使用名称唯一索引检查同名角色，更新时排除自身。
             throw new BizIllegalException(ErrorCode.IAM_ROLE_NAME_EXISTS, "角色名称已存在");
         }
-        permissions.validateCodes(profile.getPermissionCodes(), true);
+        permissions.validateCodes(profile.getPermissionCodes());
         profilePermission.requireChange(role, profile.getPermissionCodes(), operation, protectedFlow);
     }
 
@@ -460,9 +463,12 @@ public class RoleServiceImpl implements RoleService {
      * 在保护操作已于锁内核权后，验证授予目录、当前上限与自我扩权约束。
      */
     private void validateGrants(RolePO role, List<String> grants) {
-        if (new HashSet<>(grants).size() != grants.size()
-                || grants.stream().anyMatch(code -> directory.all().stream()
-                        .noneMatch(p -> p.getCode().equals(code) && p.isEnabled()))) {
+        if (!grants.isEmpty()
+                && directory.selectCount(Wrappers.<PermissionPO>lambdaQuery()
+                                .in(PermissionPO::getCode, grants)
+                                .eq(PermissionPO::isEnabled, true))
+                        != grants.size()) {
+            // 主键集合的有效记录数必须与提案数量一致，重复或不可用项均拒绝。
             throw BizIllegalException.invalid("可授予操作含重复或不可用项");
         }
         permissions.checkGrant(grants, "roles.protected");

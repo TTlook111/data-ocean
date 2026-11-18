@@ -1,6 +1,7 @@
 package com.dataocean.module.iam.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageVO;
@@ -27,6 +28,8 @@ import com.dataocean.module.iam.entity.dto.UserProposalDTO;
 import com.dataocean.module.iam.entity.dto.UserProtectedRolesProposalDTO;
 import com.dataocean.module.iam.entity.dto.UserTransferProposalDTO;
 import com.dataocean.module.iam.entity.dto.VersionActionDTO;
+import com.dataocean.module.iam.entity.po.DepartmentPO;
+import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.iam.entity.query.DepartmentOptionQuery;
 import com.dataocean.module.iam.entity.query.RoleOptionQuery;
@@ -81,6 +84,16 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
+
+    /**
+     * 选项查询返回的数量上限，多取一条用于区分是否超限。
+     */
+    private static final int MAX_OPTIONS = 100;
+
+    /**
+     * 无关键词时可在数据库直接限制已按用途过滤的候选数。
+     */
+    private static final String OPTION_LIMIT_SQL = "LIMIT " + (MAX_OPTIONS + 1);
 
     /**
      * 人员资料、生命周期与受控凭据的访问依赖。
@@ -695,10 +708,31 @@ public class UserServiceImpl implements UserService {
     public List<DepartmentOptionVO> departmentOptions(DepartmentOptionQuery query) {
         guard.shared();
         requestPermission.requireDepartmentOptions(query.getPurpose());
-        Set<String> selected = new HashSet<>(query.getSelectedIds());
-        var result = departments.all().stream()
-                .filter(item -> item.getLifecycle().equals("ENABLED") || selected.contains(Ids.text(item.getId())))
-                .filter(item -> IamViewAssembler.matches(item.getName() + " " + item.getCode(), query.getQ()))
+        Set<Long> selected = new HashSet<>();
+        for (String id : query.getSelectedIds()) {
+            try {
+                // 只把有效的十进制编号传给数据库，保留原来忽略无效已选项的行为。
+                selected.add(Ids.parse(id));
+            } catch (BizIllegalException ignored) {
+                // 无效选项没有可补回的对象。
+            }
+        }
+        String keyword = query.getQ();
+        var result = departments
+                .selectList(Wrappers.<DepartmentPO>lambdaQuery()
+                        .select(
+                                DepartmentPO::getId,
+                                DepartmentPO::getName,
+                                DepartmentPO::getCode,
+                                DepartmentPO::getLifecycle,
+                                DepartmentPO::getVersion)
+                        .and(scope -> scope.eq(DepartmentPO::getLifecycle, "ENABLED")
+                                .or(!selected.isEmpty(), retained -> retained.in(DepartmentPO::getId, selected)))
+                        .orderByAsc(DepartmentPO::getSortOrder, DepartmentPO::getId)
+                        .last(keyword == null || keyword.isBlank(), OPTION_LIMIT_SQL))
+                .stream()
+                .filter(item -> IamViewAssembler.matches(item.getName() + " " + item.getCode(), keyword))
+                .limit(MAX_OPTIONS + 1)
                 .map(item -> new DepartmentOptionVO(
                         Ids.text(item.getId()),
                         item.getCode(),
@@ -728,16 +762,35 @@ public class UserServiceImpl implements UserService {
                 : new HashSet<>(roleAssignments.assignments(Ids.parse(query.getUserId())).stream()
                         .map(row -> row.getRoleId())
                         .toList());
-        var result = roles.all().stream()
-                .filter(item -> item.getLifecycle().equals("ENABLED") || selected.contains(item.getId()))
-                .filter(item -> IamViewAssembler.matches(item.getName(), query.getQ()))
+        String keyword = query.getQ();
+        var candidates = roles
+                .selectList(Wrappers.<RolePO>lambdaQuery()
+                        .select(
+                                RolePO::getId,
+                                RolePO::getCode,
+                                RolePO::getName,
+                                RolePO::getLifecycle,
+                                RolePO::getVersion)
+                        .and(scope -> scope.eq(RolePO::getLifecycle, "ENABLED")
+                                .or(!selected.isEmpty(), retained -> retained.in(RolePO::getId, selected)))
+                        .orderByAsc(RolePO::getId)
+                        .last(keyword == null || keyword.isBlank(), OPTION_LIMIT_SQL))
+                .stream()
+                .filter(item -> IamViewAssembler.matches(item.getName(), keyword))
+                .limit(MAX_OPTIONS + 1)
+                .toList();
+        optionLimit(candidates.size());
+
+        // 先限制候选数量，再批量核对受保护状态与完整授予上限。
+        var ids = candidates.stream().map(RolePO::getId).toList();
+        var protectedRoles = permissions.protectedRoles(ids);
+        var outsideGrant = ids.isEmpty() ? Set.<Long>of() : Set.copyOf(roles.outsideGrantLimit(ids, upper));
+        return candidates.stream()
                 .map(item -> {
                     long id = item.getId();
-                    boolean protectedRole = permissions.protectedRole(id);
-                    boolean selectable = item.getLifecycle().equals("ENABLED")
-                            && !protectedRole
-                            && upper.containsAll(roles.permissions(id))
-                            && upper.containsAll(roles.grantable(id));
+                    boolean protectedRole = protectedRoles.contains(id);
+                    boolean selectable =
+                            item.getLifecycle().equals("ENABLED") && !protectedRole && !outsideGrant.contains(id);
                     return new RoleOptionVO(
                             Ids.text(id),
                             item.getCode(),
@@ -749,8 +802,6 @@ public class UserServiceImpl implements UserService {
                             selected.contains(id));
                 })
                 .toList();
-        optionLimit(result.size());
-        return result;
     }
 
     /**
@@ -759,20 +810,36 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public List<UserOptionVO> userOptions(UserOptionQuery query) {
         guard.shared();
-        Set<Long> existing = new HashSet<>();
         requestPermission.requireUserOptions(query.getPurpose());
-        if ("MEMBER_ADD".equals(query.getPurpose())) {
+        boolean addingMember = "MEMBER_ADD".equals(query.getPurpose());
+        String keyword = query.getQ();
+        var filters = Wrappers.<UserPO>lambdaQuery()
+                .select(
+                        UserPO::getId,
+                        UserPO::getUsername,
+                        UserPO::getDisplayName,
+                        UserPO::getLifecycle,
+                        UserPO::getVersion,
+                        UserPO::isMustChangePassword,
+                        UserPO::getFirstLoginAt)
+                .ne(UserPO::getLifecycle, "ARCHIVED")
+                .eq(addingMember, UserPO::getLifecycle, "ENABLED")
+                .orderByAsc(UserPO::getId)
+                .last(keyword == null || keyword.isBlank(), OPTION_LIMIT_SQL);
+        if (addingMember) {
             // 加入成员时排除已在目标部门的人员。
             long department = Ids.parse(query.getDepartmentId());
             views.department(department);
-            memberships.forDepartment(department).forEach(row -> existing.add(row.getUserId()));
+            filters.notExists(
+                    """
+                    SELECT 1 FROM iam_user_department m
+                    WHERE m.user_id=iam_user.id AND m.department_id={0} AND m.left_at IS NULL
+                    """,
+                    department);
         }
-        var result = users.all().stream()
-                .filter(item -> !item.getLifecycle().equals("ARCHIVED") && !existing.contains(item.getId()))
-                .filter(item -> !query.getPurpose().equals("MEMBER_ADD")
-                        || item.getLifecycle().equals("ENABLED"))
-                .filter(item ->
-                        IamViewAssembler.matches(item.getDisplayName() + " " + item.getUsername(), query.getQ()))
+        var result = users.selectList(filters).stream()
+                .filter(item -> IamViewAssembler.matches(item.getDisplayName() + " " + item.getUsername(), keyword))
+                .limit(MAX_OPTIONS + 1)
                 .map(item -> new UserOptionVO(
                         Ids.text(item.getId()),
                         item.getUsername(),
@@ -789,7 +856,7 @@ public class UserServiceImpl implements UserService {
      * 选项超过可披露上限时要求缩小搜索，不能静默截断。
      */
     private void optionLimit(int size) {
-        if (size > 100) {
+        if (size > MAX_OPTIONS) {
             throw new BizIllegalException(ErrorCode.CAPACITY_EXCEEDED, "选项较多，请输入名称缩小搜索范围");
         }
     }

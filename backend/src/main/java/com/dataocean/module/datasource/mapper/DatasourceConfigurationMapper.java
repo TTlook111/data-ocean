@@ -19,11 +19,11 @@ public interface DatasourceConfigurationMapper {
      */
     String REVISION_SELECTION =
             """
-            SELECT r.id,r.source_id,r.revision,s.name AS source_label,r.database_type,r.host,r.port,r.database_name,
+            SELECT r.id,r.revision,s.name AS source_label,r.database_type,r.host,r.port,r.database_name,
                 r.account,r.credential_revision_id,r.purpose,CAST(r.technical_contact_id AS CHAR) AS technical_contact_id,
                 CAST(r.business_contact_id AS CHAR) AS business_contact_id,r.max_connections,r.collection_concurrency,
                 r.retry_limit,r.task_timeout_seconds,r.query_timeout_seconds,r.row_limit,r.sync_hours,
-                r.window_start_minute,r.window_end_minute,r.scope_key,r.created_by
+                r.window_start_minute,r.window_end_minute,r.scope_key
             FROM ds_connection_revision r JOIN ds_source s ON s.id=r.source_id
             """;
 

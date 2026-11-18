@@ -6,6 +6,7 @@ import com.dataocean.module.iam.entity.po.RolePO;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.service.PermissionService;
 
+import java.util.HashSet;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -38,17 +39,18 @@ public class RoleProfilePermission {
      * 按当前授权状态核对目标的完整权限内容和操作者的授予上限。
      */
     public void requireChange(RolePO role, List<String> proposed, String operation, boolean protectedFlow) {
-        var protectedBefore = role == null
-                ? List.<String>of()
-                : roles.permissions(role.getId()).stream()
-                        .filter(permissions::protectedCode)
-                        .sorted()
-                        .toList();
-        var protectedAfter =
-                proposed.stream().filter(permissions::protectedCode).sorted().toList();
-        if (!protectedFlow && !protectedBefore.equals(protectedAfter)) {
-            // 普通编辑只允许保留已有受保护能力。
-            throw new BizIllegalException(ErrorCode.PROTECTED_FLOW_REQUIRED, "受保护能力须单独核验");
+        if (!protectedFlow) {
+            // 只查新增和移除的权限，原样保留的受保护项无需逐个查目录。
+            var before = role == null ? List.<String>of() : roles.permissions(role.getId());
+            var changed = new HashSet<>(proposed);
+            changed.removeAll(before);
+            var removed = new HashSet<>(before);
+            removed.removeAll(proposed);
+            changed.addAll(removed);
+            if (permissions.hasProtectedCodes(changed)) {
+                // 普通编辑只允许保留已有受保护能力。
+                throw new BizIllegalException(ErrorCode.PROTECTED_FLOW_REQUIRED, "受保护能力须单独核验");
+            }
         }
         permissions.checkGrant(proposed, operation);
         if (role != null) {

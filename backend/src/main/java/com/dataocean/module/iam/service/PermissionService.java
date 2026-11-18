@@ -38,9 +38,9 @@ public interface PermissionService {
     boolean has(String code);
 
     /**
-     * 依据系统目录检查受保护项，不从功能名称推断。
+     * 依据系统目录检查指定集合是否含受保护项。
      */
-    boolean protectedCode(String code);
+    boolean hasProtectedCodes(Collection<String> codes);
 
     /**
      * 检查人员保留的当前角色是否涉及受保护能力，包含停用角色。
@@ -58,9 +58,9 @@ public interface PermissionService {
     Set<Long> protectedRoles(Collection<Long> roleIds);
 
     /**
-     * 核验目录项有效性、受保护边界及动作所属页面的完整选择。
+     * 核验目录项有效性及动作所属页面的完整选择。
      */
-    void validateCodes(List<String> codes, boolean allowProtected);
+    void validateCodes(List<String> codes);
 
     /**
      * 按同一管理动作核对完整实际能力是否落在当前可授予集合内。

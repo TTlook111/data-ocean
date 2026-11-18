@@ -83,7 +83,7 @@ class AuditPermissionTest {
         var permission = new PermissionPO();
         permission.setCode("audit.view");
         permission.setEnabled(true);
-        when(permissions.all()).thenReturn(List.of(permission));
+        when(permissions.selectById("audit.view")).thenReturn(permission);
     }
 
     /**

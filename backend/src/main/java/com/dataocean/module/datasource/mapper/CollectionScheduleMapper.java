@@ -44,7 +44,7 @@ public interface CollectionScheduleMapper extends BaseMapper<CollectionScheduleP
             """
             SELECT s.schedule_paused AS paused,p.anchor_at AS anchor,
                 COALESCE(p.last_admitted_cycle_no,0) AS last_cycle,COALESCE(p.revision,0) AS revision,
-                p.next_check_at AS next_check,s.stale_since,
+                s.stale_since,
                 GREATEST(COALESCE(s.scope_changed_at,s.first_success_at),COALESCE(o.committed_at,s.first_success_at))
                 AS freshness_from
             FROM ds_source s LEFT JOIN ds_collection_schedule p ON p.source_id=s.id
@@ -59,7 +59,6 @@ public interface CollectionScheduleMapper extends BaseMapper<CollectionScheduleP
      * @param anchor 周期锚点
      * @param lastCycle 已接收的最新周期
      * @param revision 调度修订
-     * @param nextCheck 平台记录的下次检查
      * @param staleSince 连续采集失期的起点
      * @param freshnessFrom 当前范围开始计算新鲜度的时间
      */
@@ -68,7 +67,6 @@ public interface CollectionScheduleMapper extends BaseMapper<CollectionScheduleP
             LocalDateTime anchor,
             long lastCycle,
             int revision,
-            LocalDateTime nextCheck,
             LocalDateTime staleSince,
             LocalDateTime freshnessFrom) {}
 

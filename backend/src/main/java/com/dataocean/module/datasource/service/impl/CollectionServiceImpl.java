@@ -373,10 +373,13 @@ public class CollectionServiceImpl {
         String keyword = normalize(query.getObjectKeyword());
         String type = normalize(query.getObjectType());
         String state = normalize(query.getCatalogState());
-        long readable = catalog.count(source.getId(), source.getCurrentSnapshotId(), revision.id(), "", "", "");
         long historicalRevision = tasks.snapshotConfiguration(source.getCurrentSnapshotId());
         var page =
                 catalog.page(source.getId(), source.getCurrentSnapshotId(), revision.id(), keyword, type, state, query);
+        // 无筛选时分页总数已经等于同一来源和快照下的可读总数。
+        long readable = keyword.isEmpty() && type.isEmpty() && state.isEmpty()
+                ? page.getTotal()
+                : catalog.count(source.getId(), source.getCurrentSnapshotId(), revision.id(), "", "", "");
         return new CatalogPageVO(
                 PageVO.from(page, row -> row(sourceId, row)),
                 Long.toString(source.getCurrentSnapshotId()),

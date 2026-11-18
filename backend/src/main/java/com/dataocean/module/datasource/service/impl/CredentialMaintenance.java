@@ -210,25 +210,22 @@ public class CredentialMaintenance {
                             new CredentialRow(
                                     version, cipher.encrypt(input.getPassword(), connections.context(id), version)));
                     String changeId = UUID.randomUUID().toString();
-                    var change = new CredentialChangePO(
-                            changeId,
-                            key,
-                            id,
-                            actor,
-                            source.getCurrentConnectionRevisionId(),
-                            Ids.parse(proposal.getCheckId()),
-                            secret,
-                            source.getVersion(),
-                            proposal.getAccount(),
-                            source.getActiveTaskId(),
-                            "PENDING_STOP",
-                            null,
-                            null,
-                            null,
-                            null,
-                            null);
+                    var change = new CredentialChangePO();
+                    change.setId(changeId);
+                    change.setCommandId(key);
+                    change.setSourceId(id);
+                    change.setActorId(actor);
+                    change.setBaseConnectionRevisionId(source.getCurrentConnectionRevisionId());
+                    change.setCheckId(Ids.parse(proposal.getCheckId()));
+                    change.setCandidateCredentialRevisionId(secret);
+                    change.setExpectedSourceVersion(source.getVersion());
+                    change.setCandidateAccount(proposal.getAccount());
+                    change.setBlockingTaskId(source.getActiveTaskId());
                     changeRecords.accept(change, json.write(binding));
-                    sourceRecords.holdCredentialChange(id, changeId);
+                    if (sourceRecords.holdCredentialChange(id, changeId) != 1) {
+                        // 替换记录和来源占位必须同时成功接收。
+                        throw BizIllegalException.conflict();
+                    }
                     if (source.getActiveTaskId() != null) {
                         var original = tasks.task(source.getActiveTaskId(), true);
                         if (original.getCancelRequestedAt() == null
@@ -301,6 +298,7 @@ public class CredentialMaintenance {
         }
         CredentialChangePO change = changes.change(candidate.getSourceId(), candidate.getId());
         var previous = sources.revision(source.getId(), source.getCurrentConnectionRevisionId());
+        String formerAccount = previous.configuration().getAccount();
         Long applied = null;
         String error = null;
         String message = null;
@@ -319,10 +317,16 @@ public class CredentialMaintenance {
             var secret = changes.secret(change);
             String password =
                     cipher.decrypt(secret.ciphertext(), connections.context(source.getId()), secret.keyVersion());
-            String formerAccount = previous.configuration().getAccount();
             previous.configuration().setAccount(change.getCandidateAccount());
             connections.verifySavedCheck(
                     Long.toString(change.getCheckId()), source, previous.configuration(), previous.limits(), password);
+        } catch (CommonException failure) {
+            // 已停止后如果依据过期，保留原运行配置并记录替换失败。
+            error = "CREDENTIAL_CHANGE_REJECTED";
+            message = failure.getMessage();
+        }
+        if (error == null) {
+            // 从写入修订起，任何失败都交给外层事务回滚。
             applied = sources.insertConfiguration(
                     source.getId(),
                     change.getActorId(),
@@ -334,7 +338,9 @@ public class CredentialMaintenance {
             byte[] nameKey = Normalizer.normalize(source.getName(), Normalizer.Form.NFKC)
                     .toLowerCase(Locale.ROOT)
                     .getBytes(StandardCharsets.UTF_8);
-            sourceRecords.configure(source.getId(), applied, source.getName(), nameKey, false);
+            if (sourceRecords.configure(source.getId(), applied, source.getName(), nameKey, false) != 1) {
+                throw new IllegalStateException("凭据替换未更新预期来源");
+            }
             events.replaced(source.getId(), source.getVersion() + 1, change.getCommandId());
             audit.system(
                     AuditWriteDTO.builder()
@@ -350,14 +356,12 @@ public class CredentialMaintenance {
                             .commandId(change.getCommandId())
                             .build(),
                     "凭据替换");
-        } catch (CommonException failure) {
-            // 已停止后如果依据过期，保留原运行配置并记录替换失败。
-            error = "CREDENTIAL_CHANGE_REJECTED";
-            message = failure.getMessage();
         }
         // 原来源锁内登记替换结论和释放占位，后续调度读取已提交状态。
-        changeRecords.finish(change.getId(), applied != null ? "APPLIED" : "FAILED", applied, error, message);
-        sourceRecords.releaseCredentialChange(change.getSourceId(), change.getId());
+        if (changeRecords.finish(change.getId(), applied != null ? "APPLIED" : "FAILED", applied, error, message) != 1
+                || sourceRecords.releaseCredentialChange(change.getSourceId(), change.getId()) != 1) {
+            throw new IllegalStateException("凭据替换未更新预期结论或释放来源占位");
+        }
     }
 
     /**

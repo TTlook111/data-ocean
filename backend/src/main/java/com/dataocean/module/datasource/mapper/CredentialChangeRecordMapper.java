@@ -1,6 +1,7 @@
 package com.dataocean.module.datasource.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.module.datasource.entity.po.CredentialChangePO;
 
 import java.util.List;
@@ -8,7 +9,6 @@ import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 提供 CredentialChangePO 对应单表的持久化操作。
@@ -32,18 +32,16 @@ public interface CredentialChangeRecordMapper extends BaseMapper<CredentialChang
     /**
      * 记录仍在等待停止的替换操作结论和数据库时刻。
      */
-    @Update(
-            """
-            UPDATE ds_connection_change SET state=#{state},stop_confirmed_at=UTC_TIMESTAMP(3),completed_at=UTC_TIMESTAMP(3),
-                applied_connection_revision_id=#{revision},failure_code=#{code},failure_message=#{message}
-            WHERE id=#{id} AND state='PENDING_STOP'
-            """)
-    int finish(
-            @Param("id") String id,
-            @Param("state") String state,
-            @Param("revision") Long revision,
-            @Param("code") String code,
-            @Param("message") String message);
+    default int finish(String id, String state, Long revision, String code, String message) {
+        return update(Wrappers.<CredentialChangePO>lambdaUpdate()
+                .eq(CredentialChangePO::getId, id)
+                .eq(CredentialChangePO::getState, "PENDING_STOP")
+                .set(CredentialChangePO::getState, state)
+                .set(CredentialChangePO::getAppliedConnectionRevisionId, revision)
+                .set(CredentialChangePO::getFailureCode, code)
+                .set(CredentialChangePO::getFailureMessage, message)
+                .setSql("stop_confirmed_at=UTC_TIMESTAMP(3),completed_at=UTC_TIMESTAMP(3)"));
+    }
 
     /**
      * 仅调度当前来源已无在途采集的凭据替换。

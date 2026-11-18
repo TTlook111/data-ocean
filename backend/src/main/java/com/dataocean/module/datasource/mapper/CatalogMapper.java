@@ -409,8 +409,11 @@ public class CatalogMapper {
      * 确认成功快照、切换源指针并刷新数据源更新时间，由同一事务更新任务及调度。
      */
     public int publish(long source, long snapshot, Long previous, Long comparison, String analysis, long changes) {
-        snapshots.publish(source, snapshot, previous, comparison, analysis, changes);
-        sources.publishSnapshot(source, snapshot);
+        if (snapshots.publish(source, snapshot, previous, comparison, analysis, changes) != 1
+                || sources.publishSnapshot(source, snapshot) != 1) {
+            // 任一条件更新未命中时，在调用方事务中回滚，避免发布未成功的快照。
+            throw new IllegalStateException("目录发布未更新预期快照和来源");
+        }
         schedules.initialize(source);
         return sources.catalogVersion(source);
     }

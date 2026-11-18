@@ -6,7 +6,6 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -15,7 +14,6 @@ import lombok.NoArgsConstructor;
  */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 @TableName("ds_connection_change")
 public class CredentialChangePO {
 
@@ -74,6 +72,11 @@ public class CredentialChangePO {
      * 替换阶段。
      */
     private String state;
+
+    /**
+     * 生效后的连接配置修订编号，替换失败时为空。
+     */
+    private Long appliedConnectionRevisionId;
 
     /**
      * 接收时间。

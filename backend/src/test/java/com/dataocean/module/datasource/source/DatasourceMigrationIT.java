@@ -1,23 +1,35 @@
 package com.dataocean.module.datasource.source;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.dataocean.common.PageQuery;
+import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.infrastructure.persistence.MybatisConfig;
 import com.dataocean.module.datasource.entity.dto.RuntimePolicyDTO;
 import com.dataocean.module.datasource.entity.dto.SourceConfigurationDTO;
+import com.dataocean.module.datasource.entity.po.CredentialChangePO;
 import com.dataocean.module.datasource.mapper.CapabilityCheckRecordMapper;
+import com.dataocean.module.datasource.mapper.CatalogColumnMapper;
+import com.dataocean.module.datasource.mapper.CatalogConstraintMapper;
+import com.dataocean.module.datasource.mapper.CatalogMapper;
+import com.dataocean.module.datasource.mapper.CatalogObjectMapper;
+import com.dataocean.module.datasource.mapper.CatalogRevisionMapper;
 import com.dataocean.module.datasource.mapper.CollectionExecutionMapper;
 import com.dataocean.module.datasource.mapper.CollectionMapper;
+import com.dataocean.module.datasource.mapper.CollectionScheduleMapper;
 import com.dataocean.module.datasource.mapper.CollectionSnapshotMapper;
 import com.dataocean.module.datasource.mapper.CollectionTaskMapper;
+import com.dataocean.module.datasource.mapper.CredentialChangeRecordMapper;
 import com.dataocean.module.datasource.mapper.DatasourceConfigurationMapper;
 import com.dataocean.module.datasource.mapper.DatasourceCredentialMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourcePageMapper;
 import com.dataocean.module.datasource.mapper.DatasourceRecordMapper;
+import com.dataocean.module.datasource.mapper.SnapshotObservationMapper;
+import com.dataocean.module.datasource.mapper.StructureChangeRecordMapper;
 import com.dataocean.module.iam.entity.dto.NewUserProfileDTO;
 import com.dataocean.module.iam.entity.dto.RoleProfileDTO;
 import com.dataocean.module.iam.entity.po.OutboxPO;
@@ -41,6 +53,8 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 在单独创建的平台验收库验证 Flyway 基线和数据源模块约束。
@@ -109,7 +123,15 @@ class DatasourceMigrationIT {
                 DatasourcePageMapper.class,
                 CollectionTaskMapper.class,
                 CollectionExecutionMapper.class,
-                CollectionSnapshotMapper.class)) {
+                CollectionSnapshotMapper.class,
+                CollectionScheduleMapper.class,
+                CatalogObjectMapper.class,
+                SnapshotObservationMapper.class,
+                CatalogColumnMapper.class,
+                CatalogRevisionMapper.class,
+                CatalogConstraintMapper.class,
+                StructureChangeRecordMapper.class,
+                CredentialChangeRecordMapper.class)) {
             // 注册正式 Mapper，校验与应用一致的 SQL 和类型映射。
             configuration.addMapper(mapper);
         }
@@ -189,6 +211,32 @@ class DatasourceMigrationIT {
             var initial = sources.get(source);
             assertThat(initial.getUpdatedAt()).isEqualTo(initial.getCreatedAt());
 
+            // 同一凭据操作只能结束一次，Lambda 更新保留数据库时刻和修订指针。
+            var changes = session.getMapper(CredentialChangeRecordMapper.class);
+            var change = new CredentialChangePO();
+            change.setId(UUID.randomUUID().toString());
+            change.setCommandId(UUID.randomUUID().toString());
+            change.setSourceId(source);
+            change.setActorId(actor);
+            change.setBaseConnectionRevisionId(revision);
+            change.setCheckId(check);
+            change.setCandidateCredentialRevisionId(credential);
+            change.setExpectedSourceVersion(initial.getVersion());
+            change.setCandidateAccount(sourceConfig.getAccount());
+            assertThat(changes.accept(change, "{}")).isEqualTo(1);
+            assertThat(records.holdCredentialChange(source, change.getId())).isEqualTo(1);
+            assertThat(changes.finish(change.getId(), "APPLIED", revision, null, null))
+                    .isEqualTo(1);
+            assertThat(changes.finish(change.getId(), "FAILED", null, null, null))
+                    .isZero();
+            assertThat(records.releaseCredentialChange(source, change.getId())).isEqualTo(1);
+            var completed = changes.selectById(change.getId());
+            assertThat(completed.getState()).isEqualTo("APPLIED");
+            assertThat(completed.getAppliedConnectionRevisionId()).isEqualTo(revision);
+            assertThat(completed.getCompletedAt())
+                    .isEqualTo(completed.getStopConfirmedAt())
+                    .isNotNull();
+
             // 极大页码由插件使用指定计数 SQL 校正，不提前计算会溢出的偏移。
             var pages = session.getMapper(DatasourcePageMapper.class);
             var page =
@@ -228,9 +276,25 @@ class DatasourceMigrationIT {
             assertThat(tasks.claim(task, sample, 60)).isTrue();
             assertThat(tasks.claim(task, sample, 60)).isFalse();
             assertThat(tasks.enumerated(tasks.task(taskId, false), 0)).isTrue();
-            assertThat(snapshots.publish(source, snapshot.getId(), null, null, "INITIAL_BASELINE", 0))
-                    .isEqualTo(1);
-            records.publishSnapshot(source, snapshot.getId());
+            var schedules = session.getMapper(CollectionScheduleMapper.class);
+            var catalog = new CatalogMapper(
+                    new JsonCodec(JsonMapper.builder().build()),
+                    pages,
+                    records,
+                    snapshots,
+                    schedules,
+                    session.getMapper(CatalogObjectMapper.class),
+                    session.getMapper(SnapshotObservationMapper.class),
+                    session.getMapper(CatalogColumnMapper.class),
+                    session.getMapper(CatalogRevisionMapper.class),
+                    session.getMapper(CatalogConstraintMapper.class),
+                    session.getMapper(StructureChangeRecordMapper.class));
+            int publishedVersion = catalog.publish(source, snapshot.getId(), null, null, "INITIAL_BASELINE", 0);
+            assertThat(schedules.schedule(source).lastCycle()).isZero();
+            // 已成功的快照不再是候选，第二次发布不能推进目录版本。
+            assertThatThrownBy(() -> catalog.publish(source, snapshot.getId(), null, null, "INITIAL_BASELINE", 0))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(records.catalogVersion(source)).isEqualTo(publishedVersion);
             assertThat(sources.get(source).getCurrentSnapshotId()).isEqualTo(snapshot.getId());
             assertThat(sources.get(source).getCreatedAt()).isEqualTo(initial.getCreatedAt());
             assertThat(tasks.finishSuccess(tasks.task(taskId, false))).isTrue();

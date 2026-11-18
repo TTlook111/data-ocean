@@ -16,7 +16,6 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 人员资料的持久化适配，业务状态和权限由所属服务核验。
@@ -68,13 +67,6 @@ public interface UserMapper extends BaseMapper<UserPO> {
      */
     default UserPO byUsername(String username) {
         return selectOne(Wrappers.<UserPO>lambdaQuery().eq(UserPO::getUsername, username));
-    }
-
-    /**
-     * 读取所属业务范围的完整当前记录，供服务在可信边界内核对。
-     */
-    default List<UserPO> all() {
-        return selectList(Wrappers.<UserPO>lambdaQuery().orderByAsc(UserPO::getId));
     }
 
     /**
@@ -169,11 +161,16 @@ public interface UserMapper extends BaseMapper<UserPO> {
     /**
      * 在所属事务中变更对象生命周期及真实状态时间。
      */
-    @Update(
-            "UPDATE iam_user SET lifecycle=#{lifecycle},status_reason=#{reason},version=version+1,authentication_version=authentication_version+1,disabled_at=CASE WHEN #{lifecycle}='DISABLED' THEN UTC_TIMESTAMP(3) ELSE disabled_at END,archived_at=CASE WHEN #{lifecycle}='ARCHIVED' THEN UTC_TIMESTAMP(3) ELSE archived_at END,archived_affiliation=COALESCE(#{snapshot},archived_affiliation),updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int lifecycle(
-            @Param("id") long id,
-            @Param("lifecycle") String lifecycle,
-            @Param("reason") String reason,
-            @Param("snapshot") String snapshot);
+    default int lifecycle(long id, String lifecycle, String reason, String snapshot) {
+        return update(Wrappers.<UserPO>lambdaUpdate()
+                .eq(UserPO::getId, id)
+                .set(UserPO::getLifecycle, lifecycle)
+                .set(UserPO::getStatusReason, reason)
+                .set(snapshot != null, UserPO::getArchivedAffiliation, snapshot)
+                .setIncrBy(UserPO::getVersion, 1)
+                .setIncrBy(UserPO::getAuthenticationVersion, 1)
+                .setSql("DISABLED".equals(lifecycle), "disabled_at=UTC_TIMESTAMP(3)")
+                .setSql("ARCHIVED".equals(lifecycle), "archived_at=UTC_TIMESTAMP(3)")
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 }

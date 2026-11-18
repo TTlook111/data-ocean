@@ -1,9 +1,5 @@
 package com.dataocean.module.iam.entity.query;
 
-import com.dataocean.common.TextSearch;
-
-import java.util.List;
-
 import lombok.Data;
 
 /**
@@ -26,11 +22,4 @@ public class UserOptionQuery {
      * 仅在该选项目的允许范围内匹配的搜索文本。
      */
     private String q = null;
-
-    /**
-     * 将选项关键词转换为本次用途范围内的字面匹配条件。
-     */
-    public List<String> getQTerms() {
-        return TextSearch.terms(q);
-    }
 }

@@ -1,6 +1,7 @@
 package com.dataocean.module.iam.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
@@ -518,9 +519,10 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 检查名称编号、当前父链和负责人，所有引用均按 ID 解析。
      */
     private void validateProfile(DepartmentPO current, DepartmentProfileDTO data) {
-        if (departments.all().stream()
-                .anyMatch(row -> row.getCode().equals(data.getCode().trim())
-                        && (current == null || !row.getId().equals(current.getId())))) {
+        if (departments.exists(Wrappers.<DepartmentPO>lambdaQuery()
+                .eq(DepartmentPO::getCode, data.getCode().trim())
+                .ne(current != null, DepartmentPO::getId, current == null ? null : current.getId()))) {
+            // 使用部门编号唯一索引检查冲突，更新时排除自身。
             throw new BizIllegalException(ErrorCode.IAM_DEPARTMENT_CODE_EXISTS, "部门编号已存在");
         }
         Long parent = Ids.nullable(data.getParentId());
@@ -631,10 +633,10 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 比较完整非归档直属子部门与每个聚合版本。
      */
     private void validateChildren(long id, List<EntityVersionRefVO> selected) {
-        var actual = departments.all().stream()
-                .filter(row -> Objects.equals(row.getParentId(), id)
-                        && !row.getLifecycle().equals("ARCHIVED"))
-                .toList();
+        var actual = departments.selectList(Wrappers.<DepartmentPO>lambdaQuery()
+                .select(DepartmentPO::getId)
+                .eq(DepartmentPO::getParentId, id)
+                .ne(DepartmentPO::getLifecycle, "ARCHIVED"));
         if (selected.isEmpty()
                 || selected.size() != actual.size()
                 || !new HashSet<>(
@@ -654,10 +656,12 @@ public class DepartmentServiceImpl implements DepartmentService {
         if (action.equals("ARCHIVE")) {
             // B 批配置接入时在同一边界补充真实来源阻断条件。
             if (!department.getLifecycle().equals("DISABLED")
-                    || !memberships.forDepartment(department.getId()).isEmpty()
-                    || departments.all().stream()
-                            .anyMatch(row -> Objects.equals(row.getParentId(), department.getId())
-                                    && !row.getLifecycle().equals("ARCHIVED"))) {
+                    || memberships.exists(Wrappers.<MembershipPO>lambdaQuery()
+                            .eq(MembershipPO::getDepartmentId, department.getId())
+                            .isNull(MembershipPO::getLeftAt))
+                    || departments.exists(Wrappers.<DepartmentPO>lambdaQuery()
+                            .eq(DepartmentPO::getParentId, department.getId())
+                            .ne(DepartmentPO::getLifecycle, "ARCHIVED"))) {
                 throw new BizIllegalException(ErrorCode.REFERENCE_IN_USE, "请先停用并处理当前成员及直属子部门");
             }
         } else if (!department.getLifecycle().equals(action.equals("ENABLE") ? "DISABLED" : "ENABLED")) {

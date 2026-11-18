@@ -102,7 +102,7 @@ public interface DatasourcePageMapper {
               AS target_path,c.change_type,c.attribute_kind,c.discovered_at,
               c.fact_state,c.stage,c.version,c.successor_change_id,c.before_value,c.after_value,c.evidence,
               r.decision,r.actor_id,r.evidence_text,r.reviewed_at,c.before_observation_id,c.after_observation_id,
-              c.comparison_object_id,c.after_snapshot_id
+              c.comparison_object_id
             """;
 
     /**
@@ -350,7 +350,6 @@ public interface DatasourcePageMapper {
      * @param beforeObservationId 变化前的实际观察
      * @param afterObservationId 变化后的实际观察
      * @param comparisonObjectId 用于对比的原稳定对象
-     * @param afterSnapshotId 发现变化的成功快照
      */
     record ChangeProjection(
             long id,
@@ -373,6 +372,5 @@ public interface DatasourcePageMapper {
             LocalDateTime reviewedAt,
             Long beforeObservationId,
             Long afterObservationId,
-            Long comparisonObjectId,
-            long afterSnapshotId) {}
+            Long comparisonObjectId) {}
 }

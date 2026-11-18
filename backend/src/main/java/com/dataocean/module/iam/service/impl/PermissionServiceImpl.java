@@ -14,11 +14,13 @@ import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.service.PermissionService;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
@@ -73,12 +75,15 @@ public class PermissionServiceImpl implements PermissionService {
      */
     public boolean has(String code) {
         Set<String> effective = effective(UserContext.getUser());
-        PermissionPO permission = mapper.all().stream()
-                .filter(p -> p.getCode().equals(code) && p.isEnabled())
-                .findFirst()
-                .orElse(null);
+        return code != null && effective.contains(code) && permits(mapper.selectById(code), effective);
+    }
+
+    /**
+     * 核对已持有的候选权限仍启用，且该动作的显式页面也在当前使用权中。
+     */
+    private boolean permits(PermissionPO permission, Set<String> effective) {
         return permission != null
-                && effective.contains(code)
+                && permission.isEnabled()
                 && (permission.getPagePermissionCode() == null
                         || effective.contains(permission.getPagePermissionCode()));
     }
@@ -96,19 +101,24 @@ public class PermissionServiceImpl implements PermissionService {
      * 要求至少一个明确配置入口具备当前实际资格。
      */
     public void requireAny(String... codes) {
-        for (String code : codes) {
-            if (has(code)) {
-                return;
-            }
+        Set<String> effective = effective(UserContext.getUser());
+        var candidates = Arrays.stream(codes)
+                .filter(Objects::nonNull)
+                .filter(effective::contains)
+                .distinct()
+                .toList();
+        if (candidates.isEmpty()
+                || mapper.selectByIds(candidates).stream().noneMatch(permission -> permits(permission, effective))) {
+            // 空候选直接拒绝，跳过数据库读取。
+            throw BizIllegalException.denied();
         }
-        throw BizIllegalException.denied();
     }
 
     /**
      * 依据系统目录检查受保护项，不从功能名称推断。
      */
-    public boolean protectedCode(String code) {
-        return mapper.all().stream().anyMatch(p -> p.getCode().equals(code) && p.isProtected());
+    public boolean hasProtectedCodes(Collection<String> codes) {
+        return !codes.isEmpty() && mapper.selectByIds(codes).stream().anyMatch(PermissionPO::isProtected);
     }
 
     /**
@@ -139,24 +149,25 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * 核验目录项有效性、受保护边界及动作所属页面的完整选择。
+     * 批量核验目录项有效性及动作所属页面的完整选择。
      */
-    public void validateCodes(List<String> codes, boolean allowProtected) {
-        if (new HashSet<>(codes).size() != codes.size()) {
+    public void validateCodes(List<String> codes) {
+        Set<String> selected = new HashSet<>(codes);
+        if (selected.size() != codes.size()) {
+            // 同一目录项只能选择一次。
             throw BizIllegalException.invalid("功能选择不能重复");
         }
-        List<PermissionPO> directory = mapper.all();
-        for (String code : codes) {
-            PermissionPO permission = directory.stream()
-                    .filter(p -> p.getCode().equals(code) && p.isEnabled())
-                    .findFirst()
-                    .orElseThrow(() -> BizIllegalException.invalid("存在不可用功能"));
-            if (!allowProtected && permission.isProtected()) {
-                throw new BizIllegalException(ErrorCode.PROTECTED_FLOW_REQUIRED, "受保护管理能力须单独核验");
-            }
-            if (permission.getPagePermissionCode() != null && !codes.contains(permission.getPagePermissionCode())) {
-                throw BizIllegalException.invalid("操作必须同时具有所属页面访问权");
-            }
+        var directory = selected.isEmpty() ? List.<PermissionPO>of() : mapper.selectByIds(selected);
+        if (directory.size() != selected.size() || directory.stream().anyMatch(permission -> !permission.isEnabled())) {
+            // 拒绝未知或已停用的目录项。
+            throw BizIllegalException.invalid("存在不可用功能");
+        }
+        if (directory.stream()
+                .map(PermissionPO::getPagePermissionCode)
+                .filter(Objects::nonNull)
+                .anyMatch(page -> !selected.contains(page))) {
+            // 所有动作都必须带上目录中归属的页面。
+            throw BizIllegalException.invalid("操作必须同时具有所属页面访问权");
         }
     }
 

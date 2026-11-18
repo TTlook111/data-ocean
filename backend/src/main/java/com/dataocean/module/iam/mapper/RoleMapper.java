@@ -10,13 +10,13 @@ import com.dataocean.module.iam.entity.query.RoleQuery;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 /**
  * 角色与授予的持久化适配，业务状态和权限由所属服务核验。
@@ -67,6 +67,31 @@ public interface RoleMapper extends BaseMapper<RolePO> {
      */
     @Select("SELECT permission_code FROM iam_role_grant_permission WHERE role_id=#{id} ORDER BY permission_code")
     List<String> grantable(long id);
+
+    /**
+     * 批量找出指定角色中包含调用者不可授予能力的角色，覆盖使用与授予两张关系表。
+     * 调用者只传入非空候选范围。空上限表示所有现存能力均不可授予。
+     */
+    @Select(
+            """
+            <script>
+              SELECT r.id FROM iam_role r WHERE r.id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+              AND (
+                EXISTS (SELECT 1 FROM iam_role_permission p WHERE p.role_id=r.id
+                  <if test="!upper.isEmpty()">
+                    AND p.permission_code NOT IN
+                    <foreach collection="upper" item="code" open="(" separator="," close=")">#{code}</foreach>
+                  </if>)
+                OR EXISTS (SELECT 1 FROM iam_role_grant_permission g WHERE g.role_id=r.id
+                  <if test="!upper.isEmpty()">
+                    AND g.permission_code NOT IN
+                    <foreach collection="upper" item="code" open="(" separator="," close=")">#{code}</foreach>
+                  </if>)
+              )
+            </script>
+            """)
+    List<Long> outsideGrantLimit(@Param("ids") List<Long> ids, @Param("upper") Set<String> upper);
 
     /**
      * 使用数据库时钟创建角色，并回填数据库生成的编号。
@@ -157,7 +182,14 @@ public interface RoleMapper extends BaseMapper<RolePO> {
     /**
      * 在所属事务中变更对象生命周期及真实状态时间。
      */
-    @Update(
-            "UPDATE iam_role SET lifecycle=#{lifecycle},status_reason=#{reason},version=version+1,disabled_at=CASE WHEN #{lifecycle}='DISABLED' THEN UTC_TIMESTAMP(3) ELSE disabled_at END,archived_at=CASE WHEN #{lifecycle}='ARCHIVED' THEN UTC_TIMESTAMP(3) ELSE archived_at END,updated_at=UTC_TIMESTAMP(3) WHERE id=#{id}")
-    int lifecycle(@Param("id") long id, @Param("lifecycle") String lifecycle, @Param("reason") String reason);
+    default int lifecycle(long id, String lifecycle, String reason) {
+        return update(Wrappers.<RolePO>lambdaUpdate()
+                .eq(RolePO::getId, id)
+                .set(RolePO::getLifecycle, lifecycle)
+                .set(RolePO::getStatusReason, reason)
+                .setIncrBy(RolePO::getVersion, 1)
+                .setSql("DISABLED".equals(lifecycle), "disabled_at=UTC_TIMESTAMP(3)")
+                .setSql("ARCHIVED".equals(lifecycle), "archived_at=UTC_TIMESTAMP(3)")
+                .setSql("updated_at=UTC_TIMESTAMP(3)"));
+    }
 }
