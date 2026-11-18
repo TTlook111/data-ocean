@@ -65,9 +65,9 @@ public class DatasourceRequestPermission implements RequestPermission {
     }
 
     /**
-     * 解析同一路径上的数据源预览动作，供入口和服务验证共用。
+     * 解析同一路径上的配置、采集及替换动作所需的入口权限。
      */
-    public static String previewOperation(SourceActionPreviewDTO preview) {
+    private static String previewOperation(SourceActionPreviewDTO preview) {
         return switch (preview.getAction()) {
             case "UPDATE_CONFIG", "REPLACE_CREDENTIAL" -> "sources.edit";
             case "ENABLE" -> "sources.enable";
@@ -87,7 +87,7 @@ public class DatasourceRequestPermission implements RequestPermission {
     /**
      * 从限定的选项用途解析对应的页面权。
      */
-    public static String optionPermission(String purpose) {
+    private static String optionPermission(String purpose) {
         return switch (purpose) {
             case "CATALOG" -> "catalog.view";
             case "COLLECTIONS" -> "collections.view";

@@ -39,7 +39,7 @@ public class IamRequestPermission implements RequestPermission {
             permissions.require(departmentOperation(preview.getAction()));
         } else if (input instanceof RoleImpactPreviewDTO preview) {
             // 角色预览按具体动作选择权限，不共享一个宽泛的准入条件。
-            requireRolePreview(preview.getAction());
+            permissions.require(roleOperation(preview.getAction()));
         } else if (input instanceof DepartmentOptionQuery query) {
             // 部门选项使用发起端操作权。
             requireDepartmentOptions(query.getPurpose());
@@ -92,18 +92,17 @@ public class IamRequestPermission implements RequestPermission {
     }
 
     /**
-     * 核对角色预览的操作准入，目标相关条件在读到权威状态后判断。
+     * 为角色预览和生命周期提交使用相同的业务动作编码。
      */
-    public void requireRolePreview(String action) {
-        permissions.require(
-                switch (action) {
-                    case "UPDATE" -> RoleProfilePermission.EDIT;
-                    case "GRANT_LIMIT", "PROTECTED_PERMISSIONS" -> "roles.protected";
-                    case "DISABLE" -> "roles.disable";
-                    case "ENABLE" -> "roles.enable";
-                    case "ARCHIVE" -> "roles.archive";
-                    default -> throw BizIllegalException.invalid("未知角色操作");
-                });
+    public static String roleOperation(String action) {
+        return switch (action) {
+            case "UPDATE" -> RoleProfilePermission.EDIT;
+            case "GRANT_LIMIT", "PROTECTED_PERMISSIONS" -> "roles.protected";
+            case "DISABLE" -> "roles.disable";
+            case "ENABLE" -> "roles.enable";
+            case "ARCHIVE" -> "roles.archive";
+            default -> throw BizIllegalException.invalid("未知角色操作");
+        };
     }
 
     /**

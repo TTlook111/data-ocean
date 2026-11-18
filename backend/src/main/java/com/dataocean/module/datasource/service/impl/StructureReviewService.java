@@ -156,7 +156,6 @@ public class StructureReviewService {
      * 使用当前变化、已选结论及具体依据签发核对。
      */
     public ImpactPreviewVO preview(long source, long id, ChangeReviewPreviewDTO input) {
-        permissions.require("collections.review");
         DatasourcePO current = sources.source(source, false);
         var view = viewOf(require(source, id, false));
         validate(current, view, input.getExpectedVersion(), input.getProposal());

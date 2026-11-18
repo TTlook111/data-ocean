@@ -31,7 +31,6 @@ import com.dataocean.module.datasource.mapper.DatasourcePageMapper;
 import com.dataocean.module.datasource.mapper.DatasourcePageMapper.SourceSummary;
 import com.dataocean.module.datasource.mapper.DatasourceRecordMapper;
 import com.dataocean.module.datasource.mapper.SourceStateMapper;
-import com.dataocean.module.datasource.security.DatasourceRequestPermission;
 import com.dataocean.module.datasource.service.DatasourceEvents;
 import com.dataocean.module.datasource.service.DatasourceScheduler;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
@@ -170,10 +169,9 @@ public class SourceManagement {
     }
 
     /**
-     * 页面用途分别核对目录、采集或管理权限。
+     * 返回获准的目录或采集入口使用的来源选项。
      */
-    public List<SourceOption> options(String purpose) {
-        permissions.require(DatasourceRequestPermission.optionPermission(purpose));
+    public List<SourceOption> options() {
         return state.options().stream()
                 // 将数据库 ID 转为接口字符串，保留页面所需的核对版本。
                 .map(source -> new SourceOption(
@@ -255,7 +253,6 @@ public class SourceManagement {
      */
     public ImpactPreviewVO review(long id, SourceActionPreviewDTO input) {
         String action = input.getAction();
-        permissions.require(DatasourceRequestPermission.previewOperation(input));
         DatasourcePO source = source(id, false);
         verifyVersion(source, input.getExpectedVersion());
         RevisionRow revision = sources.revision(id, source.getCurrentConnectionRevisionId());

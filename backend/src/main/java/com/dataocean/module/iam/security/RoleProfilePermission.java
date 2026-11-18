@@ -13,11 +13,11 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 普通角色编辑在入口核对操作权，预览和新命令在授权锁内共用角色权限变更规则。
+ * 角色编辑预览和新命令在授权锁内共用完整提案的授权规则。
  */
 @Component
 @RequiredArgsConstructor
-public class RoleProfilePermission implements RequestPermission {
+public class RoleProfilePermission {
 
     /**
      * 普通编辑在目录、事务命令及审计中的统一动作编码。
@@ -33,14 +33,6 @@ public class RoleProfilePermission implements RequestPermission {
      * 从已受锁保护的角色及其权威配置读取实际能力。
      */
     private final RoleMapper roles;
-
-    /**
-     * 拒绝无页面或编辑权限的请求。写入前再基于当前角色状态核对完整提案。
-     */
-    @Override
-    public void require(Object[] arguments) {
-        permissions.require(EDIT);
-    }
 
     /**
      * 按当前授权状态核对目标的完整权限内容和操作者的授予上限。

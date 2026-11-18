@@ -273,7 +273,6 @@ public class DatasourceServiceImpl implements DatasourceService {
      */
     @Override
     public ImpactPreviewVO reviewCreate(SourceCreateProposalDTO proposal) {
-        permissions.require("sources.create");
         validateProposal(proposal);
         var configuration = proposal.getConfiguration();
         return reviews.preview(

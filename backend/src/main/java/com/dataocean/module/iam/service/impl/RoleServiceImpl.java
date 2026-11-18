@@ -57,7 +57,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -106,11 +105,6 @@ public class RoleServiceImpl implements RoleService {
      * 当前操作者的使用及授予资格。
      */
     private final PermissionService permissions;
-
-    /**
-     * 预览和写入使用同一套角色操作与完整提案授权规则。
-     */
-    private final IamRequestPermission requestPermission;
 
     /**
      * 对受保护内容和当前授予上限做角色提案授权。
@@ -235,7 +229,8 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(readOnly = true)
     public ImpactPreviewVO preview(String textId, RoleImpactPreviewDTO data) {
         guard.shared();
-        requestPermission.requireRolePreview(data.getAction());
+        String operation = IamRequestPermission.roleOperation(data.getAction());
+        permissions.require(operation);
         long id = Ids.parse(textId);
         RolePO role = checked(id, data.getExpectedVersion());
 
@@ -247,7 +242,7 @@ public class RoleServiceImpl implements RoleService {
             case "UPDATE" -> {
                 // 普通编辑保留已有受保护使用项。
                 var value = (RoleProfileDTO) proposal;
-                validateProfile(role, value, RoleProfilePermission.EDIT, false);
+                validateProfile(role, value, operation, false);
                 changes = profileChanges(role, value);
             }
             case "GRANT_LIMIT" -> {
@@ -263,12 +258,12 @@ public class RoleServiceImpl implements RoleService {
             case "PROTECTED_PERMISSIONS" -> {
                 // 受保护修改只能使用当前已有资格进行授权。
                 var value = (RoleProtectedPermissionsProposalDTO) proposal;
-                validateProfile(role, value, "roles.protected", true);
+                validateProfile(role, value, operation, true);
                 changes = profileChanges(role, value);
             }
             case "DISABLE", "ENABLE", "ARCHIVE" -> {
                 // 状态动作也须核对角色实际受保护内容。
-                validateLifecycle(role, data.getAction());
+                validateLifecycle(role, data.getAction(), operation);
                 changes = List.of(change("lifecycle", "角色状态", role.getLifecycle(), targetLifecycle(data.getAction())));
             }
             default -> throw BizIllegalException.invalid("未知角色操作");
@@ -306,11 +301,11 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public MutationVO lifecycle(String textId, String action, VersionActionDTO data, String command) {
         long id = Ids.parse(textId);
-        String operation = "roles." + action.toLowerCase(Locale.ROOT);
+        String operation = IamRequestPermission.roleOperation(action);
         return mutations.execute(operation, command, textId, data, data.getExpectedVersion(), true, false, () -> {
             // 归档、受保护项及启用上限均使用当前角色事实。
             RolePO role = checked(id, data.getExpectedVersion());
-            validateLifecycle(role, action);
+            validateLifecycle(role, action, operation);
             reviews.verify(action, textId, role.getVersion(), data, data.getReviewToken());
             roles.lifecycle(id, targetLifecycle(action), data.getReason());
             snapshot(id);
@@ -462,10 +457,9 @@ public class RoleServiceImpl implements RoleService {
     }
 
     /**
-     * 验证授予目录与当前上限，拒绝通过自己角色间接扩权。
+     * 在保护操作已于锁内核权后，验证授予目录、当前上限与自我扩权约束。
      */
     private void validateGrants(RolePO role, List<String> grants) {
-        permissions.require("roles.protected");
         if (new HashSet<>(grants).size() != grants.size()
                 || grants.stream().anyMatch(code -> directory.all().stream()
                         .noneMatch(p -> p.getCode().equals(code) && p.isEnabled()))) {
@@ -476,11 +470,9 @@ public class RoleServiceImpl implements RoleService {
     }
 
     /**
-     * 生命周期与受保护资格在预览和提交时采用同一检查。
+     * 在锁内动作准入后，核对目标状态、受保护资格与启用时的授予上限。
      */
-    private void validateLifecycle(RolePO role, String action) {
-        String operation = "roles." + action.toLowerCase(Locale.ROOT);
-        permissions.require(operation);
+    private void validateLifecycle(RolePO role, String action, String operation) {
         if (permissions.protectedRole(role.getId())) {
             permissions.require("roles.protected");
         }

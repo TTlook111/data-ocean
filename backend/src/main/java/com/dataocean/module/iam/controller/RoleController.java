@@ -121,7 +121,7 @@ public class RoleController {
      * 保存普通角色配置，保持受保护项不变。
      */
     @PutMapping("/{id}")
-    @RequirePermission(policy = RoleProfilePermission.class)
+    @RequirePermission(RoleProfilePermission.EDIT)
     public Result<MutationVO> update(
             @PathVariable String id,
             @Valid @RequestBody UpdateRoleDTO data,

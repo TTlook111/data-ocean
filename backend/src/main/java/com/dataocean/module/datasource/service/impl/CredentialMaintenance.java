@@ -151,7 +151,6 @@ public class CredentialMaintenance {
      * 显示可能受影响的原账号和活跃任务，不把密码放进核对。
      */
     public ImpactPreviewVO review(long id, SourceActionPreviewDTO input) {
-        permission.require("sources.edit");
         DatasourcePO source = management.source(id, false);
         management.verifyVersion(source, input.getExpectedVersion());
         requireReady(source);

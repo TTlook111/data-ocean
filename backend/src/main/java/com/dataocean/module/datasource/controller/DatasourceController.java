@@ -92,7 +92,7 @@ public class DatasourceController {
     @GetMapping("/options")
     @RequirePermission(policy = DatasourceRequestPermission.class)
     public Result<List<SourceOption>> options(@RequestParam String purpose) {
-        return Result.success(management.options(purpose));
+        return Result.success(management.options());
     }
 
     /**

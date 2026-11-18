@@ -226,7 +226,6 @@ public class CollectionServiceImpl {
      * 取消核对绑定真实任务版本和明确的取消原因。
      */
     public ImpactPreviewVO reviewCancel(String id, SourceActionPreviewDTO preview) {
-        permission.require("collections.cancel");
         if (!"CANCEL_COLLECTION".equals(preview.getAction())) {
             throw BizIllegalException.invalid("不支持的任务核对动作");
         }
