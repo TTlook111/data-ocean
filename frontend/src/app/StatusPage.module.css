@@ -1,0 +1,207 @@
+/* 浅海色贯穿整个视口，海面与状态信息共用视觉中轴。 */
+.page {
+  --sea: #dcebea;
+  --sea-light: #f7faf6;
+  --sea-edge: #e8f2ef;
+  --sea-line: #517e8230;
+  --sea-ink: #17313c;
+  --sea-muted: #4b6670;
+  --sea-accent: #16586a;
+  --sea-accent-hover: #123f50;
+  display: grid;
+  grid-template-rows: auto minmax(235px, 1fr) auto;
+  height: 100dvh;
+  min-width: 0;
+  overflow: auto;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    var(--sea-light) 7%,
+    var(--sea-edge) 63%,
+    var(--sea) 100%
+  );
+  color: var(--sea-ink);
+}
+
+/* 连接中断使用略冷的浅蓝底，与 404 保持一致的文字和操作色。 */
+.page[data-variant='connection'] {
+  --sea: #dbe8ed;
+  --sea-light: #f7faf8;
+  --sea-edge: #e8f0f3;
+  --sea-line: #52758e2e;
+}
+
+/* 业务编辑期间切到同一全屏画面，避免任何后台浮层穿透。 */
+.curtain {
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  background: #dbe8ed;
+}
+
+/* 品牌停在固定的页面起点，无须为主操作保留顶栏。 */
+.header {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  padding: clamp(20px, 4.2vh, 42px) clamp(24px, 4.2vw, 76px) 8px;
+}
+
+/* 浅底直接展示既有锚形标识和产品名称。 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--sea-ink);
+  font-size: 19px;
+  letter-spacing: -0.025em;
+}
+
+/* 锚形标识按原比例显示，与字标垂直对齐。 */
+.brand img {
+  object-fit: contain;
+}
+
+/* 主操作和状态原因靠近，两个故障状态共用同一操作色。 */
+.page .action {
+  height: 44px;
+  margin-top: 20px;
+  padding-inline: 21px;
+  border: 1px solid transparent;
+  border-radius: 28px;
+  background: var(--sea-accent);
+  color: #fff;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+/* 主操作以同色深浅区分交互反馈。 */
+.page .action:not(:disabled):hover,
+.page .action:not(:disabled):active {
+  border-color: var(--sea-accent-hover);
+  background: var(--sea-accent-hover);
+  color: #fff;
+}
+
+/* 页面可交互区域统一使用清楚的深海色焦点。 */
+.page .action:focus-visible,
+.scene canvas:focus-visible {
+  outline: 2px solid var(--sea-accent);
+  outline-offset: 4px;
+}
+
+/* 可操控水面铺到视口两侧，无内置卡片边框。 */
+.scene {
+  grid-row: 2;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 淡色流纹从两侧渐隐，衬托鱼群字形。 */
+.scene::before {
+  position: absolute;
+  inset: 0;
+  background: repeating-radial-gradient(
+    ellipse 79% 134% at 56% 141%,
+    transparent 0 27px,
+    var(--sea-line) 28px 29px,
+    transparent 30px 41px
+  );
+  mask-image: radial-gradient(ellipse 72% 52% at 50% 48%, #0008, transparent 96%);
+  content: '';
+  pointer-events: none;
+}
+
+/* 画布接受指针捕获和键盘操作，拖动时给出明确的光标反馈。 */
+.scene canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+/* 画布边缘的焦点框需要留在可视范围内。 */
+.scene canvas:focus-visible {
+  outline-offset: -7px;
+}
+
+/* 抓住海面搅动鱼群时使用抓握光标。 */
+.scene canvas:active {
+  cursor: grabbing;
+}
+
+/* Canvas 不可用时仍保留醒目的状态字形。 */
+.fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--sea-accent);
+  font-size: min(29vw, 46vh);
+  font-weight: 900;
+  letter-spacing: -0.1em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* 真实画面准备后显示玩法，且只保留一个可见字形。 */
+.scene canvas[data-ready='true'] ~ .fallback,
+.hint {
+  display: none;
+}
+
+/* 一行操作提示位于画布下缘，不拦截可玩的水域。 */
+.scene canvas[data-ready='true'] ~ .hint {
+  position: absolute;
+  inset: auto 24px 5px;
+  z-index: 2;
+  display: block;
+  color: var(--sea-muted);
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* 设备键沿用提示字号，保持连续的阅读节奏。 */
+.hint kbd {
+  padding: 2px 6px;
+  border: 1px solid #5679824f;
+  border-radius: 4px;
+  font: inherit;
+}
+
+/* 标题、原因和恢复操作组成同一信息区，并为画布留出首屏空间。 */
+.copy {
+  grid-row: 3;
+  padding: clamp(18px, 3.4vh, 34px) 26px clamp(28px, 5.4vh, 56px);
+  text-align: center;
+}
+
+/* 中文状态标题保持一行优先。 */
+.copy h1 {
+  font-size: clamp(27px, 2.65vw, 40px);
+  font-weight: 650;
+  line-height: 1.23;
+  text-wrap: balance;
+}
+
+/* 核验中的说明和故障原因占据同一个文本位置。 */
+.copy p {
+  margin: 10px auto 0;
+  max-width: 44ch;
+  color: var(--sea-muted);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

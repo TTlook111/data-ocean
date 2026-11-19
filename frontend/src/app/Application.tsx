@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { App, Avatar, Breadcrumb, Button, Layout, Menu, Modal, Result, Spin } from 'antd';
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from 'react';
+import { App, Avatar, Breadcrumb, Button, Layout, Menu, Result, Spin } from 'antd';
 import {
   ApartmentOutlined,
   AuditOutlined,
@@ -14,25 +14,21 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
+import {
+  matchPath,
+  matchRoutes,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router';
 import { api, ApiError, resetCsrf } from '../shared/api';
 import { SessionContext } from '../shared/session';
 import { readErrorMessage } from '../shared/Records';
 import { ActionMenuButton } from '../shared/ActionMenuButton';
 import type { Person, Session } from '../modules/iam/types';
-import { InitialPasswordPage, LoginPage } from '../modules/iam/LoginPage';
-import { AccountPage } from '../modules/iam/AccountPage';
-import { UsersPage } from '../modules/iam/UsersPage';
-import { DepartmentsPage } from '../modules/iam/DepartmentsPage';
-import { RolesPage, RoleEditor } from '../modules/iam/RolesPage';
-import { AuditPage } from '../modules/iam/AuditPage';
-import { DatasourceManagementPage, OutputRulesPage } from '../modules/access/ConfigurationPages';
-import { RequestsPage } from '../modules/access/RequestsPage';
-import { GrantsPage, MyAccessPage } from '../modules/access/ScopePages';
-import { CollectionPage } from '../modules/datasource/CollectionPage';
-import { CatalogObjectPage, CatalogPage } from '../modules/datasource/CatalogPage';
-import { StandaloneStructureChangePage } from '../modules/datasource/StructureChangePage';
-import { BusinessNotesPage } from '../modules/datasource/BusinessNotesPage';
+import { ConnectionFailure, NotFoundPage } from './StatusPage';
 import '../modules/datasource/datasource.css';
 import '../modules/access/access.css';
 
@@ -71,6 +67,99 @@ const navigation = [
 ];
 
 /**
+ * 路由真正渲染时才加载命名导出的工作区页面，组件身份在模块内保持稳定。
+ */
+function lazyPage<Props extends object>(load: () => Promise<ComponentType<Props>>) {
+  return lazy(async () => ({ default: await load() }));
+}
+
+// 登录与首次改密共用表单模块，异常状态页不需要预载表单。
+const LoginPage = lazyPage(() => import('../modules/iam/LoginPage').then((m) => m.LoginPage));
+const InitialPasswordPage = lazyPage(() =>
+  import('../modules/iam/LoginPage').then((m) => m.InitialPasswordPage),
+);
+
+// 身份和组织页面按各自入口加载；角色列表和编辑继续共用同一模块。
+const AccountPage = lazyPage(() => import('../modules/iam/AccountPage').then((m) => m.AccountPage));
+const UsersPage = lazyPage(() => import('../modules/iam/UsersPage').then((m) => m.UsersPage));
+const DepartmentsPage = lazyPage(() =>
+  import('../modules/iam/DepartmentsPage').then((m) => m.DepartmentsPage),
+);
+const RolesPage = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RolesPage));
+const RoleEditor = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RoleEditor));
+const AuditPage = lazyPage(() => import('../modules/iam/AuditPage').then((m) => m.AuditPage));
+
+// 数据源和数据访问页面保留现有具名入口及跨页复用。
+const DatasourceManagementPage = lazyPage(() =>
+  import('../modules/access/ConfigurationPages').then((m) => m.DatasourceManagementPage),
+);
+const OutputRulesPage = lazyPage(() =>
+  import('../modules/access/ConfigurationPages').then((m) => m.OutputRulesPage),
+);
+const RequestsPage = lazyPage(() =>
+  import('../modules/access/RequestsPage').then((m) => m.RequestsPage),
+);
+const GrantsPage = lazyPage(() => import('../modules/access/ScopePages').then((m) => m.GrantsPage));
+const MyAccessPage = lazyPage(() =>
+  import('../modules/access/ScopePages').then((m) => m.MyAccessPage),
+);
+const CollectionPage = lazyPage(() =>
+  import('../modules/datasource/CollectionPage').then((m) => m.CollectionPage),
+);
+const CatalogPage = lazyPage(() =>
+  import('../modules/datasource/CatalogPage').then((m) => m.CatalogPage),
+);
+const CatalogObjectPage = lazyPage(() =>
+  import('../modules/datasource/CatalogPage').then((m) => m.CatalogObjectPage),
+);
+const StandaloneStructureChangePage = lazyPage(() =>
+  import('../modules/datasource/StructureChangePage').then((m) => m.StandaloneStructureChangePage),
+);
+const BusinessNotesPage = lazyPage(() =>
+  import('../modules/datasource/BusinessNotesPage').then((m) => m.BusinessNotesPage),
+);
+
+/**
+ * 工作区路由同时用于内容渲染与权限、菜单和面包屑定位。
+ */
+const workspaceRoutes = [
+  // 人员、组织与功能权限管理。
+  { path: '/iam/users', element: <UsersPage /> },
+  { path: '/iam/departments', element: <DepartmentsPage /> },
+  { path: '/iam/roles', element: <RolesPage /> },
+  { path: '/iam/roles/new', element: <RoleEditor /> },
+  { path: '/iam/roles/:id/edit', element: <RoleEditor /> },
+  { path: '/iam/audit', element: <AuditPage /> },
+  // 数据源接入及目录详情。
+  { path: '/datasources', element: <DatasourceManagementPage /> },
+  { path: '/collections', element: <CollectionPage /> },
+  { path: '/collections/changes', element: <StandaloneStructureChangePage /> },
+  { path: '/catalog', element: <CatalogPage /> },
+  { path: '/catalog/:id', element: <CatalogObjectPage /> },
+  { path: '/business-notes', element: <BusinessNotesPage /> },
+  // 数据访问审批及个人范围。
+  { path: '/iam/output-rules', element: <OutputRulesPage /> },
+  { path: '/iam/access-requests', element: <RequestsPage key="manage" /> },
+  { path: '/iam/grants', element: <GrantsPage /> },
+  { path: '/my-requests', element: <RequestsPage key="mine" mine /> },
+  { path: '/my-access', element: <MyAccessPage /> },
+];
+
+/**
+ * 已登录用户打开这些入口时仍回到其可访问的首页。
+ */
+const entryPaths = ['/', '/login', '/password/initial'];
+
+/**
+ * 身份核验和首次加载登录表单使用相同的全屏加载反馈。
+ */
+const sessionLoading = (
+  <div className="page-loading" role="status" aria-label="正在加载">
+    <Spin size="large" />
+  </div>
+);
+
+/**
  * 登录边界控制缓存和页面生命周期，失效后立即撤下业务内容。
  */
 export function Application() {
@@ -83,6 +172,13 @@ export function Application() {
   const navigate = useNavigate();
 
   const location = useLocation();
+
+  // 只根据真实注册路由识别未知地址，独立 404 无需等待或发起身份核验。
+  const activePath = matchRoutes(workspaceRoutes, location)?.at(-1)?.route.path;
+  const missing =
+    !activePath &&
+    !matchPath('/account', location.pathname) &&
+    !entryPaths.some((path) => matchPath(path, location.pathname));
 
   const pageContexts = useRef<Record<string, string>>({});
 
@@ -108,6 +204,7 @@ export function Application() {
 
   const identity = useQuery<Session | null>({
     queryKey: ['session'],
+    enabled: !missing,
     queryFn: async () => {
       // 未登录是一种正常导航状态，依赖故障仍保留独立错误反馈。
       try {
@@ -125,7 +222,7 @@ export function Application() {
   const account = useQuery({
     queryKey: ['account'],
     queryFn: () => api<Person>('/account'),
-    enabled: Boolean(identity.data && !identity.data.mustChangePassword),
+    enabled: Boolean(!missing && identity.data && !identity.data.mustChangePassword),
   });
 
   /**
@@ -181,41 +278,63 @@ export function Application() {
     return () => window.removeEventListener('auth-expired', expire);
   }, [cache, navigate]);
 
-  if (identity.isPending) {
-    return (
-      <div className="page-loading">
-        <Spin size="large" />
-      </div>
-    );
+  /**
+   * 只重查身份，同一次重连过程复用正在发送的请求。
+   */
+  function retryConnection() {
+    void identity.refetch({ cancelRefetch: false });
   }
-  if (identity.error && !identity.data) {
+
+  if (missing) {
+    // 独立状态页直接回到正式入口，由入口继续检查登录和首页权限。
+    return <NotFoundPage onHome={() => navigate('/', { replace: true })} />;
+  }
+
+  if (identity.isPending && !identity.isFetched) {
+    // 初次核验保持加载，失败后的重试则留在原故障场景。
+    return sessionLoading;
+  }
+  const connectionDetail = identity.error
+    ? readErrorMessage(identity.error)
+    : '服务连接暂不可用，请检查连接后重试';
+  if (!identity.data && (identity.error || identity.isPending)) {
+    // 身份尚未确认时只显示故障页，不构建受限工作区。
     return (
-      <Result
-        status="error"
-        title="暂时无法核验登录"
-        subTitle={readErrorMessage(identity.error)}
-        extra={<Button onClick={() => identity.refetch()}>重新连接</Button>}
+      <ConnectionFailure
+        detail={connectionDetail}
+        retrying={identity.isFetching}
+        onRetry={retryConnection}
       />
     );
   }
 
   const session = identity.data;
-  if (!session) {
-    return <LoginPage done={refreshIdentity} />;
-  }
-  if (session.mustChangePassword) {
-    return <InitialPasswordPage session={session} done={refreshIdentity} logout={logout} />;
+  if (!session || session.mustChangePassword) {
+    // 保持身份入口原有分流，表单模块按当前身份状态加载。
+    return (
+      <Suspense fallback={sessionLoading}>
+        {session ? (
+          <InitialPasswordPage session={session} done={refreshIdentity} logout={logout} />
+        ) : (
+          <LoginPage done={refreshIdentity} />
+        )}
+      </Suspense>
+    );
   }
 
-  const selected = navigation.find((item) => location.pathname.startsWith(item.key));
-  // 资料编辑在独立工作区内保留实际来源的面包屑。
+  // 已注册的子页继承所属模块的菜单位置和页面权限。
+  const selected = navigation.find(
+    (item) => activePath && matchPath({ path: item.key, end: false }, activePath),
+  );
+  const pageLabel = selected?.label ?? '账号信息';
+  const creatingRole = activePath === '/iam/roles/new';
+  const editingRole = activePath === '/iam/roles/:id/edit';
   const noteMode =
-    location.pathname === '/business-notes'
-      ? new URLSearchParams(location.search).get('edit')
-      : null;
+    activePath === '/business-notes' ? new URLSearchParams(location.search).get('edit') : null;
   const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
 
   const visible = navigation.filter((item) => session.permissionCodes.includes(item.permission));
+  const home = visible[0]?.key ?? '/account';
 
   const granted = !selected || session.permissionCodes.includes(selected.permission);
 
@@ -334,7 +453,7 @@ export function Application() {
             href="/iam/users"
             onClick={(event) => {
               event.preventDefault();
-              navigate(visible[0]?.key ?? '/account');
+              navigate(home);
             }}
           >
             <img src="/dataocean-mark.png" alt="" />
@@ -346,7 +465,7 @@ export function Application() {
               { title: '后台管理' },
               {
                 title:
-                  selected?.key === '/iam/roles' && location.pathname !== '/iam/roles' ? (
+                  creatingRole || editingRole ? (
                     <a
                       href={`/iam/roles${pageContexts.current['/iam/roles'] ?? ''}`}
                       onClick={(event) => {
@@ -357,11 +476,11 @@ export function Application() {
                       角色与功能权限
                     </a>
                   ) : (
-                    (selected?.label ?? '账号信息')
+                    pageLabel
                   ),
               },
-              ...(location.pathname.includes('/edit') || location.pathname.endsWith('/new')
-                ? [{ title: location.pathname.endsWith('/new') ? '新增角色' : '编辑角色' }]
+              ...(creatingRole || editingRole
+                ? [{ title: creatingRole ? '新增角色' : '编辑角色' }]
                 : []),
               ...(noteMode
                 ? [
@@ -417,13 +536,7 @@ export function Application() {
           </Layout.Sider>
           <Layout.Content
             className="workspace"
-            aria-label={
-              location.pathname.endsWith('/new')
-                ? '新增角色'
-                : location.pathname.includes('/edit')
-                  ? '角色功能配置'
-                  : (selected?.label ?? '账号信息')
-            }
+            aria-label={creatingRole ? '新增角色' : editingRole ? '角色功能配置' : pageLabel}
           >
             {!granted ? (
               <Result
@@ -432,49 +545,37 @@ export function Application() {
                 extra={<Button onClick={() => navigate('/account')}>返回账号信息</Button>}
               />
             ) : (
-              <Routes>
-                <Route path="/account" element={<AccountPage expired={refreshIdentity} />} />
-                <Route path="/iam/users" element={<UsersPage />} />
-                <Route path="/iam/departments" element={<DepartmentsPage />} />
-                <Route path="/iam/roles" element={<RolesPage />} />
-                <Route path="/iam/roles/new" element={<RoleEditor />} />
-                <Route path="/iam/roles/:id/edit" element={<RoleEditor />} />
-                <Route path="/iam/audit" element={<AuditPage />} />
-                <Route path="/datasources" element={<DatasourceManagementPage />} />
-                <Route path="/business-notes" element={<BusinessNotesPage />} />
-                <Route path="/iam/output-rules" element={<OutputRulesPage />} />
-                <Route path="/iam/access-requests" element={<RequestsPage key="manage" />} />
-                <Route path="/iam/grants" element={<GrantsPage />} />
-                <Route path="/my-requests" element={<RequestsPage key="mine" mine />} />
-                <Route path="/my-access" element={<MyAccessPage />} />
-                <Route path="/collections" element={<CollectionPage />} />
-                <Route path="/collections/changes" element={<StandaloneStructureChangePage />} />
-                <Route path="/catalog" element={<CatalogPage />} />
-                <Route path="/catalog/:id" element={<CatalogObjectPage />} />
-                <Route path="*" element={<Navigate to={visible[0]?.key ?? '/account'} replace />} />
-              </Routes>
+              <Suspense
+                fallback={
+                  <div className="read-loading" role="status" aria-label="正在加载页面">
+                    <Spin />
+                  </div>
+                }
+              >
+                {/* 路由模块加载只暂缓工作区正文，导航和登录核验不受影响。 */}
+                <Routes>
+                  {entryPaths.map((path) => (
+                    <Route key={path} path={path} element={<Navigate to={home} replace />} />
+                  ))}
+                  <Route path="/account" element={<AccountPage expired={refreshIdentity} />} />
+                  {workspaceRoutes.map(({ path, element }) => (
+                    <Route key={path} path={path} element={element} />
+                  ))}
+                </Routes>
+              </Suspense>
             )}
           </Layout.Content>
         </Layout>
       </Layout>
-      {/* 临时故障遮挡全部旧展示并阻止操作，保留挂载的表单；明确失效仍由上方登录边界卸载。 */}
-      <Modal
-        open={Boolean(identity.error)}
-        title="暂时无法核验登录"
-        centered
-        closable={false}
-        keyboard={false}
-        mask={{ closable: false }}
-        zIndex={3000}
-        styles={{ mask: { background: '#fff' } }}
-        footer={
-          <Button type="primary" loading={identity.isFetching} onClick={() => identity.refetch()}>
-            重新连接
-          </Button>
-        }
-      >
-        {identity.error && readErrorMessage(identity.error)}
-      </Modal>
+      {/* 登录核验出错时挂出顶层故障页，原表单仍挂载以便重连后继续。 */}
+      {identity.error && (
+        <ConnectionFailure
+          overlay
+          detail={connectionDetail}
+          retrying={identity.isFetching}
+          onRetry={retryConnection}
+        />
+      )}
     </SessionContext.Provider>
   );
 }

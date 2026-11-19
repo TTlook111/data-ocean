@@ -13,6 +13,27 @@ export default defineConfig({
   // React 组件编译与开发热更新。
   plugins: [react()],
 
+  // React 运行时独立输出，业务发布时可单独命中其长期缓存。
+  build: {
+    // 使用当前 Vite 的 Rolldown 分包配置，业务模块仍按动态导入分包。
+    rolldownOptions: {
+      // 只显式拆分共用运行时，避免把完整组件库提到首屏。
+      output: {
+        // React 和调度器始终使用同一组模块。
+        codeSplitting: {
+          groups: [
+            {
+              // 产物名明确标识稳定的基础运行时。
+              name: 'react-runtime',
+              // 同时兼容 Windows 和其他系统的模块路径。
+              test: /[\\/]node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
+  },
+
   // 本机开发服务及后端接口代理。
   server: {
     // 只监听本机地址。

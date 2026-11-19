@@ -16,7 +16,7 @@ import {
   Tag,
 } from 'antd';
 import { PlusOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -28,9 +28,15 @@ import { useFormClose } from '../../shared/useFormClose';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import { applyFormError } from '../../shared/formErrors';
 import { OperationContext } from '../../shared/OperationContext';
-import { PersonDetailsDrawer } from './UsersPage';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import type { CapabilityPage, Page, Person, Preview, Role, RoleForm } from './types';
+
+/**
+ * 从角色成员打开人员详情时才加载详情及关联的数据访问模块。
+ */
+const PersonDetailsDrawer = lazy(() =>
+  import('./UsersPage').then(({ PersonDetailsDrawer }) => ({ default: PersonDetailsDrawer })),
+);
 
 /**
  * 普通和受保护配置共用显式目录选择，动作自动补齐所属页面权。
@@ -1052,7 +1058,10 @@ function RoleMembers({
           />
         </ReadState>
       </Drawer>
-      {personId && <PersonDetailsDrawer id={personId} close={() => setPersonId(null)} />}
+      {/* 详情首次加载时保留角色抽屉及成员列表的位置。 */}
+      <Suspense fallback={null}>
+        {personId && <PersonDetailsDrawer id={personId} close={() => setPersonId(null)} />}
+      </Suspense>
     </>
   );
 }
