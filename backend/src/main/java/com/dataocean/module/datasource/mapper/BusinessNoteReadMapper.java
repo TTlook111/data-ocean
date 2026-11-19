@@ -74,6 +74,20 @@ public interface BusinessNoteReadMapper {
     int references(long note);
 
     /**
+     * 在源写锁下保存实际取用或定义引用，防止历史修订被误删。
+     */
+    @Insert("""
+            INSERT INTO ds_business_note_reference(note_id,revision_id,target_kind,target_id)
+            VALUES(#{note},#{revision},#{kind},#{target})
+            ON DUPLICATE KEY UPDATE recorded_at=recorded_at
+            """)
+    int reference(
+            @Param("note") long note,
+            @Param("revision") long revision,
+            @Param("kind") String kind,
+            @Param("target") String target);
+
+    /**
      * 资料变更时间采用平台库的 UTC 时钟。
      */
     @Select("SELECT UTC_TIMESTAMP(3)")

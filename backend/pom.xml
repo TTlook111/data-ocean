@@ -62,6 +62,12 @@
       <artifactId>spring-boot-starter-security</artifactId>
     </dependency>
 
+    <!-- Java 与 Python 内部治理任务使用经验证的非对称服务令牌。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-session-data-redis</artifactId>

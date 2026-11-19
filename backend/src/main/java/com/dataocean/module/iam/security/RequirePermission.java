@@ -28,16 +28,17 @@ public @interface RequirePermission {
     Class<? extends RequestPermission> policy() default RequestPermission.class;
 
     /**
-     * 声明功能接口、本人会话接口或公开接口的准入方式。
+     * 声明功能、本人会话、内部服务或公开接口的准入方式。
      */
     Access access() default Access.PERMISSION;
 
     /**
-     * 接口允许的三种准入方式。
+     * 接口必须选择一种与请求路径一致的准入方式。
      */
     enum Access {
         PERMISSION,
         AUTHENTICATED,
+        SERVICE,
         PUBLIC
     }
 }

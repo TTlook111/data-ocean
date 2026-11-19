@@ -15,7 +15,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
     "com.dataocean.module.iam.mapper",
     "com.dataocean.module.audit.mapper",
     "com.dataocean.module.access.mapper",
-    "com.dataocean.module.datasource.mapper"
+    "com.dataocean.module.datasource.mapper",
+    "com.dataocean.module.governance.mapper",
+    "com.dataocean.module.model.mapper"
 })
 public class DataOceanApplication {
 

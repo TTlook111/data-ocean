@@ -70,6 +70,12 @@
 | [AccessRequestServiceImpl.java](src/main/java/com/dataocean/module/access/service/impl/AccessRequestServiceImpl.java) | 处理申请、分流、独立或联合审批及批准后的授权生效 |
 | [AccessScopeService.java](src/main/java/com/dataocean/module/access/service/AccessScopeService.java)、[AccessScopeServiceImpl.java](src/main/java/com/dataocean/module/access/service/impl/AccessScopeServiceImpl.java) | 定义并计算当前访问范围，查询授权来源与历史并处理结束授权 |
 
+## 表说明与字段治理
+
+治理工作台由 `module/governance` 承接，B 批成功目录及资料读取通过 `GovernanceCatalog` 和 `GovernanceNotes` 提供。来源事务同步投影治理影响，Flyway V10 建立条目、修订、证据与复核，V11 建立表说明生成任务和实际调用记录。接口及验收见[C 批详细设计](../docs/backend/governance/设计.md)。
+
+表说明生成通过 `dataocean.governance-ai.enabled` 独立开启。配置 Python 服务地址 `python-url`、Java 签名文件 `java-private-key-file`、Java 和 Python 的可信公钥文件 `java-public-key-file`、`python-public-key-file`，以及已核准发送结构和资料的 `model-source-ids`。实际文件和端点按机器配置保存。治理草稿、确认和来源复核可独立运行。
+
 ## 配置、迁移与测试
 
 | 文件或目录 | 职责 |

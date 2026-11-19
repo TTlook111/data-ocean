@@ -151,6 +151,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                 .eq(BusinessNoteRevisionPO::getNoteId, id)
                 .orderByDesc(BusinessNoteRevisionPO::getRevision));
         var content = new BusinessNoteRevisionVO(
+                Long.toString(revision.getId()),
                 revision.getRevision(),
                 revision.getTitle(),
                 revision.getBody(),
@@ -214,12 +215,14 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                     }
                     var title = input.getTitle().strip();
                     String beforeTitle = null;
+                    Long beforeRevision = null;
                     List<NoteAttachmentPO> kept = List.of();
                     boolean substantive = true;
                     if (id != null) {
                         // 只允许从正在编辑的确切当前修订保留附件。
                         checkVersion(note, input.getExpectedVersion());
                         var current = requireRevision(id, note.getRevision());
+                        beforeRevision = current.getId();
                         var existing = reads.attachments(current.getId());
                         kept = existing.stream()
                                 .filter(file -> retained.contains(file.getId()))
@@ -247,10 +250,11 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                         // 状态变更与内容修订是不同口径。
                         notes.updateById(note);
                     }
-                    writeRevision(note, body, kept, commandFiles);
-                    if (id != null && substantive && reads.references(id) > 0) {
+                    long afterRevision = writeRevision(note, body, kept, commandFiles);
+                    if (beforeRevision != null && substantive && reads.references(id) > 0) {
                         // 发布受引用的实际内容修订变化，后续按原依赖只更新受影响条目。
-                        events.businessNote(note.getSourceId(), note.getId(), note.getRevision(), "CONTENT_CHANGED");
+                        events.businessNote(note.getSourceId(), id, note.getRevision(), note.getVersion(),
+                                beforeRevision, afterRevision);
                     }
                     return record(
                             note,
@@ -330,10 +334,6 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                     String next = target(input.getAction());
                     if ("WITHDRAWN".equals(next)) {
                         note.setStateReason(input.getReason().strip());
-                        if (references > 0) {
-                            // 撤下被引用的事实通知下游复核。
-                            events.businessNote(note.getSourceId(), id, note.getRevision(), "WITHDRAWN");
-                        }
                     }
                     if ("DELETED".equals(next)) {
                         // 资料编号保留在审计中，已核实未引用的原文件允许清除。
@@ -346,6 +346,11 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                     note.setVersion(note.getVersion() + 1);
                     note.setUpdatedAt(reads.now());
                     notes.updateById(note);
+                    if ("WITHDRAWN".equals(next) && references > 0) {
+                        // 确切资料状态及同版本治理影响在原写事务内生效。
+                        long revision = requireRevision(id, note.getRevision()).getId();
+                        events.businessNote(note.getSourceId(), id, note.getRevision(), note.getVersion(), revision, null);
+                    }
                     return record(
                             note,
                             operation,
@@ -422,7 +427,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
     /**
      * 保存当前版本的新正文和准确附件集合。
      */
-    private void writeRevision(
+    private long writeRevision(
             BusinessNotePO note, String body, List<NoteAttachmentPO> kept, List<NoteAttachmentPO> added) {
         var revision = new BusinessNoteRevisionPO();
         revision.setNoteId(note.getId());
@@ -439,6 +444,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
             all.add(file);
         }
         all.forEach(file -> reads.link(note.getId(), revision.getId(), file.getId()));
+        return revision.getId();
     }
 
     /**

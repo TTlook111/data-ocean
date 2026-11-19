@@ -15,6 +15,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from dataocean_ai.core.config import Settings
 from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.core.result import Result
+from dataocean_ai.governance.queue import router as governance_router
 
 # 仅输出进程运行事实，不把日志替代业务审计。
 logger = logging.getLogger(__name__)
@@ -39,6 +40,8 @@ def create_app() -> FastAPI:
     release = version("dataocean-ai")
 
     app = FastAPI(title="DataOcean AI", version=release)
+    # 工作流接收入口使用独立服务身份，不处理浏览器会话。
+    app.include_router(governance_router)
 
     @app.middleware("http")
     async def correlate(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -67,7 +70,12 @@ def create_app() -> FastAPI:
     async def http_error(_request: Request, error: HTTPException) -> JSONResponse:
         """未知路径及错误方法也使用公共包装，不披露内部异常详情。"""
         # 当前基线只开放健康入口，其余业务端点须在实现和核权后注册。
-        message = "接口不存在" if error.status_code == 404 else "当前请求方法不支持"
+        message = {
+            401: "内部服务身份无效",
+            404: "接口不存在",
+            405: "当前请求方法不支持",
+            503: "内部任务服务暂不可用",
+        }.get(error.status_code, "请求执行失败")
 
         return JSONResponse(
             status_code=error.status_code,

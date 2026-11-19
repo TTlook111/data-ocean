@@ -1,5 +1,7 @@
 package com.dataocean.module.datasource.source;
 
+import com.dataocean.infrastructure.CredentialProtection;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -23,7 +25,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Component
 @RequiredArgsConstructor
-public class SourceSecretCodec {
+public class SourceSecretCodec implements CredentialProtection {
 
     /**
      * 平台部署提供的密钥文件及当前写入版本。
@@ -43,6 +45,7 @@ public class SourceSecretCodec {
     /**
      * 返回本次写入应记录的密钥版本。
      */
+    @Override
     public String version() {
         return policy.getCredentialKeyVersion();
     }
@@ -50,6 +53,7 @@ public class SourceSecretCodec {
     /**
      * 将秘密封装为 nonce 和带认证标签的密文。调用者另存密钥版本。
      */
+    @Override
     public byte[] encrypt(String value, String context, String keyVersion) {
         byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);
@@ -75,6 +79,7 @@ public class SourceSecretCodec {
     /**
      * 校验封装和来源认证数据后读取运行凭据。
      */
+    @Override
     public String decrypt(byte[] envelope, String context, String keyVersion) {
         if (envelope.length < NONCE_BYTES + 16) {
             // 拒绝不含完整认证标签的封装。

@@ -55,6 +55,10 @@
 | [ScopePages.tsx](src/modules/access/ScopePages.tsx) | 授权管理、个人访问范围及来源回看，提供直属部门初始配置面板 |
 | [AccessControls.tsx](src/modules/access/AccessControls.tsx)、[types.ts](src/modules/access/types.ts)、[access.css](src/modules/access/access.css) | 授权模块共用的列表、表单、状态、请求辅助、接口类型和样式 |
 
+### 表说明与字段治理
+
+`/governance` 和 `/governance/:id` 分别进入成功目录工作台和稳定对象详情。页面在 `src/modules/governance`，复用来源选择、筛选分页、原命令回读与危险操作核对。表说明生成按实际任务状态读取结果，建议可逐项填入草稿。验收边界见[C 批验收](../docs/backend/governance/验收.md)。
+
 ### 共用组件与请求
 
 | 文件 | 职责 |

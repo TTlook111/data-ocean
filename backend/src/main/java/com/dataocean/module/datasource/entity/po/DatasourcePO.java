@@ -64,6 +64,12 @@ public class DatasourcePO {
     private int catalogVersion;
 
     /**
+     * 当前目录范围实际改变的时刻，判断旧成功快照是否仍适用。
+     */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
+    private LocalDateTime scopeChangedAt;
+
+    /**
      * 是否暂停后续定时采集。
      */
     private boolean schedulePaused;

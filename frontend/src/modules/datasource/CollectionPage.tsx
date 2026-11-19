@@ -35,7 +35,7 @@ import type { CollectionTask, SourceOption } from './types';
 /**
  * 采集记录和目录共用当前来源选择与 URL 状态。
  */
-export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES') {
+export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES' | 'GOVERNANCE') {
   const [params, setParams] = useSearchParams();
   const sources = useQuery({
     queryKey: ['datasource-options', purpose],
@@ -43,7 +43,7 @@ export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINES
   });
   const selected =
     sources.data?.find((source) => source.id === params.get('source')) ??
-    (purpose === 'BUSINESS_NOTES'
+    (purpose === 'BUSINESS_NOTES' || purpose === 'GOVERNANCE'
       ? sources.data?.find((source) => source.lifecycle === 'ENABLED')
       : undefined) ??
     sources.data?.[0];

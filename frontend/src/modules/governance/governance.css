@@ -1,0 +1,216 @@
+/* 列表查询延续项目统一的 40px 控件和源内布局。 */
+.gov-query .ant-select {
+  min-width: 156px;
+}
+
+/* 工作台搜索框在下一项换行前保留完整的提示文字。 */
+.gov-query input[aria-label='表名、业务名称或原注释'] {
+  min-width: 180px;
+}
+
+/* 同一行的复核入口紧贴目标字段名称。 */
+.gov-impact-links,
+.gov-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+/* 复核链接为内容保留操作区域，避免多条来源导致名称互相挤压。 */
+.gov-impact-links .ant-btn {
+  padding-inline: 0;
+}
+
+/* 详情沿用 24px 的工作区内距，保留紧凑标题和来源。 */
+.gov-detail-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 24px;
+}
+
+/* 标题只展示实际对象，不重复工作台名称。 */
+.gov-detail-heading h1,
+.gov-entry-title h2,
+.gov-history h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+}
+
+/* 业务源和历史时刻作为次要信息显示。 */
+.gov-detail-heading small,
+.gov-source-summary small,
+.gov-history-row small,
+.gov-column-button small {
+  color: #667085;
+}
+
+/* 所属页签和阻塞状态对齐面板标题。 */
+.gov-detail-panel > .ant-tabs .ant-tabs-nav,
+.gov-source-alert {
+  margin: 0 24px;
+}
+
+/* 保持字段导航和正文的桌面双列布局。 */
+.gov-split {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+}
+
+/* 字段导航保留名称搜索、状态和有效的键盘焦点。 */
+.gov-column-nav {
+  min-width: 0;
+  align-self: start;
+  display: grid;
+  gap: 12px;
+  padding: 20px 16px 24px;
+  border-right: 1px solid #eaecf0;
+}
+
+/* 字段在导航内部滚动，表说明继续沿工作区滚动。 */
+.gov-column-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(52vh, 560px);
+  overflow: auto;
+}
+
+/* 字段命名和原注释保持左对齐，并按现有菜单交互显示当前项。 */
+.gov-column-button {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* 当前、悬停和键盘聚焦给予字段导航明确反馈。 */
+.gov-column-button:hover,
+.gov-column-button[aria-current='true'] {
+  background: #eef4ff;
+}
+
+/* 正文使用后台统一 800px 阅读宽度。 */
+.gov-content {
+  min-width: 0;
+  padding: 24px;
+}
+
+/* 状态、依据、表单与底栏保留同一左轴。 */
+.gov-editor,
+.gov-history {
+  display: grid;
+  gap: 16px;
+  max-width: 800px;
+}
+
+/* 主标题和实际状态同一行，自然换行。 */
+.gov-entry-title,
+.gov-affected,
+.gov-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+/* 来源摘要和实际问题用轻边框衔接，不套多层折叠。 */
+.gov-source-summary,
+.gov-gap {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #eaecf0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+/* 发生变化时保持差异入口和状态紧凑。 */
+.gov-affected .ant-btn {
+  padding-inline: 0;
+}
+
+/* 局部核对区紧贴对应业务字段。 */
+.gov-gap {
+  margin: -12px 0 22px;
+}
+
+/* 状态编码的两列输入和对应操作共享一条轴。 */
+.gov-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+/* 编码增加入口与第一组内容保持空间。 */
+.gov-code-list {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+/* 固定底部动作跟随编辑阅读区，确保长表单完成后仍易办理。 */
+.gov-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  padding: 12px 0;
+  border-top: 1px solid #eaecf0;
+  background: #fff;
+}
+
+/* 历史行之间仅以文本分组分隔。 */
+.gov-history-row {
+  padding-block: 8px;
+  border-bottom: 1px solid #eaecf0;
+}
+
+/* 原文和长差异保留业务原换行，避免撑出整个 PC 工作区。 */
+.gov-pre-line,
+.gov-source-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 小型侧栏的空态不占据完整结果面板。 */
+.gov-empty,
+.gov-column-pages {
+  margin: 8px 0 0;
+  color: #667085;
+}
+
+/* 建议按业务项与当前内容并排核对，两列都可独立断行。 */
+.gov-ai-difference {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #eaecf0;
+}
+
+/* 将内容起点对齐核对项，避免多行差异挤占弹窗底栏。 */
+.gov-ai-difference p {
+  margin: 0;
+}
+
+/* 低宽度 PC 窗口维持桌面双列并收紧字段导航。 */
+@media (max-width: 1100px) {
+  /* 只压缩字段导航宽度，表单保持正常阅读尺寸。 */
+  .gov-split {
+    grid-template-columns: 184px minmax(0, 1fr);
+  }
+}

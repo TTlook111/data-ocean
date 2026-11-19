@@ -32,6 +32,8 @@
 
 ## 模块定位专题
 
+表说明与字段治理已接入正式 [React 工作台](../../frontend/README.md#表说明与字段治理)与 [Java 治理模块](../../backend/README.md#表说明与字段治理)。Python 的表说明生成入口见[表说明生成](../../python-service/README.md#表说明生成)。当前实测范围见[C 批验收](../backend/governance/验收.md)。
+
 001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
 
 | 模块 |

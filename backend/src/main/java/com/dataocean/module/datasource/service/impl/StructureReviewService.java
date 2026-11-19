@@ -228,6 +228,8 @@ public class StructureReviewService {
                             proposal.getEvidence().strip(),
                             object,
                             revision);
+                    // 核实结果与对应治理影响一起生效。
+                    events.structure(source, null, id);
                     events.catalog(source, current.getCurrentSnapshotId(), records.catalogVersion(source));
                     auditChange(current, view, proposal, command);
                     return new MutationVO(command, "structure_change", view.changeId(), view.version() + 1);

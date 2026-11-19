@@ -25,6 +25,7 @@ import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -64,7 +65,12 @@ public class MethodPermissionConfiguration {
                 // 漏写声明时拒绝直接进入接口。
                 throw BizIllegalException.denied();
             }
-            if (requirement.access() != RequirePermission.Access.PUBLIC) {
+            if (requirement.access() == RequirePermission.Access.SERVICE) {
+                // 内部控制器仅接受服务过滤链已经验证的非会话主体。
+                if (!(authentication.get() instanceof JwtAuthenticationToken service) || !service.isAuthenticated()) {
+                    throw BizIllegalException.denied();
+                }
+            } else if (requirement.access() != RequirePermission.Access.PUBLIC) {
                 // 仅登录的接口也要求当前应用认可的会话主体。
                 UserContext.current();
             }
@@ -106,6 +112,11 @@ public class MethodPermissionConfiguration {
                     throw new IllegalStateException("接口缺少可执行的权限声明：" + handler);
                 }
                 boolean publicAccess = requirement.access() == RequirePermission.Access.PUBLIC;
+                if (mapping.getPatternValues().stream().anyMatch(path ->
+                        path.startsWith("/internal/v1/") != (requirement.access() == RequirePermission.Access.SERVICE))) {
+                    // 内部服务入口与浏览器功能权限不可共用路径。
+                    throw new IllegalStateException("控制器服务身份声明与路径不一致：" + handler);
+                }
                 if (mapping.getPatternValues().stream()
                         .anyMatch(path -> CurrentIdentityFilter.PUBLIC_PATHS.contains(path) != publicAccess)) {
                     // 每条实际业务映射的公开声明须和会话过滤链一致。

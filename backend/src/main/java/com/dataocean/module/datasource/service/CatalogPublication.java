@@ -224,6 +224,8 @@ public class CatalogPublication {
             // 任务状态没有同步提交时回滚目录切换和候选发布。
             throw BizIllegalException.conflict();
         }
+        // 同一来源事务先落实确证结构变化的治理影响和必要的使用限制。
+        events.structure(source.getId(), task.getId(), null);
         events.catalog(source.getId(), candidate, catalogVersion);
     }
 

@@ -62,6 +62,9 @@ const navigation = [
   },
   { key: '/catalog', label: '元数据目录', permission: 'catalog.view', icon: <DatabaseOutlined /> },
   { key: '/business-notes', label: '企业业务说明', permission: 'business-notes.view' },
+  { key: '/governance', label: '治理工作台', permission: 'governance.view' },
+  { key: '/models', label: '模型配置', permission: 'models.view' },
+  { key: '/diagnostics', label: '调用记录与故障', permission: 'diagnostics.view' },
   { key: '/my-requests', label: '我的申请', permission: 'my-requests.view' },
   { key: '/my-access', label: '我的访问范围', permission: 'my-access.view' },
 ];
@@ -118,6 +121,16 @@ const StandaloneStructureChangePage = lazyPage(() =>
 const BusinessNotesPage = lazyPage(() =>
   import('../modules/datasource/BusinessNotesPage').then((m) => m.BusinessNotesPage),
 );
+// 工作台和条目详情按需加载，保留同一治理菜单归属。
+const GovernancePage = lazyPage(() =>
+  import('../modules/governance/GovernancePage').then((m) => m.GovernancePage),
+);
+const GovernanceDetailPage = lazyPage(() =>
+  import('../modules/governance/GovernanceDetailPage').then((m) => m.GovernanceDetailPage),
+);
+// 模型配置与调用记录独立授权，使用各自的后台入口。
+const ModelPage = lazyPage(() => import('../modules/models/ModelPage').then((m) => m.ModelPage));
+const ModelCallsPage = lazyPage(() => import('../modules/models/ModelCallsPage').then((m) => m.ModelCallsPage));
 
 /**
  * 工作区路由同时用于内容渲染与权限、菜单和面包屑定位。
@@ -137,6 +150,12 @@ const workspaceRoutes = [
   { path: '/catalog', element: <CatalogPage /> },
   { path: '/catalog/:id', element: <CatalogObjectPage /> },
   { path: '/business-notes', element: <BusinessNotesPage /> },
+  // 表说明和字段治理的工作台与办理页。
+  { path: '/governance', element: <GovernancePage /> },
+  { path: '/governance/:id', element: <GovernanceDetailPage /> },
+  // 系统配置的真实模型与诊断入口。
+  { path: '/models', element: <ModelPage /> },
+  { path: '/diagnostics', element: <ModelCallsPage /> },
   // 数据访问审批及个人范围。
   { path: '/iam/output-rules', element: <OutputRulesPage /> },
   { path: '/iam/access-requests', element: <RequestsPage key="manage" /> },
@@ -395,10 +414,24 @@ export function Application() {
           },
         ]
       : []),
-    ...futureGroup('governance-group', '数据治理', <DeploymentUnitOutlined />, [
-      ['governance-dashboard', '治理概览'],
-      ['governance', '治理工作台'],
-    ]),
+    // 保留治理概览预留位置，工作台使用真实目录和接口。
+    ...(['governance-dashboard.view', 'governance.view'].some((code) =>
+      session.permissionCodes.includes(code),
+    )
+      ? [
+          {
+            key: 'governance-group',
+            label: '数据治理',
+            icon: <DeploymentUnitOutlined />,
+            children: [
+              ...(session.permissionCodes.includes('governance-dashboard.view')
+                ? [{ key: 'pending-governance-dashboard', label: '治理概览', disabled: true }]
+                : []),
+              ...visible.filter(({ key }) => key === '/governance').map(({ key, label }) => ({ key, label })),
+            ],
+          },
+        ]
+      : []),
     ...futureGroup('knowledge-group', '知识库与发布', <BookOutlined />, [
       ['knowledge-dashboard', '知识概览'],
       ['knowledge', '知识文档'],
@@ -426,10 +459,15 @@ export function Application() {
           },
         ]
       : []),
-    ...futureGroup('system-group', '系统配置', <SettingOutlined />, [
-      ['models', '模型配置'],
-      ['diagnostics', '调用记录与故障'],
-    ]),
+    ...(visible.some(({ key }) => key === '/models' || key === '/diagnostics')
+      ? [{
+          key: 'system-group',
+          label: '系统配置',
+          icon: <SettingOutlined />,
+          children: visible.filter(({ key }) => key === '/models' || key === '/diagnostics')
+            .map(({ key, label }) => ({ key, label })),
+        }]
+      : []),
     {
       key: 'personal-group',
       label: '个人管理',

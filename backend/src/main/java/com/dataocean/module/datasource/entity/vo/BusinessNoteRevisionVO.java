@@ -16,6 +16,11 @@ import lombok.Data;
 public class BusinessNoteRevisionVO {
 
     /**
+     * 可用于治理引用的不可变修订标识。
+     */
+    private String revisionId;
+
+    /**
      * 该版内容修订号。
      */
     private int revision;

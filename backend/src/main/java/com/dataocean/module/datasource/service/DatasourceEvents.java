@@ -6,6 +6,7 @@ import com.dataocean.module.iam.mapper.OutboxMapper;
 
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,11 @@ public class DatasourceEvents {
     private final JsonCodec json;
 
     /**
+     * 同步通知同一平台事务中的治理投影。
+     */
+    private final ApplicationEventPublisher applicationEvents;
+
+    /**
      * 记录已接收的任务定位，避免通知回包丢失使任务消失。
      */
     public void accepted(long source, String task, String command, int version) {
@@ -44,6 +50,13 @@ public class DatasourceEvents {
                 version,
                 null,
                 new CatalogRef(Long.toString(source), snapshot == null ? null : Long.toString(snapshot), version));
+    }
+
+    /**
+     * 只在结构发布或核实的事务内更新实际治理影响。
+     */
+    public void structure(long source, String task, Long change) {
+        applicationEvents.publishEvent(new SourceStructureChanged(source, task, change));
     }
 
     /**
@@ -84,19 +97,21 @@ public class DatasourceEvents {
     /**
      * 已被采用的资料变更以稳定引用通知下游。
      */
-    public void businessNote(long source, long note, int revision, String change) {
+    public void businessNote(long source, long note, int revision, int version, long before, Long after) {
+        applicationEvents.publishEvent(new SourceNoteChanged(source, note, version, before, after));
         append(
                 "datasource.business-note.changed",
                 source,
-                revision,
+                version,
                 null,
-                new BusinessNoteRef(Long.toString(source), Long.toString(note), revision, change));
+                new BusinessNoteRef(Long.toString(source), Long.toString(note), revision, version,
+                        after == null ? "WITHDRAWN" : "CONTENT_CHANGED"));
     }
 
     /**
      * 仅保存资料、修订和实际变更类型的事件载荷。
      */
-    private record BusinessNoteRef(String sourceId, String noteId, int revision, String change) {}
+    private record BusinessNoteRef(String sourceId, String noteId, int revision, int noteVersion, String change) {}
 
     /**
      * 当前陈旧提醒只包含来源及权威时间。

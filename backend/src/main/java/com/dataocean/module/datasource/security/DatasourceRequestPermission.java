@@ -109,6 +109,7 @@ public class DatasourceRequestPermission implements RequestPermission {
             case "CATALOG" -> "catalog.view";
             case "COLLECTIONS" -> "collections.view";
             case "BUSINESS_NOTES" -> "business-notes.view";
+            case "GOVERNANCE" -> "governance.view";
             default -> throw BizIllegalException.invalid("数据源选项用途不正确");
         };
     }

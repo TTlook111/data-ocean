@@ -75,6 +75,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 业务字段约束沿用结构化错误，前端可定位实际缺口。
+     */
+    @ExceptionHandler(FieldValidationException.class)
+    ResponseEntity<Result<ErrorVO>> businessFields(FieldValidationException error) {
+        return ResponseEntity.badRequest().body(
+                new Result<>(error.getCode(), error.getMessage(), new ErrorVO(error.getFields(), null, null)));
+    }
+
+    /**
      * 仅返回字段名和安全提示，禁止回显校验拒绝的密码值。
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
