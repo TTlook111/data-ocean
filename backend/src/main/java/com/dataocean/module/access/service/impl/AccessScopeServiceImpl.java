@@ -198,6 +198,7 @@ public class AccessScopeServiceImpl implements AccessScopeService {
                         OrderItem.desc("visible.membership_id")),
                 Ids.nullable(query.getSourceId()),
                 Ids.nullable(query.getRequestId()),
+                Ids.nullable(query.getGrantId()),
                 pattern(query.getApplicant()),
                 pattern(query.getHandler()),
                 pattern(query.getKeyword()),

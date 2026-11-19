@@ -2,7 +2,6 @@ import {
   Alert,
   Button,
   Descriptions,
-  Drawer,
   Form,
   Input,
   Modal,
@@ -15,8 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../shared/api';
-import { DetailFooter, displayTime, ReadState } from '../../shared/Records';
-import { useReturnFocus } from '../../shared/useReturnFocus';
+import { displayTime, ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { allowed, useSession } from '../../shared/session';
 import { ReviewDialog } from '../../shared/ReviewDialog';
@@ -25,6 +23,7 @@ import type { Preview } from '../iam/types';
 import {
   accessPath,
   accessList,
+  AccessDetailDrawer,
   AccessEditor,
   AccessGrid,
   AccessPerson,
@@ -50,11 +49,14 @@ import type {
  */
 export function GrantsPage() {
   const session = useSession();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const [selected, setSelected] = useState<GrantDirectoryEntry>();
   const [revoking, setRevoking] = useState<AccessGrant>();
   const [requestId, setRequestId] = useState<string>();
   const fromRequest = params.get('requestId');
+  const fromGrant = params.get('grantId');
+  const auditReturn = params.get('auditReturn');
   const canRevoke = allowed(session, 'grants.revoke');
   return (
     <>
@@ -62,11 +64,26 @@ export function GrantsPage() {
         path="/grant-directory"
         rowKey="id"
         empty="暂无授权记录"
+        action={
+          auditReturn && allowed(session, 'audit.view') ? (
+            <Button
+              onClick={() => {
+                // 目标固定为审计页，查询串恢复原条件和打开的记录。
+                void navigate({ pathname: '/iam/audit', search: auditReturn }, { replace: true });
+              }}
+            >
+              返回审计记录
+            </Button>
+          ) : undefined
+        }
         filters={[
-          { name: 'applicant', placeholder: '被授权人', ariaLabel: '被授权人姓名或登录名' },
+          { name: 'applicant', placeholder: '被授权人姓名或登录名' },
           { name: 'sourceId', placeholder: '数据源', kind: 'source' },
-          { name: fromRequest ? 'requestId' : 'keyword', placeholder: '来源名称或编号' },
-          { name: 'handler', placeholder: '批准人', ariaLabel: '批准人姓名或登录名' },
+          {
+            name: fromGrant ? 'grantId' : fromRequest ? 'requestId' : 'keyword',
+            placeholder: fromGrant ? '授权来源编号' : '来源名称或编号',
+          },
+          { name: 'handler', placeholder: '批准人姓名或登录名' },
           {
             name: 'state',
             placeholder: '全部状态',
@@ -136,10 +153,11 @@ export function GrantsPage() {
           },
           {
             title: '操作',
-            width: 116,
+            className: 'record-actions-cell',
+            width: 140,
             fixed: 'right',
             render: (_, entry) => (
-              <Space size={12} className="access-row-actions">
+              <Space size={8} className="row-actions">
                 <Button type="link" onClick={() => setSelected(entry)}>
                   详情
                 </Button>
@@ -193,7 +211,6 @@ function GrantDirectoryDrawer({
   openRequest: (id: string) => void;
   revoke: (row: AccessGrant) => void;
 }) {
-  useReturnFocus();
   const session = useSession();
   const item = entry.request ?? entry.department;
   const request = entry.request;
@@ -206,13 +223,12 @@ function GrantDirectoryDrawer({
   });
   const scope = request?.joint ? joint.data?.items : [item];
   return (
-    <Drawer
-      open
-      width={650}
+    <AccessDetailDrawer
+      size={650}
       title="授权详情"
-      onClose={close}
-      footer={
-        <DetailFooter close={close}>
+      close={close}
+      actions={
+        <>
           {request && <Button onClick={() => openRequest(request.requestId)}>查看申请</Button>}
           {department && allowed(session, 'departments.view') && (
             <Button href={`/iam/departments?department=${department.departmentId}&tab=template`}>
@@ -224,7 +240,7 @@ function GrantDirectoryDrawer({
               撤销授权
             </Button>
           )}
-        </DetailFooter>
+        </>
       }
     >
       <div className="access-detail-heading">
@@ -299,7 +315,7 @@ function GrantDirectoryDrawer({
           />
         </>
       )}
-    </Drawer>
+    </AccessDetailDrawer>
   );
 }
 
@@ -371,7 +387,8 @@ function PersonalGrants({ mine = false }: { mine?: boolean }) {
           { title: '生效时间', width: 160, render: (_, row) => displayTime(row.startedAt) },
           {
             title: '操作',
-            width: 85,
+            className: 'record-actions-cell',
+            width: 90,
             fixed: 'right',
             render: (_, row) =>
               !mine && row.state !== 'ENDED' && allowed(session, 'grants.revoke') ? (
@@ -385,19 +402,14 @@ function PersonalGrants({ mine = false }: { mine?: boolean }) {
         ]}
       />
       {selected && !requestId && (
-        <Drawer
-          open
+        <AccessDetailDrawer
           title={selected.source.name}
-          width={640}
-          onClose={() => setSelected(undefined)}
-          footer={
-            !mine || allowed(session, 'my-requests.view') ? (
-              <div className="access-footer">
-                <Button type="primary" onClick={() => setRequestId(selected.requestId)}>
-                  查看申请
-                </Button>
-              </div>
-            ) : undefined
+          size={640}
+          close={() => setSelected(undefined)}
+          actions={
+            (!mine || allowed(session, 'my-requests.view')) && (
+              <Button onClick={() => setRequestId(selected.requestId)}>查看申请</Button>
+            )
           }
         >
           <Descriptions
@@ -430,7 +442,7 @@ function PersonalGrants({ mine = false }: { mine?: boolean }) {
                 : []),
             ]}
           />
-        </Drawer>
+        </AccessDetailDrawer>
       )}
       {requestId && <RequestDrawer readOnly id={requestId} close={() => setRequestId(undefined)} />}
       {revoking && <RevokeEditor row={revoking} close={() => setRevoking(undefined)} />}
@@ -495,11 +507,10 @@ function DepartmentGrants({ mine = false }: { mine?: boolean }) {
         ]}
       />
       {selected && (
-        <Drawer
-          open
+        <AccessDetailDrawer
           title={selected.source.name}
-          width={600}
-          onClose={() => setSelected(undefined)}
+          size={600}
+          close={() => setSelected(undefined)}
         >
           <Descriptions
             column={2}
@@ -533,7 +544,7 @@ function DepartmentGrants({ mine = false }: { mine?: boolean }) {
               },
             ]}
           />
-        </Drawer>
+        </AccessDetailDrawer>
       )}
     </>
   );
@@ -722,6 +733,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
       <div className={userId ? undefined : 'panel records-panel access-records'}>
         {/* 窗口重新获焦时保留当前来源与可操作入口。 */}
         <RecordTable<AccessScope>
+          scroll={userId ? { x: 580 } : undefined}
           rowKey={(row) => row.source.id}
           dataSource={userId ? data : data.slice((page - 1) * size, page * size)}
           loading={read.isPending}
@@ -747,18 +759,33 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
                 }
           }
           columns={[
-            { title: '数据源', width: 170, render: (_, row) => row.source.name },
+            {
+              title: '数据源',
+              width: userId ? 126 : 170,
+              ellipsis: true,
+              render: (_, row) => row.source.name,
+            },
             {
               title: '当前输出限制',
-              width: 300,
+              width: userId ? 168 : 300,
               ellipsis: true,
               render: (_, row) => row.rules.map((rule) => rule.name).join('、'),
             },
-            { title: '有效来源', width: 96, render: (_, row) => `${row.origins.length} 笔` },
-            { title: '状态', width: 96, render: () => <AccessStatus value="EFFECTIVE" /> },
+            {
+              title: '有效来源',
+              width: userId ? 82 : 96,
+              align: 'right',
+              render: (_, row) => `${row.origins.length} 笔`,
+            },
+            {
+              title: '状态',
+              width: userId ? 84 : 96,
+              render: () => <AccessStatus value="EFFECTIVE" />,
+            },
             {
               title: '操作',
-              width: 110,
+              className: 'record-actions-cell',
+              width: 116,
               fixed: userId ? undefined : 'right',
               render: (_, row) => (
                 <Button type="link" onClick={() => setSelected(row)}>
@@ -770,13 +797,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
         />
       </div>
       {selected && !requestId && (
-        <Drawer
-          open
-          title="数据访问详情"
-          width={600}
-          footer={<DetailFooter close={() => setSelected(undefined)} />}
-          onClose={() => setSelected(undefined)}
-        >
+        <AccessDetailDrawer title="数据访问详情" size={600} close={() => setSelected(undefined)}>
           <div className="access-detail-heading">
             <h2>{selected.source.name}</h2>
             <AccessStatus value={current ? 'EFFECTIVE' : 'ENDED'} />
@@ -800,7 +821,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
               )}
             </div>
           ))}
-        </Drawer>
+        </AccessDetailDrawer>
       )}
       {requestId && <RequestDrawer readOnly id={requestId} close={() => setRequestId(undefined)} />}
     </section>
@@ -889,6 +910,7 @@ function DepartmentAccessEditor({
   return (
     <AccessEditor
       title="配置初始访问"
+      successMessage="部门初始访问已更新"
       context={`${row.name} · 本部门直属 ${row.memberCount} 人`}
       form={form}
       close={close}

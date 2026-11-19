@@ -126,6 +126,7 @@ export function StructureChanges({ source }: { source: string }) {
               toDate: values.dates?.[1]?.format('YYYY-MM-DD'),
             };
             setParams(new URLSearchParams(queryString(next)));
+            form.focusField('keyword');
           }}
         >
           <Form.Item name="keyword">
@@ -157,7 +158,10 @@ export function StructureChanges({ source }: { source: string }) {
           {/* 变化筛选和采集记录共用完整的日期及查询操作布局。 */}
           <div className="query-tail ds-date-query-tail">
             <Form.Item name="dates">
-              <DatePicker.RangePicker placeholder={['发现开始日期', '发现结束日期']} />
+              <DatePicker.RangePicker
+                aria-label="发现时间范围"
+                placeholder={['开始日期', '结束日期']}
+              />
             </Form.Item>
             <Form.Item name="stage" className="status-query">
               <Select
@@ -236,11 +240,37 @@ export function StructureChanges({ source }: { source: string }) {
         />
       </section>
       <Drawer
-        title={detail.data?.target ?? '结构变化'}
-        width={600}
+        title={
+          <span className="cell-text" title={detail.data?.target}>
+            {detail.data?.target ?? '结构变化'}
+          </span>
+        }
+        size="min(600px, calc(100vw - 80px))"
+        className="record-details-drawer access-detail-drawer"
+        closable={{ placement: 'end' }}
         open={Boolean(id)}
         onClose={() => setId(null)}
         destroyOnHidden
+        footer={
+          <DetailFooter close={() => setId(null)}>
+            {detail.data && (
+              <>
+                <Button
+                  onClick={() =>
+                    navigate('/collections?source=' + source + '&task=' + detail.data?.sourceTaskId)
+                  }
+                >
+                  查看来源采集
+                </Button>
+                {detail.data.factState === 'PENDING' && allowed(session, 'collections.review') && (
+                  <Button type="primary" onClick={() => setChecking(detail.data ?? null)}>
+                    核实变化
+                  </Button>
+                )}
+              </>
+            )}
+          </DetailFooter>
+        }
       >
         <ReadState
           error={detail.error}
@@ -301,20 +331,6 @@ export function StructureChanges({ source }: { source: string }) {
                   <pre>{displayValue(detail.data.after)}</pre>
                 </section>
               </div>
-              <DetailFooter close={() => setId(null)}>
-                <Button
-                  onClick={() =>
-                    navigate('/collections?source=' + source + '&task=' + detail.data?.sourceTaskId)
-                  }
-                >
-                  查看来源采集
-                </Button>
-                {detail.data.factState === 'PENDING' && allowed(session, 'collections.review') && (
-                  <Button type="primary" onClick={() => setChecking(detail.data ?? null)}>
-                    核实变化
-                  </Button>
-                )}
-              </DetailFooter>
             </>
           )}
         </ReadState>

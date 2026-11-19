@@ -43,8 +43,9 @@ export class IdentityFixture {
   /**
    * 登录并读取当前根组织，不依赖固定数据库 ID。
    */
-  async start() {
-    await this.admin.login("admin", developmentPassword);
+  async start(password = developmentPassword) {
+    // 隔离环境可传入已按首登要求完成变更的管理员密码。
+    await this.admin.login("admin", password);
     this.actorId = (await this.admin.ok("/auth/me")).userId;
     this.root = (await this.admin.ok("/iam/departments/tree"))[0];
     assert.ok(this.root?.id);

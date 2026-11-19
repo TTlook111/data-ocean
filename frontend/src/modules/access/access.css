@@ -1,24 +1,3 @@
-/* 访问管理与既有后台列表共享横向布局。 */
-.access-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-}
-
-/* 多个筛选项在窄 PC 窗口回行。 */
-.access-toolbar .ant-form-inline {
-  flex-wrap: wrap;
-  row-gap: 8px;
-}
-
-/* 选择器匹配其所处查询栏的标准宽度。 */
-.access-toolbar .ant-select,
-.access-toolbar > .ant-input-affix-wrapper {
-  min-width: 152px;
-}
-
 /* 数据源页签沿用后台工作区背景。 */
 .access-source-tabs > .ant-tabs-nav {
   margin-bottom: 12px;
@@ -159,40 +138,54 @@
 .access-request-history {
   margin-top: 16px;
 }
-/* 日期和查询按钮在窄桌面同组换行，延续原型的筛选顺序。 */
-.query-panel.access-toolbar .ant-form-item {
-  flex: 1 1 150px;
-  min-width: 132px;
+/* 访问类查询沿用后台 200px 文字列，选择和日期采用各自宽度预算。 */
+.query-panel.access-toolbar .access-select-field {
+  flex: 0 1 260px;
+  min-width: 180px;
+  max-width: 320px;
 }
 
 .query-panel.access-toolbar .access-status-field {
-  flex: 0.9 1 135px;
+  flex: 0 1 200px;
+  min-width: 160px;
+  max-width: 240px;
 }
 
-/* 选项控件跟随所分配列宽，窄窗时不会覆盖相邻条件。 */
+/* 选项控件跟随字段宽度，窄窗时不覆盖相邻条件。 */
 .access-toolbar .ant-form-item .ant-select {
-  min-width: 0;
   width: 100%;
 }
 
+/* 有业务主操作时允许操作组换行；日期或状态与查询、重置共用一组。 */
 .access-query-tail {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
   margin-inline-start: auto;
-  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.access-query-tail.has-status {
+  flex: 1 1 335px;
+  min-width: min(335px, 100%);
+}
+
+/* 新增等业务操作与状态、查询、重置在窄桌面整体换行。 */
+.access-query-tail.has-status:has(.ant-btn-primary) {
+  flex-basis: 480px;
+  min-width: min(480px, 100%);
 }
 
 .access-query-tail.has-dates {
-  flex: 1 1 365px;
-  min-width: min(365px, 100%);
-  justify-content: space-between;
+  flex: 1 1 455px;
+  min-width: min(455px, 100%);
+  flex-wrap: wrap;
 }
 
-.query-panel.access-toolbar .access-query-tail .access-date-field {
+.query-panel.access-toolbar .access-date-field {
   flex: 0 1 400px;
-  min-width: 218px;
+  min-width: min(280px, 100%);
   max-width: 400px;
 }
 
@@ -201,18 +194,18 @@
 }
 
 .access-query-actions {
-  flex: none;
+  min-width: 0;
   margin-inline-start: auto;
 }
 
-/* 授权筛选按原型将日期与操作放到第二行，避免单个条件落单。 */
-.access-toolbar .ant-form:has(> .ant-form-item:nth-of-type(5)) > .access-query-tail.has-dates {
-  flex-basis: 100%;
+/* 详情正文和固定底栏共享阅读轴，长说明和连续编号在正文内换行。 */
+.access-detail-drawer .ant-drawer-body {
+  padding: 24px;
+  overflow-wrap: anywhere;
 }
 
-/* 行内链接与操作列共享同一个左侧对齐基线。 */
-.access-row-actions .ant-btn-link {
-  padding-inline: 0;
+.access-detail-drawer .ant-descriptions-view table {
+  table-layout: fixed;
 }
 
 /* 资料使用与目录和采集同宽的来源条，来源与具体资料查询各居一层。 */
@@ -622,15 +615,6 @@
 }
 
 @media (max-width: 1240px) {
-  /* 窄桌面五项常规条件保持同一行，日期与按钮成组。 */
-  .query-panel.access-toolbar .ant-form-item {
-    flex-basis: 132px;
-  }
-
-  .query-panel.access-toolbar .access-query-tail .access-date-field {
-    flex-basis: 320px;
-  }
-
   .approval-document-heading h2 {
     font-size: 24px;
     line-height: 32px;
@@ -650,13 +634,5 @@
     flex: 1 1 0;
     min-height: 310px;
     overflow: hidden;
-  }
-}
-
-/* 1024px 桌面中的授权筛选仍保留整组日期与查询操作。 */
-@media (max-width: 1100px) {
-  .query-panel.access-toolbar .ant-form-item {
-    flex-basis: 126px;
-    min-width: 126px;
   }
 }

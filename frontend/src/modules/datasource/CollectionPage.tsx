@@ -316,6 +316,7 @@ export function CollectionPage() {
                       }).replace(/^\?/, ''),
                     ),
                   );
+                  form.focusField('taskNoKeyword');
                 }}
               >
                 <Form.Item name="taskNoKeyword">
@@ -337,7 +338,10 @@ export function CollectionPage() {
                 {/* 日期区间、状态和按钮共同换行，保持既定的筛选顺序。 */}
                 <div className="query-tail ds-date-query-tail">
                   <Form.Item name="dates">
-                    <DatePicker.RangePicker placeholder={['开始日期', '结束日期']} />
+                    <DatePicker.RangePicker
+                      aria-label="采集开始时间范围"
+                      placeholder={['开始日期', '结束日期']}
+                    />
                   </Form.Item>
                   <Form.Item name="state" className="status-query">
                     <Select
@@ -428,7 +432,7 @@ export function CollectionPage() {
                     render: (_, item) => <DatasourceStatus value={item.state} />,
                   },
                   {
-                    title: '结果',
+                    title: '采集结果',
                     width: 190,
                     render: (_, item) =>
                       item.content?.failureMessage ??
@@ -467,8 +471,8 @@ export function CollectionPage() {
             '采集任务'
           )
         }
-        width={600}
-        className="record-details-drawer ds-task-drawer"
+        size="min(600px, calc(100vw - 80px))"
+        className="record-details-drawer ds-task-drawer access-detail-drawer"
         closable={{ placement: 'end' }}
         open={Boolean(opened)}
         onClose={() => setOpened(null)}

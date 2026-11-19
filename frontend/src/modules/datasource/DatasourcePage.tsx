@@ -350,10 +350,14 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
       </section>
       {/* 连接与定时详情保持侧栏内，与原列表条件和页码独立。 */}
       <Drawer
-        width={580}
+        size="min(580px, calc(100vw - 80px))"
         className="record-details-drawer ds-source-drawer"
         closable={{ placement: 'end' }}
-        title={detail.data?.source.name ?? '数据源详情'}
+        title={
+          <span className="cell-text" title={detail.data?.source.name}>
+            {detail.data?.source.name ?? '数据源详情'}
+          </span>
+        }
         open={Boolean(opened)}
         onClose={() => setOpened(null)}
         destroyOnHidden

@@ -173,7 +173,37 @@ public class AuditServiceImpl implements AuditService {
     private AuditRowVO row(AuditPO data) {
         AuditRowVO result = new AuditRowVO();
         fillRow(result, data);
+        if (isApproval(data)) {
+            // 只解析成功批准记录的历史差异，普通列表无需读取其他业务详情。
+            fillApprovalEffect(result, json.read(data.getAfterSummary(), AuditSummaryVO.class));
+        }
         return result;
+    }
+
+    /**
+     * 成功的申请批准才有可展示的生效结果。
+     */
+    private boolean isApproval(AuditPO data) {
+        return "access-requests.review".equals(data.getActionCode())
+                && "SUCCESS".equals(data.getOutcome())
+                && data.getAfterSummary() != null;
+    }
+
+    /**
+     * 从审批当时的子项差异区分待联合生效和已生效，后续撤销不改变原记录。
+     */
+    private void fillApprovalEffect(AuditRowVO result, AuditSummaryVO summary) {
+        var states = summary.getChanges().stream()
+                .filter(change -> "item".equals(change.getField()))
+                .map(change -> change.getAfter())
+                .toList();
+        if (states.contains("EFFECTIVE")) {
+            // 独立批准或联合末项通过时，生效来源已经提交。
+            result.setApprovalEffect("EFFECTIVE");
+        } else if (states.contains("APPROVED")) {
+            // 联合审批的中间决定保留批准结论，等待剩余子项。
+            result.setApprovalEffect("APPROVED");
+        }
     }
 
     /**
@@ -204,6 +234,10 @@ public class AuditServiceImpl implements AuditService {
         // 详情在同一份审计概览字段上补充业务明细。
         AuditDetailVO result = new AuditDetailVO();
         fillRow(result, data);
+        if (isApproval(data)) {
+            // 详情复用同一份已解析的历史快照。
+            fillApprovalEffect(result, summary);
+        }
         result.setReason(data.getReason());
         result.setChanges(summary.getChanges());
         result.setSecurityVersion(Ids.text(data.getSecurityVersion()));

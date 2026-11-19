@@ -1,4 +1,16 @@
-import { Alert, App, Button, DatePicker, Form, Input, Modal, Select, Space, Tag } from 'antd';
+import {
+  Alert,
+  App,
+  Button,
+  DatePicker,
+  Drawer,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Tag,
+} from 'antd';
 import type { FormInstance, SelectProps, TableProps } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -8,8 +20,9 @@ import { useSearchParams } from 'react-router';
 import type { Page, Preview } from '../iam/types';
 import { api, mutation, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
-import { readErrorMessage } from '../../shared/Records';
+import { DetailFooter, readErrorMessage } from '../../shared/Records';
 import { useFormClose } from '../../shared/useFormClose';
+import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { OutputRule, PersonOption, SourceOption } from './types';
 
 /**
@@ -205,6 +218,8 @@ export function AccessToolbar({
   const [form] = Form.useForm<Record<string, string | [string, string] | undefined>>();
   const dates = filters.filter((item) => item.date);
   const fields = filters.filter((item) => !item.date);
+  const trailingStatus =
+    !dates.length && fields.at(-1)?.name === 'state' ? fields.at(-1) : undefined;
   const dateRange: [string, string] | undefined =
     query.dateFrom && query.dateTo ? [query.dateFrom, query.dateTo] : undefined;
   const rangeName = dates[0]?.placeholder ?? '';
@@ -255,6 +270,39 @@ export function AccessToolbar({
     }
   }
 
+  /**
+   * 同一筛选字段在独立位置或末尾分组中沿用相同控件。
+   */
+  function renderField({ name, placeholder, ariaLabel, options, kind }: AccessFilter) {
+    const fieldClass =
+      name === 'state'
+        ? 'access-status-field'
+        : kind || options
+          ? 'access-select-field'
+          : undefined;
+    return (
+      <Form.Item key={name} name={name} className={fieldClass}>
+        {kind ? (
+          <AccessSelect kind={kind} label={placeholder} allowClear />
+        ) : options ? (
+          <Select
+            aria-label={ariaLabel ?? placeholder}
+            placeholder={placeholder}
+            options={options}
+            allowClear
+          />
+        ) : (
+          <Input
+            aria-label={ariaLabel ?? placeholder}
+            title={ariaLabel}
+            placeholder={placeholder}
+            allowClear
+          />
+        )}
+      </Form.Item>
+    );
+  }
+
   return (
     <div className="panel query-panel access-toolbar">
       <Form
@@ -263,40 +311,25 @@ export function AccessToolbar({
         initialValues={{ ...query, dates: dateRange }}
         onFinish={apply}
       >
-        {/* 原型的主要搜索条件和当前状态排在日期组之前。 */}
-        {fields.map(({ name, placeholder, ariaLabel, options, kind }) => (
-          <Form.Item
-            key={name}
-            name={name}
-            className={name === 'state' ? 'access-status-field' : undefined}
-          >
-            {kind ? (
-              <AccessSelect kind={kind} label={placeholder} allowClear />
-            ) : options ? (
-              <Select
-                aria-label={placeholder}
-                placeholder={placeholder}
-                options={options}
-                allowClear
-              />
-            ) : (
-              <Input
-                aria-label={ariaLabel ?? placeholder}
-                title={ariaLabel}
-                placeholder={placeholder}
-                allowClear
-              />
-            )}
-          </Form.Item>
-        ))}
+        {/* 日期组维持原顺序，无日期时末项状态与查询按钮同组。 */}
+        {fields.filter((field) => field !== trailingStatus).map(renderField)}
         {(filters.length > 0 || action) && (
-          <div className={dates.length ? 'access-query-tail has-dates' : 'access-query-tail'}>
+          <div
+            className={
+              dates.length
+                ? 'access-query-tail has-dates'
+                : trailingStatus
+                  ? 'access-query-tail has-status'
+                  : 'access-query-tail'
+            }
+          >
+            {trailingStatus && renderField(trailingStatus)}
             {dates.length > 0 && (
               <Form.Item name="dates" className="access-date-field">
                 <AccessDateRange label={rangeName} />
               </Form.Item>
             )}
-            <Space className="access-query-actions">
+            <Space wrap className="access-query-actions">
               {filters.length > 0 && (
                 <>
                   <Button htmlType="submit">查询</Button>
@@ -340,6 +373,47 @@ function AccessDateRange({
         );
       }}
     />
+  );
+}
+
+/**
+ * 访问与资料回看复用固定底栏，关闭详情后交还原入口焦点。
+ */
+export function AccessDetailDrawer({
+  title,
+  size,
+  close,
+  actions,
+  children,
+}: {
+  /** 当前详情名称，长名称在标题栏内省略。 */
+  title: string;
+  /** 正常窗口下的阅读宽度，单位为像素。 */
+  size: number;
+  /** 关闭当前详情。 */
+  close: () => void;
+  /** 当前账号可执行的详情操作。 */
+  actions?: ReactNode;
+  /** 可独立滚动的详情正文。 */
+  children: ReactNode;
+}) {
+  useReturnFocus();
+  return (
+    <Drawer
+      open
+      className="record-details-drawer access-detail-drawer"
+      size={'min(' + size + 'px, calc(100vw - 80px))'}
+      closable={{ placement: 'end' }}
+      title={
+        <span className="cell-text" title={title}>
+          {title}
+        </span>
+      }
+      onClose={close}
+      footer={<DetailFooter close={close}>{actions}</DetailFooter>}
+    >
+      {children}
+    </Drawer>
   );
 }
 
@@ -482,6 +556,7 @@ export function AccessSelect({
 export function AccessEditor<T extends object>({
   title,
   reviewTitle,
+  successMessage,
   context,
   form,
   initialValues,
@@ -497,6 +572,8 @@ export function AccessEditor<T extends object>({
 }: {
   title: string;
   reviewTitle?: string;
+  /** 操作落地后确认的交付结果。 */
+  successMessage: string;
   context?: ReactNode;
   form: FormInstance<T>;
   initialValues?: Partial<T>;
@@ -530,7 +607,7 @@ export function AccessEditor<T extends object>({
       // 写入成功后回读当前列表及来源。
       await save(review.values, review.command, review.preview?.reviewToken);
       await cache.invalidateQueries();
-      message.success('操作已完成');
+      message.success(successMessage);
       done?.();
       close();
     } catch (failure) {
@@ -610,6 +687,10 @@ export function AccessEditor<T extends object>({
         layout="vertical"
         hidden={Boolean(review)}
         onFinish={(values) => void prepareSubmission(values)}
+        onFinishFailed={({ errorFields }) => {
+          // 必填或格式错误直接回到第一个需要修正的字段。
+          if (errorFields[0]) form.scrollToField(errorFields[0].name, { focus: true });
+        }}
       >
         {children}
       </Form>

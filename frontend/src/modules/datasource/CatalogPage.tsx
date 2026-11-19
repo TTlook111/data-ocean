@@ -167,13 +167,15 @@ export function CatalogPage() {
                 form={form}
                 layout="inline"
                 initialValues={Object.fromEntries(params)}
-                onFinish={(values) =>
+                onFinish={(values) => {
+                  // 查询留在当前来源，并把键盘位置交回关键词。
                   setParams(
                     new URLSearchParams(
                       queryString({ ...values, source: selected.id, pageSize: size }),
                     ),
-                  )
-                }
+                  );
+                  form.focusField('objectKeyword');
+                }}
               >
                 <Form.Item name="objectKeyword">
                   <Input

@@ -62,6 +62,11 @@ public class AccessListQuery extends PageQuery {
     private String requestId;
 
     /**
+     * 授权来源目录按审计目标精确查找一笔个人来源。
+     */
+    private String grantId;
+
+    /**
      * 日期范围起点，含当天。
      */
     private LocalDate dateFrom;

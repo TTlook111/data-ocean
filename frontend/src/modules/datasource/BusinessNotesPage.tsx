@@ -2,13 +2,13 @@ import {
   Alert,
   App,
   Button,
-  Drawer,
   Form,
   Input,
   Modal,
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd';
@@ -16,7 +16,7 @@ import type { UploadFile } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useBlocker, useNavigate } from 'react-router';
-import { AccessGrid, AccessPerson } from '../access/AccessControls';
+import { AccessDetailDrawer, AccessGrid, AccessPerson } from '../access/AccessControls';
 import type { PersonOption } from '../access/types';
 import { api, mutation } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -282,13 +282,14 @@ export function BusinessNotesPage() {
             },
             {
               title: '操作',
-              width: 158,
+              className: 'record-actions-cell',
+              width: 190,
               fixed: 'right',
               render: (_, row) =>
                 selected.lifecycle === 'RETIRED' ? (
                   '—'
                 ) : (
-                  <Space size={4}>
+                  <Space size={8} className="row-actions">
                     {row.state === 'ACTIVE' && allowed(session, 'business-notes.replace') && (
                       <Button type="link" onClick={() => open('edit', row.id)}>
                         编辑
@@ -310,17 +311,30 @@ export function BusinessNotesPage() {
                         恢复
                       </Button>
                     )}
-                    {allowed(session, 'business-notes.delete') && (
-                      <Button
-                        type="link"
-                        danger
-                        disabled={row.referenceCount > 0}
-                        title={row.referenceCount ? `已被引用 ${row.referenceCount} 次` : undefined}
-                        onClick={() => setStateAction({ row, action: 'DELETE' })}
-                      >
-                        删除
-                      </Button>
-                    )}
+                    {allowed(session, 'business-notes.delete') &&
+                      (row.referenceCount > 0 ? (
+                        <Tooltip
+                          title={'已被引用 ' + row.referenceCount + ' 次，无法删除'}
+                          trigger={['hover', 'focus']}
+                        >
+                          <span
+                            tabIndex={0}
+                            aria-label={'删除不可用，已被引用 ' + row.referenceCount + ' 次'}
+                          >
+                            <Button type="link" danger disabled>
+                              删除
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <Button
+                          type="link"
+                          danger
+                          onClick={() => setStateAction({ row, action: 'DELETE' })}
+                        >
+                          删除
+                        </Button>
+                      ))}
                   </Space>
                 ),
             },
@@ -347,7 +361,7 @@ function NoteDrawer({ id, close }: { id: string; close: () => void }) {
   });
   const row = read.data;
   return (
-    <Drawer open title={row?.content.title ?? '业务说明'} width={640} onClose={close}>
+    <AccessDetailDrawer title={row?.content.title ?? '业务说明'} size={640} close={close}>
       <ReadState loading={read.isPending} error={read.error} retry={() => void read.refetch()}>
         {row && (
           <Space orientation="vertical" className="access-notes-detail">
@@ -386,7 +400,7 @@ function NoteDrawer({ id, close }: { id: string; close: () => void }) {
           </Space>
         )}
       </ReadState>
-    </Drawer>
+    </AccessDetailDrawer>
   );
 }
 

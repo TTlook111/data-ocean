@@ -50,6 +50,11 @@ public class AuditRowVO {
     private String outcome;
 
     /**
+     * 成功批准时保存的生效结果，取 EFFECTIVE 或 APPROVED，其余操作为空。
+     */
+    private String approvalEffect;
+
+    /**
      * 事件或审计真实发生的 UTC 毫秒时刻。
      */
     private Instant occurredAt;

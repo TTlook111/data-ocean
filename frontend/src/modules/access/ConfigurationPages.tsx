@@ -80,7 +80,12 @@ function ResponsibilitiesPage({ header }: { header: ReactNode }) {
             title: '数据源',
             width: 210,
             render: (_, row) => (
-              <Button type="link" className="record-link" onClick={() => setDetail(row)}>
+              <Button
+                type="link"
+                className="record-link"
+                title={row.source.name}
+                onClick={() => setDetail(row)}
+              >
                 {row.source.name}
               </Button>
             ),
@@ -102,7 +107,8 @@ function ResponsibilitiesPage({ header }: { header: ReactNode }) {
             ? [
                 {
                   title: '操作',
-                  width: 112,
+                  className: 'record-actions-cell',
+                  width: 116,
                   fixed: 'right' as const,
                   render: (_: unknown, row: Responsibility) => (
                     <Button type="link" onClick={() => setEditing(row)}>
@@ -167,6 +173,7 @@ export function ResponsibilityEditor({ row, close }: { row: Responsibility; clos
   return (
     <AccessEditor
       title="配置审批责任"
+      successMessage="审批责任已更新"
       context={row.source.name}
       form={form}
       initialValues={{ primaryUserId: row.primary?.id, alternateUserId: row.alternate?.id }}
@@ -281,7 +288,8 @@ export function OutputRulesPage() {
             ? [
                 {
                   title: '操作',
-                  width: 80,
+                  className: 'record-actions-cell',
+                  width: 88,
                   fixed: 'right' as const,
                   render: (_: unknown, row: OutputRule) => (
                     <Button type="link" onClick={() => setEditing(row)}>
@@ -324,6 +332,7 @@ function RuleEditor({ row, close }: { row?: OutputRule; close: () => void }) {
   return (
     <AccessEditor
       title={row ? '编辑规则' : '新增规则'}
+      successMessage={row ? '输出限制规则已更新' : '输出限制规则已新增'}
       form={form}
       initialValues={row ? { name: row.name, content: row.content } : undefined}
       close={close}

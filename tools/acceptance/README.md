@@ -8,7 +8,7 @@
 
 ## B 批授权、资料与数据源退出
 
-从仓库根目录运行，应用应已加载 Flyway V9。脚本复用现有本机 MySQL 容器的管理连接，只在带独立前缀的合成业务库创建测试表和专用只读账号。平台测试数据通过正常业务 API 写入并保留，现有业务库和数据源仅用于只读核对连接类型及端点。确认容器归属、宿主机回环端口和目标后设置：
+从仓库根目录运行，应用应已加载 Flyway V9。脚本复用已核实的本机测试容器，只在带独立前缀的合成业务库创建测试表和专用只读账号。平台测试数据通过正常业务 API 写入并保留，现有源配置仅用于读取连接类型及端点。确认容器归属、宿主机回环端口和目标后设置：
 
 ```powershell
 $env:DATAOCEAN_ACCEPTANCE_URL = 'http://127.0.0.1:18083'
@@ -17,7 +17,9 @@ $env:DATAOCEAN_B_SOURCE_ID = '<本机已核实的 MySQL 合成数据源 ID>'
 node tools/acceptance/data-access.mjs
 ```
 
-接口证据写入 `output/acceptance/data-access/api-report.json`。复验范围与浏览器证据见 [B 批验收](../../docs/backend/access/验收.md)。
+PostgreSQL 使用 `DATAOCEAN_B_FIXTURE=postgres-loopback` 并设置 `DATAOCEAN_B_POSTGRES_CONTAINER` 和对应的 PostgreSQL 测试源 ID。Docker 在 WSL 上运行时设置 `DATAOCEAN_B_DOCKER_DISTRO`。隔离管理员已改密时，通过当前进程的 `DATAOCEAN_B_ADMIN_PASSWORD` 提供该验收口令。
+
+接口证据默认写入 `output/acceptance/data-access/api-report.json`。双库各跑一轮，通过 `DATAOCEAN_B_REPORT_DIR` 分别保留报告。复验范围与浏览器证据见 [B 批验收](../../docs/backend/access/验收.md)。
 
 ## 平台探针
 

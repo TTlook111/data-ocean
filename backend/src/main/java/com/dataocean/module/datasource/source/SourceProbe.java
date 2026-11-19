@@ -3,11 +3,17 @@ package com.dataocean.module.datasource.source;
 import com.dataocean.module.datasource.source.SourceConnection.Type;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.security.cert.CertificateException;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
+import javax.net.ssl.SSLException;
 
 import org.springframework.stereotype.Component;
 
@@ -139,7 +145,10 @@ public class SourceProbe {
                 update(items, 1, "PASS", "已到达源库并完成加密握手");
                 stage = 2;
             }
-            update(items, stage, "FAIL", failureMessage(category));
+            String message = stage == 1 && "SOURCE_NETWORK".equals(category)
+                    ? connectionFailureMessage(exception)
+                    : failureMessage(category);
+            update(items, stage, "FAIL", message);
             return new Report(
                     version,
                     available,
@@ -152,6 +161,30 @@ public class SourceProbe {
         }
         return new Report(
                 version, available, verified, List.copyOf(coverage), List.copyOf(items), safety, "UNVERIFIED", true);
+    }
+
+    /**
+     * 只按已知异常类型细分连接问题，避免把驱动原始错误或连接信息返回给操作人。
+     */
+    private String connectionFailureMessage(SQLException exception) {
+        boolean tlsFailure = false;
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            // DNS 无法解析时，连接与后续测试均未发生。
+            if (cause instanceof UnknownHostException) {
+                return "无法解析数据源主机名，请核对地址";
+            }
+            // 握手异常可能包着实际超时，先保留更具体的失败原因。
+            if (cause instanceof SocketTimeoutException || cause instanceof SQLTimeoutException) {
+                return "连接数据源超时，请核对网络和服务状态";
+            }
+            tlsFailure |= cause instanceof SSLException || cause instanceof CertificateException;
+        }
+        if (tlsFailure) {
+            // 有明确握手或证书异常时，引导核对加密配置。
+            return "数据源 TLS 握手或证书校验失败，请核对证书配置";
+        }
+        // 无明确类型时，只报告连接失败。
+        return "无法连接数据源，请核对网络和服务状态";
     }
 
     /**

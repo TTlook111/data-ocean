@@ -500,6 +500,7 @@ public interface AccessReadMapper {
                 WHERE 1=1
                 <if test="source != null">AND i.source_id=#{source}</if>
                 <if test="request != null">AND r.id=#{request}</if>
+                <if test="grant != null">AND g.id=#{grant}</if>
                 <if test="applicant != null">AND (LOWER(u.display_name) LIKE #{applicant} ESCAPE '!' OR LOWER(u.username) LIKE #{applicant} ESCAPE '!')</if>
                 <if test="approver != null">AND (LOWER(h.display_name) LIKE #{approver} ESCAPE '!' OR LOWER(h.username) LIKE #{approver} ESCAPE '!')</if>
                 <if test="origin != null">AND (CAST(r.id AS CHAR) LIKE #{origin} ESCAPE '!' OR '申请授权' LIKE #{origin} ESCAPE '!')</if>
@@ -517,7 +518,7 @@ public interface AccessReadMapper {
                 JOIN ds_source s ON s.id=c.source_id
                 WHERE (m.left_at IS NULL OR m.left_at &gt; c.started_at)
                   AND (c.ended_at IS NULL OR c.ended_at &gt; m.joined_at)
-                <if test="approver != null or request != null">AND 1=0</if>
+                <if test="approver != null or request != null or grant != null">AND 1=0</if>
                 <if test="source != null">AND c.source_id=#{source}</if>
                 <if test="applicant != null">AND (LOWER(u.display_name) LIKE #{applicant} ESCAPE '!' OR LOWER(u.username) LIKE #{applicant} ESCAPE '!')</if>
                 <if test="origin != null">AND (LOWER(d.name) LIKE #{origin} ESCAPE '!' OR LOWER(d.code) LIKE #{origin} ESCAPE '!' OR '部门初始访问' LIKE #{origin} ESCAPE '!')</if>
@@ -531,6 +532,7 @@ public interface AccessReadMapper {
             Page<GrantDirectoryRow> page,
             @Param("source") Long source,
             @Param("request") Long request,
+            @Param("grant") Long grant,
             @Param("applicant") String applicant,
             @Param("approver") String approver,
             @Param("origin") String origin,

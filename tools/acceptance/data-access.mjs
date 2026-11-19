@@ -4,27 +4,58 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { IdentityFixture } from './iam-fixtures.mjs';
 
 /**
- * 在本机已确认的 MySQL 服务中准备独立的合成业务源。
+ * 使用当前机器核验过的 Docker 入口，只在指定容器内执行合成库初始化。
  */
-function prepareSource(prefix) {
-  assert.equal(process.env.DATAOCEAN_B_FIXTURE, 'mysql-loopback');
+function initializeSource(container, command, sql) {
+  const distribution = process.env.DATAOCEAN_B_DOCKER_DISTRO;
+  const docker = ['exec', '-i', container, ...command];
+  const setup = distribution
+    ? spawnSync('wsl.exe', ['-d', distribution, '--exec', 'docker', ...docker], {
+        input: sql, encoding: 'utf8',
+      })
+    : spawnSync('docker', docker, { input: sql, encoding: 'utf8' });
+  // 原始错误可能包含合成账号凭据，只报告初始化是否成功。
+  assert.equal(setup.status, 0, '独立合成源初始化失败');
+}
+
+/**
+ * 在本机已核验的测试服务中准备独立的合成库和专用只读账号。
+ */
+function prepareSource(prefix, databaseType) {
   assert.match(prefix, /^[a-z0-9]{4,20}$/);
   const name = `dataocean_access_${prefix}`;
   const user = `ro_${prefix}`;
   const password = `Fixture${crypto.randomUUID().replaceAll('-', '')}!`;
-  // 隔离合成库只创建独立名称，应用访问用户只允许读取该库。
-  const sql = [
-    `CREATE DATABASE \`${name}\`;`,
-    `CREATE TABLE \`${name}\`.sample_item (id INT PRIMARY KEY, name VARCHAR(80) NOT NULL);`,
-    `INSERT INTO \`${name}\`.sample_item(id,name) VALUES (1,'synthetic');`,
-    `CREATE USER '${user}'@'%' IDENTIFIED BY '${password}';`,
-    `GRANT SELECT, SHOW VIEW ON \`${name}\`.* TO '${user}'@'%';`,
-  ].join('\n');
-  const setup = spawnSync('docker', [
-    'exec', '-i', 'mysql', 'sh', '-ec', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -u root --batch',
-  ], { input: sql, encoding: 'utf8' });
-  // 不输出包含 SQL 参数及凭据的原始错误流。
-  assert.equal(setup.status, 0, '独立合成源初始化失败');
+  if (databaseType === 'MYSQL') {
+    // MySQL 只授予合成库内的元数据与读取能力。
+    initializeSource('mysql',
+      ['sh', '-ec', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -u root --batch'],
+      [
+        `CREATE DATABASE \`${name}\`;`,
+        `CREATE TABLE \`${name}\`.sample_item (id INT PRIMARY KEY, name VARCHAR(80) NOT NULL);`,
+        `INSERT INTO \`${name}\`.sample_item(id,name) VALUES (1,'synthetic');`,
+        `CREATE USER '${user}'@'%' IDENTIFIED BY '${password}';`,
+        `GRANT SELECT, SHOW VIEW ON \`${name}\`.* TO '${user}'@'%';`,
+      ].join('\n'));
+  } else {
+    // PostgreSQL 使用独立 Schema，并撤去合成库对 PUBLIC 的建表和连接资格。
+    const container = process.env.DATAOCEAN_B_POSTGRES_CONTAINER;
+    assert.match(container ?? '', /^[a-zA-Z0-9][a-zA-Z0-9_.-]+$/, '请指定已核验的 PostgreSQL 验收容器');
+    const psql = ['psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres'];
+    initializeSource(container, [...psql, '-d', 'postgres'], [
+      `CREATE DATABASE ${name};`,
+      `CREATE ROLE ${user} LOGIN PASSWORD '${password}';`,
+      `REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE ${name} FROM PUBLIC;`,
+      `GRANT CONNECT ON DATABASE ${name} TO ${user};`,
+    ].join('\n'));
+    initializeSource(container, [...psql, '-d', name], [
+      'CREATE SCHEMA sales;',
+      'CREATE TABLE sales.sample_item (id INTEGER PRIMARY KEY, name VARCHAR(80) NOT NULL);',
+      "INSERT INTO sales.sample_item(id,name) VALUES (1,'synthetic');",
+      `GRANT USAGE ON SCHEMA sales TO ${user};`,
+      `GRANT SELECT ON TABLE sales.sample_item TO ${user};`,
+    ].join('\n'));
+  }
   return { name, user, password };
 }
 
@@ -62,6 +93,7 @@ async function addSource(admin, template, database, name) {
     name,
     databaseName: database.name,
     account: database.user,
+    schemas: template.configuration.databaseType === 'POSTGRESQL' ? ['sales'] : [],
     technicalContactId: null,
     businessContactId: null,
   };
@@ -77,11 +109,12 @@ async function addSource(admin, template, database, name) {
     checkId: verified.checkId, targetLifecycle: 'ENABLED',
   };
   const review = await admin.ok('/datasources/impact-preview', { method: 'POST', body: { proposal } });
-  return (await admin.ok('/datasources', {
+  const saved = await admin.ok('/datasources', {
     method: 'POST',
     command: crypto.randomUUID(),
     body: { proposal, password: database.password, reviewToken: review.reviewToken },
-  }, 201)).targetId;
+  }, 201);
+  return { id: saved.targetId, version: verified.detectedVersion };
 }
 
 /**
@@ -134,24 +167,63 @@ async function collect(admin, sourceId) {
   throw new Error('本机合成源的真实采集未在验证预算内结束');
 }
 
-const fixture = await new IdentityFixture().start();
+const fixture = await new IdentityFixture().start(process.env.DATAOCEAN_B_ADMIN_PASSWORD);
 assert.match(fixture.admin.base, /^http:\/\/127\.0\.0\.1:\d+$/);
 const { admin } = fixture;
 const checked = [];
 const target = process.env.DATAOCEAN_B_SOURCE_ID;
-assert.match(target ?? '', /^\d+$/, '请明确已核验的本机 MySQL 合成测试源 ID');
+assert.match(target ?? '', /^\d+$/, '请指定已核验的本机合成测试源 ID');
 const template = await admin.ok(`/datasources/${target}`);
-assert.equal(template.configuration.databaseType, 'MYSQL');
+const databaseTypes = {
+  'mysql-loopback': 'MYSQL',
+  'postgres-loopback': 'POSTGRESQL',
+};
+const databaseType = databaseTypes[process.env.DATAOCEAN_B_FIXTURE];
+assert.ok(databaseType, '请明确验收使用的本机源库类型');
+assert.equal(template.configuration.databaseType, databaseType);
 assert.equal(template.configuration.host, '127.0.0.1');
-const database = prepareSource(fixture.prefix);
-const [source, second] = [
+const database = prepareSource(fixture.prefix, databaseType);
+const [primarySource, secondarySource] = [
   await addSource(admin, template, database, `${fixture.prefix} 商品验收源`),
   await addSource(admin, template, database, `${fixture.prefix} 分析验收源`),
 ];
-checked.push('真实 MySQL 专用只读账号、分项测试、核对启用');
+const source = primarySource.id;
+const second = secondarySource.id;
+checked.push(`真实 ${databaseType} 专用只读账号、分项测试、核对启用`);
 assert.equal((await collect(admin, source)).analysis, 'INITIAL_BASELINE');
 assert.equal((await collect(admin, source)).analysis, 'NO_CHANGE');
-checked.push('真实 MySQL 首次采集生成基线，重复采集无变化，任务与目录快照一致');
+checked.push('真实源库首次采集生成基线，重复采集无变化，任务与目录快照一致');
+
+// 错误密码只阻断当前测试，既有运行凭据和成功目录保持可用。
+const savedSource = await admin.ok(`/datasources/${source}`);
+const rejectedCheck = await admin.ok(`/datasources/${source}/connection-checks`, {
+  method: 'POST',
+  command: crypto.randomUUID(),
+  body: {
+    configuration: savedSource.configuration,
+    runtimePolicy: savedSource.runtimePolicy,
+    expectedVersion: savedSource.source.version,
+    password: `Invalid${crypto.randomUUID()}!`,
+  },
+}, 201);
+assert.equal(rejectedCheck.canEnable, false);
+assert.equal(rejectedCheck.items.find(({ code }) => code === 'AUTHENTICATION').status, 'FAIL');
+assert.equal(rejectedCheck.items.find(({ code }) => code === 'ENUMERATION').status, 'UNVERIFIED');
+const unresolvedCheck = await admin.ok('/datasources/connection-checks', {
+  method: 'POST',
+  command: crypto.randomUUID(),
+  body: {
+    configuration: { ...savedSource.configuration, host: 'dataocean-acceptance.invalid' },
+    runtimePolicy: savedSource.runtimePolicy,
+    password: database.password,
+  },
+}, 201);
+assert.equal(unresolvedCheck.canEnable, false);
+assert.match(unresolvedCheck.items.find(({ code }) => code === 'NETWORK').message, /无法解析/);
+assert.equal(unresolvedCheck.items.find(({ code }) => code === 'AUTHENTICATION').status, 'UNVERIFIED');
+assert.equal((await admin.ok(`/datasources/${source}`)).currentSnapshotId, savedSource.currentSnapshotId);
+assert.equal((await collect(admin, source)).analysis, 'NO_CHANGE');
+checked.push('认证与 DNS 故障分别提示，后续未执行，当前目录和凭据可继续使用');
 
 const reviewerCodes = ['access-requests.view', 'access-requests.review', 'access-requests.reject', 'access-requests.supplement'];
 const selfCodes = ['my-requests.view', 'my-requests.apply', 'my-requests.withdraw', 'my-access.view'];
@@ -161,12 +233,16 @@ const [employeeRole, reviewRole, dept, otherDept] = [
   await fixture.department('access'),
   await fixture.department('other'),
 ];
+const auditReviewRole = await fixture.role('审批审计人', ['audit.view', 'grants.view']);
+const auditOnlyRole = await fixture.role('仅审计', ['audit.view']);
 const applicant = await fixture.user('applicant', dept, [employeeRole, reviewRole]);
-const approver = await fixture.user('approver', otherDept, [reviewRole]);
+const approver = await fixture.user('approver', otherDept, [reviewRole, auditReviewRole]);
 const outsider = await fixture.user('outsider', otherDept, [reviewRole]);
+const auditor = await fixture.user('auditor', otherDept, [auditOnlyRole]);
 const user = await fixture.activate(applicant);
 const reviewer = await fixture.activate(approver);
 const unrelated = await fixture.activate(outsider);
+const auditOnly = await fixture.activate(auditor);
 for (const id of [source, second]) {
   // 申请人本人是主审批人，必须按责任分给替代人。
   await configure(admin, `/access/responsibilities/${id}`, {
@@ -340,6 +416,28 @@ assert.equal((await current()).length, 0);
 assert.equal((await admin.ok(`/access/grants?requestId=${row.id}&state=ENDED`)).total, 2);
 checked.push('联合首项等待、末项并发唯一成功、整组暂停及撤销、防重命令重放');
 
+// 从真实审计读回审批时点的生效状态，并核对撤销来源可精确回查。
+const approvals = await reviewer.ok(
+  `/iam/audit-records?actionCode=access-requests.review&outcome=SUCCESS&target=${joint.targetId}`,
+);
+assert.equal(approvals.total, 2);
+assert.deepEqual(approvals.items.map(({ approvalEffect }) => approvalEffect), ['EFFECTIVE', 'APPROVED']);
+assert.ok(approvals.items.every((record) => record.actor.userId === approver.id));
+const effectiveAudit = await reviewer.ok(`/iam/audit-records/${approvals.items[0].id}`);
+assert.equal(effectiveAudit.approvalEffect, 'EFFECTIVE');
+assert.ok(effectiveAudit.securityVersion);
+const byGrant = await reviewer.ok(`/access/grant-directory?grantId=${one.id}`);
+assert.equal(byGrant.total, 1);
+assert.equal(byGrant.items[0].request.id, one.id);
+assert.equal(byGrant.items[0].request.state, 'ENDED');
+assert.equal((await reviewer.ok(`/access/grant-directory?requestId=${joint.targetId}`)).total, 2);
+const revocation = await fixture.auditFor(one.id, command);
+assert.equal(revocation.actionCode, 'grants.revoke');
+assert.equal((await auditOnly.request(`/iam/audit-records/${effectiveAudit.id}`)).status, 200);
+assert.equal((await auditOnly.request(`/access/requests/${joint.targetId}/handled`)).status, 403);
+assert.equal((await auditOnly.request(`/access/grant-directory?grantId=${one.id}`)).status, 403);
+checked.push('批准与联合生效审计、撤销来源精确回查、独立查看权');
+
 // 从真实上传入口保存资料和附件，后续只读回当时的具体修订。
 const attachmentText = '合成说明原件\n';
 const noteBody = new FormData();
@@ -411,14 +509,18 @@ assert.equal(retired.source.lifecycle, 'RETIRED');
 assert.equal(retired.credentialConfigured, false);
 checked.push('真实只读测试、停用、恢复、退役及凭据解除');
 
-const directory = 'output/acceptance/data-access';
+const directory = process.env.DATAOCEAN_B_REPORT_DIR ?? 'output/acceptance/data-access';
 await mkdir(directory, { recursive: true });
 await writeFile(`${directory}/api-report.json`, JSON.stringify({
   passed: checked,
   runtime: fixture.admin.base,
+  databaseType,
+  sourceVersion: primarySource.version,
   syntheticSchema: database.name,
   sources: [source, second],
-  requestId: row.id,
+  requestId: joint.targetId,
+  audit: { approvalId: effectiveAudit.id, revokeId: revocation.id, grantId: one.id },
+  browserActors: { approver: approver.username, auditOnly: auditor.username },
   noteId: note.targetId,
 }, null, 2) + '\n');
 console.log(checked.join('\n'));

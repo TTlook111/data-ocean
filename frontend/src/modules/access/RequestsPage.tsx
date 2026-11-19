@@ -6,7 +6,6 @@ import {
   Modal,
   Result,
   Tabs,
-  Drawer,
   Form,
   Input,
   Space,
@@ -23,11 +22,11 @@ import type { Preview } from '../iam/types';
 import { displayTime, ReadFailure, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { RecordPagination } from '../../shared/RecordTable';
-import { useReturnFocus } from '../../shared/useReturnFocus';
 import {
   accessPath,
   accessList,
   AccessToolbar,
+  AccessDetailDrawer,
   useAccessList,
   AccessEditor,
   AccessGrid,
@@ -149,7 +148,8 @@ function MyRequestsPage() {
           },
           {
             title: '操作',
-            width: 112,
+            className: 'record-actions-cell',
+            width: 116,
             fixed: 'right',
             render: (_, row) => (
               <Button
@@ -627,6 +627,7 @@ function ApplicationEditor({
   return (
     <AccessEditor
       title={supplementing ? '补充重提' : '申请数据访问'}
+      successMessage={supplementing ? '补充资料已提交' : '访问申请已提交'}
       context={supplementing && item?.reason ? <span>补充要求 · {item.reason}</span> : undefined}
       form={form}
       initialValues={{
@@ -741,7 +742,6 @@ export function RequestDrawer({
   historyOnly?: boolean;
   readOnly?: boolean;
 }) {
-  useReturnFocus();
   const session = useSession();
   const [editing, setEditing] = useState<boolean | string>(startSupplement);
   const [action, setAction] = useState<{ action: string; item?: RequestItem }>();
@@ -760,15 +760,21 @@ export function RequestDrawer({
       (editing === true || editing === item.id),
   );
   return (
-    <Drawer
-      open
-      width={800}
+    <AccessDetailDrawer
+      size={800}
       title={historyOnly ? '审批结果' : (row?.purpose ?? '访问申请')}
-      onClose={close}
-      extra={
-        canPlan ? (
-          <Button onClick={() => setAction({ action: 'PLAN' })}>拆分与联合设置</Button>
-        ) : null
+      close={close}
+      actions={
+        <>
+          {canPlan && <Button onClick={() => setAction({ action: 'PLAN' })}>拆分与联合设置</Button>}
+          {historyOnly &&
+            allowed(session, 'grants.view') &&
+            row?.items.some((item) => ['EFFECTIVE', 'ENDED'].includes(item.state)) && (
+              <Button href={'/iam/grants?requestId=' + encodeURIComponent(row.id)}>
+                查看授权来源
+              </Button>
+            )}
+        </>
       }
     >
       <ReadState loading={read.isPending} error={read.error} retry={() => void read.refetch()}>
@@ -912,15 +918,6 @@ export function RequestDrawer({
               ]}
             />
             {mine && row.submittedAt && <RequestHistory id={id} />}
-            {historyOnly &&
-              allowed(session, 'grants.view') &&
-              row.items.some((item) => ['EFFECTIVE', 'ENDED'].includes(item.state)) && (
-                <div className="access-footer">
-                  <Button href={`/iam/grants?requestId=${encodeURIComponent(row.id)}`}>
-                    查看授权来源
-                  </Button>
-                </div>
-              )}
           </>
         )}
       </ReadState>
@@ -938,7 +935,7 @@ export function RequestDrawer({
           }}
         />
       )}
-    </Drawer>
+    </AccessDetailDrawer>
   );
 }
 
@@ -1082,6 +1079,7 @@ function DecisionEditor({
   return (
     <AccessEditor
       title={title}
+      successMessage={title + '已提交'}
       reviewTitle={action === 'ROUTE' ? '核对分派' : undefined}
       context={
         <Space>
