@@ -35,6 +35,8 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 
 上述独立程序不能作为正式业务工程的验收结论。Java 首批认证、人员、部门、角色、审计与 Outbox 已可运行，Maven Wrapper、MySQL 新模型迁移、服务边界测试和真实接口已有验证；Python 正式包的依赖锁定、构建、公共配置、日志及存活接口通过验证，入口见[Python 工程](../../python-service/README.md)。启动及复验见[运行与验收](运行与验收.md)，逐项边界以[首批验收](iam/验收.md)为准。源码见[正式定位](../source-map/README.md#首批正式实现)。Python Worker、服务 JWT、Linux 完整安装、真实模型与业务 SQL 取消、SSE、运行中任意节点崩溃后的自动接管、断电／磁盘故障、跨机恢复及知识发布门槛仍待对应批次接入验证。
 
+B 批数据源与访问授权已具备正式验收条件。源库版本和对象类型见[采集验收](datasource/验收.md#本次支持的源对象)，真实接口、依赖故障及浏览器的整体覆盖见[B 批验收](access/验收.md#验收结论)。
+
 Java 格式检查采用已验证的 Spotless 与 Palantir Java Format 组合，精确版本见 [pom.xml](../../backend/pom.xml)，使用 JDK 17 完成格式和测试检查。命名等非格式检查保留 Checkstyle 的兼容评估，不将未接入的检查器记为已启用。Java 测试采用 Spring Boot 测试体系，JUnit 配套版本由 Boot 管理。
 
 Python 使用 Ruff 和 pytest，精确工具版本随开发依赖锁定。测试命名、模块对应及构建入口见[工程基线](../engineering/工程组织与版本基线.md#构建检查与测试定位)，不在本页重复目录规则。

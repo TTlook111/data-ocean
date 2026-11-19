@@ -80,6 +80,21 @@ export default defineConfig({
   test: {
     // 为组件测试提供 DOM 环境。
     environment: 'jsdom',
+    // Windows 子进程池启动超时，组件测试在独立线程的 VM 环境运行。
+    pool: 'vmThreads',
+    // Windows 本机采用已验证的串行工作器配置。
+    maxWorkers: process.platform === 'win32' ? 1 : undefined,
+    // 测试使用图标包公开的浏览器 ESM 入口，保留命名导出。
+    alias: [{ find: /^@ant-design\/icons$/, replacement: '@ant-design/icons/es' }],
+    deps: {
+      optimizer: {
+        client: {
+          // 预打包 Ant Design 的浏览器依赖，避免 VM 直接加载混合模块入口。
+          enabled: true,
+          include: ['antd', '@ant-design/icons/es'],
+        },
+      },
+    },
     // 加载公共匹配器与测试环境准备逻辑。
     setupFiles: ['./src/shared/test/setup.ts'],
     // 每个测试前清空 mock 调用记录。

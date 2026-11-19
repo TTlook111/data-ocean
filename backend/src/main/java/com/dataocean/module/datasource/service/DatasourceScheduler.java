@@ -227,16 +227,33 @@ public class DatasourceScheduler {
     }
 
     /**
-     * 通过时区规则取得下一窗口起点，周期游标防止重叠小时重复接收。
+     * 查找下一个实际可运行的时刻。时区跳变可能进入、跳过或重新打开窗口。
      */
     private Instant windowStart(RevisionRow revision, Instant now) {
-        var local = now.atZone(zone());
+        ZoneId zone = zone();
+        var rules = zone.getRules();
         LocalTime start = LocalTime.parse(revision.limits().getWindowStart());
-        var day = local.toLocalDate();
-        Instant candidate = day.atTime(start).atZone(zone()).toInstant();
-        return candidate.isAfter(now)
-                ? candidate
-                : day.plusDays(1).atTime(start).atZone(zone()).toInstant();
+        Instant cursor = now;
+        for (; ; ) {
+            // 当前偏移只在下一时区跳变前有效，先比较常规开启和跳变哪个先到。
+            var local = cursor.atZone(zone);
+            var opening = local.toLocalDate().atTime(start);
+            if (!opening.isAfter(local.toLocalDateTime())) {
+                // 今天的常规开启已过，时区回拨仍可能在次日之前重新开窗。
+                opening = opening.plusDays(1);
+            }
+            Instant candidate = opening.toInstant(local.getOffset());
+            var transition = rules.nextTransition(cursor);
+            if (transition == null || candidate.isBefore(transition.getInstant())) {
+                // 开启时当前偏移仍然有效。
+                return candidate;
+            }
+            // 跳变把本地时间移入窗口时，跳变点本身即可运行。
+            cursor = transition.getInstant();
+            if (inWindow(revision, cursor)) {
+                return cursor;
+            }
+        }
     }
 
     /**
