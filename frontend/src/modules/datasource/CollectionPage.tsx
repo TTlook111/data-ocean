@@ -35,14 +35,18 @@ import type { CollectionTask, SourceOption } from './types';
 /**
  * 采集记录和目录共用当前来源选择与 URL 状态。
  */
-export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS') {
+export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES') {
   const [params, setParams] = useSearchParams();
   const sources = useQuery({
     queryKey: ['datasource-options', purpose],
     queryFn: () => api<SourceOption[]>('/datasources/options?purpose=' + purpose),
   });
   const selected =
-    sources.data?.find((source) => source.id === params.get('source')) ?? sources.data?.[0];
+    sources.data?.find((source) => source.id === params.get('source')) ??
+    (purpose === 'BUSINESS_NOTES'
+      ? sources.data?.find((source) => source.lifecycle === 'ENABLED')
+      : undefined) ??
+    sources.data?.[0];
   return { params, setParams, sources, selected };
 }
 

@@ -155,6 +155,10 @@ public class DatasourceServiceImpl implements DatasourceService {
         DatasourcePO source = sourceId == null ? null : requireSource(sourceId);
         String password = input.getPassword();
         if (source != null) {
+            // 退役后连接凭据已解除，所有连接检查停止服务。
+            if ("RETIRED".equals(source.getLifecycle())) {
+                throw BizIllegalException.state("已退役的数据源仅供历史回看");
+            }
             // 已保存源的测试必须核对当前版本，用空密码表示复用原凭据。
             if (!Objects.equals(input.getExpectedVersion(), source.getVersion())) {
                 throw new BizIllegalException(ErrorCode.VERSION_CONFLICT, "数据源配置已变化，请刷新后测试");

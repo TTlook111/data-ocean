@@ -52,13 +52,14 @@ export class IdentityClient {
     headers.Cookie = [...this.cookies]
       .map(([name, value]) => `${name}=${value}`)
       .join(";");
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const multipart = body instanceof FormData;
+    if (body !== undefined && !multipart) headers["Content-Type"] = "application/json";
     if (command) headers["Idempotency-Key"] = command;
 
     const response = await fetch(`${this.base}/api/v1${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: multipart || body === undefined ? body : JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
     for (const header of response.headers.getSetCookie()) {

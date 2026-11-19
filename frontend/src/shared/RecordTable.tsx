@@ -179,33 +179,66 @@ export function RecordTable<T extends object>({
         pagination={false}
       />
       {config && (
-        <footer
-          className={`record-pagination${compactPagination ? ' is-compact' : ''}`}
-          aria-label="结果分页"
-          aria-busy={busy}
-        >
-          <span>{error ? '记录暂不可用' : `共 ${total} 条`}</span>
-          <div className="record-pagination-controls">
-            <Select
-              aria-label="每页条数"
-              value={pageSize}
-              disabled={Boolean(error)}
-              options={[10, 20, 50].map((size) => ({ value: size, label: `${size}条/页` }))}
-              onChange={(size) => config.onChange?.(1, size)}
-            />
-            <Pagination
-              current={current}
-              pageSize={pageSize}
-              total={total}
-              disabled={Boolean(error) || total === 0}
-              showSizeChanger={false}
-              simple={compactPagination ? { readOnly: true } : false}
-              hideOnSinglePage={false}
-              onChange={config.onChange}
-            />
-          </div>
-        </footer>
+        <RecordPagination
+          current={current}
+          pageSize={pageSize}
+          total={total}
+          busy={busy}
+          error={Boolean(error)}
+          compact={compactPagination}
+          onChange={config.onChange}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * 后台表格与审批队列共用结果数量和分页操作。
+ */
+export function RecordPagination({
+  current,
+  pageSize,
+  total,
+  busy,
+  error,
+  compact,
+  onChange,
+}: {
+  current: number;
+  pageSize: number;
+  total: number;
+  busy?: boolean;
+  error?: boolean;
+  compact?: boolean;
+  onChange?: (page: number, size: number) => void;
+}) {
+  return (
+    <footer
+      className={`record-pagination${compact ? ' is-compact' : ''}`}
+      aria-label="结果分页"
+      aria-busy={busy}
+    >
+      <span>{error ? '记录暂不可用' : `共 ${total} 条`}</span>
+      <div className="record-pagination-controls">
+        <Select
+          aria-label="每页条数"
+          value={pageSize}
+          disabled={error}
+          options={[10, 20, 50].map((size) => ({ value: size, label: `${size}条/页` }))}
+          onChange={(size) => onChange?.(1, size)}
+        />
+        <Pagination
+          current={current}
+          pageSize={pageSize}
+          total={total}
+          disabled={error || total === 0}
+          showSizeChanger={false}
+          simple={compact ? { readOnly: true } : false}
+          hideOnSinglePage={false}
+          onChange={onChange}
+        />
+      </div>
+    </footer>
   );
 }

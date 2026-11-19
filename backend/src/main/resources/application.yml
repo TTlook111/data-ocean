@@ -29,6 +29,12 @@ spring:
     # 校验迁移脚本命名，避免脚本因名称错误被跳过。
     validate-migration-naming: true
 
+  servlet:
+    multipart:
+      # 企业业务说明单个原文件上限及整份表单容量。
+      max-file-size: 20MB
+      max-request-size: 101MB
+
   # Redis 连接；各设备可在 local 中覆盖地址、端口和密码。
   data:
     redis:

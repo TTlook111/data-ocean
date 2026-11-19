@@ -10,6 +10,7 @@ import com.dataocean.module.datasource.entity.dto.ScheduleChangeDTO;
 import com.dataocean.module.datasource.entity.dto.SourceCreateDTO;
 import com.dataocean.module.datasource.entity.dto.SourceCreateProposalDTO;
 import com.dataocean.module.datasource.entity.dto.SourceEnableDTO;
+import com.dataocean.module.datasource.entity.dto.SourceLifecycleDTO;
 import com.dataocean.module.datasource.entity.dto.SourceUpdateDTO;
 import com.dataocean.module.datasource.entity.query.SourceQuery;
 import com.dataocean.module.datasource.entity.vo.ConnectionCheckVO;
@@ -126,6 +127,18 @@ public class DatasourceController {
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody SourceEnableDTO input) {
         return Result.success(management.enable(Ids.parse(sourceId), command, input));
+    }
+
+    /**
+     * 变更已启用来源的生命周期，具体动作在配置锁内再次核权。
+     */
+    @PostMapping("/{sourceId}/lifecycle")
+    @RequirePermission(policy = DatasourceRequestPermission.class)
+    public Result<MutationVO> lifecycle(
+            @PathVariable String sourceId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody SourceLifecycleDTO input) {
+        return Result.success(management.lifecycle(Ids.parse(sourceId), command, input));
     }
 
     /**

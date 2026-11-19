@@ -57,12 +57,19 @@ public class DatasourceEvents {
      * 仅在运行凭据已生效时发出新的配置版本。
      */
     public void replaced(long source, int version, String command) {
+        availability(source, version, command, "CREDENTIAL_REPLACED");
+    }
+
+    /**
+     * 记录当前可用性变更，实际读取方仍按权威源状态核验。
+     */
+    public void availability(long source, int version, String command, String change) {
         append(
                 "datasource.availability.changed",
                 source,
                 version,
                 command,
-                new AvailabilityRef(Long.toString(source), version, "CREDENTIAL_REPLACED"));
+                new AvailabilityRef(Long.toString(source), version, change));
     }
 
     /**
@@ -73,6 +80,23 @@ public class DatasourceEvents {
      * @param reason 实际变更类型
      */
     private record AvailabilityRef(String sourceId, int version, String reason) {}
+
+    /**
+     * 已被采用的资料变更以稳定引用通知下游。
+     */
+    public void businessNote(long source, long note, int revision, String change) {
+        append(
+                "datasource.business-note.changed",
+                source,
+                revision,
+                null,
+                new BusinessNoteRef(Long.toString(source), Long.toString(note), revision, change));
+    }
+
+    /**
+     * 仅保存资料、修订和实际变更类型的事件载荷。
+     */
+    private record BusinessNoteRef(String sourceId, String noteId, int revision, String change) {}
 
     /**
      * 当前陈旧提醒只包含来源及权威时间。

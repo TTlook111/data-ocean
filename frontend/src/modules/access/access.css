@@ -1,0 +1,662 @@
+/* 访问管理与既有后台列表共享横向布局。 */
+.access-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* 多个筛选项在窄 PC 窗口回行。 */
+.access-toolbar .ant-form-inline {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* 选择器匹配其所处查询栏的标准宽度。 */
+.access-toolbar .ant-select,
+.access-toolbar > .ant-input-affix-wrapper {
+  min-width: 152px;
+}
+
+/* 数据源页签沿用后台工作区背景。 */
+.access-source-tabs > .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+/* 来源分组和完整规则正文使用固定的内容间距。 */
+.access-stack,
+.access-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* 紧凑列的长标题和姓名仅在自身单元格内省略。 */
+.access-records .record-link,
+.access-person,
+.access-person > * {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 人员登录名作为次行身份信息。 */
+.access-person small {
+  color: var(--ant-color-text-secondary, #575e6b);
+  font-size: 12px;
+}
+
+/* 按钮文字由内层承载，保留真实可读标题。 */
+.access-records .record-link > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 名称按钮与普通表格文字使用同一左侧起点。 */
+.access-records .record-link {
+  height: auto;
+  min-height: 30px;
+  text-align: left;
+  padding-inline: 0;
+}
+
+/* 搜索结果保留限制全文并允许换行。 */
+.access-option small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 对象摘要、配置组和只读来源保持同一左侧起点。 */
+.access-context,
+.access-origin,
+.access-selection {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--ant-color-border-secondary, #e8ebef);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+/* 来源标题和规则由结构分开。 */
+.access-origin {
+  display: grid;
+  gap: 8px;
+}
+
+/* 来源回看入口独立右对齐。 */
+.access-origin > .ant-btn,
+.access-footer {
+  justify-self: end;
+  text-align: right;
+}
+
+/* 核对内容保护长规则的自然换行。 */
+.access-review {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 说明正文使用独立工作区，附件和操作与正文左边缘对齐。 */
+.panel.note-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 0;
+}
+
+/* 录入页面沿用原型的满宽外框、800px 表单和独立保存栏。 */
+.note-editor-form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.note-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-block: 24px;
+}
+
+.note-editor-inner {
+  width: min(800px, calc(100% - 48px));
+  margin-inline: auto;
+}
+
+.note-editor-inner > .ant-alert {
+  margin-bottom: 16px;
+}
+
+.note-editor-body input.ant-input,
+.note-editor-inner .ant-btn {
+  min-height: 40px;
+}
+
+.note-editor-footer {
+  flex: none;
+  padding-block: 16px;
+  border-top: 1px solid var(--do-line, #e5e7eb);
+}
+
+.note-editor-footer .ant-btn {
+  min-width: 96px;
+}
+
+/* 资料详情允许原文和文件名自然换行。 */
+.access-notes-detail {
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* 处理记录和最新办理表格保持清楚的间隔。 */
+.access-request-history {
+  margin-top: 16px;
+}
+/* 日期和查询按钮在窄桌面同组换行，延续原型的筛选顺序。 */
+.query-panel.access-toolbar .ant-form-item {
+  flex: 1 1 150px;
+  min-width: 132px;
+}
+
+.query-panel.access-toolbar .access-status-field {
+  flex: 0.9 1 135px;
+}
+
+/* 选项控件跟随所分配列宽，窄窗时不会覆盖相邻条件。 */
+.access-toolbar .ant-form-item .ant-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.access-query-tail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+}
+
+.access-query-tail.has-dates {
+  flex: 1 1 365px;
+  min-width: min(365px, 100%);
+  justify-content: space-between;
+}
+
+.query-panel.access-toolbar .access-query-tail .access-date-field {
+  flex: 0 1 400px;
+  min-width: 218px;
+  max-width: 400px;
+}
+
+.access-date-field .ant-picker {
+  width: 100%;
+}
+
+.access-query-actions {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* 授权筛选按原型将日期与操作放到第二行，避免单个条件落单。 */
+.access-toolbar .ant-form:has(> .ant-form-item:nth-of-type(5)) > .access-query-tail.has-dates {
+  flex-basis: 100%;
+}
+
+/* 行内链接与操作列共享同一个左侧对齐基线。 */
+.access-row-actions .ant-btn-link {
+  padding-inline: 0;
+}
+
+/* 资料使用与目录和采集同宽的来源条，来源与具体资料查询各居一层。 */
+.notes-source-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 0 1 420px;
+}
+
+.notes-source-control > span {
+  white-space: nowrap;
+  color: var(--do-muted, #526072);
+}
+
+.panel.ds-toolbar.notes-source-context {
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.notes-source-control .ds-source-picker {
+  width: min(320px, calc(100% - 84px));
+}
+
+.notes-source-context > .ant-space {
+  margin-inline-start: auto;
+}
+
+.notes-page > .record-page {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 详情标题与状态并列，原型的章标题节奏保留在抽屉内。 */
+.access-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.access-detail-heading h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+
+.access-detail-section {
+  margin: 24px 0 12px;
+  font-size: 16px;
+}
+
+/* 数据源及收件箱的页签与表体共用结果边框。 */
+.access-grid-tabs,
+.approval-panel-header {
+  flex: none;
+  min-width: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+}
+
+.access-grid-tabs > .ant-tabs-nav,
+.approval-panel-header .ant-tabs-nav,
+.approval-decision-heading + .ant-tabs > .ant-tabs-nav {
+  margin: 0;
+}
+
+.access-grid-tabs > .ant-tabs-nav::before,
+.approval-panel-header .ant-tabs-nav::before {
+  display: none;
+}
+
+.access-grid-tabs > .ant-tabs-nav .ant-tabs-tab,
+.approval-panel-header .ant-tabs-tab {
+  min-height: 55px;
+}
+
+/* 两行单元格的标题与次要信息使用原型的行间距。 */
+.access-cell-summary {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.access-cell-summary > small,
+.access-cell-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-cell-summary > small {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.access-cell-summary .record-link {
+  min-height: 21px;
+  line-height: 21px;
+  justify-self: start;
+}
+
+/* 状态色沿用原型的浅底深字，含义始终由文字表达。 */
+.access-status.ant-tag {
+  line-height: 20px;
+  border: 0;
+  padding-inline: 7px;
+}
+
+.access-status-success.ant-tag {
+  color: #216449;
+  background: #e8f4ee;
+}
+
+.access-status-warning.ant-tag {
+  color: #825b24;
+  background: #fbf2dd;
+}
+
+.access-status-error.ant-tag {
+  color: #a32731;
+  background: #fceced;
+}
+
+.access-status-processing.ant-tag {
+  color: #2157aa;
+  background: #e8effa;
+}
+
+.access-status-default.ant-tag {
+  color: #526072;
+  background: #edf1f5;
+}
+
+/* 审批区沿用原型的固定左队列、可滚动单据和下方分页。 */
+.approval-panel {
+  min-height: 340px;
+}
+
+.approval-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.approval-panel-header > .ant-tabs {
+  min-width: 0;
+}
+
+.approval-feedback {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.approval-feedback .ant-typography {
+  max-width: 120px;
+}
+
+.approval-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+}
+
+.approval-queue {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--do-line, #e5e7eb);
+  scrollbar-gutter: stable;
+}
+
+.approval-entry {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  padding: 15px 16px;
+  row-gap: 6px;
+  border: 0;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+  background: #fff;
+  color: var(--do-ink, #182437);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.approval-entry:hover {
+  background: var(--do-hover, #f3f6fa);
+}
+
+.approval-entry[aria-current='true'] {
+  background: var(--do-selected, #e8effa);
+  box-shadow: inset 3px 0 var(--do-primary, #2e62cf);
+}
+
+.approval-entry:focus-visible {
+  outline: 2px solid var(--do-primary, #2e62cf);
+  outline-offset: -3px;
+}
+
+.approval-entry-identity,
+.approval-entry-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.approval-entry .ant-tag,
+.approval-part-meta .ant-tag {
+  margin: 0;
+}
+
+.approval-entry-title,
+.approval-entry-identity strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-entry-identity strong {
+  font-weight: 500;
+}
+
+.approval-entry-meta {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.approval-entry-meta small,
+.approval-entry-meta time {
+  font-size: inherit;
+}
+
+.approval-queue-empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--do-muted, #526072);
+}
+
+.approval-document,
+.approval-document-empty,
+.approval-unavailable {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.approval-document-empty,
+.approval-unavailable {
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+}
+
+.approval-document-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.approval-document-heading,
+.approval-section {
+  padding: 24px;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+}
+
+.approval-section:last-child {
+  border-bottom: 0;
+}
+
+.approval-document-heading h2 {
+  margin: 8px 0 14px;
+  color: var(--do-ink, #182437);
+  font-size: 28px;
+  line-height: 36px;
+  overflow-wrap: anywhere;
+}
+
+.approval-document-heading small,
+.approval-metadata dt,
+.approval-request-fields dt,
+.approval-part-meta,
+.approval-reason {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+}
+
+.approval-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.approval-metadata > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-document dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-request-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(170px, 1fr);
+  gap: 14px 24px;
+  margin: 0;
+}
+
+.approval-request-fields > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.approval-request-fields dd {
+  white-space: pre-wrap;
+}
+
+.approval-decision-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.approval-decision-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.approval-decision-heading .ant-btn-link {
+  padding-inline: 0;
+}
+
+.approval-part-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.approval-scope {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.32fr) minmax(0, 1fr);
+  margin: 0;
+}
+
+.approval-scope > div {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+.approval-scope dt {
+  padding: 12px 16px;
+  background: var(--do-canvas, #f5f7fa);
+  color: var(--do-muted, #526072);
+}
+
+.approval-scope dd {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+}
+
+.approval-reason {
+  margin: 16px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--do-line, #e5e7eb);
+}
+
+.approval-actions > span {
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1240px) {
+  /* 窄桌面五项常规条件保持同一行，日期与按钮成组。 */
+  .query-panel.access-toolbar .ant-form-item {
+    flex-basis: 132px;
+  }
+
+  .query-panel.access-toolbar .access-query-tail .access-date-field {
+    flex-basis: 320px;
+  }
+
+  .approval-document-heading h2 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+  .approval-request-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .approval-feedback > .ant-typography {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) {
+  .workspace .records-panel.approval-panel {
+    flex: 1 1 0;
+    min-height: 310px;
+    overflow: hidden;
+  }
+}
+
+/* 1024px 桌面中的授权筛选仍保留整组日期与查询操作。 */
+@media (max-width: 1100px) {
+  .query-panel.access-toolbar .ant-form-item {
+    flex-basis: 126px;
+    min-width: 126px;
+  }
+}

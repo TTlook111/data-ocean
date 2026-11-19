@@ -82,7 +82,7 @@ class DatasourceMigrationIT {
         Flyway flyway = Flyway.configure().dataSource(url, account, password).load();
         flyway.migrate();
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("9");
 
         String sql =
                 """

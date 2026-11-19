@@ -1,4 +1,5 @@
 import { RecordTable } from '../../shared/RecordTable';
+import { DepartmentAccessPanel } from '../access/ScopePages';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import {
   App,
@@ -630,23 +631,9 @@ export function DepartmentsPage() {
                 {
                   key: 'template',
                   label: '初始数据访问',
-                  children: (
-                    <div className="template-content">
-                      <Descriptions
-                        layout="vertical"
-                        column={2}
-                        items={[
-                          {
-                            key: 'members',
-                            label: '影响成员',
-                            children: `本部门直属 ${department?.directMemberCount ?? 0} 人`,
-                          },
-                          { key: 'state', label: '配置状态', children: '尚未接入' },
-                        ]}
-                      />
-                      <p className="muted">数据源与访问授权将在后续批次接入。</p>
-                    </div>
-                  ),
+                  children: department ? (
+                    <DepartmentAccessPanel key={department.id} id={department.id} />
+                  ) : null,
                 },
               ]}
             />

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-方案与交互原型已形成基准，当前推进[详细设计与分批实施](backend/详细设计与验收.md)。首批三端构建与公共配置、Java 身份／人员／部门／角色／审计及可靠事件、React 对应页面已实现，Python 正式公共包与存活入口可运行。准确覆盖见[首批验收](backend/iam/验收.md#当前验证范围)。B 批已接入[数据源管理、采集与结构目录](source-map/README.md#数据源接入与采集)，MySQL 与 PostgreSQL 的真实测试范围见[数据源验收](backend/datasource/验收.md#当前验证范围)。原型覆盖见[原型状态](frontend/原型状态.md)。
+方案与交互原型已形成基准，当前推进[详细设计与分批实施](backend/详细设计与验收.md)。A 批已接入身份、组织、功能权限与审计，准确覆盖见[首批验收](backend/iam/验收.md#当前验证范围)。B 批包含[数据源管理、采集、目录及企业业务说明](source-map/README.md#数据源接入与采集)和[数据访问授权](backend/access/设计与接口.md)。真实服务及浏览器覆盖分别见[数据源验收](backend/datasource/验收.md#当前验证范围)和[授权验收](backend/access/验收.md)。原型覆盖见[原型状态](frontend/原型状态.md)。
 
 工程组织见[工程基线](engineering/工程组织与版本基线.md)，选型与版本分别由[前端设计](frontend/README.md#前端技术选型)和[后端设计](backend/README.md#版本基线与验证边界)维护，跨端职责与协议见[系统架构](architecture/README.md)。界面承接现有原型，布局与打磨边界见[设计约定](frontend/设计约定.md#原型基准与界面打磨)。
 

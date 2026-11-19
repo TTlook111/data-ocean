@@ -67,7 +67,8 @@ export async function api<T>(
     csrf ??= await api<{ headerName: string; token: string }>('/auth/csrf');
     headers[csrf.headerName] = csrf.token;
   }
-  if (options.body !== undefined) {
+  const multipart = options.body instanceof FormData ? options.body : undefined;
+  if (options.body !== undefined && !multipart) {
     headers['Content-Type'] = 'application/json';
   }
   if (options.command) {
@@ -83,7 +84,7 @@ export async function api<T>(
       cache: 'no-store',
       signal: AbortSignal.timeout(30000),
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: multipart ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
     });
   } catch {
     throw new Error('服务连接暂不可用，请检查连接后重试');

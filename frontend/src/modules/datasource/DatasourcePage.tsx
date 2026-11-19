@@ -112,13 +112,13 @@ const sourceFilters = ['name', 'databaseType', 'technicalContactKeyword', 'lifec
 /**
  * 数据源概况保留正式列表、条件与详情入口。
  */
-export function DatasourcePage() {
+export function DatasourcePage({ header }: { header?: React.ReactNode }) {
   const session = useSession();
   const navigate = useNavigate();
   const { message } = App.useApp();
   const [params, setParams] = useSearchParams();
   const [form] = Form.useForm();
-  const [opened, setOpened] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(params.get('detail'));
   const [editor, setEditor] = useState<SourceDetail | 'new' | null>(null);
   const [replace, setReplace] = useState<SourceDetail | null>(null);
   const [review, setReview] = useState<ReviewSubmission | null>(null);
@@ -247,6 +247,7 @@ export function DatasourcePage() {
       </div>
       {/* 表格及分页共用一个完整结果面板。 */}
       <section className="panel records-panel" aria-label="数据源列表">
+        {header}
         <RecordTable<SourceSummary>
           rowKey="id"
           dataSource={list.data?.items}
@@ -399,6 +400,141 @@ export function DatasourcePage() {
 }
 
 /**
+ * 受支持的三个数据源状态变更。
+ */
+type SourceLifecycleAction = 'DISABLE_SOURCE' | 'RESTORE_SOURCE' | 'RETIRE_SOURCE';
+
+/**
+ * 恢复需有实际当前连接证据，停用和退役通过同一服务端核对。
+ */
+function SourceLifecycleDialog({
+  detail,
+  action,
+  close,
+}: {
+  detail: SourceDetail;
+  action: SourceLifecycleAction;
+  close: () => void;
+}) {
+  const [form] = Form.useForm<{ reason: string }>();
+  const [test, setTest] = useState<ConnectionCheck>();
+  const [review, setReview] = useState<ReviewSubmission>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const restore = action === 'RESTORE_SOURCE';
+  const title = restore ? '恢复数据源' : action === 'DISABLE_SOURCE' ? '停用数据源' : '退役数据源';
+  const path = '/datasources/' + detail.source.id;
+
+  /**
+   * 按保存的范围和凭据测试，确认步骤不读取秘密。
+   */
+  async function testConnection() {
+    setBusy(true);
+    setError(undefined);
+    setTest(undefined);
+    try {
+      // 恢复复用正式分项测试和当前源修订。
+      setTest(
+        await api<ConnectionCheck>(path + '/connection-checks', {
+          method: 'POST',
+          body: {
+            configuration: detail.configuration,
+            runtimePolicy: detail.runtimePolicy,
+            expectedVersion: detail.source.version,
+          },
+        }),
+      );
+    } catch (failure) {
+      // 保留源状态及原因输入，只在连接通过后允许恢复。
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * 获取系统记录的影响、停止状态和同一提案凭据。
+   */
+  async function preview({ reason }: { reason: string }) {
+    setBusy(true);
+    setError(undefined);
+    const body = {
+      action,
+      expectedVersion: detail.source.version,
+      proposal: { reason: reason.trim(), checkId: test?.checkId },
+    };
+    try {
+      // 生命周期变更由公共影响核对组件确认。
+      const result = await api<Preview>(path + '/impact-preview', { method: 'POST', body });
+      setReview({
+        title: '核对' + title,
+        preview: result,
+        path: path + '/lifecycle',
+        method: 'POST',
+        operation: restore
+          ? 'sources.enable'
+          : action === 'RETIRE_SOURCE'
+            ? 'sources.retire'
+            : 'sources.disable',
+        body,
+        danger: !restore,
+        confirmText: '确认' + title,
+        done: close,
+      });
+    } catch (failure) {
+      // 核对失败继续保留原操作上下文。
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (review) {
+    // 返回修改时保留已填写的原因与连接检查。
+    return <ReviewDialog submission={review} close={() => setReview(undefined)} />;
+  }
+  return (
+    <Modal
+      open
+      centered
+      title={title}
+      onCancel={close}
+      onOk={form.submit}
+      okText="核对影响"
+      confirmLoading={busy}
+      okButtonProps={{ disabled: restore && !test?.canEnable }}
+      mask={{ closable: false }}
+    >
+      <p>{detail.source.name}</p>
+      {error && <Alert type="error" showIcon title={error} />}
+      {restore && (
+        <Space orientation="vertical">
+          <Button loading={busy} onClick={() => void testConnection()}>
+            测试当前连接
+          </Button>
+          {test && (
+            <Alert
+              type={test.canEnable ? 'success' : 'error'}
+              showIcon
+              title={test.canEnable ? '当前连接和必要读取检查通过' : '当前连接不满足恢复条件'}
+              description={test.items
+                .filter((item) => item.status === 'FAILED')
+                .map((item) => item.label)
+                .join('、')}
+            />
+          )}
+        </Space>
+      )}
+      <Form form={form} layout="vertical" onFinish={(values) => void preview(values)}>
+        <Form.Item name="reason" label="操作原因" rules={[{ required: true, whitespace: true }]}>
+          <Input.TextArea maxLength={500} rows={3} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+/**
  * 详情展示当前连接、计划和当前可用的维护入口。
  */
 function SourceInformation({
@@ -416,6 +552,7 @@ function SourceInformation({
   const navigate = useNavigate();
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState('');
+  const [lifecycle, setLifecycle] = useState<SourceLifecycleAction>();
   const { configuration, schedule: plan, source } = detail;
   const canOpenCatalog = allowed(session, 'catalog.view');
   const canEdit = allowed(session, 'sources.edit') && source.lifecycle !== 'RETIRED';
@@ -433,9 +570,41 @@ function SourceInformation({
     ...(source.lifecycle === 'ENABLED' && canEdit
       ? [{ key: 'credential', label: '更换凭据', onClick: replace }]
       : []),
+    ...(source.lifecycle === 'ENABLED' && allowed(session, 'sources.disable')
+      ? [
+          {
+            key: 'disable',
+            label: '停用数据源',
+            danger: true,
+            onClick: () => setLifecycle('DISABLE_SOURCE'),
+          },
+        ]
+      : []),
+    ...(source.lifecycle === 'DISABLED' &&
+    allowed(session, 'sources.enable') &&
+    allowed(session, 'sources.test')
+      ? [{ key: 'restore', label: '恢复数据源', onClick: () => setLifecycle('RESTORE_SOURCE') }]
+      : []),
+    ...(source.lifecycle === 'DISABLED' && allowed(session, 'sources.retire')
+      ? [
+          {
+            key: 'retire',
+            label: '退役数据源',
+            danger: true,
+            onClick: () => setLifecycle('RETIRE_SOURCE'),
+          },
+        ]
+      : []),
   ];
   return (
     <div className="ds-source-detail">
+      {lifecycle && (
+        <SourceLifecycleDialog
+          detail={detail}
+          action={lifecycle}
+          close={() => setLifecycle(undefined)}
+        />
+      )}
       {/* 查看当前连接和调度事实，长内容单独滚动。 */}
       <div className="ds-source-detail-body">
         <Descriptions

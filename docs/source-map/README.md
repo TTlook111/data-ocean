@@ -27,8 +27,19 @@
 | 连接启用、分项测试、配置与凭据替换 | [数据源接口](../../backend/src/main/java/com/dataocean/module/datasource/controller/DatasourceController.java) |
 | 采集接收、状态、停止与恢复、目录提交 | [采集接口](../../backend/src/main/java/com/dataocean/module/datasource/controller/CollectionController.java)、[采集工作者](../../backend/src/main/java/com/dataocean/module/datasource/service/CollectionRunner.java)、[快照提交](../../backend/src/main/java/com/dataocean/module/datasource/service/CatalogPublication.java) |
 | 双库适配、采集计划及平台库表 | [源库适配](../../backend/src/main/java/com/dataocean/module/datasource/source/SourceJdbc.java)、[定时](../../backend/src/main/java/com/dataocean/module/datasource/service/DatasourceScheduler.java)、[Flyway V3](../../backend/src/main/resources/db/migration/V3__datasource_collection.sql) |
+| 企业业务说明与历史原件 | [资料 API](../../backend/src/main/java/com/dataocean/module/datasource/controller/BusinessNoteController.java)、[React 页面](../../frontend/src/modules/datasource/BusinessNotesPage.tsx)、[资料表](../../backend/src/main/resources/db/migration/V6__business_notes.sql)、[原件容量](../../backend/src/main/resources/db/migration/V8__business_note_file_limits.sql) |
 
 真实覆盖见[数据源验收](../backend/datasource/验收.md#当前验证范围)。
+
+## 数据访问授权
+
+| 范围 | 入口 |
+| --- | --- |
+| 审批责任、输出限制和直属部门配置 | [接口](../../backend/src/main/java/com/dataocean/module/access/controller/AccessController.java)、[配置实现](../../backend/src/main/java/com/dataocean/module/access/service/impl/AccessConfigurationServiceImpl.java) |
+| 本人申请、分流和独立／联合审批 | [申请服务](../../backend/src/main/java/com/dataocean/module/access/service/impl/AccessRequestServiceImpl.java)、[React 页面](../../frontend/src/modules/access/RequestsPage.tsx)、[子项资料与经办历史](../../backend/src/main/resources/db/migration/V9__access_item_application_and_history.sql) |
+| 当前访问范围、来源回看和撤销 | [范围服务](../../backend/src/main/java/com/dataocean/module/access/service/AccessScopeService.java)、[React 范围与来源](../../frontend/src/modules/access/ScopePages.tsx)、[访问表](../../backend/src/main/resources/db/migration/V5__data_access.sql)、[规则关系](../../backend/src/main/resources/db/migration/V7__access_rule_references.sql) |
+
+当前验证见[授权验收](../backend/access/验收.md)。
 
 ## 模块定位专题
 

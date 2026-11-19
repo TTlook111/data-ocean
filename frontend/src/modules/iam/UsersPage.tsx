@@ -18,6 +18,7 @@ import { allowed, useSession } from '../../shared/session';
 import { PersonEditor, RoleAssignmentDialog, UserActionDialog } from './UserDialogs';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Department, Page, Person } from './types';
+import { AccessScopes } from '../access/ScopePages';
 
 /**
  * 人员列表保留已应用条件与页码，详情不替换原列表上下文。
@@ -518,7 +519,7 @@ export function PersonDetailsDrawer({
         <div className="section-heading">
           <h3>数据访问来源</h3>
         </div>
-        <div className="muted">数据源与访问授权尚未接入。</div>
+        {detail.data && <AccessScopes userId={detail.data.id} />}
         {detail.data?.managementNote && (
           <>
             <div className="section-heading">

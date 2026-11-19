@@ -9,6 +9,7 @@ import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
+import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
@@ -154,6 +155,11 @@ public class UserServiceImpl implements UserService {
      * 防重、配置锁、审计及 Outbox 的业务提交边界。
      */
     private final MutationService mutations;
+
+    /**
+     * 停用和归档时在同一事务结束个人数据来源。
+     */
+    private final AccessScopeService accessScopes;
 
     /**
      * 服务端完整影响核对及提交凭据验证能力。
@@ -531,6 +537,7 @@ public class UserServiceImpl implements UserService {
             }
             reviews.verify("DISABLE", textId, data.getExpectedVersion(), data, data.getReviewToken());
             users.lifecycle(id, "DISABLED", data.getReason(), null);
+            accessScopes.terminateForUser(id, UserContext.getUser(), data.getReason());
             mutations.invalidateAuthentication(id, "USER_DISABLED");
             audit(
                     "users.disable",
@@ -606,6 +613,7 @@ public class UserServiceImpl implements UserService {
             memberships.endUser(id, UserContext.getUser());
             roleAssignments.endUser(id, UserContext.getUser());
             users.lifecycle(id, "ARCHIVED", data.getReason(), affiliation);
+            accessScopes.terminateForUser(id, UserContext.getUser(), data.getReason());
             mutations.invalidateAuthentication(id, "USER_ARCHIVED");
             audit(
                     "users.archive",

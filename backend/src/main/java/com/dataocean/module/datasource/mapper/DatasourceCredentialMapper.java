@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * 提供 DatasourceCredentialPO 对应单表的持久化操作。
@@ -32,7 +33,13 @@ public interface DatasourceCredentialMapper extends BaseMapper<DatasourceCredent
             """
             SELECT c.key_version,c.ciphertext FROM ds_connection_revision r
             JOIN ds_credential_revision c ON c.id=r.credential_revision_id AND c.source_id=r.source_id
-            WHERE r.source_id=#{source} AND r.id=#{revision}
+            WHERE r.source_id=#{source} AND r.id=#{revision} AND OCTET_LENGTH(c.ciphertext)>0
             """)
     CredentialRow forConfiguration(@Param("source") long source, @Param("revision") long revision);
+
+    /**
+     * 退役且停止确认后解除密文，保留历史快照关联要求的修订身份。
+     */
+    @Update("UPDATE ds_credential_revision SET ciphertext=X'' WHERE source_id=#{source}")
+    int eraseRetired(long source);
 }

@@ -10,6 +10,7 @@ import com.dataocean.common.exception.CommonException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.infrastructure.SecretKeyProvider;
+import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.datasource.entity.dto.RuntimePolicyDTO;
@@ -18,12 +19,15 @@ import com.dataocean.module.datasource.entity.dto.ScheduleProposalDTO;
 import com.dataocean.module.datasource.entity.dto.SourceActionPreviewDTO;
 import com.dataocean.module.datasource.entity.dto.SourceConfigurationDTO;
 import com.dataocean.module.datasource.entity.dto.SourceEnableDTO;
+import com.dataocean.module.datasource.entity.dto.SourceLifecycleDTO;
 import com.dataocean.module.datasource.entity.dto.SourceUpdateDTO;
 import com.dataocean.module.datasource.entity.po.DatasourcePO;
 import com.dataocean.module.datasource.entity.query.SourceQuery;
 import com.dataocean.module.datasource.entity.vo.SourceDetailVO;
 import com.dataocean.module.datasource.entity.vo.SourceRowVO;
+import com.dataocean.module.datasource.mapper.CollectionMapper;
 import com.dataocean.module.datasource.mapper.CollectionScheduleMapper;
+import com.dataocean.module.datasource.mapper.DatasourceCredentialMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper.CredentialRow;
 import com.dataocean.module.datasource.mapper.DatasourceMapper.RevisionRow;
@@ -31,10 +35,13 @@ import com.dataocean.module.datasource.mapper.DatasourcePageMapper;
 import com.dataocean.module.datasource.mapper.DatasourcePageMapper.SourceSummary;
 import com.dataocean.module.datasource.mapper.DatasourceRecordMapper;
 import com.dataocean.module.datasource.mapper.SourceStateMapper;
+import com.dataocean.module.datasource.security.DatasourceRequestPermission;
+import com.dataocean.module.datasource.service.CollectionRunner;
 import com.dataocean.module.datasource.service.DatasourceEvents;
 import com.dataocean.module.datasource.service.DatasourceScheduler;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
+import com.dataocean.module.iam.entity.vo.ImpactCountVO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
@@ -131,6 +138,26 @@ public class SourceManagement {
     private final DatasourceEvents events;
 
     /**
+     * 在途采集继续通过已有可验证停止协议结束。
+     */
+    private final CollectionMapper tasks;
+
+    /**
+     * 处理尚未出队的取消终态。
+     */
+    private final CollectionRunner runner;
+
+    /**
+     * 退役后的凭据密文只在所有执行结束后解除。
+     */
+    private final DatasourceCredentialMapper credentials;
+
+    /**
+     * 真实的当前来源配置影响。
+     */
+    private final AccessScopeService accessScopes;
+
+    /**
      * 生成固定范围及秘密的摘要。
      */
     private final SecretKeyProvider signatures;
@@ -201,7 +228,7 @@ public class SourceManagement {
                 summary(pages.sourceSummary(id)),
                 revision.configuration(),
                 revision.limits(),
-                revision.credentialId() != null,
+                revision.credentialId() != null && !"RETIRED".equals(source.getLifecycle()),
                 revision.revision(),
                 Objects.toString(source.getCurrentSnapshotId(), null),
                 source.getActiveTaskId(),
@@ -277,6 +304,7 @@ public class SourceManagement {
             }
             case "PAUSE_SCHEDULE", "RESUME_SCHEDULE" -> {
                 // 暂停说明保留在既有核对凭据和审计。
+                requireEnabled(source);
                 ScheduleProposalDTO proposal =
                         json.mapper().treeToValue(input.getProposal(), ScheduleProposalDTO.class);
                 validatePause(action, proposal);
@@ -287,6 +315,29 @@ public class SourceManagement {
                         "定时采集",
                         state.schedule(id).paused() ? "已暂停" : "运行中",
                         "PAUSE_SCHEDULE".equals(action) ? "已暂停" : "已恢复");
+            }
+            case "DISABLE_SOURCE", "RESTORE_SOURCE", "RETIRE_SOURCE" -> {
+                // 核对实际状态、依赖及停止中的任务。
+                var proposal = json.mapper().treeToValue(input.getProposal(), SourceLifecycleDTO.Proposal.class);
+                validateLifecycle(source, action, proposal);
+                var impacts = new java.util.ArrayList<>(accessScopes.sourceImpact(id));
+                if (source.getActiveTaskId() != null) {
+                    impacts.add(new ImpactCountVO("采集任务", 1));
+                }
+                var warnings =
+                        switch (action) {
+                            case "DISABLE_SOURCE" -> List.of("提交后立即停止新的数据访问和采集。在途采集按实际停止结果收尾。");
+                            case "RETIRE_SOURCE" -> List.of("退役后无法恢复，连接凭据将解除，历史结构和授权仍可回看。");
+                            default -> List.of("本次恢复仅依据当前连接与读取检查。结构变化须由后续采集与治理核实。");
+                        };
+                yield reviews.preview(
+                        action,
+                        Long.toString(id),
+                        source.getVersion(),
+                        proposal,
+                        List.of(new ChangeVO("lifecycle", "配置状态", source.getLifecycle(), lifecycleTarget(action))),
+                        impacts,
+                        warnings);
             }
             default -> throw BizIllegalException.invalid("无效的来源维护动作");
         };
@@ -435,6 +486,91 @@ public class SourceManagement {
     }
 
     /**
+     * 立即推进权威来源状态并保留各任务已经发生的真实进度。
+     */
+    public MutationVO lifecycle(long id, String command, SourceLifecycleDTO input) {
+        var action = input.getAction();
+        var operation = DatasourceRequestPermission.lifecycleOperation(action);
+        var proposal = input.getProposal();
+        return commands.execute(
+                operation, command, "datasource:" + id, input, input.getExpectedVersion(), true, false, () -> {
+                    // 与采集终态和接受任务共享源行锁，防止已停用后仍发布目录。
+                    var source = source(id, true);
+                    verifyVersion(source, input.getExpectedVersion());
+                    validateLifecycle(source, action, proposal);
+                    reviews.verify(action, Long.toString(id), source.getVersion(), proposal, input.getReviewToken());
+                    var target = lifecycleTarget(action);
+                    state.lifecycle(id, target);
+                    if ("DISABLED".equals(target) && source.getActiveTaskId() != null) {
+                        // 记录停止意图，运行中的任务继续占位直到源端确认。
+                        var task = tasks.task(source.getActiveTaskId(), true);
+                        tasks.requestCancel(task.getId(), proposal.getReason().trim());
+                        if ("QUEUED".equals(task.getState())) {
+                            runner.terminal(tasks.task(task.getId(), false), "CANCELLED", null, null);
+                        }
+                    }
+                    if ("RETIRED".equals(target)) {
+                        // 使用中凭据均已结束，保留历史结构，仅解除密文材料。
+                        credentials.eraseRetired(id);
+                    }
+                    var result = result(source, command, source.getVersion() + 1);
+                    record(
+                            source,
+                            operation,
+                            command,
+                            proposal.getReason().trim(),
+                            "lifecycle",
+                            "配置状态",
+                            source.getLifecycle(),
+                            target,
+                            true);
+                    events.availability(id, result.getVersion(), result.getCommandId(), action);
+                    return result;
+                });
+    }
+
+    /**
+     * 恢复使用真实且仍有效的连接检查；退役前所有读取必须明确结束。
+     */
+    private void validateLifecycle(DatasourcePO source, String action, SourceLifecycleDTO.Proposal proposal) {
+        var reason = Objects.toString(proposal.getReason(), "").strip();
+        if (reason.isEmpty() || reason.codePointCount(0, reason.length()) > 500) {
+            // 三类生命周期动作均保存原因。
+            throw BizIllegalException.invalid("请填写 1 至 500 字的操作原因");
+        }
+        boolean disabling = "DISABLE_SOURCE".equals(action);
+        if (!(disabling ? "ENABLED" : "DISABLED").equals(source.getLifecycle())) {
+            // 退役只从已停用进入，恢复也从停用状态开始。
+            throw BizIllegalException.state("当前数据源状态不允许此操作");
+        }
+        if (!disabling && (source.getActiveTaskId() != null || source.getPendingChangeId() != null)) {
+            // 在途来源停止未确认时不可恢复或擦除相应凭据。
+            throw BizIllegalException.state("请等待原采集或凭据替换确认结束");
+        }
+        if ("RESTORE_SOURCE".equals(action)) {
+            // 复用启用检查的数据库身份、只读范围、凭据及版本校验。
+            if (proposal.getCheckId() == null || proposal.getCheckId().isBlank()) {
+                throw BizIllegalException.invalid("请完成当前数据源连接测试");
+            }
+            var revision = sources.revision(source.getId(), source.getCurrentConnectionRevisionId());
+            connections.verifySavedCheck(
+                    proposal.getCheckId(), source, revision.configuration(), revision.limits(), storedPassword(source));
+        }
+    }
+
+    /**
+     * 明确三类操作的正式状态目标。
+     */
+    private String lifecycleTarget(String action) {
+        return switch (action) {
+            case "DISABLE_SOURCE" -> "DISABLED";
+            case "RESTORE_SOURCE" -> "ENABLED";
+            case "RETIRE_SOURCE" -> "RETIRED";
+            default -> throw BizIllegalException.invalid("不支持的数据源生命周期动作");
+        };
+    }
+
+    /**
      * 更新后续定时开关，实际运行中的任务继续其原流程。
      */
     public SourceDetailVO pause(long id, String command, ScheduleChangeDTO input) {
@@ -458,6 +594,7 @@ public class SourceManagement {
                             source.getVersion(),
                             input.getProposal(),
                             input.getReviewToken());
+                    requireEnabled(source);
                     boolean paused = "PAUSE_SCHEDULE".equals(action);
                     var prior = state.schedule(id);
                     if (paused == prior.paused()) {
@@ -534,6 +671,16 @@ public class SourceManagement {
     private void requireDraft(DatasourcePO source) {
         if (!"DRAFT".equals(source.getLifecycle())) {
             throw BizIllegalException.state("当前源不是可启用的草稿");
+        }
+    }
+
+    /**
+     * 只有当前启用的来源允许暂停或重开定时调度。
+     */
+    private void requireEnabled(DatasourcePO source) {
+        if (!"ENABLED".equals(source.getLifecycle())) {
+            // 停用或退役来源维持其历史计划。
+            throw BizIllegalException.state("仅已启用数据源可变更定时采集");
         }
     }
 
@@ -619,6 +766,22 @@ public class SourceManagement {
             String label,
             String before,
             String after) {
+        record(source, action, command, reason, field, label, before, after, false);
+    }
+
+    /**
+     * 访问生命周期影响当前授权版本，普通配置只记录所属修订。
+     */
+    private void record(
+            DatasourcePO source,
+            String action,
+            String command,
+            String reason,
+            String field,
+            String label,
+            String before,
+            String after,
+            boolean authorizationChange) {
         audit.record(AuditWriteDTO.builder()
                 .actionCode(action)
                 .targetType("datasource")
@@ -628,7 +791,7 @@ public class SourceManagement {
                 .changes(List.of(new ChangeVO(field, label, before, after)))
                 .beforeRoles(List.of())
                 .afterRoles(List.of())
-                .securityVersion(commands.auditSecurityVersion(false))
+                .securityVersion(commands.auditSecurityVersion(authorizationChange))
                 .commandId(UUID.fromString(command).toString())
                 .build());
     }

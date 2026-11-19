@@ -15,6 +15,8 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import lombok.extern.slf4j.Slf4j;
@@ -45,10 +47,23 @@ public class GlobalExceptionHandler {
     /**
      * 缺少防重请求头或查询类型不匹配属于输入错误。
      */
-    @ExceptionHandler({MissingRequestHeaderException.class, MethodArgumentTypeMismatchException.class})
+    @ExceptionHandler({
+        MissingRequestHeaderException.class,
+        MethodArgumentTypeMismatchException.class,
+        MissingServletRequestPartException.class
+    })
     ResponseEntity<Result<ErrorVO>> invalidBinding(Exception error) {
         return ResponseEntity.badRequest()
                 .body(new Result<>(ErrorCode.VALIDATION_FAILED.getCode(), "请求参数或必要请求头不完整", null));
+    }
+
+    /**
+     * 在文件读取前提供可操作的容量提示。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Result<ErrorVO>> uploadTooLarge() {
+        return ResponseEntity.status(413)
+                .body(new Result<>(ErrorCode.VALIDATION_FAILED.getCode(), "上传文件或请求总大小超出限制", null));
     }
 
     /**

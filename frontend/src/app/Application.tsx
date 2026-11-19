@@ -26,11 +26,15 @@ import { UsersPage } from '../modules/iam/UsersPage';
 import { DepartmentsPage } from '../modules/iam/DepartmentsPage';
 import { RolesPage, RoleEditor } from '../modules/iam/RolesPage';
 import { AuditPage } from '../modules/iam/AuditPage';
-import { DatasourcePage } from '../modules/datasource/DatasourcePage';
+import { DatasourceManagementPage, OutputRulesPage } from '../modules/access/ConfigurationPages';
+import { RequestsPage } from '../modules/access/RequestsPage';
+import { GrantsPage, MyAccessPage } from '../modules/access/ScopePages';
 import { CollectionPage } from '../modules/datasource/CollectionPage';
 import { CatalogObjectPage, CatalogPage } from '../modules/datasource/CatalogPage';
 import { StandaloneStructureChangePage } from '../modules/datasource/StructureChangePage';
+import { BusinessNotesPage } from '../modules/datasource/BusinessNotesPage';
 import '../modules/datasource/datasource.css';
+import '../modules/access/access.css';
 
 /**
  * 已实现页面与真实页面权限的对应关系。
@@ -44,6 +48,9 @@ const navigation = [
     icon: <ApartmentOutlined />,
   },
   { key: '/iam/roles', label: '角色与功能权限', permission: 'roles.view', icon: <ReadOutlined /> },
+  { key: '/iam/output-rules', label: '输出限制规则', permission: 'output-rules.view' },
+  { key: '/iam/access-requests', label: '访问申请', permission: 'access-requests.view' },
+  { key: '/iam/grants', label: '授权管理', permission: 'grants.view' },
   { key: '/iam/audit', label: '权限审计', permission: 'audit.view', icon: <AuditOutlined /> },
   {
     key: '/datasources',
@@ -58,6 +65,9 @@ const navigation = [
     icon: <DatabaseOutlined />,
   },
   { key: '/catalog', label: '元数据目录', permission: 'catalog.view', icon: <DatabaseOutlined /> },
+  { key: '/business-notes', label: '企业业务说明', permission: 'business-notes.view' },
+  { key: '/my-requests', label: '我的申请', permission: 'my-requests.view' },
+  { key: '/my-access', label: '我的访问范围', permission: 'my-access.view' },
 ];
 
 /**
@@ -198,6 +208,12 @@ export function Application() {
   }
 
   const selected = navigation.find((item) => location.pathname.startsWith(item.key));
+  // 资料编辑在独立工作区内保留实际来源的面包屑。
+  const noteMode =
+    location.pathname === '/business-notes'
+      ? new URLSearchParams(location.search).get('edit')
+      : null;
+  const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
 
   const visible = navigation.filter((item) => session.permissionCodes.includes(item.permission));
 
@@ -250,11 +266,12 @@ export function Application() {
                 ? [{ key: 'pending-sources-dashboard', label: '接入概览', disabled: true }]
                 : []),
               ...visible
-                .filter((item) => ['/datasources', '/collections', '/catalog'].includes(item.key))
+                .filter((item) =>
+                  ['/datasources', '/collections', '/catalog', '/business-notes'].includes(
+                    item.key,
+                  ),
+                )
                 .map(({ key, label }) => ({ key, label })),
-              ...(session.permissionCodes.includes('business-notes.view')
-                ? [{ key: 'pending-business-notes', label: '企业业务说明', disabled: true }]
-                : []),
             ],
           },
         ]
@@ -283,13 +300,6 @@ export function Application() {
               ...visible
                 .filter((item) => item.key.startsWith('/iam/') && item.key !== '/iam/audit')
                 .map(({ key, label }) => ({ key, label })),
-              ...[
-                ['output-rules', '输出限制规则'],
-                ['access-requests', '访问申请'],
-                ['grants', '授权管理'],
-              ]
-                .filter(([code]) => session.permissionCodes.includes(`${code}.view`))
-                .map(([code, label]) => ({ key: `pending-${code}`, label, disabled: true })),
               ...visible
                 .filter((item) => item.key === '/iam/audit')
                 .map(({ key, label }) => ({ key, label })),
@@ -307,8 +317,9 @@ export function Application() {
       icon: <UserOutlined />,
       children: [
         { key: '/account', label: '账号信息' },
-        { key: 'pending-my-requests', label: '我的申请', disabled: true },
-        { key: 'pending-my-access', label: '我的访问范围', disabled: true },
+        ...visible
+          .filter((item) => item.key.startsWith('/my-'))
+          .map(({ key, label }) => ({ key, label })),
       ],
     },
   ];
@@ -351,6 +362,13 @@ export function Application() {
               },
               ...(location.pathname.includes('/edit') || location.pathname.endsWith('/new')
                 ? [{ title: location.pathname.endsWith('/new') ? '新增角色' : '编辑角色' }]
+                : []),
+              ...(noteMode
+                ? [
+                    {
+                      title: `${noteMode === 'new' ? '新增' : '编辑'}业务说明${noteSource ? ' · ' + noteSource : ''}`,
+                    },
+                  ]
                 : []),
             ]}
           />
@@ -422,7 +440,13 @@ export function Application() {
                 <Route path="/iam/roles/new" element={<RoleEditor />} />
                 <Route path="/iam/roles/:id/edit" element={<RoleEditor />} />
                 <Route path="/iam/audit" element={<AuditPage />} />
-                <Route path="/datasources" element={<DatasourcePage />} />
+                <Route path="/datasources" element={<DatasourceManagementPage />} />
+                <Route path="/business-notes" element={<BusinessNotesPage />} />
+                <Route path="/iam/output-rules" element={<OutputRulesPage />} />
+                <Route path="/iam/access-requests" element={<RequestsPage key="manage" />} />
+                <Route path="/iam/grants" element={<GrantsPage />} />
+                <Route path="/my-requests" element={<RequestsPage key="mine" mine />} />
+                <Route path="/my-access" element={<MyAccessPage />} />
                 <Route path="/collections" element={<CollectionPage />} />
                 <Route path="/collections/changes" element={<StandaloneStructureChangePage />} />
                 <Route path="/catalog" element={<CatalogPage />} />

@@ -1,10 +1,23 @@
-# 首批身份真实验收
+# 真实服务验收
 
 本目录验证已运行的正式 Java 应用、平台 MySQL 和会话 Redis。它不会创建容器或重置数据库。先阅读[本地运行](../../docs/backend/运行与验收.md)及 `.dataocean/local-environment.md`（若存在），确认新平台开发库可以保留合成验收数据。
 
 ## 普通接口
 
 应用启动后从仓库根目录执行 `node tools/acceptance/iam-api.mjs`。默认地址为 `http://127.0.0.1:18080`，可用 `DATAOCEAN_ACCEPTANCE_URL` 覆盖。脚本使用项目内开发账号约定，每次创建独立前缀的数据，保留真实审计，不清空已有人员、部门和角色。
+
+## B 批授权、资料与数据源退出
+
+从仓库根目录运行，应用应已加载 Flyway V9。脚本复用现有本机 MySQL 容器的管理连接，只在带独立前缀的合成业务库创建测试表和专用只读账号。平台测试数据通过正常业务 API 写入并保留，现有业务库和数据源仅用于只读核对连接类型及端点。确认容器归属、宿主机回环端口和目标后设置：
+
+```powershell
+$env:DATAOCEAN_ACCEPTANCE_URL = 'http://127.0.0.1:18083'
+$env:DATAOCEAN_B_FIXTURE = 'mysql-loopback'
+$env:DATAOCEAN_B_SOURCE_ID = '<本机已核实的 MySQL 合成数据源 ID>'
+node tools/acceptance/data-access.mjs
+```
+
+接口证据写入 `output/acceptance/data-access/api-report.json`。复验范围与浏览器证据见 [B 批验收](../../docs/backend/access/验收.md)。
 
 ## 平台探针
 

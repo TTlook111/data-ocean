@@ -4,6 +4,7 @@ import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.module.datasource.entity.dto.SourceActionPreviewDTO;
 import com.dataocean.module.datasource.entity.dto.SourceCreateDTO;
 import com.dataocean.module.datasource.entity.dto.SourceCreateProposalDTO;
+import com.dataocean.module.datasource.entity.dto.SourceLifecycleDTO;
 import com.dataocean.module.datasource.entity.dto.StartCollectionDTO;
 import com.dataocean.module.iam.entity.dto.CreatePreviewDTO;
 import com.dataocean.module.iam.security.RequestPermission;
@@ -37,6 +38,9 @@ public class DatasourceRequestPermission implements RequestPermission {
         } else if (input instanceof StartCollectionDTO start) {
             // 首次发起与重试要求不同的业务权限。
             permissions.require(collectionOperation(start.getRetryOfTaskId() != null));
+        } else if (input instanceof SourceLifecycleDTO lifecycle) {
+            // 预览和提交使用同一生命周期权限。
+            permissions.require(lifecycleOperation(lifecycle.getAction()));
         } else if (input instanceof SourceCreateDTO create) {
             // 保存时按完整目标状态决定是否同时需要启用权限。
             requireCreate(create.getProposal());
@@ -71,6 +75,7 @@ public class DatasourceRequestPermission implements RequestPermission {
         return switch (preview.getAction()) {
             case "UPDATE_CONFIG", "REPLACE_CREDENTIAL" -> "sources.edit";
             case "ENABLE" -> "sources.enable";
+            case "DISABLE_SOURCE", "RESTORE_SOURCE", "RETIRE_SOURCE" -> lifecycleOperation(preview.getAction());
             case "PAUSE_SCHEDULE", "RESUME_SCHEDULE" -> "sources.pause";
             case "START_COLLECTION" -> collectionOperation(preview.getProposal().hasNonNull("retryOfTaskId"));
             default -> throw BizIllegalException.invalid("无效的来源维护动作");
@@ -85,12 +90,25 @@ public class DatasourceRequestPermission implements RequestPermission {
     }
 
     /**
+     * 对三个生命周期动作独立核权。
+     */
+    public static String lifecycleOperation(String action) {
+        return switch (action) {
+            case "DISABLE_SOURCE" -> "sources.disable";
+            case "RESTORE_SOURCE" -> "sources.enable";
+            case "RETIRE_SOURCE" -> "sources.retire";
+            default -> throw BizIllegalException.invalid("无效的数据源生命周期动作");
+        };
+    }
+
+    /**
      * 从限定的选项用途解析对应的页面权。
      */
     private static String optionPermission(String purpose) {
         return switch (purpose) {
             case "CATALOG" -> "catalog.view";
             case "COLLECTIONS" -> "collections.view";
+            case "BUSINESS_NOTES" -> "business-notes.view";
             default -> throw BizIllegalException.invalid("数据源选项用途不正确");
         };
     }

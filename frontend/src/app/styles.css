@@ -1673,21 +1673,21 @@ h3 {
     min-height: 700px;
   }
   /* 矮 PC 主列表按当前页内容自然展开，由工作区承接单层纵向滚动。 */
-  .workspace .records-panel,
-  .workspace .record-table,
+  .workspace .records-panel:not(.access-records, .approval-panel),
+  .workspace .record-table:not(.access-records .record-table),
   .workspace .departments-workspace {
     flex: none;
     height: auto;
     min-height: 0;
   }
   /* 保留表格内横向滚动，解除纵向余高压缩，避免空态与恢复按钮被裁切。 */
-  .workspace .records-panel .ant-table-wrapper,
-  .workspace .records-panel .ant-table-wrapper > .ant-spin,
-  .workspace .records-panel .ant-table-wrapper > .ant-spin-nested-loading,
-  .workspace .records-panel .ant-spin-container,
-  .workspace .records-panel .ant-table,
-  .workspace .records-panel .ant-table-container,
-  .workspace .records-panel .ant-table-body {
+  .workspace .records-panel:not(.access-records) .ant-table-wrapper,
+  .workspace .records-panel:not(.access-records) .ant-table-wrapper > .ant-spin,
+  .workspace .records-panel:not(.access-records) .ant-table-wrapper > .ant-spin-nested-loading,
+  .workspace .records-panel:not(.access-records) .ant-spin-container,
+  .workspace .records-panel:not(.access-records) .ant-table,
+  .workspace .records-panel:not(.access-records) .ant-table-container,
+  .workspace .records-panel:not(.access-records) .ant-table-body {
     flex: none;
     width: 100%;
     min-width: 0;
@@ -1706,7 +1706,7 @@ h3 {
     min-height: 0;
   }
   /* 百分比空表高度在自然模式下不再挤压内容，横向滚动条单独占高。 */
-  .workspace .records-panel .ant-table-body > table {
+  .workspace .records-panel:not(.access-records) .ant-table-body > table {
     height: auto;
   }
 }

@@ -9,6 +9,7 @@ import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.iam.entity.dto.AddSecondaryMembersDTO;
@@ -121,6 +122,11 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 幂等、事务审计和 Outbox 的共同提交边界。
      */
     private final MutationService mutations;
+
+    /**
+     * 依据当前配置约束部门归档。
+     */
+    private final AccessScopeService accessScopes;
 
     /**
      * 绑定完整提案和版本的影响核对。
@@ -654,15 +660,16 @@ public class DepartmentServiceImpl implements DepartmentService {
      */
     private void validateLifecycle(DepartmentPO department, String action) {
         if (action.equals("ARCHIVE")) {
-            // B 批配置接入时在同一边界补充真实来源阻断条件。
+            // 开放的初始访问与直属人员或子部门均须先处理。
             if (!department.getLifecycle().equals("DISABLED")
+                    || accessScopes.hasDepartmentConfiguration(department.getId())
                     || memberships.exists(Wrappers.<MembershipPO>lambdaQuery()
                             .eq(MembershipPO::getDepartmentId, department.getId())
                             .isNull(MembershipPO::getLeftAt))
                     || departments.exists(Wrappers.<DepartmentPO>lambdaQuery()
                             .eq(DepartmentPO::getParentId, department.getId())
                             .ne(DepartmentPO::getLifecycle, "ARCHIVED"))) {
-                throw new BizIllegalException(ErrorCode.REFERENCE_IN_USE, "请先停用并处理当前成员及直属子部门");
+                throw new BizIllegalException(ErrorCode.REFERENCE_IN_USE, "请先停用并处理当前成员、直属子部门及初始数据访问");
             }
         } else if (!department.getLifecycle().equals(action.equals("ENABLE") ? "DISABLED" : "ENABLED")) {
             throw BizIllegalException.state("当前部门状态不允许此操作");
