@@ -127,6 +127,7 @@ export const modelFailureLabels: Record<string, string> = {
   MODEL_AUTH: '模型服务拒绝访问，请核对凭据。',
   MODEL_RATE_LIMIT: '模型服务限流，请稍后重试。',
   MODEL_TIMEOUT: '本次生成已超过处理时限。',
+  MODEL_CALL_LIMIT: '已达到本次生成的模型调用次数上限。',
   MODEL_FORMAT: '模型未返回符合要求的建议。',
   MODEL_RESULT_UNKNOWN: '模型调用结果待核查，请先查看调用记录。',
   MODEL_TEST_UNAVAILABLE: '暂时无法从 Python 服务取得测试结果。',

@@ -81,6 +81,20 @@ const statuses: Record<string, string> = {
 };
 
 /**
+ * 表单空白与服务端省略的字段等价，编码表按完整字段比较。
+ */
+function fieldValue(content: Definition, key: keyof Definition) {
+  return content[key] ?? (key === 'valueMappings' ? [] : '');
+}
+
+/**
+ * 对比单个业务字段，避免将未填内容识别为人工修改。
+ */
+function differs(left: Definition, right: Definition, key: keyof Definition) {
+  return JSON.stringify(fieldValue(left, key)) !== JSON.stringify(fieldValue(right, key));
+}
+
+/**
  * 可编辑的来源引用用于预览和精确移除。
  */
 type NoteLink = {
@@ -232,14 +246,8 @@ export function GovernanceEditor({
         );
       }
       command.current = undefined;
-      if (action === 'supplement' && dirty) {
-        // 请求补充可以与未保存正文并存，重新取版本但保留输入。
-        const fresh = await api<Item>(path);
-        setBase(fresh);
-        await cache.invalidateQueries({ queryKey: ['governance', source] });
-      } else {
-        await reload(true);
-      }
+      // 请求补充可与未保存正文并存，其余写入均已处理当前表单。
+      await reload(action !== 'supplement');
       void message.success(
         {
           save: '草稿已保存',
@@ -262,22 +270,84 @@ export function GovernanceEditor({
   async function reload(afterWrite = false) {
     setError(undefined);
     try {
-      // 只在成功写入后用持久化正文替换编辑区。
       const fresh = await api<Item>(path);
+      const latest = fresh.currentRevision?.content ?? {};
+      const before = base.currentRevision?.content ?? {};
+      const local = form.getFieldsValue(true);
+      const keys = Object.keys({ ...before, ...latest, ...local }) as (keyof Definition)[];
+      // 仅合入本次改动；双方改为同一值时已经收敛。
+      const changes = !dirty || afterWrite ? [] : keys.filter((key) => differs(local, before, key));
+      const conflicts = changes.filter(
+        (key) => differs(latest, before, key) && differs(latest, local, key),
+      );
+      const evidenceConflict =
+        noteChanged &&
+        JSON.stringify(base.currentRevision?.evidenceRefs ?? []) !==
+          JSON.stringify(fresh.currentRevision?.evidenceRefs ?? []);
+      const structureChanged =
+        (base.structureBasis.columnRevisionId ?? base.structureBasis.objectRevisionId) !==
+        (fresh.structureBasis.columnRevisionId ?? fresh.structureBasis.objectRevisionId);
+      if (!afterWrite && dirty && (conflicts.length || evidenceConflict || structureChanged)) {
+        // 确认前保留原版本。取消后下一次写入仍会按旧版本检查。
+        const keep = await modal.confirm({
+          title: '最新版本有冲突',
+          content: (
+            <div>
+              {/* 冲突时展示实际内容的差异，默认返回编辑。 */}
+              {conflicts.map((key) => (
+                <p key={key}>
+                  <strong>
+                    {fields.find((field) => field.key === key)?.label ?? '编码与含义'}
+                  </strong>
+                  <br />
+                  当前版本：{JSON.stringify(fieldValue(latest, key))}
+                  <br />
+                  我的修改：{JSON.stringify(fieldValue(local, key))}
+                </p>
+              ))}
+              {evidenceConflict && <p>业务依据已被修改。继续将保留你选择的依据。</p>}
+              {structureChanged && <p>来源结构已变化，请核对后再保存。</p>}
+            </div>
+          ),
+          okText: '保留我的修改',
+          cancelText: '继续核对',
+          focusable: { autoFocusButton: 'cancel' },
+        });
+        if (!keep) {
+          // 本次合并取消，原输入和原并发版本仍有效。
+          return false;
+        }
+      }
+      if (fresh.version !== base.version || structureChanged) {
+        // 旧版本写命令已无法提交，合并后的请求使用新的命令编号。
+        command.current = undefined;
+      }
       setBase(fresh);
-      if (afterWrite || !dirty) {
-        form.resetFields();
-        form.setFieldsValue(fresh.currentRevision?.content ?? {});
+      // 完整重置表单值会清除已被他人删除的未修改字段。
+      form.setFields(
+        keys.map((name) => ({
+          name,
+          value: fieldValue(changes.includes(name) ? local : latest, name),
+          errors: [],
+        })),
+      );
+      setTouched(changes.some((key) => differs(local, latest, key)));
+      if (afterWrite || !noteChanged) {
+        // 对未编辑的依据同步最新版本。
         setLinks(noteLinks(fresh.currentRevision?.evidenceRefs ?? []));
-        setTouched(false);
         setNoteChanged(false);
+      }
+      if (afterWrite) {
+        // 已提交的建议选择和核对答复不再保留。
         setSelected(undefined);
         setAnswers({});
       }
       await cache.invalidateQueries({ queryKey: ['governance', source] });
+      return true;
     } catch (failure) {
       // 已知提交的结果仍通过后续回读核实。
-      setError((failure as Error).message);
+      handleError(failure);
+      return false;
     }
   }
 
@@ -347,10 +417,8 @@ export function GovernanceEditor({
     // 未选中的人工字段继续使用当前输入和原引用。
     if (base.version === null) {
       // 首次生成会物化稳定条目，读取它的真实并发版本。
-      try {
-        setBase(await api<Item>(path));
-      } catch (failure) {
-        handleError(failure);
+      if (!(await reload())) {
+        // 合并取消或刷新失败时保留原输入和待选建议。
         return;
       }
     }
@@ -489,9 +557,9 @@ export function GovernanceEditor({
         disabled={!base.actions.canEdit || busy}
         onValuesChange={(_, values) => {
           // 保持确切的内容差异，确定失败后无需重用旧命令。
-          setTouched(
-            JSON.stringify(values) !== JSON.stringify(base.currentRevision?.content ?? {}),
-          );
+          const before = base.currentRevision?.content ?? {};
+          const keys = Object.keys({ ...before, ...values }) as (keyof Definition)[];
+          setTouched(keys.some((key) => differs(values, before, key)));
           command.current = undefined;
         }}
       >

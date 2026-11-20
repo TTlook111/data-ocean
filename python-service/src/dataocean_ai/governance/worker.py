@@ -4,11 +4,13 @@ import asyncio
 import logging
 import socket
 import time
+from threading import Event, Thread
 from uuid import uuid4
 
 import httpx
 from langsmith import tracing_context
-from redis.exceptions import RedisError, ResponseError
+from redis import Redis
+from redis.exceptions import LockNotOwnedError, RedisError, ResponseError
 
 from dataocean_ai.adapters.chat import ModelFailure
 from dataocean_ai.core.config import GovernanceSettings, Settings
@@ -21,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 # 消费组保留原有待交付任务。
 GROUP = "governance-workers"
+
+# 租约在任务总时限内失效，活跃工作者定期续租。
+LEASE_SECONDS = 30
 
 
 async def execute_task(workflow, task: str, run: int, base: str) -> GenerationResult:
@@ -55,10 +60,88 @@ def process(entry: dict[str, str], workflow, base: str) -> QueueState:
         # 受控诊断保留可核查状态。
         logger.info("表说明生成未完成，task=%s，reason=%s", task, failure)
         return QueueState(runVersion=run, state="FAILED", failureCode=str(failure))
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        # 不输出原始模型响应或业务资料。
-        logger.info("表说明工作流未完成，task=%s", task)
+    except Exception as error:
+        # 最外层保留稳定故障和异常类别，避免任务持续重投或异常正文泄露。
+        logger.error("治理工作流异常，task=%s，type=%s", task, type(error).__name__)
         return QueueState(runVersion=run, state="FAILED", failureCode="MODEL_FAILED")
+
+
+def consume(
+    client: Redis, key: str, entry_id: str, entry: dict[str, str], workflow, base: str
+) -> None:
+    """
+    持有当次执行租约时处理消息，保存结果后确认交付。
+    """
+    run = int(entry["run"])
+    job = task_key(entry["task"], run)
+    token = uuid4().hex
+    lease = client.lock(f"{job}:lease", timeout=LEASE_SECONDS, thread_local=False)
+    if not lease.acquire(blocking=False, token=token):
+        # 待处理消息可以接管，正在被续租的执行仍归原工作者。
+        return
+
+    stopped = Event()
+
+    def renew() -> None:
+        """
+        续租只延续当前执行；失去租约后由其他工作者接手。
+        """
+        while not stopped.wait(LEASE_SECONDS / 3):
+            # 延续窗口起点，避免持续累加导致崩溃后无法及时接管。
+            try:
+                lease.extend(LEASE_SECONDS, replace_ttl=True)
+            except RedisError:
+                # 回写会再次校验租约，短暂断线时不伪造已完成状态。
+                logger.warning("治理任务续租失败，task=%s", entry["task"])
+                return
+
+    def save(state: QueueState) -> bool:
+        """
+        只保存本次租约的状态，锁过期或被接管会使更新失败。
+        """
+        with client.pipeline() as pipe:
+            # 并发失去租约时，旧工作者不能降级或覆盖新状态。
+            pipe.watch(lease.name)
+            if pipe.get(lease.name) != token:
+                return False
+            pipe.multi()
+            pipe.set(job, state.model_dump_json(), ex=3600)
+            pipe.execute()
+            return True
+
+    try:
+        saved = client.get(job)
+        if saved is not None and QueueState.model_validate_json(saved).state not in {
+            "FAILED",
+            "SUCCEEDED",
+        }:
+            # 只有一个有效租约执行。Java 的领取记录继续保证同代次不会重复外发。
+            running = QueueState(runVersion=run, state="RUNNING")
+            if not save(running):
+                return
+            heartbeat = Thread(target=renew, daemon=True)
+            heartbeat.start()
+            try:
+                result = process(entry, workflow, base)
+            finally:
+                # 先停续租，再用 WATCH 保护写回中的锁过期或转移。
+                stopped.set()
+                heartbeat.join()
+
+            if not save(result):
+                # 失去租约后保留原消息，由当前工作者核实。
+                return
+        with client.pipeline() as pipe:
+            # 完成结果已持久化，确认重投只清理消息。
+            pipe.xack(key, GROUP, entry_id)
+            pipe.xdel(key, entry_id)
+            pipe.execute()
+    finally:
+        # 只释放当前持有的租约，超时后的新租约由接管者管理。
+        try:
+            lease.release()
+        except LockNotOwnedError:
+            logger.info("治理任务执行租约已转移，task=%s", entry["task"])
 
 
 def main() -> None:
@@ -81,35 +164,17 @@ def main() -> None:
     cursor = "0-0"
     while True:
         try:
-            # 先接管崩溃进程留下的消息，再读取新任务。
-            # 等待超过 Java 的 180 秒总时限才接管，避免抢走活跃调用。
-            cursor, claimed, *_ = client.xautoclaim(key, GROUP, consumer, 190000, cursor, count=1)
+            # 恢复候选消息后再查执行租约，留出原任务剩余时间完成回写。
+            cursor, claimed, *_ = client.xautoclaim(
+                key, GROUP, consumer, LEASE_SECONDS * 1000, cursor, count=1
+            )
             if not claimed:
                 # 没有待接管消息时等待新的工作。
                 incoming = client.xreadgroup(GROUP, consumer, {key: ">"}, count=1, block=1500)
                 claimed = incoming[0][1] if incoming else []
             for entry_id, entry in claimed:
-                # 逐条核验已保存状态后才执行。
-                # 已完成响应丢失或重投时直接确认原队列项。
-                job = task_key(entry["task"], int(entry["run"]))
-                saved = client.get(job)
-                if saved is None or QueueState.model_validate_json(saved).state in {
-                    "FAILED",
-                    "SUCCEEDED",
-                }:
-                    client.xack(key, GROUP, entry_id)
-                    client.xdel(key, entry_id)
-                    continue
-                run = int(entry["run"])
-                running = QueueState(runVersion=run, state="RUNNING")
-                client.set(job, running.model_dump_json(), ex=3600)
-                result = process(entry, workflow, base)
-                with client.pipeline(transaction=True) as pipe:
-                    # 状态写入与确认同事务完成，回读丢失时沿用原结果。
-                    pipe.set(job, result.model_dump_json(), ex=3600)
-                    pipe.xack(key, GROUP, entry_id)
-                    pipe.xdel(key, entry_id)
-                    pipe.execute()
+                # 成功执行和终态重投均沿用同一持久化规则。
+                consume(client, key, entry_id, entry, workflow, base)
         except RedisError:
             # 结果未写入时保持队列待接管，连接故障有界退避且不输出配置。
             logger.warning("治理工作者暂时无法读取 Redis 队列")

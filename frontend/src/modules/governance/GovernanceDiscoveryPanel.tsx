@@ -12,9 +12,9 @@ import {
   Space,
   Tag,
 } from 'antd';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBeforeUnload, useBlocker } from 'react-router';
-import { api, mutation, queryString } from '../../shared/api';
+import { api, ApiError, mutation, queryString } from '../../shared/api';
 import { readErrorMessage, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import type { Page } from '../iam/types';
@@ -84,6 +84,17 @@ type Candidate = {
 };
 
 /**
+ * 页签、分页和候选切换沿用相同的离开确认。
+ */
+const discardDraft = {
+  title: '有未保存的修改',
+  content: '放弃本次修改？',
+  okText: '放弃修改',
+  cancelText: '继续编辑',
+  focusable: { autoFocusButton: 'cancel' as const },
+};
+
+/**
  * 直接在关联、指标页签发现和办理实际候选。
  */
 export function GovernanceDiscoveryPanel({
@@ -97,12 +108,15 @@ export function GovernanceDiscoveryPanel({
 }) {
   const session = useSession();
   const client = useQueryClient();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const label = kind === 'RELATION' ? '关联' : '指标';
   const [request, setRequest] = useState<string>();
   const [selected, setSelected] = useState<string>();
+  const [draft, setDraft] = useState<Candidate>();
   const [page, setPage] = useState(1);
   const key = ['governance-candidates', path, kind];
+  const saveKey = ['governance-candidate-save', path];
+  const saving = useIsMutating({ mutationKey: saveKey }) > 0;
   const list = useQuery({
     queryKey: [...key, page],
     queryFn: () =>
@@ -141,7 +155,43 @@ export function GovernanceDiscoveryPanel({
     launch.isPending ||
     Boolean(request && !task.isError && !['FAILED', 'SUCCEEDED'].includes(terminal ?? ''));
   const items = list.data?.items ?? [];
-  const candidate = items.find((row) => row.id === selected) ?? items[0];
+  const latest = items.find((row) => row.id === (draft?.id ?? selected)) ?? items[0];
+  const candidate = draft && latest?.id === draft.id && latest.definition ? draft : latest;
+  const changed = candidate === draft && latest?.version !== draft?.version;
+  const readError = list.error;
+  const temporarilyUnavailable =
+    list.data && readError && (!(readError instanceof ApiError) || readError.code >= 500000);
+
+  /**
+   * 列表内切换等待用户决定，正在提交时保留当前编辑位置。
+   */
+  async function leave(next: () => void) {
+    if (saving || (draft && !(await modal.confirm(discardDraft)))) {
+      // 继续编辑保留草稿和当前页。
+      return;
+    }
+    setDraft(undefined);
+    next();
+  }
+
+  /**
+   * 先接收本次保存回执的实际版本，再刷新涉及该候选的列表。
+   */
+  async function update(saved: Candidate) {
+    client.setQueriesData<Page<Candidate>>({ queryKey: key }, (current) => {
+      // 回包迟于新版本时保留已读到的新记录。
+      return (
+        current && {
+          ...current,
+          items: current.items.map((row) =>
+            row.id === saved.id && row.version <= saved.version ? saved : row,
+          ),
+        }
+      );
+    });
+    await client.invalidateQueries({ queryKey: key });
+  }
+
   return (
     <section className="gov-discovery">
       {/* 沿用原型页签内的发现入口，空状态也允许执行。 */}
@@ -163,7 +213,13 @@ export function GovernanceDiscoveryPanel({
           title={modelFailureLabels[task.data?.failureCode ?? ''] ?? '发现候选未完成'}
         />
       )}
-      <ReadState error={list.error} loading={list.isPending} retry={() => void list.refetch()}>
+      {/* 后台读取异常时保留可继续编辑的内容，明确的权限拒绝仍由读取状态处理。 */}
+      {temporarilyUnavailable && <Alert type="warning" title={readErrorMessage(readError)} />}
+      <ReadState
+        error={temporarilyUnavailable ? null : readError}
+        loading={list.isPending}
+        retry={() => void list.refetch()}
+      >
         {candidate ? (
           <CandidateEditor
             key={candidate.id + ':' + candidate.version}
@@ -172,8 +228,13 @@ export function GovernanceDiscoveryPanel({
             path={path}
             source={source}
             label={label}
-            choose={setSelected}
-            update={() => void client.invalidateQueries({ queryKey: key })}
+            dirty={candidate === draft}
+            changed={changed}
+            onDraftChange={setDraft}
+            saveKey={saveKey}
+            choose={(id) => void leave(() => setSelected(id))}
+            reload={() => void leave(() => undefined)}
+            update={update}
           />
         ) : (
           <Empty
@@ -188,7 +249,8 @@ export function GovernanceDiscoveryPanel({
             current={list.data?.pageNum ?? page}
             pageSize={12}
             total={list.data?.total}
-            onChange={setPage}
+            disabled={saving}
+            onChange={(next) => void leave(() => setPage(next))}
             showSizeChanger={false}
           />
         )}
@@ -206,7 +268,12 @@ function CandidateEditor({
   path,
   source,
   label,
+  dirty,
+  changed,
+  onDraftChange,
+  saveKey,
   choose,
+  reload,
   update,
 }: {
   candidate: Candidate;
@@ -214,8 +281,13 @@ function CandidateEditor({
   path: string;
   source: string;
   label: string;
+  dirty: boolean;
+  changed: boolean;
+  onDraftChange: (draft?: Candidate) => void;
+  saveKey: string[];
   choose: (id: string) => void;
-  update: () => void;
+  reload: () => void;
+  update: (saved: Candidate) => Promise<void>;
 }) {
   const session = useSession();
   const { modal, message } = App.useApp();
@@ -223,20 +295,20 @@ function CandidateEditor({
   const [peek, setPeek] = useState<SourcePeek>();
   const [structure, setStructure] = useState(false);
   const [error, setError] = useState('');
-  const [dirty, setDirty] = useState(false);
   const edit = allowed(session, 'governance.edit');
   const confirm = allowed(session, 'governance.confirm');
   const save = useMutation({
+    mutationKey: saveKey,
     mutationFn: ({ action, values }: { action: 'SAVE' | 'CONFIRM'; values: Definition }) =>
       api<Candidate>(`${path}/${candidate.id}`, {
         method: 'PUT',
         body: { ...values, action, version: candidate.version },
       }),
-    onSuccess: (_, { action }) => {
+    onSuccess: async (saved, { action }) => {
       // 再次读取平台确认版本，保留当前候选。
-      setDirty(false);
       setError('');
-      update();
+      await update(saved);
+      onDraftChange();
       void message.success(action === 'CONFIRM' ? '治理已确认' : '草稿已保存');
     },
     onError: (failure) => setError(readErrorMessage(failure)),
@@ -253,14 +325,12 @@ function CandidateEditor({
       blocker.reset();
       return;
     }
-    void Promise.resolve(
-      modal.confirm({
-        title: '有未保存的修改',
-        content: '放弃本次修改？',
-        okText: '放弃修改',
-        cancelText: '继续编辑',
-      }),
-    ).then((discard) => (discard ? blocker.proceed() : blocker.reset()));
+    const dialog = modal.confirm({
+      ...discardDraft,
+      onOk: () => blocker.proceed(),
+      onCancel: () => blocker.reset(),
+    });
+    return () => dialog.destroy();
   }, [blocker, modal, save.isPending]);
   const definition = candidate.definition;
   const status: Record<string, string> = {
@@ -280,20 +350,9 @@ function CandidateEditor({
               key={row.id}
               type={row.id === candidate.id ? 'primary' : 'text'}
               disabled={save.isPending}
-              onClick={async () => {
-                // 同页候选切换与路由切换一样保护改动。
-                if (row.id === candidate.id) return;
-                if (
-                  dirty &&
-                  !(await modal.confirm({
-                    title: '有未保存的修改',
-                    content: '放弃本次修改？',
-                    okText: '放弃修改',
-                    cancelText: '继续编辑',
-                  }))
-                )
-                  return;
-                choose(row.id);
+              onClick={() => {
+                // 已选候选自身无需触发离开确认。
+                if (row.id !== candidate.id) choose(row.id);
               }}
             >
               {row.definition?.name ?? '受限候选'}
@@ -333,11 +392,10 @@ function CandidateEditor({
           onValuesChange={() => {
             // 与当前修订比较，恢复原值不触发离开保护。
             const values = form.getFieldsValue();
-            setDirty(
-              (['name', 'meaning', 'rule', 'usage'] as const).some(
-                (key) => values[key] !== definition[key],
-              ),
+            const modified = (['name', 'meaning', 'rule', 'usage'] as const).some(
+              (key) => values[key] !== definition[key],
             );
+            onDraftChange(modified ? candidate : undefined);
           }}
         >
           <Form.Item label={label + '名称'} name="name">
@@ -353,11 +411,19 @@ function CandidateEditor({
             <Input.TextArea rows={2} maxLength={4000} />
           </Form.Item>
         </Form>
+        {changed && (
+          <Alert
+            type="warning"
+            title="候选已有新版本"
+            action={<Button onClick={reload}>载入最新版本</Button>}
+            showIcon
+          />
+        )}
         {error && <Alert type="error" title={error} showIcon />}
         <div className="gov-editor-actions">
           {edit && (
             <Button
-              disabled={save.isPending}
+              disabled={save.isPending || changed}
               onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
             >
               保存草稿
@@ -366,6 +432,7 @@ function CandidateEditor({
           {confirm && (
             <Button
               type="primary"
+              disabled={changed}
               loading={save.isPending}
               onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
             >

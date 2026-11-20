@@ -10,7 +10,8 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
     wrap_model_call,
 )
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
+from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel
@@ -81,9 +82,17 @@ async def explain_field[Answer: BaseModel](
             ],
             response_format=ToolStrategy(schema, handle_errors=False),
         )
-        result = await agent.ainvoke(
-            {"messages": [HumanMessage(json.dumps(prepared, ensure_ascii=False))]}
-        )
+        try:
+            # 区分 Agent 的回合控制与提供方请求异常。
+            result = await agent.ainvoke(
+                {"messages": [HumanMessage(json.dumps(prepared, ensure_ascii=False))]}
+            )
+        except ModelCallLimitExceededError:
+            # 已达到任务回合上限，结束本次解释。
+            raise ModelFailure("MODEL_CALL_LIMIT") from None
+        except StructuredOutputError:
+            # 无法形成符合业务结构的建议。
+            raise ModelFailure("MODEL_FORMAT") from None
     answer = result.get("structured_response")
     if not isinstance(answer, schema):
         # 结构化输出缺失时不生成不可审核的自由文本。

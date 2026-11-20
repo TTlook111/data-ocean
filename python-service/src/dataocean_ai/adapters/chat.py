@@ -10,12 +10,14 @@ from urllib.parse import urlsplit
 
 import httpx
 import httpx2
+from anthropic import APIError as AnthropicAPIError
 from anthropic import AsyncAnthropic
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
+from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
 
@@ -123,14 +125,9 @@ async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatMode
     except TimeoutError:
         # 读超时后服务端仍可能已收到请求，保留待核实事实。
         raise ModelFailure("MODEL_RESULT_UNKNOWN") from None
-    except ModelFailure:
-        # 业务层已分类的失败沿用原原因。
-        raise
-    except Exception as error:
-        # 提供方异常可能带原始响应，只转换稳定分类。
+    except (AnthropicAPIError, OpenAIAPIError) as error:
+        # 只在 SDK 边界转换提供方异常，避免把内部错误误报为外发结果未知。
         status = getattr(error, "status_code", None)
-        if status is None:
-            status = getattr(getattr(error, "response", None), "status_code", None)
         code = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
         raise ModelFailure(code.get(status, "MODEL_RESULT_UNKNOWN")) from None
 

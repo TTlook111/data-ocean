@@ -1,7 +1,7 @@
-import { Alert, App, Checkbox, Modal, Space, Spin } from 'antd';
+import { Alert, App, Button, Checkbox, Modal, Space, Spin } from 'antd';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, mutation } from '../../shared/api';
+import { api, ApiError, mutation } from '../../shared/api';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import { modelFailureLabels } from '../models/types';
 import type { Definition, Generation, Item, Suggestion } from './types';
@@ -87,7 +87,13 @@ export function GovernanceGeneration({
       // 回包不明时公共命令读取仍能恢复稳定任务编号。
       setRequest(task.requestId ?? task.targetId);
     },
-    onError: (error) => void message.error(error.message),
+    onError: async (error) => {
+      // 过期的凭据由重新核对刷新，用户仍需明确提交。
+      void message.error(error.message);
+      if (error instanceof ApiError && error.code === 409002) {
+        await preview.refetch();
+      }
+    },
   });
   const task = useQuery({
     queryKey: ['governance', source, 'generation', request],
@@ -136,7 +142,7 @@ export function GovernanceGeneration({
       okText={!request ? '生成建议' : suggestion && item.actions.canEdit ? '填入草稿' : '完成'}
       okButtonProps={{
         disabled: !request
-          ? !preview.data
+          ? !preview.data || preview.isFetching || preview.isError
           : Boolean(suggestion && item.actions.canEdit && !checked.length) ||
             (!suggestion && !failed && !withheld),
       }}
@@ -145,8 +151,14 @@ export function GovernanceGeneration({
       {!request && (
         <Space orientation="vertical" size="middle" className="gov-generation">
           <strong>{subject}</strong>
-          {preview.isPending && <Spin size="small" />}
-          {preview.error && <Alert type="error" title={preview.error.message} />}
+          {preview.isFetching && <Spin size="small" />}
+          {preview.error && (
+            <Alert
+              type="error"
+              title={preview.error.message}
+              action={<Button onClick={() => void preview.refetch()}>重新核对</Button>}
+            />
+          )}
           {preview.data?.notes?.map((note) => (
             <span key={note.noteId}>
               {note.title} · 第 {note.revision} 版

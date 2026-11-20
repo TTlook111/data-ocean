@@ -35,10 +35,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -84,7 +86,7 @@ public class GovernanceDiscovery {
      */
     public String node(String kind) {
         return switch (kind) {
-            // 两类任务分别绑定各自的配置修订。
+                // 两类任务分别绑定各自的配置修订。
             case "RELATION" -> ModelRegistry.RELATION_DISCOVERY;
             case "METRIC" -> ModelRegistry.METRIC_DISCOVERY;
             default -> throw BizIllegalException.invalid("请选择关联或指标");
@@ -110,33 +112,51 @@ public class GovernanceDiscovery {
             for (var column : entry.columns().stream().limit(48).toList()) {
                 // 固定模型能引用的稳定字段及当次修订。
                 var id = Long.toString(column.columnId());
-                refs.put(id, new StructureRef(Long.toString(entry.id()), Ids.text(entry.observation().revisionId()),
-                        id, Long.toString(column.revisionId()), qualified(entry) + "." + column.name(),
-                        column.nativeType()));
+                refs.put(
+                        id,
+                        new StructureRef(
+                                Long.toString(entry.id()),
+                                Ids.text(entry.observation().revisionId()),
+                                id,
+                                Long.toString(column.revisionId()),
+                                qualified(entry) + "." + column.name(),
+                                column.nativeType()));
             }
         }
         var tables = new ArrayList<Table>();
         for (Entry entry : peers) {
             // 外键必须在同一成功范围内逐对定位完整成员。
             var structure = entry.observation().structure();
-            var primary = structure.primaryKeys().stream().map(key -> key.field()).collect(Collectors.toSet());
-            var fields = entry.columns().stream().limit(48).map(column -> new Field(Long.toString(column.columnId()),
-                    column.name(), column.nativeType(), column.sourceComment(), primary.contains(column.name()))).toList();
+            var primary =
+                    structure.primaryKeys().stream().map(key -> key.field()).collect(Collectors.toSet());
+            var fields = entry.columns().stream()
+                    .limit(48)
+                    .map(column -> new Field(
+                            Long.toString(column.columnId()),
+                            column.name(),
+                            column.nativeType(),
+                            column.sourceComment(),
+                            primary.contains(column.name())))
+                    .toList();
             var grouped = structure.foreignKeys().stream().collect(Collectors.groupingBy(key -> key.name()));
             var keys = new ArrayList<List<Pair>>();
             for (var group : grouped.values()) {
                 // 以采集键内的顺序产生完整配对。
-                var pairs = group.stream().sorted(java.util.Comparator.comparingInt(key -> key.ordinal()))
+                var pairs = group.stream()
+                        .sorted(Comparator.comparingInt(key -> key.ordinal()))
                         .map(key -> {
                             // 源外目标或缺少任一成员时，这个键不进入发现范围。
                             var target = byName.get(key.referencedObject());
                             var left = entry.named(key.field());
                             var right = target == null ? null : target.named(key.referencedField());
-                            return left == null || right == null ? null
+                            return left == null || right == null
+                                    ? null
                                     : new Pair(Long.toString(left.columnId()), Long.toString(right.columnId()));
-                        }).toList();
-                if (pairs.stream().allMatch(pair -> pair != null
-                        && refs.containsKey(pair.left()) && refs.containsKey(pair.right()))) {
+                        })
+                        .toList();
+                if (pairs.stream()
+                        .allMatch(pair ->
+                                pair != null && refs.containsKey(pair.left()) && refs.containsKey(pair.right()))) {
                     // 只提供可核实的完整外键，而不是同名线索。
                     keys.add(pairs);
                 }
@@ -163,20 +183,83 @@ public class GovernanceDiscovery {
             }
         }
         for (Prepared value : prepared) {
-            // 身份按方向、字段、口径及限制决定，保留已处理的记录。
-            String identity = digest(json.write(List.of(value.definition().pairs(), value.definition().fields(),
-                    value.definition().meaning(), value.definition().rule(), value.definition().usage())));
-            if (candidates.exists(task.getSourceId(), task.getDiscoveryKind(), identity) != null) {
+            // 同一口径换用新依据时保留旧记录，生成可办理的新候选。
+            String definitionKey = digest(json.write(List.of(
+                    value.definition().pairs(),
+                    value.definition().fields(),
+                    value.definition().meaning(),
+                    value.definition().rule(),
+                    value.definition().usage())));
+            String identity = identity(definitionKey, value.basis(), notes);
+            if (alreadyDiscovered(task, definitionKey, identity, value.basis(), notes)) {
+                // 同一有效依据继续沿用原有草稿与审核。
                 continue;
             }
             long id = IdWorker.getId();
-            candidates.add(id, task.getRequestId(), task.getSourceId(), task.getObjectId(), task.getDiscoveryKind(),
-                    identity, task.getSnapshotId(), json.write(value.basis()));
-            value.basis().structures().stream().map(StructureRef::objectId).distinct()
+            candidates.add(
+                    id,
+                    task.getRequestId(),
+                    task.getSourceId(),
+                    task.getObjectId(),
+                    task.getDiscoveryKind(),
+                    identity,
+                    task.getSnapshotId(),
+                    json.write(value.basis()));
+            value.basis().structures().stream()
+                    .map(StructureRef::objectId)
+                    .distinct()
                     .forEach(object -> candidates.attach(id, Ids.parse(object)));
-            candidates.revise(IdWorker.getId(), id, 1, "CANDIDATE", json.write(value.definition()),
-                    "[]", task.getRequestedBy());
+            candidates.revise(
+                    IdWorker.getId(), id, 1, "CANDIDATE", json.write(value.definition()), "[]", task.getRequestedBy());
         }
+    }
+
+    /**
+     * 依据身份固定结构修订和所引资料的实质内容，标题变化不会产生重复候选。
+     */
+    private String identity(String definitionKey, Basis basis, List<Note> inputs) {
+        var referencedIds = basis.notes().stream().map(NoteRef::noteId).collect(Collectors.toSet());
+        var documents = inputs.stream()
+                .filter(note -> referencedIds.contains(Long.toString(note.noteId())))
+                .sorted(Comparator.comparingLong(Note::noteId))
+                .map(note -> List.of(
+                        note.noteId(),
+                        note.body(),
+                        note.files().stream()
+                                .map(GovernanceNotes.File::digest)
+                                .sorted()
+                                .toList()))
+                .toList();
+        return digest(json.write(List.of(definitionKey, basis.structures(), basis.foreignKey(), documents)));
+    }
+
+    /**
+     * 已按口径入库的旧候选也可复用，以固定依据的实质内容为准。
+     */
+    private boolean alreadyDiscovered(
+            GovernanceGenerationPO task, String definitionKey, String identity, Basis current, List<Note> inputs) {
+        long source = task.getSourceId();
+        String kind = task.getDiscoveryKind();
+        if (candidates.evidenceForIdentity(source, kind, identity) != null) {
+            // 已按完整依据去重。
+            return true;
+        }
+        String evidence = candidates.evidenceForIdentity(source, kind, definitionKey);
+        if (evidence == null) {
+            // 没有需比较依据的旧口径。
+            return false;
+        }
+        Basis previous = json.read(evidence, Basis.class);
+        var before = previous.notes().stream().map(NoteRef::noteId).collect(Collectors.toSet());
+        var after = current.notes().stream().map(NoteRef::noteId).collect(Collectors.toSet());
+        return previous.structures().equals(current.structures())
+                && previous.foreignKey() == current.foreignKey()
+                && before.equals(after)
+                && previous.notes().stream().distinct().allMatch(ref -> {
+                    // 从固定历史修订读取正文，标题不同仍可复用。
+                    var old = notes.revision(source, Ids.parse(ref.noteId()), Ids.parse(ref.revisionId()));
+                    return inputs.stream().anyMatch(note -> note.noteId() == old.noteId() && note.equivalent(old));
+                });
     }
 
     /**
@@ -186,8 +269,7 @@ public class GovernanceDiscovery {
     public PageVO<GovernanceCandidateVO> list(long source, long object, String kind, PageQuery page) {
         node(kind);
         var origin = catalog.source(source, false);
-        return PageVO.from(candidates.list(page.toFixedOrderMpPage(), source, object, kind),
-                row -> view(row, origin));
+        return PageVO.from(candidates.list(page.toFixedOrderMpPage(), source, object, kind), row -> view(row, origin));
     }
 
     /**
@@ -206,13 +288,18 @@ public class GovernanceDiscovery {
             throw BizIllegalException.conflict();
         }
         var basis = json.read(row.evidence(), Basis.class);
-        if (!basis.notes().isEmpty()) {
-            // 工作人员必须能核对生成时实际采用的资料。
+        if (row.usedBusinessNotes() || !basis.notes().isEmpty()) {
+            // 模型漏标引用时，仍按实际发送的资料核对工作人员资格。
             permissions.require("business-notes.view");
         }
         var before = json.read(row.content(), Definition.class);
-        var definition = new Definition(text(input.getName()), text(input.getMeaning()), text(input.getRule()),
-                text(input.getUsage()), before.pairs(), before.fields());
+        var definition = new Definition(
+                text(input.getName()),
+                text(input.getMeaning()),
+                text(input.getRule()),
+                text(input.getUsage()),
+                before.pairs(),
+                before.fields());
         boolean confirm = "CONFIRM".equals(input.getAction());
         if (!confirm || !before.equals(definition)) {
             // 只拥有审核权限的人可确认已经保存的内容。
@@ -222,7 +309,9 @@ public class GovernanceDiscovery {
         if (confirm) {
             // 核验人真正提交审核时，才记载确认及实际依赖。
             permissions.require("governance.confirm");
-            if (definition.name().isBlank() || definition.meaning().isBlank() || definition.rule().isBlank()) {
+            if (definition.name().isBlank()
+                    || definition.meaning().isBlank()
+                    || definition.rule().isBlank()) {
                 throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
             }
             references(definition, basis.structures());
@@ -236,15 +325,29 @@ public class GovernanceDiscovery {
             // 指针推进失败时本次新修订回滚。
             throw BizIllegalException.conflict();
         }
-        return view(new Candidate(id, row.requestId(), source, row.kind(), row.snapshotId(), row.evidence(),
-                row.version() + 1, state, content, versions), origin);
+        return view(
+                new Candidate(
+                        id,
+                        row.requestId(),
+                        source,
+                        row.kind(),
+                        row.snapshotId(),
+                        row.evidence(),
+                        row.version() + 1,
+                        state,
+                        content,
+                        versions,
+                        row.usedBusinessNotes()),
+                origin);
     }
 
     /**
      * 对模型结果做同源、方向、完整键及来源引用验证。
      */
     private Prepared prepare(DiscoveryInput input, List<Note> inputs, Proposal proposal) {
-        if (proposal == null || text(proposal.name()).isBlank() || proposal.name().length() > 80) {
+        if (proposal == null
+                || text(proposal.name()).isBlank()
+                || proposal.name().length() > 80) {
             // 不生成无法被办理的空白条目。
             return null;
         }
@@ -254,7 +357,9 @@ public class GovernanceDiscovery {
         boolean foreignKey = false;
         if ("RELATION".equals(scope.kind())) {
             // 同一条关系只能连接两个真实同源表，完整字段对同向。
-            if (pairs.isEmpty() || pairs.size() > 12 || pairs.stream().distinct().count() != pairs.size()) {
+            if (pairs.isEmpty()
+                    || pairs.size() > 12
+                    || pairs.stream().distinct().count() != pairs.size()) {
                 return null;
             }
             String leftId = null;
@@ -263,7 +368,9 @@ public class GovernanceDiscovery {
                 // 只使用当次目录列入范围的稳定字段标识。
                 var left = input.refs().get(pair.left());
                 var right = input.refs().get(pair.right());
-                if (left == null || right == null || left.objectId().equals(right.objectId())
+                if (left == null
+                        || right == null
+                        || left.objectId().equals(right.objectId())
                         || leftId != null && (!leftId.equals(left.objectId()) || !rightId.equals(right.objectId()))) {
                     return null;
                 }
@@ -275,11 +382,14 @@ public class GovernanceDiscovery {
             if (!scope.anchor().equals(leftId) && !scope.anchor().equals(rightId)) {
                 return null;
             }
-            foreignKey = scope.tables().stream().flatMap(table -> table.foreignKeys().stream())
+            foreignKey = scope.tables().stream()
+                    .flatMap(table -> table.foreignKeys().stream())
                     .anyMatch(key -> sameKey(key, pairs));
         } else {
             // 指标必须关联当前表，公式涉及的字段也必须来自当次目录。
-            if (!pairs.isEmpty() || proposal.fields() == null || proposal.fields().isEmpty()) {
+            if (!pairs.isEmpty()
+                    || proposal.fields() == null
+                    || proposal.fields().isEmpty()) {
                 return null;
             }
             fieldIds.addAll(proposal.fields());
@@ -296,14 +406,21 @@ public class GovernanceDiscovery {
             // 同名字段无法单独证明关系，必须有外键或实际资料。
             return null;
         }
-        if ("METRIC".equals(scope.kind()) && noteRefs.isEmpty() && fieldIds.stream().noneMatch(
-                id -> scope.tables().stream().flatMap(table -> table.fields().stream())
+        if ("METRIC".equals(scope.kind())
+                && noteRefs.isEmpty()
+                && fieldIds.stream().noneMatch(id -> scope.tables().stream()
+                        .flatMap(table -> table.fields().stream())
                         .anyMatch(field -> id.equals(field.id()) && (field.primary() || numeric(field.type()))))) {
             // 无资料时只给有记录标识或真实数量字段的指标线索。
             return null;
         }
-        var definition = new Definition(text(proposal.name()), text(proposal.meaning()), text(proposal.rule()),
-                text(proposal.usage()), pairs, List.copyOf(fieldIds));
+        var definition = new Definition(
+                text(proposal.name()),
+                text(proposal.meaning()),
+                text(proposal.rule()),
+                text(proposal.usage()),
+                pairs,
+                List.copyOf(fieldIds));
         if (List.of(definition.meaning(), definition.rule(), definition.usage()).stream()
                 .anyMatch(value -> value.length() > 4000)) {
             return null;
@@ -316,8 +433,12 @@ public class GovernanceDiscovery {
      * 比较完整键成员，允许一个固定外键被从目标端解释。
      */
     private boolean sameKey(List<Pair> key, List<Pair> proposal) {
-        return key.size() == proposal.size() && (key.containsAll(proposal)
-                || key.stream().map(pair -> new Pair(pair.right(), pair.left())).toList().containsAll(proposal));
+        return key.size() == proposal.size()
+                && (key.containsAll(proposal)
+                        || key.stream()
+                                .map(pair -> new Pair(pair.right(), pair.left()))
+                                .toList()
+                                .containsAll(proposal));
     }
 
     /**
@@ -330,19 +451,31 @@ public class GovernanceDiscovery {
         var selected = new LinkedHashSet<NoteRef>();
         for (Evidence ref : evidence) {
             // 无法定位的模型引用不进入候选。
-            var note = notes.stream().filter(value -> Long.toString(value.noteId()).equals(ref.noteId()))
-                    .findFirst().orElse(null);
+            var note = notes.stream()
+                    .filter(value -> Long.toString(value.noteId()).equals(ref.noteId()))
+                    .findFirst()
+                    .orElse(null);
             if (note == null) {
                 continue;
             }
             boolean valid = ref.attachmentId() != null
-                    ? note.files().stream().anyMatch(file -> Long.toString(file.id()).equals(ref.attachmentId()))
-                    : ref.start() != null && ref.end() != null && ref.start() >= 0
-                    && ref.end() > ref.start() && ref.end() <= note.body().length();
+                    ? note.files().stream()
+                            .anyMatch(file -> Long.toString(file.id()).equals(ref.attachmentId()))
+                    : ref.start() != null
+                            && ref.end() != null
+                            && ref.start() >= 0
+                            && ref.end() > ref.start()
+                            && ref.end() <= note.body().length();
             if (valid) {
                 // 仅保存确切版本与位置，不复制原文。
-                selected.add(new NoteRef(ref.noteId(), Long.toString(note.revisionId()), note.revision(),
-                        note.title(), ref.attachmentId(), ref.start(), ref.end()));
+                selected.add(new NoteRef(
+                        ref.noteId(),
+                        Long.toString(note.revisionId()),
+                        note.revision(),
+                        note.title(),
+                        ref.attachmentId(),
+                        ref.start(),
+                        ref.end()));
             }
         }
         return List.copyOf(selected);
@@ -359,9 +492,11 @@ public class GovernanceDiscovery {
         while (matcher.find()) {
             // 保留表限定名，避免把同名字段当作等价。
             String qualified = matcher.group();
-            if (structures.stream().noneMatch(ref -> ref.label().equalsIgnoreCase(qualified)
-                    || ref.label().toLowerCase(java.util.Locale.ROOT)
-                            .endsWith("." + qualified.toLowerCase(java.util.Locale.ROOT)))) {
+            if (structures.stream()
+                    .noneMatch(ref -> ref.label().equalsIgnoreCase(qualified)
+                            || ref.label()
+                                    .toLowerCase(Locale.ROOT)
+                                    .endsWith("." + qualified.toLowerCase(Locale.ROOT)))) {
                 throw BizIllegalException.invalid("技术引用未纳入当前依赖：" + qualified);
             }
         }
@@ -379,7 +514,8 @@ public class GovernanceDiscovery {
             var field = entries.get(origin, target);
             if (!"AVAILABLE".equals(field.availability())
                     || !ref.fieldRevision().equals(Ids.text(field.columnRevision()))
-                    || !ref.objectRevision().equals(Ids.text(field.entry().observation().revisionId()))) {
+                    || !ref.objectRevision()
+                            .equals(Ids.text(field.entry().observation().revisionId()))) {
                 throw BizIllegalException.state("来源结构已变化，请重新发现：" + ref.label());
             }
             targets.add(GovernanceTarget.table(origin.id(), object));
@@ -401,9 +537,13 @@ public class GovernanceDiscovery {
     private Dependency confirmed(Source source, GovernanceTarget target) {
         var context = entries.get(source, target);
         var item = context.item();
-        if (!"AVAILABLE".equals(context.availability()) || item == null || item.getHeadRevisionId() == null
+        if (!"AVAILABLE".equals(context.availability())
+                || item == null
+                || item.getHeadRevisionId() == null
                 || !Objects.equals(item.getHeadRevisionId(), item.getLastConfirmedRevisionId())) {
-            var label = context.field() == null ? qualified(context.entry()) : context.field().name();
+            var label = context.field() == null
+                    ? qualified(context.entry())
+                    : context.field().name();
             throw BizIllegalException.state("请先确认依赖：" + label);
         }
         return new Dependency(target.object(), target.kind(), target.target(), item.getHeadRevisionId());
@@ -414,7 +554,7 @@ public class GovernanceDiscovery {
      */
     private GovernanceCandidateVO view(Candidate row, Source source) {
         var basis = json.read(row.evidence(), Basis.class);
-        boolean visible = basis.notes().isEmpty() || permissions.has("business-notes.view");
+        boolean visible = !row.usedBusinessNotes() && basis.notes().isEmpty() || permissions.has("business-notes.view");
         var result = new GovernanceCandidateVO();
         result.setId(Long.toString(row.id()));
         result.setKind(row.kind());
@@ -447,7 +587,8 @@ public class GovernanceDiscovery {
      */
     private String qualified(Entry entry) {
         var object = entry.observation().structure().object();
-        return object.schema() == null || object.schema().isBlank() ? object.name()
+        return object.schema() == null || object.schema().isBlank()
+                ? object.name()
                 : object.schema() + "." + object.name();
     }
 
@@ -455,7 +596,7 @@ public class GovernanceDiscovery {
      * 判断可参与计算的物理字段类型。
      */
     private boolean numeric(String type) {
-        return type.toUpperCase(java.util.Locale.ROOT).matches(".*(INT|DECIMAL|NUMERIC|REAL|FLOAT|DOUBLE).*");
+        return type.toUpperCase(Locale.ROOT).matches(".*(INT|DECIMAL|NUMERIC|REAL|FLOAT|DOUBLE).*");
     }
 
     /**
@@ -471,8 +612,8 @@ public class GovernanceDiscovery {
     private String digest(String signature) {
         try {
             // SHA-256 只用于幂等指纹，不替代业务权限。
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(signature.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(signature.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException(impossible);
         }
