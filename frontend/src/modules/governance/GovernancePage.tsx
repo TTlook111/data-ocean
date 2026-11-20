@@ -312,6 +312,7 @@ export function GovernancePage() {
                   title: '操作',
                   width: 112,
                   fixed: 'right',
+                  className: 'record-actions-cell',
                   // 未核实的观察不冒用治理条目标识。
                   render: (_, row) =>
                     row.objectId ? (
@@ -323,7 +324,7 @@ export function GovernancePage() {
                         {row.availability === 'AVAILABLE' ? '治理' : '查看'}
                       </Button>
                     ) : (
-                      '待核实'
+                      <span className="table-action-note">待核实</span>
                     ),
                 },
               ]}

@@ -52,7 +52,7 @@ export function MoreFilters({
       >
         <Button
           ref={trigger}
-          icon={<FilterOutlined />}
+          icon={<FilterOutlined aria-hidden="true" />}
           aria-expanded={open}
           aria-controls={open ? panelId : undefined}
           className={count ? 'query-more-active' : undefined}

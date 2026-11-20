@@ -195,8 +195,8 @@ export function GovernanceDiscoveryPanel({
   return (
     <section className="gov-discovery">
       {/* 沿用原型页签内的发现入口，空状态也允许执行。 */}
-      <div className="gov-discovery-toolbar">
-        {allowed(session, 'governance.suggest') && (
+      {allowed(session, 'governance.suggest') && (
+        <div className="gov-discovery-toolbar">
           <Button
             type={items.length ? 'default' : 'primary'}
             loading={running}
@@ -204,8 +204,8 @@ export function GovernanceDiscoveryPanel({
           >
             发现 AI {label}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       {task.error && <Alert type="error" title={readErrorMessage(task.error)} />}
       {terminal === 'FAILED' && (
         <Alert
@@ -345,100 +345,119 @@ function CandidateEditor({
       {/* 多候选显示同页导航，单条直接进入行内办理。 */}
       {items.length > 1 && (
         <nav className="gov-column-nav" aria-label={label + '候选'}>
-          {items.map((row) => (
-            <Button
-              key={row.id}
-              type={row.id === candidate.id ? 'primary' : 'text'}
-              disabled={save.isPending}
-              onClick={() => {
-                // 已选候选自身无需触发离开确认。
-                if (row.id !== candidate.id) choose(row.id);
-              }}
-            >
-              {row.definition?.name ?? '受限候选'}
-            </Button>
-          ))}
+          <div className="gov-column-list">
+            {items.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className="gov-column-button"
+                aria-current={row.id === candidate.id}
+                disabled={save.isPending}
+                onClick={() => {
+                  // 已选候选自身无需触发离开确认。
+                  if (row.id !== candidate.id) choose(row.id);
+                }}
+              >
+                {row.definition?.name ?? '受限候选'}
+              </button>
+            ))}
+          </div>
         </nav>
       )}
       <div className="gov-content gov-discovery-editor">
-        {/* 先回看依据再决定口径，入口与当前候选状态放在表单的同一行。 */}
-        <div className="gov-candidate-header">
+        {/* 候选名称和当前状态定位在用来编辑的条目前。 */}
+        <div className="gov-entry-title">
+          <h2>{definition.name || label + '候选'}</h2>
           <Tag>{status[candidate.state] ?? candidate.state}</Tag>
-          <section className="gov-evidence" aria-label="候选依据">
-            <Space wrap>
-              <Button type="link" onClick={() => setStructure(true)}>
-                {candidate.basis.foreignKey ? '查看采集外键' : '查看结构依据'}
-              </Button>
-              {candidate.basis.notes.map((note) => (
-                <Button
-                  key={note.revisionId}
-                  type="link"
-                  onClick={() =>
-                    setPeek({ kind: 'note', id: note.noteId, revision: note.revision })
-                  }
-                >
-                  {note.title} · 第 {note.revision} 版
-                </Button>
-              ))}
-            </Space>
-          </section>
         </div>
-        {/* 编辑沿用原型明示的关联或指标字段。 */}
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={definition}
-          disabled={!edit || save.isPending}
-          onValuesChange={() => {
-            // 与当前修订比较，恢复原值不触发离开保护。
-            const values = form.getFieldsValue();
-            const modified = (['name', 'meaning', 'rule', 'usage'] as const).some(
-              (key) => values[key] !== definition[key],
-            );
-            onDraftChange(modified ? candidate : undefined);
-          }}
-        >
-          <Form.Item label={label + '名称'} name="name">
-            <Input maxLength={80} />
-          </Form.Item>
-          <Form.Item label={label === '关联' ? '关联条件' : '指标含义'} name="meaning">
-            <Input.TextArea rows={2} maxLength={4000} />
-          </Form.Item>
-          <Form.Item label={label === '关联' ? '数量关系与完整键' : '公式与筛选条件'} name="rule">
-            <Input.TextArea rows={2} maxLength={4000} />
-          </Form.Item>
-          <Form.Item label={label === '关联' ? '适用条件与限制' : '单位与统计边界'} name="usage">
-            <Input.TextArea rows={2} maxLength={4000} />
-          </Form.Item>
-        </Form>
-        {changed && (
-          <Alert
-            type="warning"
-            title="候选已有新版本"
-            action={<Button onClick={reload}>载入最新版本</Button>}
-            showIcon
-          />
-        )}
-        {error && <Alert type="error" title={error} showIcon />}
-        <div className="gov-editor-actions">
-          {edit && (
-            <Button
-              disabled={save.isPending || changed}
-              onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
+        <div className="gov-editor-layout">
+          <div className="gov-editor-main">
+            {/* 编辑沿用原型明示的关联或指标字段。 */}
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={definition}
+              disabled={!edit || save.isPending}
+              onValuesChange={() => {
+                // 与当前修订比较，恢复原值不触发离开保护。
+                const values = form.getFieldsValue();
+                const modified = (['name', 'meaning', 'rule', 'usage'] as const).some(
+                  (key) => values[key] !== definition[key],
+                );
+                onDraftChange(modified ? candidate : undefined);
+              }}
             >
-              保存草稿
-            </Button>
-          )}
-          {confirm && (
-            <Button
-              type="primary"
-              disabled={changed}
-              loading={save.isPending}
-              onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
-            >
-              确认治理
-            </Button>
-          )}
+              <Form.Item label={label + '名称'} name="name">
+                <Input maxLength={80} />
+              </Form.Item>
+              <Form.Item label={label === '关联' ? '关联条件' : '指标含义'} name="meaning">
+                <Input.TextArea rows={2} maxLength={4000} />
+              </Form.Item>
+              <Form.Item
+                label={label === '关联' ? '数量关系与完整键' : '公式与筛选条件'}
+                name="rule"
+              >
+                <Input.TextArea rows={2} maxLength={4000} />
+              </Form.Item>
+              <Form.Item
+                label={label === '关联' ? '适用条件与限制' : '单位与统计边界'}
+                name="usage"
+              >
+                <Input.TextArea rows={2} maxLength={4000} />
+              </Form.Item>
+            </Form>
+            {changed && (
+              <Alert
+                type="warning"
+                title="候选已有新版本"
+                action={<Button onClick={reload}>载入最新版本</Button>}
+                showIcon
+              />
+            )}
+            {error && <Alert type="error" title={error} showIcon />}
+            <div className="gov-editor-actions">
+              {edit && (
+                <Button
+                  disabled={save.isPending || changed}
+                  onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
+                >
+                  保存草稿
+                </Button>
+              )}
+              {confirm && (
+                <Button
+                  type="primary"
+                  disabled={changed}
+                  loading={save.isPending}
+                  onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
+                >
+                  确认治理
+                </Button>
+              )}
+            </div>
+          </div>
+          {/* 候选仍复用原证据与固定资料回看入口。 */}
+          <aside className="gov-reference" aria-label="候选来源">
+            <section className="gov-evidence gov-reference-evidence" aria-label="候选依据">
+              <h3>候选依据</h3>
+              <Space wrap>
+                <Button type="link" onClick={() => setStructure(true)}>
+                  {candidate.basis.foreignKey ? '查看采集外键' : '查看结构依据'}
+                </Button>
+                {candidate.basis.notes.map((note) => (
+                  <Button
+                    key={note.revisionId}
+                    type="link"
+                    onClick={() =>
+                      setPeek({ kind: 'note', id: note.noteId, revision: note.revision })
+                    }
+                  >
+                    {note.title} · 第 {note.revision} 版
+                  </Button>
+                ))}
+              </Space>
+            </section>
+          </aside>
         </div>
       </div>
       {structure && (

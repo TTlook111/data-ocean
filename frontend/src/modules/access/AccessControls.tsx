@@ -368,9 +368,7 @@ export function AccessToolbar({
               )}
               {filters.length > 0 && (
                 <>
-                  <Button type={hasMore && !action ? 'primary' : 'default'} htmlType="submit">
-                    查询
-                  </Button>
+                  <Button htmlType="submit">查询</Button>
                   <Button onClick={reset}>重置</Button>
                 </>
               )}

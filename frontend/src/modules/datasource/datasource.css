@@ -12,6 +12,7 @@
   flex-wrap: wrap;
   gap: 8px 24px;
   padding: 12px 24px;
+  background: var(--do-subtle);
 }
 
 /* 源级操作始终与查询卡和分页的右边界对齐。 */
@@ -318,7 +319,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-block-end: 4px;
+  flex-wrap: wrap;
+  padding: 16px 24px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
   overflow-wrap: anywhere;
 }
 
@@ -368,6 +373,7 @@
   justify-content: space-between;
   padding: 16px 24px;
   border-block-end: 1px solid var(--do-line);
+  background: var(--do-subtle);
 }
 
 /* 面板头已有内距，区块标题不再额外增加留白。 */
@@ -508,6 +514,15 @@
   flex: none;
   padding: 16px 24px;
   border-block-start: 1px solid var(--do-line);
+  background: var(--do-subtle);
+}
+
+/* 基本连接资料具备独立边界，运行策略、任务和来源证据可逐段扫描。 */
+.ds-source-detail-body > .ant-descriptions:first-child {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-subtle);
 }
 
 /* 详情中的进度和证据与基础信息保持可读间距。 */
@@ -523,10 +538,22 @@
   margin-top: 16px;
 }
 
+/* 变化两列各有独立边界，保留原记录和现状的阅读顺序。 */
+.ds-compare > section {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
 /* 保留真实前后值的空白和换行，限制侧栏正文溢出。 */
 .ds-compare pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  margin: 0;
   padding: 12px;
   background: #f5f7fb;
   border-radius: 6px;

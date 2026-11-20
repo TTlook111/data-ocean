@@ -341,11 +341,6 @@ function ApprovalInbox() {
                   </span>
                 </button>
               ))}
-              {!entries.length && (
-                <p className="approval-queue-empty">
-                  {read.isPending ? '正在加载' : filtered ? '无匹配项' : '暂无申请'}
-                </p>
-              )}
             </nav>
             {selected ? (
               <ApprovalDocument

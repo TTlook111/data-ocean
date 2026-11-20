@@ -154,7 +154,7 @@ export function RecordTable<T extends object>({
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={busy ? '正在加载' : filtered ? '没有匹配的记录' : emptyDescription}
         >
-          {filtered && onReset && <Button onClick={onReset}>清空条件</Button>}
+          {!busy && filtered && onReset && <Button onClick={onReset}>清空条件</Button>}
         </Empty>
       )}
     </div>
@@ -165,6 +165,7 @@ export function RecordTable<T extends object>({
     <div
       className="record-table"
       ref={container}
+      aria-busy={busy}
       style={
         { '--record-state-width': availableWidth ? `${availableWidth}px` : '100%' } as CSSProperties
       }
@@ -219,7 +220,7 @@ export function RecordPagination({
       aria-label="结果分页"
       aria-busy={busy}
     >
-      <span>{error ? '记录暂不可用' : `共 ${total} 条`}</span>
+      <span>{error ? '记录暂不可用' : busy ? '正在读取记录' : `共 ${total} 条`}</span>
       <div className="record-pagination-controls">
         <Select
           aria-label="每页条数"

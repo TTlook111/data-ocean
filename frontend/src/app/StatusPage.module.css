@@ -184,6 +184,8 @@
 /* 标题、原因和恢复操作组成同一信息区，并为画布留出首屏空间。 */
 .copy {
   grid-row: 3;
+  justify-self: center;
+  width: min(100%, 640px);
   padding: clamp(18px, 3.4vh, 34px) 26px clamp(28px, 5.4vh, 56px);
   text-align: center;
 }

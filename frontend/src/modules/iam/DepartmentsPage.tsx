@@ -9,7 +9,7 @@ import {
   Empty,
   Form,
   Input,
-  Radio,
+  Segmented,
   Select,
   Space,
   Tabs,
@@ -282,16 +282,13 @@ export function DepartmentsPage() {
   const memberContent = (
     <>
       <div className="member-tools">
-        <Radio.Group
+        <Segmented
           aria-label="成员查看范围"
-          optionType="button"
-          value={params.get('includeDescendants') !== 'false'}
-          onChange={(event) =>
-            updateQuery({ includeDescendants: String(event.target.value), pageNum: '1' })
-          }
+          value={params.get('includeDescendants') === 'false' ? 'false' : 'true'}
+          onChange={(value) => updateQuery({ includeDescendants: value, pageNum: '1' })}
           options={[
-            { label: '含下级部门', value: true },
-            { label: '仅直属', value: false },
+            { label: '含下级部门', value: 'true' },
+            { label: '仅直属', value: 'false' },
           ]}
         />
         <Form

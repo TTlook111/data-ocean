@@ -103,7 +103,7 @@ export function ReadState({
     return <ReadFailure error={error} retry={retry} />;
   }
   if (empty) {
-    return <Empty description="暂无记录" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无记录" />;
   }
   // 首次读取时不展示尚未到达的人员资料或功能配置空白值。
   if (loading)

@@ -80,6 +80,14 @@ const inputLimitLabels: Record<string, string> = {
 };
 
 /**
+ * 早期调用记录中的节点编码也按当次业务职责显示。
+ */
+function displayCallNode(code: string) {
+  const node = code === 'TABLE_EXPLANATION' ? 'table-description' : code;
+  return modelNodeInfo[node]?.name ?? code;
+}
+
+/**
  * 显示真实调用及使用的历史配置修订。
  */
 export function ModelCallsPage() {
@@ -94,13 +102,21 @@ export function ModelCallsPage() {
     {
       title: '当次模型 / 修订',
       width: 200,
-      render: (_, row) =>
-        row.configName ? `${row.configName} · r${row.revision}` : (row.modelName ?? '未知'),
+      ellipsis: true,
+      // 历史修订作为副行，当前名称与调用时的名称都保留完整。
+      render: (_, row) => (
+        <div className="model-call-identity">
+          <span className="cell-text" title={row.configName ?? row.modelName ?? undefined}>
+            {row.configName ?? row.modelName ?? '未知'}
+          </span>
+          {row.revision !== null && <small className="table-secondary">r{row.revision}</small>}
+        </div>
+      ),
     },
     {
       title: '节点',
       width: 130,
-      render: (_, row) => modelNodeInfo[row.nodeCode]?.name ?? row.nodeCode,
+      render: (_, row) => displayCallNode(row.nodeCode),
     },
     {
       title: '接口格式',
@@ -117,8 +133,9 @@ export function ModelCallsPage() {
     { title: '发生时间', width: 175, render: (_, row) => displayTime(row.recordedAt) },
     {
       title: '操作',
-      width: 106,
+      width: 120,
       fixed: 'right',
+      className: 'record-actions-cell',
       render: (_, row) => (
         <Button type="link" onClick={() => setDetail(row)}>
           查看详情
@@ -136,6 +153,7 @@ export function ModelCallsPage() {
           dataSource={calls.data?.items}
           loading={calls.isPending}
           error={calls.error}
+          emptyDescription="暂无模型调用记录"
           retry={() => void calls.refetch()}
           pagination={{
             current: calls.data?.pageNum ?? paging.pageNum,
@@ -148,6 +166,8 @@ export function ModelCallsPage() {
       {/* 详情仅显示当次配置元数据和可披露的调用事实。 */}
       <Drawer
         title="调用详情"
+        size="min(600px, calc(100vw - 80px))"
+        className="record-details-drawer"
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
         destroyOnHidden
@@ -155,9 +175,21 @@ export function ModelCallsPage() {
       >
         {detail && (
           <Descriptions
+            className="model-detail-values"
             column={1}
             items={[
               { key: 'config', label: '配置名称（当次）', children: detail.configName ?? '未知' },
+              { key: 'node', label: '节点', children: displayCallNode(detail.nodeCode) },
+              {
+                key: 'status',
+                label: '调用状态',
+                children: (
+                  <Status
+                    value={detail.state}
+                    label={detail.state === 'SUCCEEDED' ? '成功' : '失败'}
+                  />
+                ),
+              },
               {
                 key: 'format',
                 label: '接口格式',

@@ -187,6 +187,7 @@ export function GovernanceNotePicker({
 
   return (
     <Modal
+      className="app-dialog"
       open
       centered
       width={680}

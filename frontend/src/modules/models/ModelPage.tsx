@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { RecordTable } from '../../shared/RecordTable';
-import { DetailFooter, displayTime, readErrorMessage, Status } from '../../shared/Records';
+import { displayTime, readErrorMessage, Status } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useFormClose } from '../../shared/useFormClose';
 import type { Page } from '../iam/types';
@@ -135,7 +135,7 @@ export function ModelPage() {
 
   // 查询条件与结果的同名列对齐，详情动作集中在底栏。
   const modelColumns: TableProps<ModelConfig>['columns'] = [
-    { title: '配置名称', dataIndex: 'name', width: 180 },
+    { title: '配置名称', dataIndex: 'name', width: 180, ellipsis: true },
     { title: '模型类型', width: 96, render: () => '生成' },
     {
       title: '接口格式',
@@ -143,21 +143,22 @@ export function ModelPage() {
       width: 220,
       render: (_, row) => modelProtocols[row.protocol],
     },
-    { title: '模型名称', dataIndex: 'modelName', width: 180 },
+    { title: '模型名称', dataIndex: 'modelName', width: 180, ellipsis: true },
     {
       title: '状态',
       width: 100,
       render: (_, row) => (
         <Status
-          value={row.enabled ? 'ACTIVE' : 'DISABLED'}
+          value={row.enabled ? 'ENABLED' : 'DISABLED'}
           label={row.enabled ? '已启用' : '已停用'}
         />
       ),
     },
     {
       title: '操作',
-      width: 106,
+      width: 120,
       fixed: 'right',
+      className: 'record-actions-cell',
       render: (_, row) => (
         <Button type="link" onClick={() => setDetail(row)}>
           查看详情
@@ -171,8 +172,9 @@ export function ModelPage() {
       width: 170,
       render: (_, node) => (
         <>
-          <strong>{modelNodeInfo[node.code]?.name ?? node.code}</strong>
-          <div>数据治理</div>
+          {/* 节点名称与所属模块采用统一的双行尺度。 */}
+          <span className="model-node-name">{modelNodeInfo[node.code]?.name ?? node.code}</span>
+          <span className="table-secondary">数据治理</span>
         </>
       ),
     },
@@ -253,6 +255,14 @@ export function ModelPage() {
                   loading={models.isPending}
                   error={models.error}
                   retry={() => void models.refetch()}
+                  filtered={Boolean(keyword)}
+                  onReset={() => {
+                    // 清空在用关键词和输入框，并从第一页重查。
+                    setSearchInput('');
+                    setKeyword('');
+                    setPaging((current) => ({ ...current, pageNum: 1 }));
+                  }}
+                  emptyDescription="暂无模型配置"
                   pagination={{
                     current: models.data?.pageNum ?? paging.pageNum,
                     pageSize: paging.pageSize,
@@ -281,6 +291,7 @@ export function ModelPage() {
                     void options.refetch();
                   }}
                   pagination={false}
+                  scroll={{ x: 640, y: '100%' }}
                 />
               </section>
             ),
@@ -289,6 +300,7 @@ export function ModelPage() {
       />
       {/* 只显示凭据已设置，编辑表单不会预填秘密。 */}
       <Modal
+        className="app-dialog"
         title={detail ? `模型详情 · ${detail.name}` : '模型详情'}
         centered
         width={680}
@@ -297,7 +309,9 @@ export function ModelPage() {
         destroyOnHidden
         footer={
           detail && (
-            <DetailFooter close={() => setDetail(null)}>
+            <Space wrap>
+              {/* 关闭作为次要入口，配置维护的主动作留在右端。 */}
+              <Button onClick={() => setDetail(null)}>关闭</Button>
               {/* 连接测试有独立权限，停用时禁止向提供方发起新请求。 */}
               {allowed(session, 'models.test') && (
                 <Button
@@ -324,12 +338,13 @@ export function ModelPage() {
                   编辑
                 </Button>
               )}
-            </DetailFooter>
+            </Space>
           )
         }
       >
         {detail && (
           <Descriptions
+            className="model-detail-values"
             column={1}
             items={[
               { key: 'name', label: '配置名称', children: detail.name },
@@ -397,9 +412,14 @@ function ModelConnectionStatus({
       ? '未收到可确认的响应，请检查地址和网络后重试。'
       : (modelFailureLabels[result.failureCode ?? ''] ?? '连接测试失败。');
   return (
-    <Space role="status" orientation="vertical" size={2}>
-      <span>{result.passed ? '通过' : failure}</span>
-      <span>{displayTime(result.testedAt)}</span>
+    <Space role="status" orientation="vertical" size={4}>
+      {/* 状态与发生时间分行，失败原因保留全文。 */}
+      <Status
+        value={result.passed ? 'SUCCEEDED' : 'FAILED'}
+        label={result.passed ? '通过' : '失败'}
+      />
+      {!result.passed && <span>{failure}</span>}
+      <span className="table-secondary">{displayTime(result.testedAt)}</span>
     </Space>
   );
 }
@@ -443,6 +463,7 @@ function ModelEditor({
     <Modal
       open
       centered
+      className="app-dialog"
       width={680}
       title={row ? '编辑模型' : '新增模型'}
       onCancel={requestClose}
@@ -453,12 +474,12 @@ function ModelEditor({
       cancelButtonProps={{ disabled: save.isPending }}
       closable={!save.isPending}
       keyboard={!save.isPending}
-      styles={{ body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } }}
     >
       {/* 当前页面只管理生成模型，表单保留需填写的配置。 */}
       <Form
         form={form}
         layout="vertical"
+        className="form-grid model-editor-form"
         initialValues={row ?? { timeoutSeconds: 60 }}
         disabled={save.isPending}
         scrollToFirstError={{ focus: true }}
@@ -482,6 +503,7 @@ function ModelEditor({
         </Form.Item>
         <Form.Item
           name="endpoint"
+          className="form-field-wide"
           label="服务 URL"
           rules={[
             { required: true, type: 'url', message: '请输入有效的服务地址' },
@@ -490,11 +512,17 @@ function ModelEditor({
         >
           <Input maxLength={500} />
         </Form.Item>
-        <Form.Item name="modelName" label="模型名称" rules={[{ required: true, whitespace: true }]}>
+        <Form.Item
+          name="modelName"
+          label="模型名称"
+          className="form-field-wide"
+          rules={[{ required: true, whitespace: true }]}
+        >
           <Input maxLength={120} />
         </Form.Item>
         <Form.Item
           name="credential"
+          className="form-field-wide"
           label="访问凭据"
           rules={[{ required: !row, whitespace: true }]}
         >

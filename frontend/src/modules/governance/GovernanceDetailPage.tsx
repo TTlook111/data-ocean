@@ -1,4 +1,4 @@
-import { Alert, Button, Drawer, Input, Radio, Space, Tabs, Tag } from 'antd';
+import { Alert, Button, Drawer, Input, Segmented, Space, Tabs, Tag } from 'antd';
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -146,7 +146,7 @@ export function GovernanceDetailPage() {
               <Button type="text" icon={<ArrowLeftOutlined />} onClick={back}>
                 返回列表
               </Button>
-              <div>
+              <div className="gov-object-name">
                 <h1>{object.data.qualifiedName}</h1>
                 <small>{object.data.sourceName}</small>
               </div>
@@ -215,13 +215,16 @@ export function GovernanceDetailPage() {
                         setFieldPage(1);
                       }}
                     />
-                    <Radio.Group
+                    {/* 分段控件等宽排列，选中样式与键盘焦点分别表达。 */}
+                    <Segmented
+                      className="gov-state-filter"
+                      aria-label="字段状态"
+                      block
                       size="small"
-                      optionType="button"
                       value={fieldState}
-                      onChange={(event) => {
+                      onChange={(value) => {
                         // 状态筛选与关键词取交集。
-                        setFieldState(event.target.value);
+                        setFieldState(value);
                         setFieldPage(1);
                       }}
                       options={[

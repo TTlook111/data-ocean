@@ -3,6 +3,11 @@
   width: 100%;
 }
 
+/* 常用表名搜索多留文本空间，让来源、条件和按钮之间保持连续节奏。 */
+.gov-query.compact-query > .ant-form > .ant-form-item:nth-child(2) {
+  max-width: 520px;
+}
+
 /* 同一行的复核入口紧贴目标字段名称。 */
 .gov-impact-links,
 .gov-progress {
@@ -12,9 +17,20 @@
   gap: 4px 8px;
 }
 
+/* 确认数量使用次要字号，进度标签仍是首要识别信息。 */
+.gov-progress > span:not(.ant-tag) {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
 /* 复核链接为内容保留操作区域，避免多条来源导致名称互相挤压。 */
 .gov-impact-links .ant-btn {
   padding-inline: 0;
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  block-size: auto;
+  min-block-size: 32px;
 }
 
 /* 标题、页签与正文各自承接面板内距，避免在详情外框重复叠加。 */
@@ -28,16 +44,27 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
-  padding: 24px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 8px 8px 0 0;
+  background: var(--do-subtle);
 }
 
-/* 标题只展示实际对象，不重复工作台名称。 */
-.gov-detail-heading h1,
+/* 对象名在窄桌面先让出操作空间，长技术路径仍可换行。 */
+.gov-object-name {
+  flex: 1 1 208px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 真实技术对象名是页首的焦点，来源名保持辅助层级。 */
+.gov-object-name h1 {
+  letter-spacing: -0.3px;
+}
+
+/* 独立工作区用主标题定位，条目与依据采用区块标题尺度。 */
 .gov-entry-title h2,
 .gov-history h2 {
-  margin: 0;
-  font-size: 20px;
-  line-height: 28px;
   overflow-wrap: anywhere;
 }
 
@@ -46,7 +73,9 @@
 .gov-source-summary small,
 .gov-history-row small,
 .gov-column-button small {
-  color: #667085;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: var(--do-line-meta);
 }
 
 /* 所属页签和阻塞状态对齐面板标题。 */
@@ -65,10 +94,19 @@
 .gov-column-nav {
   min-width: 0;
   align-self: start;
+  position: sticky;
+  top: 0;
   display: grid;
   gap: 12px;
-  padding: 20px 16px 24px;
-  border-right: 1px solid #eaecf0;
+  padding: 16px 16px 24px;
+  background: var(--do-panel);
+}
+
+/* 三个状态在最窄的字段导航中仍完整等宽显示。 */
+.gov-state-filter .ant-segmented-item-label {
+  min-width: 0;
+  padding-inline: 4px;
+  font-size: var(--do-font-meta);
 }
 
 /* 字段在导航内部滚动，表说明继续沿工作区滚动。 */
@@ -77,6 +115,8 @@
   gap: 4px;
   max-height: min(52vh, 560px);
   overflow: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
 /* 字段命名和原注释保持左对齐，并按现有菜单交互显示当前项。 */
@@ -85,34 +125,151 @@
   justify-items: start;
   gap: 3px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: inherit;
+  font: inherit;
   cursor: pointer;
   text-align: left;
   overflow-wrap: anywhere;
 }
 
-/* 当前、悬停和键盘聚焦给予字段导航明确反馈。 */
-.gov-column-button:hover,
+/* 悬停仅反馈交互，当前条目继续用后台选中态定位。 */
+.gov-column-button:hover:not(:disabled) {
+  background: var(--do-hover);
+}
+
+/* 选中态与全局菜单共用浅蓝底和定位线。 */
 .gov-column-button[aria-current='true'] {
-  background: #eef4ff;
+  background: var(--do-selected);
+  box-shadow: inset 2px 0 0 var(--do-primary);
+}
+
+/* 候选保存期间保留导航位置及当前条目标记。 */
+.gov-column-button:disabled {
+  cursor: not-allowed;
 }
 
 /* 正文使用后台统一 800px 阅读宽度。 */
 .gov-content {
   min-width: 0;
   padding: 24px;
+  container-type: inline-size;
 }
 
-/* 状态、依据、表单与底栏保留同一左轴。 */
-.gov-editor,
+/* 导航和编辑正文之间保留连续的阅读分隔线。 */
+.gov-split > .gov-content {
+  border-inline-start: 1px solid var(--do-line);
+}
+
+/* 历史区采用独立的 800px 阅读宽度。 */
 .gov-history {
   display: grid;
   gap: 16px;
   max-width: 800px;
+}
+
+/* 对象状态跟随条目标题，当前编辑任务从标题后的分隔开始。 */
+.gov-entry-title {
+  max-width: 1184px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 字段名和候选名允许完整断行。 */
+.gov-entry-title h2 {
+  font-size: 24px;
+  line-height: 32px;
+}
+
+/* 按实际内容宽度安排编辑和参照，窄桌面参照区位于编辑后。 */
+.gov-editor-layout {
+  display: grid;
+  align-items: start;
+  gap: 24px;
+  max-width: 1184px;
+}
+
+/* 表单和确认操作共用同一列，保留原型的阅读上限。 */
+.gov-editor-main {
+  width: 100%;
+  min-width: 0;
+  max-width: 800px;
+}
+
+/* 权限和错误反馈与实际输入之间留出操作空间。 */
+.gov-editor-main > .ant-alert {
+  margin-bottom: 16px;
+}
+
+/* 审核依据不遮挡输入，长原注释和资料名保留完整断行。 */
+.gov-reference {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 宽桌面并列对照，长依据随正文独立滚动。 */
+@container (min-width: 864px) {
+  .gov-editor-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(256px, 30%);
+  }
+
+  /* 浏览长表单时保留来源、修订和待核对证据。 */
+  .gov-reference {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100dvh - 128px);
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  /* 宽屏已有同屏依据栏，只保留正文中的证据入口。 */
+  .gov-entry-title .gov-reference-jump {
+    display: none;
+  }
+}
+
+/* 字段组按业务语义划分，单列时仍维持原先操作顺序。 */
+.gov-form-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 标题与首个字段保持稳定节奏，编码区域留在取值分组。 */
+.gov-form-group > :is(h3, .gov-field, .gov-code-list) {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+/* 新一组用轻线分区，入场视图可直接扫到下一节。 */
+.gov-form-group > h3 {
+  margin-bottom: 12px;
+}
+
+/* 分组之间的边线由后一组负责，首组不重复标题区边界。 */
+.gov-form-group + .gov-form-group {
+  padding-top: 16px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 错误定位滚动时给固定办理区预留空间。 */
+.gov-editor-main :is(input, textarea) {
+  scroll-margin-bottom: 128px;
+}
+
+/* 宽布局并排展示用途与粒度、单位与格式，窄布局依次排列。 */
+@container (min-width: 620px) {
+  /* 有对应关系的字段共享同一行，其余长内容保留整列。 */
+  .gov-form-group > .gov-field-pair {
+    grid-column: auto;
+  }
 }
 
 /* 主标题和实际状态同一行，自然换行。 */
@@ -131,9 +288,23 @@
   display: grid;
   gap: 8px;
   padding: 16px;
-  border: 1px solid #eaecf0;
+  border: 1px solid var(--do-line);
   border-radius: 6px;
-  background: #f8fafc;
+  background: var(--do-subtle);
+}
+
+/* 来源标题、当前属性和确认时间逐层呈现，避免与正文输入混排。 */
+.gov-source-line {
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 无额外变更时摘要保持紧凑，有证据时用分隔线引导阅读。 */
+.gov-source-summary .gov-affected {
+  padding-top: 8px;
+  border-top: 1px solid var(--do-line);
+  justify-content: space-between;
 }
 
 /* 发生变化时保持差异入口和状态紧凑。 */
@@ -152,6 +323,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
   align-items: start;
   gap: 8px;
+  width: 100%;
 }
 
 /* 编码增加入口与第一组内容保持空间。 */
@@ -161,17 +333,63 @@
   gap: 12px;
 }
 
+/* 编码行复用网格的间距，校验消息仍随字段撑高。 */
+.gov-code-row .ant-form-item {
+  margin-bottom: 0;
+}
+
+/* 依据入口避开长文件标题断点，沿表单的左侧阅读线排列。 */
+.gov-evidence {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 固定资料与当前结构使用同一条参照轴，引用动作留在资料下方。 */
+.gov-reference-evidence {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 同一资料的名称、版本与移除动作可以按证据栏宽度换行。 */
+.gov-reference-evidence > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* 长来源标题可以换行，按钮保持可完整点击。 */
+.gov-evidence .ant-btn-link {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding-inline: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
 /* 固定底部动作跟随编辑阅读区，确保长表单完成后仍易办理。 */
 .gov-editor-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   position: sticky;
   z-index: 1;
   bottom: 0;
   padding: 12px 0;
-  border-top: 1px solid #eaecf0;
-  background: #fff;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-panel);
+  box-shadow: 0 24px 0 var(--do-panel);
+}
+
+/* 保存和确认作为一组收向右端，缩放换行时保持顺序。 */
+.gov-commit-actions {
+  margin-inline-start: auto;
 }
 
 /* 历史行之间仅以文本分组分隔。 */
@@ -191,25 +409,97 @@
 .gov-empty,
 .gov-column-pages {
   margin: 8px 0 0;
-  color: #667085;
+  color: var(--do-muted);
+}
+
+/* 生成前先展示范围，再按资料标题与固定修订逐行核对。 */
+.gov-generation {
+  display: grid;
+  gap: 16px;
+}
+
+/* 范围摘要只承载本次目标，使用与当前来源相同的轻量背景。 */
+.gov-generation-summary {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-subtle);
+}
+
+/* 摘要标签、数量和修订均为次要信息。 */
+.gov-generation-summary dt,
+.gov-generation small {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  font-weight: 400;
+}
+
+/* 范围值与标签共用左轴。 */
+.gov-generation-summary dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+/* 少量资料自然收缩，长清单使用弹窗正文的滚动。 */
+.gov-generation-notes {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 修订号右对齐，长标题保留全文。 */
+.gov-generation-notes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 8px 16px;
+  overflow-wrap: anywhere;
+}
+
+/* 只在相邻资料之间分隔。 */
+.gov-generation-notes li + li {
+  border-top: 1px solid var(--do-line);
+}
+
+/* 复选组占满可用宽度，比较列在所有行共享同一网格。 */
+.gov-ai-choices.ant-checkbox-group {
+  display: block;
 }
 
 /* 建议按业务项与当前内容并排核对，两列都可独立断行。 */
 .gov-ai-difference {
   display: grid;
-  grid-template-columns: 144px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(96px, 19%) repeat(2, minmax(0, 1fr));
   gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid #eaecf0;
+  padding: 12px;
+  border-bottom: 1px solid var(--do-line);
 }
 
-/* 将内容起点对齐核对项，避免多行差异挤占弹窗底栏。 */
-.gov-ai-difference p {
-  margin: 0;
+/* 对比标题与表头同色，建议文字借分隔线保持阅读方向。 */
+.gov-ai-difference-head {
+  background: var(--do-subtle);
+  font-weight: 500;
+}
+
+/* 左右内容都保留原文，浅色分隔线提示建议列。 */
+.gov-ai-proposal {
+  padding-inline-start: 8px;
+  border-inline-start: 2px solid var(--do-selected);
 }
 
 /* 低宽度 PC 窗口维持桌面双列并收紧字段导航。 */
 @media (max-width: 1100px) {
+  /* 中等桌面给编辑器增加阅读宽度。 */
+  .gov-split {
+    grid-template-columns: 208px minmax(0, 1fr);
+  }
+}
+
+/* 高缩放的 PC 窗口继续保留字段导航。 */
+@media (max-width: 1023px) {
   /* 只压缩字段导航宽度，表单保持正常阅读尺寸。 */
   .gov-split {
     grid-template-columns: 184px minmax(0, 1fr);
@@ -222,21 +512,15 @@
   padding: 12px 24px;
 }
 
-/* 候选表单采用与其他治理定义相同的阅读宽度。 */
+/* 候选也使用同一主列与证据栏，窄窗继续继承正文布局。 */
 .gov-discovery-editor {
-  width: 100%;
-  max-width: 848px;
-  padding-top: 0;
+  padding-top: 8px;
 }
 
-/* 候选状态和证据入口在表单前可见，阅读长标题时按完整入口折行。 */
-.gov-candidate-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-bottom: 12px;
+/* 发现结果和通知使用详情面板的共同留白。 */
+.gov-discovery > .ant-alert,
+.gov-discovery > .ant-pagination {
+  margin: 0 24px 16px;
 }
 
 /* 固定底栏集中处理候选，确认位于右侧。 */

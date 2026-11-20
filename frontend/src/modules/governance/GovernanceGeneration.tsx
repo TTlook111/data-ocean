@@ -133,6 +133,7 @@ export function GovernanceGeneration({
     <Modal
       open
       centered
+      className="app-dialog"
       width={suggestion ? 900 : 680}
       title={suggestion ? 'AI 建议对比' : '生成 AI 建议'}
       onCancel={close}
@@ -149,9 +150,17 @@ export function GovernanceGeneration({
     >
       {/* 预览只展示可见修订和当前范围。 */}
       {!request && (
-        <Space orientation="vertical" size="middle" className="gov-generation">
-          <strong>{subject}</strong>
-          {preview.isFetching && <Spin size="small" />}
+        <div className="gov-generation">
+          <dl className="gov-generation-summary">
+            <dt>生成范围</dt>
+            <dd>{subject}</dd>
+          </dl>
+          {preview.isFetching && (
+            <Space role="status">
+              <Spin size="small" />
+              正在核对可用资料
+            </Space>
+          )}
           {preview.error && (
             <Alert
               type="error"
@@ -159,13 +168,26 @@ export function GovernanceGeneration({
               action={<Button onClick={() => void preview.refetch()}>重新核对</Button>}
             />
           )}
-          {preview.data?.notes?.map((note) => (
-            <span key={note.noteId}>
-              {note.title} · 第 {note.revision} 版
-            </span>
-          ))}
-          {preview.data?.notes?.length === 0 && <span>当前没有可取用的业务说明</span>}
-        </Space>
+          {preview.data?.notes && (
+            <section aria-label="本次取用的业务说明">
+              <h3>
+                业务说明 <small>{preview.data.notes.length} 份</small>
+              </h3>
+              {preview.data.notes.length ? (
+                <ul className="gov-generation-notes">
+                  {preview.data.notes.map((note) => (
+                    <li key={note.noteId}>
+                      <span>{note.title}</span>
+                      <small>第 {note.revision} 版</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="gov-empty">当前没有可取用的业务说明</p>
+              )}
+            </section>
+          )}
+        </div>
       )}
       {/* 只展示已持久化的终态建议，模型错误保留当前输入。 */}
       {request && !suggestion && !failed && !withheld && !task.error && (
@@ -185,22 +207,32 @@ export function GovernanceGeneration({
           }
         />
       )}
-      {suggestion && (
+      {suggestion && differences.length > 0 && (
         <Checkbox.Group
+          className="gov-ai-choices"
+          aria-label="选择填入草稿的内容"
           value={checked}
           onChange={(values) => setSelected(values as (keyof Definition)[])}
         >
-          <div className="gov-ai-differences">
+          <div className="gov-ai-differences" role="table" aria-label="AI 建议对比">
+            {/* 列头固定对照方向，长建议由弹窗正文承接滚动。 */}
+            <div className="gov-ai-difference gov-ai-difference-head" role="row">
+              <span role="columnheader">内容项</span>
+              <span role="columnheader">当前内容</span>
+              <span role="columnheader">AI 建议</span>
+            </div>
             {/* 现有人工文本默认保留，空字段可直接填入候选内容。 */}
             {differences.map(({ key, label }) => (
-              <div className="gov-ai-difference" key={key}>
-                <Checkbox value={key} disabled={!item.actions.canEdit}>
-                  {label}
-                </Checkbox>
-                <p className="gov-pre-line">
-                  {typeof current[key] === 'string' ? current[key] : '—'}
+              <div className="gov-ai-difference" key={key} role="row">
+                <div role="rowheader">
+                  <Checkbox value={key} disabled={!item.actions.canEdit}>
+                    {label}
+                  </Checkbox>
+                </div>
+                <p className="gov-pre-line" role="cell">
+                  {typeof current[key] === 'string' ? current[key] || '—' : '—'}
                 </p>
-                <p className="gov-pre-line">
+                <p className="gov-pre-line gov-ai-proposal" role="cell">
                   {typeof suggestion.content[key] === 'string' ? suggestion.content[key] : null}
                 </p>
               </div>

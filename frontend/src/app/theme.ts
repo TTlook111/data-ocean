@@ -95,6 +95,15 @@ export const appTheme: ThemeConfig = {
       /** 查看型详情标题与正文形成清楚的层级。 */
       fontSizeLG: 16,
     },
+    // 分段控件用底色定位当前筛选，焦点由组件的独立轮廓表达。
+    Segmented: {
+      /** 未选分段共享中性轨道。 */
+      trackBg: '#f3f5f8',
+      /** 选项切换后可识别的蓝色浅底。 */
+      itemSelectedBg: '#eaf0fc',
+      /** 当前分段的文字反差。 */
+      itemSelectedColor: '#244eaa',
+    },
     // 表头用连续浅底分区，消除默认的竖向短分隔线。
     Table: {
       /** 单元格上下内距。 */
@@ -141,6 +150,14 @@ export const appTheme: ThemeConfig = {
       primaryShadow: 'none',
       /** 次操作不额外投影。 */
       defaultShadow: 'none',
+      /** 次级操作悬停保留中性色，主色留给关键动作和导航。 */
+      defaultHoverBg: '#f8fafc',
+      /** 轻量加深边界，让悬停反馈在白色面板上可辨认。 */
+      defaultHoverBorderColor: '#c8ced8',
+      /** 悬停时保持次级按钮的文字层级。 */
+      defaultHoverColor: '#1f2937',
+      /** 危险操作靠对比和文字提示，无需额外投影。 */
+      dangerShadow: 'none',
       /** 40px 按钮沿用正文尺度的水平内距。 */
       paddingInlineLG: 16,
     },

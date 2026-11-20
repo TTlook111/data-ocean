@@ -10,6 +10,7 @@
   --do-primary-hover: #244eaa;
   --do-selected: #eaf0fc;
   --do-hover: #f3f5f8;
+  --do-subtle: #f8fafc;
   --do-control-height: 40px;
   --do-font-meta: 12px;
   --do-line-meta: 18px;
@@ -124,6 +125,8 @@ h3 {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--do-ink);
+  font-weight: 500;
 }
 /* 问数入口保留原位置，未接入时不伪造可用业务。 */
 .workbench-link {
@@ -138,6 +141,11 @@ h3 {
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
+}
+
+/* 账号整块在键盘与菜单展开时都有连续的反馈。 */
+.admin-identity:is(:hover, [aria-expanded='true']) {
+  background: var(--do-subtle);
 }
 /* 身份文字保持左对齐。 */
 .identity-text {
@@ -208,6 +216,7 @@ h3 {
 .admin-sidebar .ant-menu-item-selected {
   background: var(--do-selected);
   color: var(--do-primary);
+  box-shadow: inset 2px 0 0 var(--do-primary);
 }
 /* 工作区四周留白和区块间距保持 24px。 */
 .workspace {
@@ -241,6 +250,11 @@ h3 {
   flex: none;
   align-items: flex-start;
   gap: 16px;
+}
+
+/* 查询框与列表上沿形成同一条工具轴，清空和提交保持中性层级。 */
+.query-panel button[type='submit'] {
+  font-weight: 500;
 }
 /* 查询字段占据余宽并按表头顺序整组换行。 */
 .query-panel .ant-form {
@@ -315,16 +329,15 @@ h3 {
   flex: none;
   margin-left: auto;
 }
-/* 低频条件较多的列表把常用筛选和按钮放在同一桌面工具栏。 */
+/* 常用条件优先同排，空间不足时按顺序整体换行。 */
 .query-panel.compact-query > .ant-form {
-  flex-wrap: nowrap;
-  gap: clamp(8px, 1vw, 16px);
+  gap: 12px 16px;
 }
 
-/* 搜索框和数据源优先吸收剩余空间，状态仅保留选项所需宽度。 */
+/* 关键词和数据源预留可辨识的文本宽度。 */
 .query-panel.compact-query > .ant-form > .ant-form-item {
-  flex: 1 1 240px;
-  min-width: 0;
+  flex: 1 1 180px;
+  min-width: min(100%, 180px);
   max-width: 320px;
 }
 
@@ -366,6 +379,27 @@ h3 {
 /* 查询和新增位于同一操作区，给门类页签留出宽度。 */
 .model-tabs .ant-input-search {
   width: clamp(132px, 22vw, 260px);
+}
+
+/* 节点与所属模块沿用共用列表的双行排版。 */
+.model-node-name {
+  font-weight: 500;
+}
+
+/* 当次模型和修订沿稳定的左右边界读取，长名称可悬停查看。 */
+.model-call-identity > .cell-text {
+  font-weight: 500;
+}
+
+/* 协议地址和诊断内容可读全文，长值在详情容器内断行。 */
+.model-detail-values .ant-descriptions-item-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 模型按短字段同排、连接地址和凭据独占一行组织。 */
+.model-editor-form {
+  column-gap: 16px;
 }
 
 /* 选中的页签用余高展示结果，表格与对应的无障碍页签面板保持关联。 */
@@ -505,9 +539,14 @@ h3 {
 .records-panel .ant-table-thead > tr > th {
   height: 48px;
   padding: 12px 16px;
-  background: #f8fafc;
+  background: #eff3f8;
   color: #5b6575;
-  font-weight: 400;
+  font-weight: 500;
+}
+
+/* 键盘进入行中的链接、菜单时，整行提供和悬停一致的位置提示。 */
+.records-panel .ant-table-tbody > tr[data-row-key]:focus-within > td {
+  background: var(--do-subtle);
 }
 /* 首末列外侧采用面板的 24px 阅读轴。 */
 .ant-table-wrapper .ant-table-cell:first-child {
@@ -581,7 +620,7 @@ h3 {
   min-height: 64px;
   padding: 12px 24px;
   border-top: 1px solid #e5e7eb;
-  background: white;
+  background: var(--do-subtle);
 }
 /* 每页条数、翻页和跳转按原型从左到右排列。 */
 .record-pagination-controls {
@@ -602,13 +641,19 @@ h3 {
 /* 总数在固定高度内保持辅助文字行高。 */
 .record-pagination > span {
   line-height: var(--do-line-meta);
+  color: var(--do-muted);
 }
 /* 分页数字采用原型的轻量选中样式，悬停和键盘焦点仍然明确。 */
 .record-pagination .ant-pagination-item {
   border-color: transparent;
   background: transparent;
 }
-/* 当前页只突出数字，避免在表格底部再出现一个主按钮。 */
+/* 当前页使用浅底定位，翻页操作保留次级层级。 */
+.record-pagination .ant-pagination-item-active {
+  background: var(--do-selected);
+}
+
+/* 当前页文字与选中菜单使用同一主色。 */
 .record-pagination .ant-pagination-item-active a {
   color: var(--do-primary);
   font-weight: 600;
@@ -616,6 +661,14 @@ h3 {
 /* 独立分页不叠加表格默认外边距。 */
 .record-pagination-controls .ant-pagination {
   margin: 0;
+}
+
+/* 分页动作靠近对应页码，键盘可识别当前按钮和当前页的区别。 */
+.record-pagination
+  .ant-pagination
+  :is(.ant-pagination-prev, .ant-pagination-next):not(.ant-pagination-disabled):hover {
+  background: var(--do-hover);
+  border-radius: 6px;
 }
 /* 人员与角色名称是原型中的记录查看入口。 */
 .cell-title.ant-btn {
@@ -708,10 +761,16 @@ h3 {
   line-height: 20px;
   white-space: nowrap;
 }
-/* 正常与启用使用相同的绿色语义。 */
-.record-status-enabled.ant-tag {
+/* 正常、启用、确认和成功使用相同的绿色语义。 */
+:is(.record-status-enabled, .record-status-confirmed, .record-status-succeeded).ant-tag {
   color: #216449;
   background: #e8f4ee;
+}
+
+/* 调用和连接失败在历史记录中可快速辨认。 */
+.record-status-failed.ant-tag {
+  color: #b43c3c;
+  background: #fdf0f0;
 }
 /* 需要首次登录或改密的人员保留待处理状态，区别于停用。 */
 .record-status-pending_first_login.ant-tag,
@@ -900,6 +959,14 @@ h3 {
   color: #2f63d5;
   background: #eaf0fc;
 }
+
+/* 先识别当前人员和状态，随后再阅读角色、部门及关联资料。 */
+.person-overview.detail-heading {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-subtle);
+}
 /* 备注等详情正文保留原有换行和完整连续编号。 */
 .detail-text {
   white-space: pre-wrap;
@@ -929,7 +996,7 @@ h3 {
   grid-template-columns: 128px minmax(0, 1fr) 128px;
   gap: 24px;
   align-items: start;
-  padding: 32px 0;
+  padding: 24px 0;
   border-bottom: 1px solid #e5e7eb;
 }
 /* 首组基本资料不增加额外上留白。 */
@@ -948,13 +1015,14 @@ h3 {
 /* 资料标签保持原型 88px 预算。 */
 .account-fields > div {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   align-items: start;
 }
 /* 资料组各行保留清楚的阅读间隔。 */
 .account-fields dt {
-  color: #5b6575;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
 }
 /* 角色标签使用克制中性样式。 */
 .account-role.ant-tag {
@@ -967,6 +1035,7 @@ h3 {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+  font-weight: 500;
 }
 /* 姓名与状态同组展示。 */
 .account-name-field dd {
@@ -1019,6 +1088,12 @@ h3 {
   min-height: 0;
   overflow: auto;
   padding: 20px 12px 16px;
+  background: var(--do-subtle);
+}
+
+/* 树的透明底延续组织区色面，不在根节点外围留下独立色块。 */
+.department-tree .ant-tree {
+  background: transparent;
 }
 /* 组织架构标题、真实部门数量和新增按钮按原型同行。 */
 .tree-title {
@@ -1048,6 +1123,12 @@ h3 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 组织树的当前部门与右栏的业务详情一一对应。 */
+.department-tree .ant-tree-node-selected {
+  box-shadow: inset 2px 0 var(--do-primary);
+  font-weight: 500;
+}
 /* 树状态紧邻对应部门名称。 */
 .tree-status {
   margin-left: 8px;
@@ -1066,6 +1147,12 @@ h3 {
 .department-profile {
   flex: none;
 }
+
+/* 对象摘要的标签和值分层，摘要末列保留部门操作边界。 */
+.department-profile .ant-descriptions-item-label {
+  font-size: var(--do-font-meta);
+}
+
 /* 摘要标题与四项资料之间保留原型间隔。 */
 .department-profile .list-toolbar {
   margin-bottom: 24px;
@@ -1122,7 +1209,7 @@ h3 {
   border-bottom: 1px solid #e5e7eb;
 }
 /* 范围按钮作为一个不可拆分的整体。 */
-.member-tools > .ant-radio-group {
+.member-tools > .ant-segmented {
   flex: none;
   white-space: nowrap;
 }
@@ -1226,6 +1313,7 @@ h3 {
   min-height: 64px;
   padding: 16px 24px;
   border-bottom: 1px solid #e5e7eb;
+  background: var(--do-subtle);
 }
 /* 功能项保持独立点击区域。 */
 .permission-form-item {
@@ -1268,6 +1356,7 @@ h3 {
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid #e5e7eb;
+  background: var(--do-subtle);
 }
 /* 目录搜索位于左栏顶部。 */
 .permission-search {
@@ -1317,8 +1406,10 @@ h3 {
 }
 /* 当前页面高亮与原型一致。 */
 .permission-page.is-current {
-  background: #eaf0fc;
-  color: #2f63d5;
+  background: var(--do-selected);
+  color: var(--do-primary-hover);
+  box-shadow: inset 2px 0 var(--do-primary);
+  font-weight: 500;
 }
 /* 当前选择数量采用次级文字。 */
 .permission-page small {
@@ -1370,7 +1461,8 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--do-line);
 }
 /* 数量文字保持次级档位。 */
 .permission-page-heading > span {
@@ -1386,11 +1478,11 @@ h3 {
 /* 同页功能以浅边线和留白分开。 */
 .permission-operations li {
   padding: 12px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--do-line);
 }
 /* 功能用途紧邻选择项。 */
 .permission-operations p {
-  margin: 2px 0 0;
+  margin: 4px 0 0 24px;
   color: #5b6575;
   font-size: 12px;
   line-height: 18px;
@@ -1506,7 +1598,7 @@ h3 {
 .login-shell {
   height: 100dvh;
   min-height: 0;
-  background: #f5f7fa;
+  background: var(--do-canvas);
   overflow: auto;
 }
 /* 原型品牌位于登录页左上角。 */
@@ -1516,6 +1608,8 @@ h3 {
   gap: 10px;
   height: 80px;
   padding: 24px 40px;
+  border-bottom: 1px solid var(--do-line);
+  background: var(--do-panel);
 }
 /* 登录和后台使用同一原始图形标识。 */
 .login-brand img {
@@ -1538,16 +1632,17 @@ h3 {
 }
 /* 原型登录卡片为单列 440px。 */
 .login-card {
-  width: 440px;
+  width: min(440px, 100%);
   padding: 40px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--do-line);
+  border-top: 3px solid var(--do-primary);
   border-radius: 8px;
   background: white;
   box-shadow: 0 8px 32px #1f293708;
 }
 /* 登录标题到凭据表单保留原型 32px 间距。 */
 .login-card h1 {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 /* 登录字段保持原型垂直间隔。 */
 .login-card .ant-form-item {
@@ -1615,6 +1710,13 @@ h3 {
   margin: 0;
   padding: 20px 56px 20px 24px;
   border-bottom: 1px solid var(--do-line);
+}
+
+/* 核对、编辑与短任务的操作带与正文分层，可见范围不受滚动影响。 */
+.app-dialog .ant-modal-footer,
+.record-details-drawer .ant-drawer-footer,
+.role-details-drawer .ant-drawer-footer {
+  background: var(--do-subtle);
 }
 /* 关闭按钮与标题垂直居中，并保留完整的键盘点击区域。 */
 .app-dialog .ant-modal-close {

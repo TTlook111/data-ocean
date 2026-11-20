@@ -33,37 +33,80 @@ type Field = {
 };
 
 /**
- * 表说明按用途、粒度、范围及业务时间组织。
+ * 同一组内容共用标题及阅读顺序。
  */
-const tableFields: Field[] = [
-  { key: 'businessName', label: '业务名称', short: true },
-  { key: 'purpose', label: '业务用途' },
-  { key: 'rowGrain', label: '一行代表什么' },
-  { key: 'rowIdentity', label: '记录识别与去重' },
-  { key: 'dataScope', label: '数据范围与排除' },
-  { key: 'timeSemantics', label: '业务时间' },
-  { key: 'updatePolicy', label: '更新时间与保留' },
-  { key: 'usageNotes', label: '使用注意事项' },
-  { key: 'qualityNotes', label: '已知质量问题' },
+interface FieldGroup {
+  /** 当前业务分组名称。 */
+  title: string;
+  /** 按录入顺序排列的内容定义。 */
+  fields: Field[];
+  /** 当前分组是否承载字段编码表。 */
+  withMappings?: boolean;
+}
+
+/**
+ * 表说明按用途、范围和使用约束组织，保持原字段顺序。
+ */
+const tableGroups: FieldGroup[] = [
+  {
+    title: '业务定义',
+    fields: [
+      { key: 'businessName', label: '业务名称', short: true },
+      { key: 'purpose', label: '业务用途' },
+      { key: 'rowGrain', label: '一行代表什么' },
+      { key: 'rowIdentity', label: '记录识别与去重' },
+    ],
+  },
+  {
+    title: '范围与更新',
+    fields: [
+      { key: 'dataScope', label: '数据范围与排除' },
+      { key: 'timeSemantics', label: '业务时间' },
+      { key: 'updatePolicy', label: '更新时间与保留' },
+    ],
+  },
+  {
+    title: '使用与质量',
+    fields: [
+      { key: 'usageNotes', label: '使用注意事项' },
+      { key: 'qualityNotes', label: '已知质量问题' },
+    ],
+  },
 ];
 
 /**
  * 字段定义按业务含义、取值、使用规则组织。
  */
-const columnFields: Field[] = [
-  { key: 'businessName', label: '业务名称', short: true },
-  { key: 'meaning', label: '业务含义' },
-  { key: 'valueDescription', label: '取值说明' },
-  { key: 'unit', label: '单位', short: true },
-  { key: 'format', label: '格式', short: true },
-  { key: 'nullMeaning', label: '空值含义' },
-  { key: 'emptyMeaning', label: '空字符串含义' },
-  { key: 'zeroMeaning', label: '零值含义' },
-  { key: 'timeSemantics', label: '业务时间' },
-  { key: 'businessTimeZone', label: '业务时区', short: true },
-  { key: 'usageRule', label: '使用口径' },
-  { key: 'usageNotes', label: '使用注意事项' },
-  { key: 'sensitivityNotes', label: '敏感性与限制' },
+const columnGroups: FieldGroup[] = [
+  {
+    title: '字段定义',
+    fields: [
+      { key: 'businessName', label: '业务名称', short: true },
+      { key: 'meaning', label: '业务含义' },
+    ],
+  },
+  {
+    title: '取值与格式',
+    withMappings: true,
+    fields: [
+      { key: 'valueDescription', label: '取值说明' },
+      { key: 'unit', label: '单位', short: true },
+      { key: 'format', label: '格式', short: true },
+      { key: 'nullMeaning', label: '空值含义' },
+      { key: 'emptyMeaning', label: '空字符串含义' },
+      { key: 'zeroMeaning', label: '零值含义' },
+    ],
+  },
+  {
+    title: '使用规则',
+    fields: [
+      { key: 'timeSemantics', label: '业务时间' },
+      { key: 'businessTimeZone', label: '业务时区', short: true },
+      { key: 'usageRule', label: '使用口径' },
+      { key: 'usageNotes', label: '使用注意事项' },
+      { key: 'sensitivityNotes', label: '敏感性与限制' },
+    ],
+  },
 ];
 
 /**
@@ -159,8 +202,9 @@ export function GovernanceEditor({
   const command = useRef<string | undefined>(undefined);
   const dirty = touched || noteChanged || Boolean(selected) || Object.values(answers).some(Boolean);
   const blocker = useBlocker(dirty || busy);
-  const isColumn = base.target.kind === 'COLUMN';
-  const fields = isColumn ? columnFields : tableFields;
+  const groups = base.target.kind === 'COLUMN' ? columnGroups : tableGroups;
+  const fields = groups.flatMap((group) => group.fields);
+  const reference = useRef<HTMLElement>(null);
 
   useBeforeUnload((event) => {
     // 原生刷新时继续保护真实的未保存内容。
@@ -434,7 +478,14 @@ export function GovernanceEditor({
    */
   function renderField(field: Field) {
     return (
-      <div key={field.key} className="gov-field">
+      <div
+        key={field.key}
+        className={
+          ['unit', 'format', 'purpose', 'rowGrain'].includes(field.key)
+            ? 'gov-field gov-field-pair'
+            : 'gov-field'
+        }
+      >
         {/* 原型使用就地输入，短字段走相同的标签和字段错误定位。 */}
         <Form.Item name={field.key} label={field.label}>
           {field.short ? (
@@ -487,193 +538,227 @@ export function GovernanceEditor({
 
   return (
     <article className="gov-editor" aria-label={name + '治理编辑'}>
-      {/* 当前状态与来源使用紧凑的同一阅读列。 */}
+      {/* 条目名与状态先交代当前编辑对象。 */}
       <div className="gov-entry-title">
         <h2>{name}</h2>
         <Tag color={base.state === 'CONFIRMED' ? 'green' : undefined}>{statuses[base.state]}</Tag>
         {base.pendingReview && <Tag color="orange">变更待核对</Tag>}
         {base.blocked && <Tag color="red">禁止使用</Tag>}
+        {/* 窄窗的依据移至表单后，待复核时可以直接定位。 */}
+        {base.pendingReview && (
+          <Button
+            type="link"
+            className="gov-reference-jump"
+            onClick={() => reference.current?.focus()}
+          >
+            查看依据
+          </Button>
+        )}
       </div>
-      <div className="gov-source-summary">
-        <strong>当前来源</strong>
-        {(nativeType || sourceComment) && (
-          <span>{[nativeType, sourceComment].filter(Boolean).join(' · ')}</span>
-        )}
-        {base.latestConfirmation && (
-          <small>最近确认 {displayTime(base.latestConfirmation.confirmedAt)}</small>
-        )}
-        {base.impacts
-          .filter(({ state }) => state !== 'REVIEWED')
-          .map((impact) => (
-            <div key={impact.impactId} className="gov-affected">
-              <span>
-                {impact.kind === 'REMOVAL'
-                  ? '来源已移除'
-                  : impact.kind === 'NEW_ITEM'
-                    ? '新增治理项'
-                    : '业务依据发生变化'}
-              </span>
-              {impact.origin?.changeId && (
-                <Button type="link" onClick={() => openImpact(impact)}>
-                  查看变化证据
+      {/* 主列处理定义，资料与复核依据在参照区持续可见。 */}
+      <div className="gov-editor-layout">
+        <div className="gov-editor-main">
+          {base.availability !== 'AVAILABLE' && (
+            <Alert type="warning" showIcon title={statuses[base.availability]} />
+          )}
+          {error && (
+            <Alert
+              type="error"
+              showIcon
+              title={error}
+              action={
+                <Button type="link" onClick={() => void reload()}>
+                  重新读取版本
                 </Button>
-              )}
-              {impact.origin?.noteId && (
-                <Space>
-                  <Button type="link" onClick={() => openImpact(impact)}>
-                    变化前资料
-                  </Button>
-                  {impact.origin.afterRevision && (
-                    <Button type="link" onClick={() => openImpact(impact, true)}>
-                      变化后资料
-                    </Button>
-                  )}
-                </Space>
-              )}
-            </div>
-          ))}
-      </div>
-      {base.availability !== 'AVAILABLE' && (
-        <Alert type="warning" showIcon title={statuses[base.availability]} />
-      )}
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          title={error}
-          action={
-            <Button type="link" onClick={() => void reload()}>
-              重新读取版本
-            </Button>
-          }
-        />
-      )}
-      {/* 按既定结构保存表说明或字段的独立内容。 */}
-      <Form
-        form={form}
-        name={'governance-' + base.target.kind.toLowerCase()}
-        layout="vertical"
-        initialValues={base.currentRevision?.content ?? {}}
-        disabled={!base.actions.canEdit || busy}
-        onValuesChange={(_, values) => {
-          // 保持确切的内容差异，确定失败后无需重用旧命令。
-          const before = base.currentRevision?.content ?? {};
-          const keys = Object.keys({ ...before, ...values }) as (keyof Definition)[];
-          setTouched(keys.some((key) => differs(values, before, key)));
-          command.current = undefined;
-        }}
-      >
-        {fields.map(renderField)}
-        {isColumn && (
-          <Form.List name="valueMappings">
-            {(mappings, { add, remove }) => (
-              <section className="gov-code-list" aria-label="编码与含义">
-                {/* 编码按文本输入并在行内展示真实校验错误。 */}
-                <strong>编码与含义</strong>
-                {mappings.map((mapping, index) => (
-                  <div className="gov-code-row" key={mapping.key}>
-                    <Form.Item name={[mapping.name, 'code']}>
-                      <Input aria-label={'编码 ' + (index + 1)} placeholder="编码" />
-                    </Form.Item>
-                    <Form.Item name={[mapping.name, 'meaning']}>
-                      <Input aria-label={'编码含义 ' + (index + 1)} placeholder="含义" />
-                    </Form.Item>
-                    {base.actions.canEdit && (
-                      <Button
-                        icon={<MinusCircleOutlined />}
-                        aria-label={'移除编码 ' + (index + 1)}
-                        onClick={() => remove(mapping.name)}
-                      />
+              }
+            />
+          )}
+          {/* 按既定结构保存表说明或字段的独立内容。 */}
+          <Form
+            form={form}
+            name={'governance-' + base.target.kind.toLowerCase()}
+            layout="vertical"
+            initialValues={base.currentRevision?.content ?? {}}
+            disabled={!base.actions.canEdit || busy}
+            onValuesChange={(_, values) => {
+              // 保持确切的内容差异，确定失败后无需重用旧命令。
+              const before = base.currentRevision?.content ?? {};
+              const keys = Object.keys({ ...before, ...values }) as (keyof Definition)[];
+              setTouched(keys.some((key) => differs(values, before, key)));
+              command.current = undefined;
+            }}
+          >
+            {/* 表单按业务任务分组，条件核对仍紧跟原输入。 */}
+            {groups.map((group) => (
+              <section className="gov-form-group" aria-label={group.title} key={group.title}>
+                <h3>{group.title}</h3>
+                {group.fields.map(renderField)}
+                {group.withMappings && (
+                  <Form.List name="valueMappings">
+                    {(mappings, { add, remove }) => (
+                      <section className="gov-code-list" aria-label="编码与含义">
+                        {/* 编码按文本输入并在行内展示真实校验错误。 */}
+                        <strong>编码与含义</strong>
+                        {mappings.map((mapping, index) => (
+                          <div className="gov-code-row" key={mapping.key}>
+                            <Form.Item name={[mapping.name, 'code']}>
+                              <Input aria-label={'编码 ' + (index + 1)} placeholder="编码" />
+                            </Form.Item>
+                            <Form.Item name={[mapping.name, 'meaning']}>
+                              <Input aria-label={'编码含义 ' + (index + 1)} placeholder="含义" />
+                            </Form.Item>
+                            {base.actions.canEdit && (
+                              <Button
+                                icon={<MinusCircleOutlined />}
+                                aria-label={'移除编码 ' + (index + 1)}
+                                onClick={() => remove(mapping.name)}
+                              />
+                            )}
+                          </div>
+                        ))}
+                        {base.actions.canEdit && (
+                          <Button icon={<PlusOutlined />} onClick={() => add()}>
+                            添加编码
+                          </Button>
+                        )}
+                      </section>
                     )}
-                  </div>
-                ))}
-                {base.actions.canEdit && (
-                  <Button icon={<PlusOutlined />} onClick={() => add()}>
-                    添加编码
-                  </Button>
+                  </Form.List>
                 )}
               </section>
-            )}
-          </Form.List>
-        )}
-      </Form>
-      {/* 已引用资料与手工编辑独立维护，来源附件仍按权限回看。 */}
-      {(links.length > 0 ||
-        base.currentRevision?.evidenceRefs.some((ref) => ref.redacted) ||
-        (base.actions.canEdit && allowed(session, 'business-notes.view'))) && (
-        <section className="gov-evidence" aria-label="业务依据">
-          {links.map((link, index) => (
-            <div key={link.reference.noteId + '-' + index}>
-              <Button
-                type="link"
-                onClick={() =>
-                  setPeek({ kind: 'note', id: link.reference.noteId, revision: link.revision })
-                }
-              >
-                {link.title} · 第 {link.revision} 版
-              </Button>
-              {base.actions.canEdit && (
-                <Button
-                  type="text"
-                  onClick={() => {
-                    // 显式移除本条引用，历史修订仍可回看。
-                    setLinks(links.filter((_, position) => position !== index));
-                    setNoteChanged(true);
-                    command.current = undefined;
-                  }}
-                >
-                  移除引用
+            ))}
+          </Form>
+          {/* 操作集中在编辑区底部，审核入口遵循服务端状态。 */}
+          <div className="gov-editor-actions">
+            {/* 辅助处理和危险操作靠左，常规保存和确认靠右。 */}
+            <Space wrap>
+              {base.actions.canSuggest && (
+                <Button disabled={busy} onClick={() => setGeneration(true)}>
+                  {selected ? '重新生成 AI 建议' : '生成 AI 建议'}
                 </Button>
               )}
+              {base.actions.canSupplement && (
+                <Button disabled={busy} onClick={() => setGapOpen(true)}>
+                  要求补充
+                </Button>
+              )}
+              {base.actions.canForbid && !base.blocked && (
+                <Button danger type="text" disabled={busy} onClick={() => setReasonOpen(true)}>
+                  禁止使用
+                </Button>
+              )}
+            </Space>
+            <Space wrap className="gov-commit-actions">
+              {base.actions.canEdit && (
+                <Button loading={busy} onClick={() => void submit('save')}>
+                  保存草稿
+                </Button>
+              )}
+              {base.actions.canConfirm && (
+                <Button type="primary" loading={busy} onClick={() => void submit('confirm')}>
+                  确认治理
+                </Button>
+              )}
+              {base.actions.canAcknowledgeRemoval && (
+                <Button type="primary" loading={busy} onClick={() => void submit('remove')}>
+                  确认移除处理
+                </Button>
+              )}
+              {next && base.state === 'CONFIRMED' && (
+                <Button type="link" onClick={next}>
+                  下一待处理项
+                </Button>
+              )}
+            </Space>
+          </div>
+        </div>
+        <aside ref={reference} tabIndex={-1} className="gov-reference" aria-label="来源与业务依据">
+          <section className="gov-source-summary">
+            {/* 来源属性和确认时间并排显示，变化证据保留在摘要下方。 */}
+            <div className="gov-source-line">
+              <h3>当前来源</h3>
+              {(nativeType || sourceComment) && (
+                <span>{[nativeType, sourceComment].filter(Boolean).join(' · ')}</span>
+              )}
+              {base.latestConfirmation && (
+                <small>最近确认 {displayTime(base.latestConfirmation.confirmedAt)}</small>
+              )}
             </div>
-          ))}
-          {base.currentRevision?.evidenceRefs.some((ref) => ref.redacted) && (
-            <span>部分来源需相应查看权限</span>
+            {base.impacts
+              .filter(({ state }) => state !== 'REVIEWED')
+              .map((impact) => (
+                <div key={impact.impactId} className="gov-affected">
+                  <span>
+                    {impact.kind === 'REMOVAL'
+                      ? '来源已移除'
+                      : impact.kind === 'NEW_ITEM'
+                        ? '新增治理项'
+                        : impact.origin?.changeId
+                          ? '采集结构变化'
+                          : impact.origin?.noteId
+                            ? '业务说明变化'
+                            : '业务依据变化'}
+                  </span>
+                  {impact.origin?.changeId && (
+                    <Button type="link" onClick={() => openImpact(impact)}>
+                      查看变化证据
+                    </Button>
+                  )}
+                  {impact.origin?.noteId && (
+                    <Space>
+                      <Button type="link" onClick={() => openImpact(impact)}>
+                        变化前资料
+                      </Button>
+                      {impact.origin.afterRevision && (
+                        <Button type="link" onClick={() => openImpact(impact, true)}>
+                          变化后资料
+                        </Button>
+                      )}
+                    </Space>
+                  )}
+                </div>
+              ))}
+          </section>
+          {/* 已引用资料与手工编辑独立维护，来源附件仍按权限回看。 */}
+          {(links.length > 0 ||
+            base.currentRevision?.evidenceRefs.some((ref) => ref.redacted) ||
+            (base.actions.canEdit && allowed(session, 'business-notes.view'))) && (
+            <section className="gov-evidence gov-reference-evidence" aria-label="业务依据">
+              <h3>业务依据</h3>
+              {links.map((link, index) => (
+                <div key={link.reference.noteId + '-' + index}>
+                  <Button
+                    type="link"
+                    onClick={() =>
+                      setPeek({ kind: 'note', id: link.reference.noteId, revision: link.revision })
+                    }
+                  >
+                    {link.title} · 第 {link.revision} 版
+                  </Button>
+                  {base.actions.canEdit && (
+                    <Button
+                      type="text"
+                      onClick={() => {
+                        // 显式移除本条引用，历史修订仍可回看。
+                        setLinks(links.filter((_, position) => position !== index));
+                        setNoteChanged(true);
+                        command.current = undefined;
+                      }}
+                    >
+                      移除引用
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {base.currentRevision?.evidenceRefs.some((ref) => ref.redacted) && (
+                <span>部分来源需相应查看权限</span>
+              )}
+              {base.actions.canEdit && allowed(session, 'business-notes.view') && (
+                <Button onClick={() => setNotePicker(true)}>引用业务说明</Button>
+              )}
+            </section>
           )}
-          {base.actions.canEdit && allowed(session, 'business-notes.view') && (
-            <Button onClick={() => setNotePicker(true)}>引用业务说明</Button>
-          )}
-        </section>
-      )}
-      {/* 操作集中在编辑区底部，审核入口遵循服务端状态。 */}
-      <div className="gov-editor-actions">
-        <Space wrap>
-          {base.actions.canSuggest && (
-            <Button disabled={busy} onClick={() => setGeneration(true)}>
-              {selected ? '重新生成 AI 建议' : '生成 AI 建议'}
-            </Button>
-          )}
-          {base.actions.canSupplement && (
-            <Button disabled={busy} onClick={() => setGapOpen(true)}>
-              要求补充
-            </Button>
-          )}
-          {base.actions.canEdit && (
-            <Button loading={busy} onClick={() => void submit('save')}>
-              保存草稿
-            </Button>
-          )}
-          {base.actions.canConfirm && (
-            <Button type="primary" loading={busy} onClick={() => void submit('confirm')}>
-              确认治理
-            </Button>
-          )}
-          {base.actions.canAcknowledgeRemoval && (
-            <Button type="primary" loading={busy} onClick={() => void submit('remove')}>
-              确认移除处理
-            </Button>
-          )}
-          {base.actions.canForbid && !base.blocked && (
-            <Button danger disabled={busy} onClick={() => setReasonOpen(true)}>
-              禁止使用
-            </Button>
-          )}
-          {next && base.state === 'CONFIRMED' && (
-            <Button type="link" onClick={next}>
-              下一待处理项
-            </Button>
-          )}
-        </Space>
+        </aside>
       </div>
       {peek && (
         <GovernanceSourceDrawer
@@ -712,6 +797,7 @@ export function GovernanceEditor({
       )}
       {gapOpen && (
         <Modal
+          className="app-dialog"
           open
           centered
           title="要求补充"
@@ -745,6 +831,7 @@ export function GovernanceEditor({
       )}
       {reasonOpen && (
         <Modal
+          className="app-dialog"
           open
           centered
           title="禁止对象使用"
