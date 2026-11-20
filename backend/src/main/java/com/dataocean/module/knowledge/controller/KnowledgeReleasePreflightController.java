@@ -35,8 +35,9 @@ public class KnowledgeReleasePreflightController {
      */
     @GetMapping("/document-options")
     @RequirePermission("releases.view")
-    public Result<PageVO<KnowledgeTestVO.DocumentOption>> options(@PathVariable String source, PageQuery page) {
-        return Result.success(preflight.options(Ids.parse(source), page));
+    public Result<PageVO<KnowledgeTestVO.DocumentOption>> options(
+            @PathVariable String source, @RequestParam(required = false) String keyword, PageQuery page) {
+        return Result.success(preflight.options(Ids.parse(source), keyword, page));
     }
 
     /**

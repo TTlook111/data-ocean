@@ -75,6 +75,25 @@ public interface KnowledgeDocumentMapper {
     Page<Document> confirmed(Page<Document> page, @Param("source") long source);
 
     /**
+     * 发布选择器查找确认标题，按来源及稳定编号分页。
+     */
+    @Select(
+            """
+            SELECT d.id AS document_id,r.id AS revision_id,JSON_UNQUOTE(JSON_EXTRACT(r.content,'$.title')) AS title
+            FROM kn_document d JOIN kn_document_revision r ON r.id=d.confirmed_revision_id AND r.document_id=d.id
+            WHERE d.source_id=#{source}
+              AND (#{keyword}='' OR LOCATE(#{keyword},JSON_UNQUOTE(JSON_EXTRACT(r.content,'$.title'))) > 0)
+            ORDER BY d.id DESC
+            """)
+    Page<ReleaseOption> releaseOptions(
+            Page<ReleaseOption> page, @Param("source") long source, @Param("keyword") String keyword);
+
+    /**
+     * 发布准备只读取已确认文档的编号、修订及名称。
+     */
+    record ReleaseOption(long documentId, long revisionId, String title) {}
+
+    /**
      * 同源边界同时约束文档身份。
      */
     @Select(DOCUMENT + " WHERE source_id=#{source} AND id=#{id}")

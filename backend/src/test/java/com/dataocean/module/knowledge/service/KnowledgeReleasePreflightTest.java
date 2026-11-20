@@ -7,12 +7,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeDocumentVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper.Document;
+import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper.Revision;
+import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeTestMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeTestMapper.ReviewedTest;
 import com.dataocean.module.model.service.ModelRegistry;
 
 import java.util.List;
@@ -33,21 +38,36 @@ class KnowledgeReleasePreflightTest {
         var models = mock(ModelRegistry.class);
         var json = mock(JsonCodec.class);
         var origin = mock(GovernanceCatalog.Source.class);
+        when(origin.id()).thenReturn(1L);
         when(origin.lifecycle()).thenReturn("ENABLED");
         when(origin.snapshotId()).thenReturn(10L);
         when(catalog.source(1, false)).thenReturn(origin);
         when(documents.get(1, 2)).thenReturn(new Document(2, 1, "新草稿", 20, 19L, 5L, null, 3));
+        when(documents.revision(2, 19)).thenReturn(new Revision(19, 2, 1, "confirmed", 5, null));
+        when(json.read("confirmed", KnowledgeDocumentVO.Content.class))
+                .thenReturn(new KnowledgeDocumentVO.Content("原确认", "", "", List.of(), List.of()));
         when(documents.references(19)).thenReturn(List.of());
-        when(tests.reviewed(1, 2, 19)).thenReturn(List.of("number", "judgment"));
+        when(tests.reviewed(1, 2, 19))
+                .thenReturn(List.of(new ReviewedTest(31, "number"), new ReviewedTest(32, "judgment")));
         when(json.read("number", KnowledgeTestVO.Content.class))
                 .thenReturn(new KnowledgeTestVO.Content("NUMERIC", "CAPABILITY", null, 2L, null, null, null, "19"));
         when(json.read("judgment", KnowledgeTestVO.Content.class))
                 .thenReturn(new KnowledgeTestVO.Content("EXPLANATION", "BOUNDARY", null, null, null, null, null, "19"));
         when(models.requireBinding("rag-embedding")).thenThrow(BizIllegalException.state("缺少模型"));
 
-        var result = new KnowledgeReleasePreflight(catalog, documents, tests, references, models, json).inspect(1, 2);
+        var result = new KnowledgeReleasePreflight(
+                        catalog,
+                        documents,
+                        tests,
+                        references,
+                        models,
+                        json,
+                        mock(KnowledgeReleaseCandidateMapper.class),
+                        mock(Fingerprints.class))
+                .inspect(1, 2);
 
         assertEquals("19", result.getDocumentRevisionId());
+        assertEquals("原确认", result.getDocumentTitle());
         assertEquals(2, result.getReviewedTests());
         assertNull(result.getEmbeddingRevisionId());
         assertEquals(List.of("知识检索向量化节点未分配可用模型"), result.getIssues());
@@ -75,7 +95,9 @@ class KnowledgeReleasePreflightTest {
                         mock(KnowledgeTestMapper.class),
                         mock(KnowledgeReferences.class),
                         models,
-                        mock(JsonCodec.class))
+                        mock(JsonCodec.class),
+                        mock(KnowledgeReleaseCandidateMapper.class),
+                        mock(Fingerprints.class))
                 .inspect(1, 2);
 
         assertEquals(List.of("当前数据源未启用或没有适用的成功目录", "请先确认可用于发布的文档修订"), result.getIssues());

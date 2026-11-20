@@ -13,6 +13,7 @@ import {
   type FactOption,
   type KnowledgeDocument,
   type KnowledgeFact,
+  type ReleaseRevisionReturn,
 } from './types';
 import { useKnowledgeDraft } from './useKnowledgeDraft';
 import './knowledge.css';
@@ -52,8 +53,11 @@ export function KnowledgeDocumentPage() {
     refetchOnReconnect: false,
     queryFn: () => api<KnowledgeDocument>(path + '/' + id + '?' + queryString({ revisionId })),
   });
-  const listSearch =
-    (location.state as { listSearch?: string } | null)?.listSearch ?? '?' + queryString({ source });
+  const navigation = location.state as {
+    listSearch?: string;
+    releaseReturn?: ReleaseRevisionReturn;
+  } | null;
+  const listSearch = navigation?.listSearch ?? '?' + queryString({ source });
 
   if (!source) {
     return (
@@ -80,6 +84,7 @@ export function KnowledgeDocumentPage() {
           sourceName={sourceName}
           current={document.data}
           listSearch={listSearch}
+          releaseReturn={navigation?.releaseReturn}
           tab={tab}
           switchTab={(tab) =>
             setParams(queryString({ source, revisionId, tab }), {
@@ -102,6 +107,7 @@ function DocumentEditor({
   sourceName,
   current,
   listSearch,
+  releaseReturn,
   tab = 'body',
   switchTab,
   showRevision,
@@ -110,6 +116,8 @@ function DocumentEditor({
   sourceName?: string;
   current?: KnowledgeDocument;
   listSearch: string;
+  /** 候选发起的查阅返回原发布范围。 */
+  releaseReturn?: ReleaseRevisionReturn;
   tab?: string;
   switchTab?: (tab: string) => void;
   showRevision?: (revision?: string) => void;
@@ -242,6 +250,13 @@ function DocumentEditor({
 
   /** 返回原列表时让查询与入口按钮一并恢复。 */
   function back() {
+    if (releaseReturn && allowed(session, 'releases.view')) {
+      // 候选修订属于发布办理的回看，返回时恢复其筛选和行内入口。
+      navigate('/releases' + releaseReturn.search, {
+        state: { releaseFocus: releaseReturn.focus },
+      });
+      return;
+    }
     navigate('/knowledge' + listSearch, {
       state: { focusDocument: current?.document.id ?? 'new' },
     });
@@ -296,7 +311,7 @@ function DocumentEditor({
           onClick={back}
           disabled={save.isPending}
         >
-          返回列表
+          {releaseReturn && allowed(session, 'releases.view') ? '返回发布与版本' : '返回列表'}
         </Button>
         <div className="knowledge-heading-main">
           <div className="knowledge-title">

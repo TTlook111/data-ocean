@@ -4,13 +4,18 @@ import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
+import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeDocumentVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleasePreflightVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper.Document;
+import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeTestMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeTestMapper.ReviewedTest;
 import com.dataocean.module.model.service.ModelRegistry;
 
 import java.util.ArrayList;
@@ -20,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -60,16 +66,26 @@ public class KnowledgeReleasePreflight {
     private final JsonCodec json;
 
     /**
+     * 当前单文档范围的实际生效绑定。
+     */
+    private final KnowledgeReleaseCandidateMapper candidates;
+
+    /**
+     * 生成与密钥轮换无关的预检输入摘要。
+     */
+    private final Fingerprints fingerprints;
+
+    /**
      * 仅提供当前源的已确认文档选项。
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PageVO<KnowledgeTestVO.DocumentOption> options(long source, PageQuery page) {
+    public PageVO<KnowledgeTestVO.DocumentOption> options(long source, String keyword, PageQuery page) {
         catalog.source(source, false);
-        return PageVO.from(documents.confirmed(page.toFixedOrderMpPage(), source), document -> {
-            var revision = documents.revision(document.id(), document.confirmedRevisionId());
-            var body = json.read(revision.content(), KnowledgeDocumentVO.Content.class);
+        String search = keyword == null ? "" : keyword.strip();
+        return PageVO.from(documents.releaseOptions(page.toFixedOrderMpPage(), source, search), option -> {
+            // 使用确认时的标题，草稿改名不会改变发布选择。
             return new KnowledgeTestVO.DocumentOption(
-                    Long.toString(document.id()), body.getTitle(), Ids.text(document.confirmedRevisionId()));
+                    Long.toString(option.documentId()), option.title(), Ids.text(option.revisionId()));
         });
     }
 
@@ -79,19 +95,50 @@ public class KnowledgeReleasePreflight {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public KnowledgeReleasePreflightVO inspect(long source, long id) {
         var origin = catalog.source(source, false);
+        var document = document(source, id);
+        var result = check(origin, document);
+        String title = document.title();
+        if (result.documentRevision() != null) {
+            // 直达选项即使不在下拉当前页，也显示其确认名称。
+            var revision = documents.revision(id, result.documentRevision());
+            title = json.read(revision.content(), KnowledgeDocumentVO.Content.class)
+                    .getTitle();
+        }
+        return new KnowledgeReleasePreflightVO(
+                Long.toString(id),
+                title,
+                Ids.text(result.documentRevision()),
+                result.testRevisions().size(),
+                Ids.text(result.embeddingRevision()),
+                result.inputFingerprint(),
+                result.issues());
+    }
+
+    /**
+     * 在业务事务内定位同源文档，读取和创建均使用相同的资源边界。
+     */
+    public Document document(long source, long id) {
         var doc = documents.get(source, id);
         if (doc == null) {
             // 用同源条件解析文档，越界编号不得进入发布准备。
             throw BizIllegalException.missing();
         }
+        return doc;
+    }
+
+    /**
+     * 在读快照或来源事务锁内收集同一确认对应的全部构建输入。
+     */
+    public Inspection check(Source origin, Document doc) {
         var issues = new ArrayList<String>();
         boolean sourceReady =
                 "ENABLED".equals(origin.lifecycle()) && !origin.scopePending() && origin.snapshotId() != null;
+        boolean stale = !sourceReady;
         if (!sourceReady) {
             // 来源已停用或目录尚未核对时，仍展示历史题单，但不能进入候选准备。
             issues.add("当前数据源未启用或没有适用的成功目录");
         }
-        List<KnowledgeTestVO.Content> reviewed = List.of();
+        List<ReviewedTest> reviewed = List.of();
         if (doc.confirmedRevisionId() == null) {
             // 待确认草稿不能为题单和发布提供正式依据。
             issues.add("请先确认可用于发布的文档修订");
@@ -102,31 +149,71 @@ public class KnowledgeReleasePreflight {
                     references.verify(origin, documents.references(doc.confirmedRevisionId()));
                 } catch (BizIllegalException rejected) {
                     // 仅说明需要复核，治理详情继续依照各自权限读取。
+                    stale = true;
                     issues.add("当前治理依据需要重新核对");
                 }
             }
-            reviewed = tests.reviewed(source, id, doc.confirmedRevisionId()).stream()
-                    .map(body -> json.read(body, KnowledgeTestVO.Content.class))
+            reviewed = tests.reviewed(origin.id(), doc.id(), doc.confirmedRevisionId());
+            var content = reviewed.stream()
+                    .map(test -> json.read(test.content(), KnowledgeTestVO.Content.class))
                     .toList();
-            if (reviewed.stream()
+            if (content.stream()
                     .noneMatch(test -> "NUMERIC".equals(test.getMode()) && "CAPABILITY".equals(test.getCoverage()))) {
                 issues.add("缺少已审核的关键能力数值题");
             }
-            if (reviewed.stream()
+            if (content.stream()
                     .noneMatch(test -> "EXPLANATION".equals(test.getMode()) && "BOUNDARY".equals(test.getCoverage()))) {
                 issues.add("缺少已审核的使用边界说明题");
             }
         }
-        String embedding = null;
+        Long embedding = null;
         try {
             // 只核对当前配置选择，模型调用和取用由后续构建任务执行。
             long revision = models.requireBinding("rag-embedding");
             models.verifyActive(revision);
-            embedding = Long.toString(revision);
+            embedding = revision;
         } catch (BizIllegalException rejected) {
+            // 预检可回读阻断，创建候选时据此拒绝写入。
             issues.add("知识检索向量化节点未分配可用模型");
         }
-        return new KnowledgeReleasePreflightVO(
-                Long.toString(id), Ids.text(doc.confirmedRevisionId()), reviewed.size(), embedding, issues);
+        var testRevisions =
+                reviewed.stream().map(ReviewedTest::revisionId).sorted().toList();
+        String inputFingerprint = null;
+        if (issues.isEmpty()) {
+            // 对确认、题单、模型和基础绑定生成确定摘要，准备事务会重算并核对。
+            var scope = candidates.scope(origin.id(), doc.id());
+            var basis = new Basis(
+                    origin.id(),
+                    doc.id(),
+                    doc.confirmedRevisionId(),
+                    testRevisions,
+                    embedding,
+                    scope == null ? null : scope.activeBindingId());
+            inputFingerprint = DigestUtil.sha256Hex(fingerprints.canonical(basis, false));
+        }
+        return new Inspection(
+                doc.confirmedRevisionId(), testRevisions, embedding, List.copyOf(issues), stale, inputFingerprint);
     }
+
+    /**
+     * 记录本次查验看到的确切输入，写入候选前不重新读取可变题单。
+     */
+    public record Inspection(
+            Long documentRevision,
+            List<Long> testRevisions,
+            Long embeddingRevision,
+            List<String> issues,
+            boolean stale,
+            String inputFingerprint) {}
+
+    /**
+     * 固定可提交的全部依赖。首次登记范围不改变同一基础绑定。
+     */
+    private record Basis(
+            long source,
+            long document,
+            long documentRevision,
+            List<Long> testRevisions,
+            long embeddingRevision,
+            Long baseBindingId) {}
 }

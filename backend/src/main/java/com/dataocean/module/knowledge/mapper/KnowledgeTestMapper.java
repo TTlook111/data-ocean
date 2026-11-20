@@ -41,6 +41,11 @@ public interface KnowledgeTestMapper {
             String content) {}
 
     /**
+     * 当前审核题的不可变修订和判定正文，供预检及候选共用。
+     */
+    record ReviewedTest(long revisionId, String content) {}
+
+    /**
      * 同源内分页，另一来源的数据不可混入。
      */
     @Select(
@@ -56,13 +61,13 @@ public interface KnowledgeTestMapper {
      */
     @Select(
             """
-            SELECT r.content FROM kn_test_case t JOIN kn_test_case_revision r ON r.id=t.head_revision_id
+            SELECT r.id AS revision_id,r.content FROM kn_test_case t JOIN kn_test_case_revision r ON r.id=t.head_revision_id
             JOIN kn_test_review a ON a.revision_id=r.id AND a.test_case_id=t.id
             WHERE t.source_id=#{source} AND t.document_id=#{document}
               AND t.reviewed_revision_id=r.id AND r.document_revision_id=#{revision}
             ORDER BY t.id
             """)
-    List<String> reviewed(
+    List<ReviewedTest> reviewed(
             @Param("source") long source, @Param("document") long document, @Param("revision") long revision);
 
     /**

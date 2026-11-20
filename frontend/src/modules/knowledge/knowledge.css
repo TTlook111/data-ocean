@@ -185,7 +185,41 @@
 
 /* 发布预检将客观结果和处理入口并列摆放，避免藏在提示框深处。 */
 .knowledge-preflight-title {
+  flex-wrap: wrap;
   margin-block-end: 16px;
+}
+
+/* 提交失败就近提示，与下方仍可核对的摘要留出间隔。 */
+.knowledge-prepare-feedback {
+  flex-basis: 100%;
+}
+
+/* 候选记录标题与表头共用阅读轴，避免另起页面标题。 */
+.knowledge-candidates-heading {
+  padding: 16px 24px;
+}
+
+/* 矮桌面先展示候选记录，保持原有查询轴、控件高度和正文间距。 */
+@media (max-height: 680px) {
+  .knowledge-release-page {
+    gap: 16px;
+  }
+
+  .knowledge-release-page > .knowledge-context-toolbar,
+  .knowledge-release-page > .knowledge-preflight {
+    padding-block: 16px;
+  }
+
+  .knowledge-candidates-heading {
+    padding-block: 12px;
+  }
+}
+
+/* 同一文档可以有多个候选，用次级编号区分记录，保持文档名为第一阅读层级。 */
+.knowledge-candidate-identity {
+  display: grid;
+  min-inline-size: 0;
+  gap: 4px;
 }
 
 .knowledge-preflight-summary {
@@ -194,6 +228,11 @@
   margin: 0 0 20px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
+}
+
+/* 无待处理事项时摘要直接结束卡片，保留统一的底部内距。 */
+.knowledge-preflight-summary:last-child {
+  margin-block-end: 0;
 }
 
 .knowledge-preflight-summary > div {

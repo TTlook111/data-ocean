@@ -78,7 +78,7 @@
 
 ## 知识文档与发布准备
 
-[module/knowledge](src/main/java/com/dataocean/module/knowledge) 维护已确认治理引用上的知识文档、标准题和发布准备查询。V24 建立文档修订、引用与确认，V25 建立题目修订和审核。治理交接走 [GovernanceKnowledgeService](src/main/java/com/dataocean/module/governance/service/GovernanceKnowledgeService.java)。接口和当前覆盖见[首个事项](../docs/backend/knowledge/接口.md)。
+[module/knowledge](src/main/java/com/dataocean/module/knowledge) 维护已确认治理引用上的知识文档、标准题和发布候选。V24 建立文档修订、引用与确认，V25 建立题目修订和审核，V26 持久化单文档范围和候选固定输入。治理交接走 [GovernanceKnowledgeService](src/main/java/com/dataocean/module/governance/service/GovernanceKnowledgeService.java)。接口和当前覆盖见[首个事项](../docs/backend/knowledge/接口.md)。
 
 ## 配置、迁移与测试
 

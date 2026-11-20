@@ -1,5 +1,13 @@
 import type { Target } from '../governance/types';
 
+/** 候选页查看修订时保留原查询和触发入口。 */
+export type ReleaseRevisionReturn = {
+  /** 原来候选页的来源、文档和分页查询。 */
+  search: string;
+  /** 返回后需要恢复焦点的触发按钮。 */
+  focus: string;
+};
+
 /** 知识引用还包括具备正式审核修订的关联与指标。 */
 type KnowledgeTarget = Omit<Target, 'kind'> & { kind: Target['kind'] | 'RELATION' | 'METRIC' };
 

@@ -18,6 +18,11 @@ public class KnowledgeReleasePreflightVO {
     private String documentId;
 
     /**
+     * 准备使用的确认正文名称，未确认时显示当前草稿名。
+     */
+    private String documentTitle;
+
+    /**
      * 尚待文档确认时为空。
      */
     private String documentRevisionId;
@@ -31,6 +36,11 @@ public class KnowledgeReleasePreflightVO {
      * 兼容向量节点现在选择的配置修订。
      */
     private String embeddingRevisionId;
+
+    /**
+     * 固定本次文档、题单、向量和基础绑定，存在阻断时为空。
+     */
+    private String inputFingerprint;
 
     /**
      * 影响构建准备的实际原因。
