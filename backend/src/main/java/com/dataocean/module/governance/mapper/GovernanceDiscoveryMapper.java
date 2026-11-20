@@ -81,6 +81,18 @@ public interface GovernanceDiscoveryMapper {
     Candidate lock(@Param("source") long source, @Param("object") long object, @Param("id") long id);
 
     /**
+     * 供知识交接读取指定对象内的实际审核记录，读操作不占写锁。
+     */
+    @Select(CURRENT + """
+            WHERE c.source_id=#{source} AND c.object_id=#{object} AND c.id=#{id}
+            """)
+    Candidate read(@Param("source") long source, @Param("object") long object, @Param("id") long id);
+
+    /** 定位确切审核修订的稳定编号。 */
+    @Select("SELECT id FROM gov_discovery_revision WHERE candidate_id=#{id} AND version=#{version}")
+    Long revisionId(@Param("id") long id, @Param("version") int version);
+
+    /**
      * 读取同一发现身份的固定依据，用于判定能否复用原候选。
      */
     @Select(

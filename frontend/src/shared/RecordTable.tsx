@@ -164,6 +164,7 @@ export function RecordTable<T extends object>({
   return (
     <div
       className="record-table"
+      data-columns-fit={minimumWidth > 0 && tableWidth === availableWidth ? 'true' : undefined}
       ref={container}
       aria-busy={busy}
       style={
@@ -229,16 +230,19 @@ export function RecordPagination({
           options={[10, 20, 50].map((size) => ({ value: size, label: `${size}条/页` }))}
           onChange={(size) => onChange?.(1, size)}
         />
-        <Pagination
-          current={current}
-          pageSize={pageSize}
-          total={total}
-          disabled={error || total === 0}
-          showSizeChanger={false}
-          simple={compact ? { readOnly: true } : false}
-          hideOnSinglePage={false}
-          onChange={onChange}
-        />
+        {/* 零条记录时保留总数和每页条数，避免紧凑分页显示 1 / 0。 */}
+        {total > 0 && (
+          <Pagination
+            current={current}
+            pageSize={pageSize}
+            total={total}
+            disabled={error}
+            showSizeChanger={false}
+            simple={compact ? { readOnly: true } : false}
+            hideOnSinglePage={false}
+            onChange={onChange}
+          />
+        )}
       </div>
     </footer>
   );

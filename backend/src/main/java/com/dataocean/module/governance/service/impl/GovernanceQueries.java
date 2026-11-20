@@ -245,6 +245,16 @@ public class GovernanceQueries implements GovernanceQueryService {
     }
 
     /**
+     * 只向受信任模块返回仍然有效的确切确认正文，沿用治理复核和禁止规则。
+     */
+    GovernanceRevisionVO confirmedForKnowledge(Context entry) {
+        var item = current(entry);
+        return "AVAILABLE".equals(item.getAvailability())
+                && "CONFIRMED".equals(item.getState())
+                && !item.isBlocked() ? item.getCurrentRevision() : null;
+    }
+
+    /**
      * 分页时固定修改、确认和确切内容的关联。
      */
     @Override

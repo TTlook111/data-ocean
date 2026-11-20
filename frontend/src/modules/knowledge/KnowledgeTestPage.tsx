@@ -1,0 +1,714 @@
+import { PlusOutlined } from '@ant-design/icons';
+import {
+  Alert,
+  App,
+  Button,
+  Form,
+  Input,
+  InputNumber,
+  Pagination,
+  Select,
+  Space,
+  Tabs,
+  Tag,
+} from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { api, mutation, queryString } from '../../shared/api';
+import { ReadState, readErrorMessage } from '../../shared/Records';
+import { RecordTable } from '../../shared/RecordTable';
+import { allowed, useSession } from '../../shared/session';
+import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
+import type { Page } from '../iam/types';
+import { useKnowledgeDraft } from './useKnowledgeDraft';
+import './knowledge.css';
+
+/** 题单中准备的实际判定条件。 */
+type TestInput = {
+  /** 确切的文档及修订。 */
+  documentId: string;
+  documentRevisionId: string;
+  /** 题目与判定类型。 */
+  question: string;
+  coverage: 'CAPABILITY' | 'BOUNDARY';
+  mode: 'NUMERIC' | 'EXPLANATION';
+  /** 独立预期和来源。 */
+  expectedCount?: number;
+  expectedExplanation?: string;
+  evidence?: string;
+  /** 数值题使用的实际治理身份和过滤值。 */
+  countRule?: {
+    metricId?: string;
+    relationId?: string;
+    categoryId?: string;
+    categoryValue?: string;
+  };
+};
+
+/** 同源题单读取摘要和当前内容。 */
+type TestRow = {
+  /** 题目稳定身份及归属。 */
+  id: string;
+  documentId: string;
+  /** 可审核题干、版本和实际状态。 */
+  question: string;
+  version: number;
+  revisionId: string;
+  state: 'DRAFT' | 'REVIEWED' | 'REVIEW';
+};
+
+/** 题单通过实际已确认修订准备预期和依据。 */
+export function KnowledgeTestPage() {
+  const { params, setParams, sources, selected } = useSourceSelection('TEST_CASES');
+  const open = params.get('testId') ?? undefined;
+  const returnedTo = useRef<string>(undefined);
+  const documentFilter = params.get('documentId') ?? undefined;
+  const session = useSession();
+  const source = selected?.id;
+  const path = '/knowledge/sources/' + source + '/test-cases';
+  const size = Number(params.get('pageSize') ?? 10);
+  const page = Number(params.get('pageNum') ?? 1);
+  const list = useQuery({
+    queryKey: ['knowledge-tests', source, page, size, documentFilter],
+    enabled: Boolean(source),
+    queryFn: () =>
+      api<Page<TestRow>>(
+        path +
+          '?' +
+          queryString({
+            pageNum: page,
+            pageSize: size,
+            documentId: documentFilter,
+          }),
+      ),
+  });
+  const documents = useQuery({
+    queryKey: ['knowledge-test-documents', source],
+    enabled: Boolean(source),
+    queryFn: () =>
+      api<Page<{ id: string; title: string; revisionId: string }>>(
+        path + '/document-options?pageSize=100',
+      ),
+  });
+  const docChoices = documents.data?.items ?? [];
+
+  useEffect(() => {
+    if (open || !returnedTo.current || !list.isSuccess) return;
+    // 关闭办理区后恢复题单刚才使用的入口。
+    (
+      document.getElementById('knowledge-test-open-' + returnedTo.current) ??
+      document.getElementById('knowledge-test-open-new')
+    )?.focus();
+    returnedTo.current = undefined;
+  }, [open, list.isSuccess]);
+
+  /** 同一地址保留题目、来源和筛选，切换由当前编辑器保护。 */
+  function openTest(id?: string, replace = false) {
+    if (id === open) {
+      document.getElementById('knowledge-test-heading')?.focus();
+      return;
+    }
+    if (!id) returnedTo.current = open;
+    setParams(
+      queryString({
+        source,
+        documentId: documentFilter,
+        pageNum: page,
+        pageSize: size,
+        testId: id,
+      }),
+      { replace },
+    );
+  }
+
+  return (
+    <main className="record-page" aria-label="标准题单">
+      <div className="panel query-panel knowledge-context-toolbar">
+        <SourcePicker
+          sources={sources.data}
+          selected={selected}
+          choose={(next) => {
+            // 记录及筛选始终属于一个数据源。
+            setParams(queryString({ source: next, pageSize: size }));
+          }}
+        />
+        <div className="knowledge-context-controls">
+          <Select
+            aria-label="关联文档"
+            className="knowledge-document-select"
+            showSearch={{ optionFilterProp: 'label' }}
+            placeholder="全部文档"
+            allowClear
+            value={documentFilter}
+            options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
+            loading={documents.isPending && Boolean(source)}
+            disabled={!docChoices.length}
+            onChange={(documentId) =>
+              setParams(queryString({ source, documentId, pageSize: size }))
+            }
+          />
+          {source && allowed(session, 'test-cases.edit') && (
+            <Button
+              id="knowledge-test-open-new"
+              type={open ? 'default' : 'primary'}
+              icon={<PlusOutlined aria-hidden="true" />}
+              onClick={() => openTest('new')}
+              disabled={!docChoices.length || selected.lifecycle !== 'ENABLED'}
+            >
+              新增标准题
+            </Button>
+          )}
+        </div>
+      </div>
+      <ReadState
+        error={sources.error}
+        loading={sources.isPending}
+        retry={() => void sources.refetch()}
+      >
+        {source ? (
+          <>
+            {open ? (
+              <div
+                className={open === 'new' ? 'knowledge-test-editor' : 'knowledge-test-workspace'}
+              >
+                {open !== 'new' && (
+                  <aside className="panel knowledge-test-queue" aria-label="题目队列">
+                    <header>
+                      <h2>题目</h2>
+                      <span>共 {list.data?.total ?? 0} 道</span>
+                    </header>
+                    <ReadState
+                      loading={list.isPending}
+                      error={list.error}
+                      retry={() => void list.refetch()}
+                    >
+                      <nav aria-label="切换标准题">
+                        {list.data?.items.map((row) => (
+                          <button
+                            type="button"
+                            key={row.id}
+                            aria-current={open === row.id ? 'true' : undefined}
+                            onClick={() => openTest(row.id)}
+                          >
+                            <strong>{row.question}</strong>
+                            <span>{testStates[row.state]}</span>
+                          </button>
+                        ))}
+                        {list.data?.total === 0 && (
+                          <p className="knowledge-action-note">暂无相关题目</p>
+                        )}
+                      </nav>
+                      {(list.data?.total ?? 0) > size && (
+                        <Pagination
+                          current={page}
+                          pageSize={size}
+                          total={list.data?.total}
+                          showSizeChanger={false}
+                          simple={{ readOnly: true }}
+                          onChange={(pageNum) =>
+                            setParams(
+                              queryString({
+                                source,
+                                documentId: documentFilter,
+                                pageNum,
+                                pageSize: size,
+                                testId: open,
+                              }),
+                            )
+                          }
+                        />
+                      )}
+                    </ReadState>
+                  </aside>
+                )}
+                <div className="knowledge-test-editor">
+                  {/* 文档选项到齐后再挂载题目表单，读取期间不显示内部编号。 */}
+                  <ReadState
+                    loading={documents.isPending}
+                    error={documents.error}
+                    retry={() => void documents.refetch()}
+                  >
+                    <TestEditor
+                      key={source + ':' + open}
+                      source={source}
+                      id={open}
+                      documents={docChoices}
+                      preferredDocument={documentFilter}
+                      opened={(id) => openTest(id, true)}
+                      close={() => openTest(undefined)}
+                    />
+                  </ReadState>
+                </div>
+              </div>
+            ) : (
+              <section className="panel records-panel knowledge-records" aria-label="标准题列表">
+                <RecordTable
+                  rowKey="id"
+                  dataSource={list.data?.items}
+                  loading={list.isPending}
+                  error={list.error}
+                  retry={() => void list.refetch()}
+                  emptyDescription={
+                    !docChoices.length && !documents.isPending && !documents.error
+                      ? '确认关联文档后可新增标准题'
+                      : '暂无标准题'
+                  }
+                  filtered={Boolean(documentFilter)}
+                  onReset={() => setParams(queryString({ source, pageSize: size }))}
+                  tableLayout="fixed"
+                  flexibleColumns={[0]}
+                  columns={[
+                    {
+                      title: '题目',
+                      dataIndex: 'question',
+                      render: (name, row) => (
+                        <Button
+                          type="link"
+                          id={'knowledge-test-open-' + row.id}
+                          className="knowledge-record-link"
+                          title={name as string}
+                          aria-current={open === row.id ? 'true' : undefined}
+                          onClick={() => openTest(row.id)}
+                        >
+                          {name}
+                        </Button>
+                      ),
+                    },
+                    {
+                      title: '关联文档',
+                      width: 192,
+                      render: (_, row) =>
+                        docChoices.find((doc) => doc.id === row.documentId)?.title ?? '—',
+                    },
+                    {
+                      title: '状态',
+                      width: 104,
+                      render: (_, row) => (
+                        <Tag color={row.state === 'REVIEWED' ? 'green' : undefined}>
+                          {testStates[row.state]}
+                        </Tag>
+                      ),
+                    },
+                  ]}
+                  pagination={{
+                    current: page,
+                    pageSize: size,
+                    total: list.data?.total,
+                    onChange: (pageNum, pageSize) =>
+                      setParams(
+                        queryString({ source, documentId: documentFilter, pageNum, pageSize }),
+                      ),
+                  }}
+                />
+              </section>
+            )}
+            {documents.error && <Alert type="error" title={readErrorMessage(documents.error)} />}
+          </>
+        ) : (
+          <SourceUnavailable />
+        )}
+      </ReadState>
+    </main>
+  );
+}
+
+/** 读取当前题目并以实际修订初始化编辑区。 */
+function TestEditor({
+  source,
+  id,
+  documents,
+  preferredDocument,
+  opened,
+  close,
+}: {
+  source: string;
+  id: string;
+  preferredDocument?: string;
+  documents: { id: string; title: string; revisionId: string }[];
+  opened: (id: string) => void;
+  close: () => void;
+}) {
+  const path = '/knowledge/sources/' + source + '/test-cases';
+  const detail = useQuery({
+    queryKey: ['knowledge-test', source, id],
+    enabled: id !== 'new',
+    // 编辑期间不因切回窗口或网络恢复覆盖用户打开的修订，提交仍核验版本。
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryFn: () => api<{ test: TestRow; content: Omit<TestInput, 'documentId'> }>(path + '/' + id),
+  });
+  if (id === 'new')
+    return (
+      <TestForm
+        source={source}
+        path={path}
+        documents={documents}
+        preferredDocument={preferredDocument}
+        opened={opened}
+        close={close}
+      />
+    );
+  return (
+    <ReadState loading={detail.isPending} error={detail.error} retry={() => void detail.refetch()}>
+      {detail.data && (
+        <TestForm
+          key={detail.data.test.revisionId}
+          source={source}
+          path={path}
+          current={detail.data}
+          documents={documents}
+          opened={opened}
+          close={close}
+        />
+      )}
+    </ReadState>
+  );
+}
+
+/** 同一表单分别执行保存和审核，期望条件始终可独立回看。 */
+function TestForm({
+  source,
+  path,
+  current,
+  documents,
+  preferredDocument,
+  opened,
+  close,
+}: {
+  source: string;
+  path: string;
+  preferredDocument?: string;
+  current?: { test: TestRow; content: Omit<TestInput, 'documentId'> };
+  documents: { id: string; title: string; revisionId: string }[];
+  opened: (id: string) => void;
+  close: () => void;
+}) {
+  const session = useSession();
+  const { message } = App.useApp();
+  const cache = useQueryClient();
+  const [form] = Form.useForm<TestInput>();
+  const draft = useKnowledgeDraft();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const initial: Partial<TestInput> = current
+    ? { ...current.content, documentId: current.test.documentId }
+    : { mode: 'NUMERIC', coverage: 'CAPABILITY', documentId: preferredDocument };
+  const mode = Form.useWatch('mode', form) ?? initial.mode;
+  const docId = Form.useWatch('documentId', form) ?? initial.documentId;
+  const editRevision =
+    Form.useWatch('documentRevisionId', { form, preserve: true }) ?? initial.documentRevisionId;
+  const doc = documents.find(({ id }) => id === docId);
+  const revisionId = current ? editRevision : doc?.revisionId;
+  const outdated = Boolean(current && doc && revisionId !== doc.revisionId);
+  const [error, setError] = useState<Error>();
+  const [step, setStep] = useState(current ? 'expected' : 'scope');
+  const commandRef = useRef<{ body: string; id: string }>(undefined);
+  const editing = allowed(session, 'test-cases.edit');
+  const reviewing = allowed(session, 'test-cases.review');
+  const basis = useQuery({
+    queryKey: ['knowledge-test-basis', source, doc?.id, revisionId],
+    enabled: Boolean(doc && revisionId && mode === 'NUMERIC' && !outdated),
+    queryFn: () =>
+      api<{ id: string; kind: string; label: string }[]>(
+        path + '/document-options/' + doc?.id + '/facts?' + queryString({ revisionId }),
+      ),
+  });
+  const save = useMutation({
+    onMutate: draft.startWrite,
+    mutationFn: async (input: { action: 'save' | 'review'; values?: TestInput }) => {
+      const review = input.action === 'review';
+      const payload = review
+        ? { expectedVersion: current?.test.version, revisionId: current?.test.revisionId }
+        : {
+            ...input.values,
+            countRule: input.values?.mode === 'NUMERIC' ? input.values?.countRule : undefined,
+            documentRevisionId: revisionId,
+            expectedVersion: current?.test.version,
+          };
+      const signature = JSON.stringify({ action: input.action, payload });
+      if (commandRef.current?.body !== signature) {
+        // 重试同一输入继续使用原命令。
+        commandRef.current = { body: signature, id: crypto.randomUUID() };
+      }
+      const url = current ? path + '/' + current.test.id + (review ? '/reviews' : '/draft') : path;
+      return mutation<{ targetId: string }>(
+        url,
+        current && !review ? 'PUT' : 'POST',
+        payload,
+        review ? 'test-cases.review' : 'test-cases.edit',
+        commandRef.current.id,
+      );
+    },
+    onSuccess: async (response, input) => {
+      draft.finishWrite(true);
+      setError(undefined);
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: ['knowledge-tests', source] }),
+        cache.invalidateQueries({ queryKey: ['knowledge-test', source, response.targetId] }),
+      ]);
+      opened(response.targetId);
+      void message.success(input.action === 'review' ? '题目已审核' : '题目草稿已保存');
+    },
+    onError: (failure) => {
+      draft.finishWrite(false);
+      setError(failure);
+    },
+  });
+
+  useEffect(() => {
+    // 行内表单打开后定位标题，键盘用户可直接进入当前题。
+    heading.current?.focus();
+  }, []);
+
+  /** 只允许选取文档实际采用的类型与确切治理身份。 */
+  function options(kind: string) {
+    return (
+      basis.data
+        ?.filter((fact) => fact.kind === kind)
+        .map((fact) => ({ value: fact.id, label: fact.label })) ?? []
+    );
+  }
+
+  /** 更新依据前由用户明确选择，并清除需要重选的数值字段身份。 */
+  function useCurrentRevision() {
+    form.setFieldValue('documentRevisionId', doc?.revisionId);
+    form.setFieldValue('countRule', undefined);
+    draft.change(true);
+    setError(undefined);
+  }
+
+  const missing = current ? reviewNeeds(current.content) : [];
+  const needsReview = current && current.test.state !== 'REVIEWED' && reviewing;
+
+  return (
+    <section className="panel knowledge-document" aria-label="标准题详情">
+      <header className="knowledge-heading">
+        <div className="knowledge-heading-main">
+          <h2 id="knowledge-test-heading" ref={heading} tabIndex={-1}>
+            {current?.test.question ?? '新增标准题'}
+          </h2>
+          {current && (
+            <Tag color={current.test.state === 'REVIEWED' ? 'green' : undefined}>
+              {testStates[current.test.state]}
+            </Tag>
+          )}
+        </div>
+      </header>
+      <Form
+        form={form}
+        layout="vertical"
+        className="knowledge-content knowledge-edit"
+        disabled={save.isPending}
+        scrollToFirstError={{ focus: true }}
+        onValuesChange={(_, values) => {
+          draft.change(testDraftKey(values) !== testDraftKey(initial));
+          setError(undefined);
+        }}
+        initialValues={initial}
+        onFinish={(values) => save.mutate({ action: 'save', values })}
+        onFinishFailed={({ errorFields }) => {
+          // 预期页提交时，范围页的字段错误在原位置提示。
+          setStep('scope');
+          const field = errorFields[0]?.name;
+          if (field) requestAnimationFrame(() => form.scrollToField(field, { focus: true }));
+        }}
+      >
+        <Form.Item name="documentRevisionId" hidden>
+          <Input />
+        </Form.Item>
+        {outdated && (
+          <Alert
+            type="warning"
+            title="关联文档已有新的确认修订"
+            action={editing && <Button onClick={useCurrentRevision}>重新绑定依据</Button>}
+          />
+        )}
+        {/* 两个页签都保留已注册表单，切换时不清除任何输入。 */}
+        <Tabs
+          className="knowledge-test-tabs"
+          activeKey={step}
+          onChange={setStep}
+          items={[
+            {
+              key: 'scope',
+              label: '问题与范围',
+              forceRender: true,
+              children: (
+                <>
+                  {/* 已绑定的文档以只读信息呈现，新建题目才展示来源选择。 */}
+                  {current && (
+                    <dl className="knowledge-test-document">
+                      <dt>关联文档</dt>
+                      <dd>{doc?.title ?? '文档 ' + current.test.documentId}</dd>
+                    </dl>
+                  )}
+                  <Form.Item
+                    name="documentId"
+                    hidden={Boolean(current)}
+                    label="关联文档"
+                    rules={[{ required: true, message: '请选择已确认文档' }]}
+                  >
+                    <Select
+                      disabled={Boolean(current) || !editing}
+                      options={documents.map((item) => ({ value: item.id, label: item.title }))}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="question"
+                    label="题目"
+                    rules={[{ required: true, whitespace: true, message: '请填写题目' }]}
+                  >
+                    <Input.TextArea
+                      maxLength={300}
+                      autoSize={{ minRows: 1, maxRows: 3 }}
+                      disabled={!editing}
+                    />
+                  </Form.Item>
+                  <div className="knowledge-test-options">
+                    <Form.Item name="coverage" label="覆盖类型">
+                      <Select
+                        disabled={!editing}
+                        options={[
+                          { value: 'CAPABILITY', label: '关键能力' },
+                          { value: 'BOUNDARY', label: '使用边界' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="mode" label="判定方式">
+                      <Select
+                        disabled={!editing}
+                        options={[
+                          { value: 'NUMERIC', label: '数值自动比较' },
+                          { value: 'EXPLANATION', label: '按依据人工裁定' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: 'expected',
+              label: '预期与判定',
+              forceRender: true,
+              children: (
+                <>
+                  {mode === 'NUMERIC' ? (
+                    <>
+                      <Form.Item name="expectedCount" label="期望计数">
+                        <InputNumber min={0} precision={0} disabled={!editing} />
+                      </Form.Item>
+                      <Form.Item name={['countRule', 'metricId']} label="去重指标">
+                        <Select options={options('METRIC')} disabled={!editing} />
+                      </Form.Item>
+                      <Form.Item name={['countRule', 'relationId']} label="使用关联">
+                        <Select options={options('RELATION')} disabled={!editing} />
+                      </Form.Item>
+                      <Form.Item name={['countRule', 'categoryId']} label="筛选字段">
+                        <Select options={options('COLUMN')} disabled={!editing} />
+                      </Form.Item>
+                      <Form.Item name={['countRule', 'categoryValue']} label="分类取值">
+                        <Input maxLength={80} disabled={!editing} />
+                      </Form.Item>
+                    </>
+                  ) : (
+                    <Form.Item name="expectedExplanation" label="判定要点">
+                      <Input.TextArea rows={3} maxLength={3000} disabled={!editing} />
+                    </Form.Item>
+                  )}
+                  <Form.Item name="evidence" label="数据与判定依据">
+                    <Input.TextArea rows={3} maxLength={1000} disabled={!editing} />
+                  </Form.Item>
+                </>
+              ),
+            },
+          ]}
+        />
+        {error && <Alert type="error" title={readErrorMessage(error)} />}
+        {basis.error && <Alert type="warning" title={readErrorMessage(basis.error)} />}
+        <footer className="knowledge-actions">
+          {needsReview && (draft.changed || missing.length > 0 || outdated) && (
+            <span id="knowledge-review-reason" className="knowledge-action-note">
+              {draft.changed
+                ? '保存草稿后审核'
+                : outdated
+                  ? '重新核对文档依据后审核'
+                  : '审核前需补齐' + missing.join('、')}
+            </span>
+          )}
+          <Space wrap>
+            <Button onClick={close}>关闭</Button>
+            {editing && (
+              <Button
+                htmlType="submit"
+                type={
+                  needsReview && !draft.changed && !missing.length && !outdated
+                    ? 'default'
+                    : 'primary'
+                }
+                disabled={!doc || !draft.changed}
+                loading={save.isPending}
+              >
+                保存草稿
+              </Button>
+            )}
+            {needsReview && (
+              <Button
+                type={!draft.changed && !missing.length && !outdated ? 'primary' : 'default'}
+                disabled={draft.changed || missing.length > 0 || outdated}
+                loading={save.isPending}
+                aria-describedby={
+                  draft.changed || missing.length > 0 || outdated
+                    ? 'knowledge-review-reason'
+                    : undefined
+                }
+                onClick={() => save.mutate({ action: 'review' })}
+              >
+                审核当前题目
+              </Button>
+            )}
+          </Space>
+        </footer>
+      </Form>
+    </section>
+  );
+}
+
+/** 当前审核状态在列表与编辑区表达一致。 */
+const testStates = { DRAFT: '草稿', REVIEWED: '已审核', REVIEW: '待复核' };
+
+/** 审核操作使用已保存内容，缺项关联到当前按钮。 */
+function reviewNeeds(content: Omit<TestInput, 'documentId'>) {
+  const missing: string[] = [];
+  if (!content.evidence?.trim()) missing.push('数据与判定依据');
+  if (content.mode === 'EXPLANATION') {
+    if (!content.expectedExplanation?.trim()) missing.push('判定要点');
+  } else {
+    if (content.expectedCount == null) missing.push('期望计数');
+    const rule = content.countRule;
+    if (!rule?.metricId || !rule.relationId || !rule.categoryId || !rule.categoryValue?.trim())
+      missing.push('去重指标、关联及分类条件');
+  }
+  return missing;
+}
+
+/** 表单按当前判定方式比较，切换后保留输入但只保存有效条件。 */
+function testDraftKey(input: Partial<TestInput>) {
+  const rule = input.countRule;
+  return JSON.stringify([
+    input.documentId,
+    input.documentRevisionId,
+    input.question ?? '',
+    input.mode,
+    input.coverage,
+    input.evidence ?? '',
+    input.mode === 'NUMERIC'
+      ? [
+          input.expectedCount ?? null,
+          rule?.metricId,
+          rule?.relationId,
+          rule?.categoryId,
+          rule?.categoryValue,
+        ]
+      : (input.expectedExplanation ?? ''),
+  ]);
+}

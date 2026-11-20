@@ -358,7 +358,7 @@ export function AccessToolbar({
             }
           >
             {trailingStatus && renderField(trailingStatus)}
-            <Space wrap={!hasMore} className="access-query-actions">
+            <Space wrap className="access-query-actions">
               {/* 浮层只控制字段可见性，提交和重置继续使用外层表单。 */}
               {hasMore && (
                 <MoreFilters open={moreOpen} setOpen={setMoreOpen} count={moreCount}>

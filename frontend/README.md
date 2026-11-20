@@ -59,6 +59,10 @@
 
 `/governance` 和 `/governance/:id` 分别进入成功目录工作台和稳定对象详情。页面在 `src/modules/governance`，复用来源选择、筛选分页、原命令回读与危险操作核对。表说明生成按实际任务状态读取结果，建议可逐项填入草稿。验收边界见[C 批验收](../docs/backend/governance/验收.md)。
 
+### 知识文档与发布准备
+
+[modules/knowledge](src/modules/knowledge) 提供知识文档、标准题和发布准备。选择同一数据源，编辑或确认实际文档修订，并核对题单和模型前置。当前验收见[D 批首个事项](../docs/backend/knowledge/验收.md)。
+
 ### 共用组件与请求
 
 | 文件 | 职责 |

@@ -660,3 +660,10 @@
 .gov-discovery-editor .gov-editor-actions {
   justify-content: flex-end;
 }
+
+/* 矮桌面的治理操作由工作区滚动承接，避免底栏遮挡最后的输入。 */
+@media (max-height: 640px) {
+  .gov-editor-actions {
+    position: static;
+  }
+}

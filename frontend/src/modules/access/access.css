@@ -182,6 +182,25 @@
   margin-inline-start: auto;
 }
 
+/* 单个主筛选字段在窄窗占满一行，操作组按实际可用宽度换行。 */
+.access-toolbar {
+  container: access-toolbar / inline-size;
+}
+
+@container access-toolbar (max-width: 560px) {
+  .query-panel.access-toolbar
+    > form
+    > .ant-form-item:first-child:has(+ .access-query-tail:last-child) {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .access-toolbar .access-query-tail.query-tail-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
 /* 详情正文和固定底栏共享阅读轴，长说明和连续编号在正文内换行。 */
 .access-detail-drawer .ant-drawer-body {
   padding: 24px;
@@ -198,7 +217,7 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  flex: 0 1 420px;
+  flex: 0 1 296px;
 }
 
 .notes-source-control > span {

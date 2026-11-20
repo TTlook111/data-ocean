@@ -209,9 +209,13 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
   return (
     <section className="record-page" aria-label="数据源管理">
       {/* 将查询项按对应列表列顺序排列。 */}
-      <div className="panel query-panel ds-query-panel compact-query" aria-label="数据源查询">
+      <div
+        className="panel query-panel ds-query-panel compact-query registry-query-panel"
+        aria-label="数据源查询"
+      >
         <Form
           name="datasource-query"
+          className="registry-query"
           form={form}
           layout="inline"
           initialValues={Object.fromEntries(params)}
@@ -234,7 +238,7 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
               options={datasourceOptions(['DRAFT', 'ENABLED', 'DISABLED', 'RETIRED'])}
             />
           </Form.Item>
-          <div className="query-tail-actions">
+          <div className="registry-query-actions">
             <Space>
               <MoreFilters
                 open={moreOpen}
@@ -258,14 +262,18 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>
+            {/* 新增为整张列表的主操作，位于查询面板右侧。 */}
+            {allowed(session, 'sources.create') && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined aria-hidden="true" />}
+                onClick={() => setEditor('new')}
+              >
+                新增数据源
+              </Button>
+            )}
           </div>
         </Form>
-        {/* 新增为整张列表的主操作，位于查询面板右侧。 */}
-        {allowed(session, 'sources.create') && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditor('new')}>
-            新增数据源
-          </Button>
-        )}
       </div>
       {/* 表格及分页共用一个完整结果面板。 */}
       <section className="panel records-panel" aria-label="数据源列表">

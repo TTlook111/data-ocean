@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   App,
   Button,
@@ -39,13 +40,15 @@ export function ModelPage() {
   const session = useSession();
   const { modal, message } = App.useApp();
   const client = useQueryClient();
-  const [tab, setTab] = useState('models');
+  const [params] = useSearchParams();
+  // 从发布准备进入时直接定位相关节点。
+  const [tab, setTab] = useState(params.get('tab') === 'nodes' ? 'nodes' : 'models');
   const [editor, setEditor] = useState<ModelConfig | 'new' | null>(null);
   const [detail, setDetail] = useState<ModelConfig | null>(null);
   const [keyword, setKeyword] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
-  const [nodeKeyword, setNodeKeyword] = useState('');
+  const [nodeKeyword, setNodeKeyword] = useState(params.get('node') ?? '');
   const [nodeModule, setNodeModule] = useState<string>();
   const models = useQuery({
     queryKey: ['models', 'list', paging, keyword],

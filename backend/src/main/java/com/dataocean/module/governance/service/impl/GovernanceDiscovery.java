@@ -5,6 +5,7 @@ import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
@@ -20,6 +21,7 @@ import com.dataocean.module.governance.entity.dto.GovernanceTargetDTO;
 import com.dataocean.module.governance.entity.po.GovernanceGenerationPO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
+import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.governance.mapper.GovernanceDiscoveryMapper;
 import com.dataocean.module.governance.mapper.GovernanceDiscoveryMapper.Candidate;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Basis;
@@ -782,6 +784,28 @@ public class GovernanceDiscovery {
             throw BizIllegalException.state("请先确认依赖：" + label);
         }
         return new Dependency(target.object(), target.kind(), target.target(), item.getHeadRevisionId());
+    }
+
+    /** 将关联或指标当前确认连同固定依赖交付给知识模块。 */
+    GovernanceFactVO confirmedForKnowledge(Source source, GovernanceTarget target) {
+        var row = candidates.read(source.id(), target.object(), target.target());
+        if (row == null || !row.kind().equals(target.kind())) {
+            throw BizIllegalException.missing();
+        }
+        var candidate = view(row, source);
+        var anchor = entries.get(source, GovernanceTarget.table(source.id(), target.object()));
+        if (candidate.getDefinition() == null) {
+            throw BizIllegalException.denied();
+        }
+        if (!"CONFIRMED".equals(candidate.getState()) || !"AVAILABLE".equals(anchor.availability())) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "关联或指标的审核依据需要复核");
+        }
+        var refs = List.of(json.read(row.dependencies(), Dependency[].class)).stream()
+                .map(ref -> new GovernanceTarget(source.id(), ref.object(), ref.kind(), ref.target()).view())
+                .toList();
+        return new GovernanceFactVO(target.view(), Ids.text(candidates.revisionId(row.id(), row.version())),
+                anchor.entry().generation(), Long.toString(anchor.structureRevision()), candidate.getDefinition().getName(),
+                json.mapper().valueToTree(candidate.getDefinition()), refs);
     }
 
     /**

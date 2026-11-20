@@ -60,6 +60,7 @@ describe('列表结果状态', () => {
     );
     expect(screen.getByRole('columnheader', { name: '姓名' })).toBeVisible();
     expect(screen.getByText('没有匹配的记录')).toBeVisible();
+    expect(screen.getByLabelText('结果分页').querySelector('.ant-pagination')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /清空条件/ }));
     expect(reset).toHaveBeenCalledOnce();
   });

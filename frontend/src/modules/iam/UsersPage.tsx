@@ -253,9 +253,13 @@ export function UsersPage() {
   // 查询区、结果表格和分页共享工作区，状态反馈不隐藏表头。
   return (
     <>
-      <section className="panel query-panel compact-query" aria-label="人员查询">
+      <section
+        className="panel query-panel compact-query registry-query-panel"
+        aria-label="人员查询"
+      >
         <Form
           name="users-query"
+          className="registry-query registry-query-three-fields"
           form={form}
           layout="inline"
           onFinish={search}
@@ -276,7 +280,7 @@ export function UsersPage() {
               options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
-          <div className="query-tail-actions">
+          <div className="registry-query-actions">
             <Space>
               {allowed(session, 'departments.view') && (
                 <MoreFilters
@@ -302,13 +306,17 @@ export function UsersPage() {
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>
+            {allowed(session, 'users.create') && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined aria-hidden="true" />}
+                onClick={() => setEditing('new')}
+              >
+                新增人员
+              </Button>
+            )}
           </div>
         </Form>
-        {allowed(session, 'users.create') && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
-            新增人员
-          </Button>
-        )}
       </section>
       <section className="panel records-panel" aria-label="人员列表">
         <RecordTable<Person>

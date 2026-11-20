@@ -1,0 +1,549 @@
+/* 各页沿用后台查询轴，新增和重新核对靠查询区右侧。 */
+.knowledge-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.knowledge-toolbar > .ant-space {
+  min-inline-size: 0;
+}
+
+.knowledge-toolbar > .ant-form {
+  align-items: center;
+}
+
+/* 表格内主名称与文档列左边对齐，长名称保留完整提示和键盘入口。 */
+.knowledge-record-link.ant-btn {
+  display: inline-block;
+  max-inline-size: 100%;
+  padding-inline: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.knowledge-record-link[aria-current='true'] {
+  font-weight: 600;
+}
+
+/* 文档正文贴合详情面板边缘，次要页签使用共用工作区尺度。 */
+.knowledge-document.panel {
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.knowledge-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 8px 8px 0 0;
+  background: var(--do-subtle);
+}
+
+.knowledge-heading-main {
+  display: flex;
+  flex: 1 1 220px;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.knowledge-heading :is(h1, h2) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-heading h1 {
+  font-size: 24px;
+  line-height: 32px;
+}
+
+/* 可编程焦点保留键盘可见提示，避免焦点回到页面根节点。 */
+.knowledge-heading :is(h1, h2):focus-visible,
+.knowledge-section:focus-visible {
+  box-shadow: -2px 0 var(--do-primary);
+  outline: none;
+}
+
+.knowledge-document > .ant-tabs {
+  padding-inline: 24px;
+}
+
+.knowledge-content {
+  min-inline-size: 0;
+  max-inline-size: 848px;
+  padding: 16px 24px 0;
+}
+
+.knowledge-content :is(.ant-alert, .knowledge-facts-summary) {
+  margin-block-end: 16px;
+}
+
+/* 多章节通过目录定位，单章节直接显示正文。 */
+.knowledge-reader:has(> nav) {
+  display: grid;
+  grid-template-columns: minmax(112px, 176px) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.knowledge-reader > nav > .ant-btn {
+  inline-size: 100%;
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  block-size: auto;
+  min-block-size: 36px;
+}
+
+.knowledge-section {
+  padding-block: 16px;
+  border-bottom: 1px solid var(--do-line);
+  scroll-margin-block-start: 16px;
+}
+
+.knowledge-section p {
+  margin-block-start: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 用途、适用边界和代表性问题同列对齐，依据始终保留实际修订。 */
+.knowledge-facts-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.knowledge-facts-summary > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.knowledge-facts-summary dd,
+.knowledge-preflight-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-facts-summary dt,
+.knowledge-preflight-summary dt,
+.knowledge-action-note,
+.knowledge-reference small {
+  color: var(--do-muted);
+}
+
+.knowledge-reference {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block: 8px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+.knowledge-reference-title {
+  flex: 1 1 220px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-reference-title small {
+  display: block;
+  font-size: var(--do-font-meta);
+}
+
+.knowledge-reference-revision {
+  font-size: var(--do-font-meta);
+}
+
+/* 操作和当前改动状态靠底边，在长编辑区仍然可达。 */
+.knowledge-actions {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  margin-block-start: 16px;
+  padding-block: 12px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-panel);
+}
+
+.knowledge-action-note {
+  flex: 1 1 180px;
+}
+
+/* 发布预检将客观结果和处理入口并列摆放，避免藏在提示框深处。 */
+.knowledge-preflight-title {
+  margin-block-end: 16px;
+}
+
+.knowledge-preflight-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}
+
+.knowledge-preflight-summary > div {
+  min-inline-size: 0;
+  padding: 12px 16px;
+}
+
+.knowledge-preflight-summary > div + div {
+  border-inline-start: 1px solid var(--do-line);
+}
+
+.knowledge-preflight-summary dd {
+  margin-block-start: 4px;
+  font-weight: 600;
+}
+
+.knowledge-preflight-summary dd > .ant-btn {
+  block-size: auto;
+  min-block-size: 22px;
+}
+
+.knowledge-issue-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 依据列表固定状态和版本的列位，窄窗口仍允许操作就近换行。 */
+@media (min-width: 990px) {
+  .knowledge-evidence-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) 72px 152px 80px;
+  }
+}
+
+/* 办理中的题单在左侧保留来源与队列，右侧从首屏展示题目和预期。 */
+.knowledge-test-workspace {
+  display: grid;
+  grid-template-columns: clamp(150px, 20vw, 224px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.knowledge-test-editor {
+  min-inline-size: 0;
+}
+
+.knowledge-test-queue.panel {
+  position: sticky;
+  inset-block-start: 0;
+  min-inline-size: 0;
+  padding: 12px;
+}
+
+.knowledge-test-queue header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 12px;
+}
+
+.knowledge-test-queue h2 {
+  font-size: 16px;
+}
+
+.knowledge-test-queue :is(header > span, nav > button > span) {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+.knowledge-test-queue nav {
+  display: grid;
+  gap: 4px;
+  max-block-size: min(55vh, 460px);
+  overflow: auto;
+}
+
+.knowledge-test-queue nav > button {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--do-ink);
+  background: var(--do-panel);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+/* 题名常态为正文尺度，选中对象使用现有强调字重。 */
+.knowledge-test-queue nav > button strong {
+  font-weight: 500;
+}
+
+.knowledge-test-queue nav > button[aria-current='true'] strong {
+  font-weight: 600;
+}
+
+.knowledge-test-queue nav > button:hover {
+  background: var(--do-hover);
+}
+
+.knowledge-test-queue nav > button[aria-current='true'] {
+  border-color: var(--do-primary);
+  color: var(--do-primary);
+  background: var(--do-selected);
+}
+
+.knowledge-test-queue nav > button:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: -2px;
+}
+
+.knowledge-test-queue > .ant-pagination {
+  margin-block-start: 12px;
+}
+
+/* 办理首屏优先露出判定要点，已绑定文档和短选项压缩到实际所需高度。 */
+.knowledge-test-editor .knowledge-edit .ant-form-item {
+  margin-block-end: 16px;
+}
+
+.knowledge-test-document {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.knowledge-test-document dt {
+  flex: none;
+  color: var(--do-muted);
+}
+
+.knowledge-test-document dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-test-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* 阅读区保持章节选中及分节证据，与原型的目录和正文布局一致。 */
+.knowledge-reader > nav {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 4px;
+  padding: 8px;
+  background: var(--do-subtle);
+  border-radius: 6px;
+}
+
+.knowledge-reader > nav > .ant-btn[aria-current='true'],
+.knowledge-reader > nav > .ant-btn[aria-current='true']:hover {
+  font-weight: 600;
+  color: var(--do-primary);
+  background: var(--do-selected);
+}
+
+.knowledge-reading-section {
+  padding-block-start: 4px;
+  border-bottom: 0;
+}
+
+.knowledge-section-basis {
+  margin-block-start: 16px;
+  padding-block-start: 12px;
+  border-top: 1px solid var(--do-line);
+}
+
+.knowledge-section-basis summary {
+  color: var(--do-muted);
+  cursor: pointer;
+}
+
+.knowledge-section-basis small {
+  color: var(--do-muted);
+}
+
+/* 发布准备保留结果和最近处理入口，以白底与细线分隔同等级事项。 */
+.knowledge-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding-block: 12px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+.knowledge-issue > div {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-issue > div > ul {
+  margin: 4px 0 0;
+  padding-inline-start: 20px;
+  color: var(--do-muted);
+}
+
+.knowledge-issue > .ant-btn {
+  flex: none;
+}
+
+.knowledge-test-tabs .ant-tabs-nav {
+  margin-block-end: 16px;
+}
+
+/* 阅读面板承接工作区余高，短正文也保留稳定的详情操作位置。 */
+@media (min-height: 640px) {
+  .knowledge-document-detail {
+    display: flex;
+    flex-direction: column;
+    min-block-size: calc(100dvh - 112px);
+  }
+
+  .knowledge-document-detail > article.knowledge-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .knowledge-document-detail > article > .knowledge-actions {
+    margin-block-start: auto;
+  }
+
+  .knowledge-body-read .knowledge-reader {
+    flex: 1;
+    align-items: stretch;
+    margin-block-end: 16px;
+  }
+}
+
+/* 目录宽度独立于正文预算。 */
+.knowledge-body-read {
+  max-inline-size: 1072px;
+}
+
+.knowledge-body-read .knowledge-reading-section {
+  max-inline-size: 800px;
+}
+
+/* 标准题和发布共用来源、文档和操作的排布，给两个选择框分配独立宽度。 */
+.knowledge-context-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 248px) minmax(0, 320px) minmax(max-content, 1fr);
+}
+
+.knowledge-context-controls {
+  display: contents;
+}
+
+.knowledge-context-toolbar > .ds-source-picker,
+.knowledge-context-controls > .knowledge-document-select {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.knowledge-context-controls > .ant-btn {
+  justify-self: end;
+}
+
+/* 紧凑宽度先保证两个选择框可读，较长的操作按钮独立靠右。 */
+@media (max-width: 780px) {
+  .knowledge-context-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledge-context-controls > .ant-btn {
+    grid-column: 2;
+  }
+}
+
+/* 标题下方保留文档真实来源，长名称可自然换行。 */
+.knowledge-title {
+  min-inline-size: 0;
+}
+
+.knowledge-source-name {
+  display: block;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: var(--do-line-meta);
+  overflow-wrap: anywhere;
+}
+
+/* 极矮桌面由工作区承接滚动，底栏不遮挡输入和说明。 */
+@media (max-height: 640px) {
+  .knowledge-actions,
+  .knowledge-test-queue.panel {
+    position: static;
+  }
+
+  .knowledge-test-queue nav {
+    max-block-size: none;
+    overflow: visible;
+  }
+}
+
+/* 长表单聚焦或定位错误时预留固定底栏空间。 */
+.knowledge-edit :is(input, textarea, .ant-select, .ant-input-number) {
+  scroll-margin-block-end: 88px;
+}
+
+/* 知识文档查询在宽屏保持一排，窄屏先排两个筛选条件，再共用一条操作基线。 */
+.knowledge-documents-toolbar {
+  container: knowledge-documents-toolbar / inline-size;
+}
+
+.query-panel > .knowledge-document-query {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 248px) minmax(180px, 320px) max-content minmax(0, 1fr)
+    max-content;
+  grid-template-areas: 'source keyword query . create';
+}
+
+.knowledge-document-query > .ds-source-picker {
+  grid-area: source;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.query-panel.compact-query > .knowledge-document-query > .ant-form-item {
+  grid-area: keyword;
+  min-inline-size: 0;
+  max-inline-size: none;
+}
+
+.knowledge-document-query > .knowledge-list-query-actions {
+  grid-area: query;
+}
+
+.knowledge-document-query > .knowledge-create-document {
+  grid-area: create;
+  justify-self: end;
+}
+
+@container knowledge-documents-toolbar (max-width: 700px) {
+  .query-panel > .knowledge-document-query {
+    grid-template-columns: minmax(180px, 45%) minmax(0, 1fr);
+    grid-template-areas: 'source keyword' 'query create';
+  }
+}

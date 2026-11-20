@@ -126,28 +126,34 @@ export function CatalogPage() {
             setParams({ source, ...(tab === 'changes' ? { tab } : {}) });
           }}
         />
-        {/* 页签紧邻所属数据源，源级采集按钮统一靠右。 */}
-        {selected && allowed(session, 'collections.view') && (
-          <Tabs
-            className="ds-catalog-tabs"
-            activeKey={tab}
-            onChange={(next) =>
-              setParams({
-                source: selected?.id ?? '',
-                ...(next === 'changes' ? { tab: next } : {}),
-              })
-            }
-            items={[
-              { key: 'objects', label: '元数据目录' },
-              { key: 'changes', label: '结构变化' },
-            ]}
-          />
-        )}
-        {selected?.lifecycle === 'ENABLED' && allowed(session, 'collections.collect') && (
-          <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>
-            {catalog.data && !catalog.data.currentSnapshotId ? '发起首次采集' : '发起采集'}
-          </Button>
-        )}
+        <div className="ds-catalog-operations">
+          {/* 页签紧邻所属数据源，源级采集按钮统一靠右。 */}
+          {selected && allowed(session, 'collections.view') && (
+            <Tabs
+              className="ds-catalog-tabs"
+              activeKey={tab}
+              onChange={(next) =>
+                setParams({
+                  source: selected?.id ?? '',
+                  ...(next === 'changes' ? { tab: next } : {}),
+                })
+              }
+              items={[
+                { key: 'objects', label: '元数据目录' },
+                { key: 'changes', label: '结构变化' },
+              ]}
+            />
+          )}
+          {selected?.lifecycle === 'ENABLED' && allowed(session, 'collections.collect') && (
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined aria-hidden="true" />}
+              onClick={() => void start()}
+            >
+              {catalog.data && !catalog.data.currentSnapshotId ? '发起首次采集' : '发起采集'}
+            </Button>
+          )}
+        </div>
       </div>
       <ReadState
         error={sources.error}

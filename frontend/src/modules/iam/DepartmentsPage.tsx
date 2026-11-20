@@ -278,19 +278,28 @@ export function DepartmentsPage() {
     );
   }
 
-  // 成员页签的范围切换、查询和表格位置保持原型结构。
+  const canAddMember =
+    department?.lifecycle === 'ENABLED' && allowed(session, 'departments.add-member');
+  const canAddChild = department?.lifecycle === 'ENABLED' && allowed(session, 'departments.create');
+
+  // 页签内放置当前业务的操作，窄面板能同时显示所有页签和完整查询条件。
   const memberContent = (
     <>
       <div className="member-tools">
-        <Segmented
-          aria-label="成员查看范围"
-          value={params.get('includeDescendants') === 'false' ? 'false' : 'true'}
-          onChange={(value) => updateQuery({ includeDescendants: value, pageNum: '1' })}
-          options={[
-            { label: '含下级部门', value: 'true' },
-            { label: '仅直属', value: 'false' },
-          ]}
-        />
+        <div className="member-scope-actions">
+          <Segmented
+            aria-label="成员查看范围"
+            value={params.get('includeDescendants') === 'false' ? 'false' : 'true'}
+            onChange={(value) => updateQuery({ includeDescendants: value, pageNum: '1' })}
+            options={[
+              { label: '含下级部门', value: 'true' },
+              { label: '仅直属', value: 'false' },
+            ]}
+          />
+          {canAddMember && (
+            <Button onClick={() => setAction({ name: 'secondary-members' })}>加入成员</Button>
+          )}
+        </div>
         <Form
           name="department-members-query"
           form={memberForm}
@@ -319,7 +328,7 @@ export function DepartmentsPage() {
           </Form.Item>
           {/* 窄成员面板优先保留姓名搜索，登录名与状态收入同一浮层。 */}
           <div className="query-tail-actions">
-            <Space>
+            <Space wrap>
               <MoreFilters
                 open={moreMemberFiltersOpen}
                 setOpen={setMoreMemberFiltersOpen}
@@ -506,19 +515,6 @@ export function DepartmentsPage() {
     />
   );
 
-  const tabActions =
-    department?.lifecycle === 'ENABLED' &&
-    tab === 'members' &&
-    allowed(session, 'departments.add-member') ? (
-      <Button onClick={() => setAction({ name: 'secondary-members' })}>加入成员</Button>
-    ) : department?.lifecycle === 'ENABLED' &&
-      tab === 'children' &&
-      allowed(session, 'departments.create') ? (
-      <Button onClick={() => setEditor({ department: null, parentId: selected })}>
-        新增子部门
-      </Button>
-    ) : null;
-
   // 原型树搜索只占一行，根部门创建入口不预选父节点。
   return (
     <div className="departments-workspace" aria-label="部门管理">
@@ -608,7 +604,7 @@ export function DepartmentsPage() {
             <Descriptions
               size="small"
               layout="vertical"
-              column={4}
+              column={{ xs: 1, sm: 2, md: 2, lg: 2, xl: 4, xxl: 4 }}
               colon={false}
               items={[
                 { key: 'code', label: '部门编号', children: department?.code ?? '—' },
@@ -621,9 +617,15 @@ export function DepartmentsPage() {
                 {
                   key: 'count',
                   label: '成员范围',
-                  children: department
-                    ? `直属 ${department.directMemberCount} 人 / 含下级 ${department.totalMemberCount} 人`
-                    : '—',
+                  // 各组人数整体换行，窄列不把单位单独挤到下一行。
+                  children: department ? (
+                    <Space size={[12, 0]} wrap>
+                      <span>{`直属 ${department.directMemberCount} 人`}</span>
+                      <span>{`含下级 ${department.totalMemberCount} 人`}</span>
+                    </Space>
+                  ) : (
+                    '—'
+                  ),
                 },
               ]}
             />
@@ -634,10 +636,26 @@ export function DepartmentsPage() {
               className="department-tabs"
               activeKey={tab}
               onChange={(key) => updateQuery({ tab: key })}
-              tabBarExtraContent={tabActions}
               items={[
                 { key: 'members', label: '成员', children: memberContent },
-                { key: 'children', label: '子部门', children: childContent },
+                {
+                  key: 'children',
+                  label: '子部门',
+                  children: (
+                    <>
+                      {canAddChild && (
+                        <div className="department-child-actions">
+                          <Button
+                            onClick={() => setEditor({ department: null, parentId: selected })}
+                          >
+                            新增子部门
+                          </Button>
+                        </div>
+                      )}
+                      {childContent}
+                    </>
+                  ),
+                },
                 {
                   key: 'template',
                   label: '初始数据访问',

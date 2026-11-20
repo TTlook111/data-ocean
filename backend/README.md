@@ -76,6 +76,10 @@
 
 表说明生成通过 `dataocean.governance-ai.enabled` 独立开启。配置 Python 服务地址 `python-url`、Java 签名文件 `java-private-key-file`、Java 和 Python 的可信公钥文件 `java-public-key-file`、`python-public-key-file`，以及已核准发送结构和资料的 `model-source-ids`。实际文件和端点按机器配置保存。治理草稿、确认和来源复核可独立运行。
 
+## 知识文档与发布准备
+
+[module/knowledge](src/main/java/com/dataocean/module/knowledge) 维护已确认治理引用上的知识文档、标准题和发布准备查询。V24 建立文档修订、引用与确认，V25 建立题目修订和审核。治理交接走 [GovernanceKnowledgeService](src/main/java/com/dataocean/module/governance/service/GovernanceKnowledgeService.java)。接口和当前覆盖见[首个事项](../docs/backend/knowledge/接口.md)。
+
 ## 配置、迁移与测试
 
 | 文件或目录 | 职责 |

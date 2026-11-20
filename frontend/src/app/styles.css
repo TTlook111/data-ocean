@@ -354,6 +354,42 @@ h3 {
   margin-inline-start: auto;
 }
 
+/* 人员、角色及数据源在紧凑视口先排筛选条件，主次操作共用一条基线。 */
+.registry-query-panel {
+  container: registry-query-panel / inline-size;
+}
+
+.registry-query-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-inline-start: auto;
+}
+
+@container registry-query-panel (max-width: 880px) {
+  .query-panel > .registry-query {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .query-panel > .registry-query-three-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .query-panel.compact-query > .registry-query > .ant-form-item {
+    min-inline-size: 0;
+    max-inline-size: none;
+  }
+
+  .registry-query > .registry-query-actions {
+    grid-column: 1 / -1;
+    margin-inline-start: 0;
+  }
+}
+
 /* 将浮层放在触发器旁，Tab 可继续遍历展开的输入。 */
 .query-more-anchor {
   position: relative;
@@ -582,6 +618,11 @@ h3 {
   height: auto;
   padding: 24px;
 }
+/* 可用宽度已覆盖列预算时，消除浏览器亚像素舍入造成的装饰性横滚。 */
+.records-panel .record-table[data-columns-fit='true'] .ant-table-body {
+  overflow-x: hidden !important;
+}
+
 /* 状态内容以可见结果区为宽度，横向滚动时仍留在视口内。 */
 .record-body-state {
   position: sticky;
@@ -1085,13 +1126,22 @@ h3 {
 .muted {
   color: #5b6575;
 }
-/* 部门组织采用原型 256px 左树和右侧内容区。 */
+/* 部门组织保留左树与右侧内容，窄窗口给查询区腾出空间。 */
 .departments-workspace {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 256px minmax(0, 1fr);
   gap: 24px;
+}
+@media (max-width: 1050px) {
+  .departments-workspace {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .department-tree .tree-title {
+    gap: 4px;
+  }
 }
 /* 组织树在自己的面板内滚动。 */
 .department-tree {
@@ -1112,6 +1162,9 @@ h3 {
   justify-content: space-between;
   gap: 8px;
   padding: 0 8px 12px;
+}
+.tree-title h2 {
+  white-space: nowrap;
 }
 /* 部门总数使用次级档位。 */
 .tree-title small {
@@ -1152,8 +1205,9 @@ h3 {
   gap: 24px;
   min-width: 0;
   min-height: 0;
+  container: department-content / inline-size;
 }
-/* 部门摘要保持原型同一行四个资料项。 */
+/* 宽窗显示四项资料，窄窗按行展开以保留可读的标签和值。 */
 .department-profile {
   flex: none;
 }
@@ -1174,7 +1228,7 @@ h3 {
   flex-direction: column;
   min-height: 0;
 }
-/* 页签栏与就近操作共享原型 64px 标题行。 */
+/* 完整页签独占标题行，操作跟随当前页签内容。 */
 .department-tabs > .ant-tabs-nav {
   flex: none;
   min-height: 64px;
@@ -1218,10 +1272,24 @@ h3 {
   padding: 16px 24px;
   border-bottom: 1px solid #e5e7eb;
 }
-/* 范围按钮作为一个不可拆分的整体。 */
-.member-tools > .ant-segmented {
+/* 成员范围与加入动作共用一行，必要时保留完整的按钮文字。 */
+.member-scope-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 100%;
+}
+.member-scope-actions > .ant-segmented {
   flex: none;
   white-space: nowrap;
+}
+.department-child-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
 }
 /* 工具栏内筛选不再叠加一份内距和边框。 */
 .member-tools .member-query {
@@ -1248,6 +1316,36 @@ h3 {
   margin: 0;
   flex: 1 1 150px;
   min-width: 0;
+}
+/* 狭窄的详情面板给搜索输入留出整行，避免操作组覆盖输入或被侧边裁切。 */
+@container department-content (max-width: 540px) {
+  .department-profile {
+    padding: 16px;
+  }
+
+  .department-profile .list-toolbar {
+    margin-bottom: 16px;
+  }
+
+  .department-tabs > .ant-tabs-nav,
+  .member-tools,
+  .department-child-actions {
+    padding-inline: 16px;
+  }
+
+  .member-scope-actions {
+    flex: 1 1 100%;
+  }
+
+  .member-tools .member-query {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-query .query-tail-actions {
+    min-width: 0;
+    margin-inline-start: 0;
+  }
 }
 /* 表头与至少一条成员记录保留阅读空间，空间不足由工作区滚动。 */
 .department-panel {
@@ -1678,6 +1776,31 @@ h3 {
 .return-login {
   margin-top: 24px;
 }
+/* 较矮窗口收紧改密卡片留白，确认与返回入口同时可见。 */
+@media (max-height: 640px) {
+  .login-brand {
+    height: 64px;
+    padding: 16px 32px;
+  }
+
+  .login-page {
+    padding: 24px;
+  }
+
+  .login-card {
+    padding: 24px 32px;
+  }
+
+  .login-note,
+  .login-name,
+  .login-card .ant-form-item {
+    margin-bottom: 16px;
+  }
+
+  .return-login {
+    margin-top: 16px;
+  }
+}
 /* 弹窗沿用原型的标题、正文和固定操作区，长表单只在正文滚动。 */
 .app-dialog .ant-modal-container {
   display: flex;
@@ -1874,6 +1997,29 @@ h3 {
     height: auto;
     min-height: 0;
   }
+  /* 空态和错误反馈随工作区滚动，避免访问列表把提示挤到滚动条后。 */
+  .workspace .access-records:has(.ant-table-placeholder),
+  .workspace
+    .access-records:has(.ant-table-placeholder)
+    :is(
+      .record-table,
+      .ant-table-wrapper,
+      .ant-spin,
+      .ant-spin-nested-loading,
+      .ant-spin-container,
+      .ant-table,
+      .ant-table-container,
+      .ant-table-body
+    ) {
+    flex: none;
+    min-block-size: 0;
+    block-size: auto;
+  }
+
+  .workspace .access-records .ant-table-body:has(.ant-table-placeholder) > table {
+    height: auto;
+  }
+
   /* 部门页签的自然高度包含查询、记录或空态及分页，详情类浮层不受此规则影响。 */
   .workspace .department-tabs,
   .workspace .department-tabs > .ant-tabs-body-holder,

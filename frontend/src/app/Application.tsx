@@ -63,6 +63,9 @@ const navigation = [
   { key: '/catalog', label: '元数据目录', permission: 'catalog.view', icon: <DatabaseOutlined /> },
   { key: '/business-notes', label: '企业业务说明', permission: 'business-notes.view' },
   { key: '/governance', label: '治理工作台', permission: 'governance.view' },
+  { key: '/knowledge', label: '知识文档', permission: 'knowledge.view' },
+  { key: '/test-cases', label: '标准题单', permission: 'test-cases.view' },
+  { key: '/releases', label: '发布与版本', permission: 'releases.view' },
   { key: '/models', label: '模型配置', permission: 'models.view' },
   { key: '/diagnostics', label: '调用记录与故障', permission: 'diagnostics.view' },
   { key: '/my-requests', label: '我的申请', permission: 'my-requests.view' },
@@ -128,9 +131,26 @@ const GovernancePage = lazyPage(() =>
 const GovernanceDetailPage = lazyPage(() =>
   import('../modules/governance/GovernanceDetailPage').then((m) => m.GovernanceDetailPage),
 );
+// 知识列表和正文属于同一源内的文档流程。
+const KnowledgePage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgePage').then((m) => m.KnowledgePage),
+);
+const KnowledgeDocumentPage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeDocumentPage').then((m) => m.KnowledgeDocumentPage),
+);
+// 标准题与文档页面分别授权，继续共用当前来源。
+const KnowledgeTestPage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeTestPage').then((m) => m.KnowledgeTestPage),
+);
+// 发布入口读取同源文档的实际构建前条件。
+const KnowledgeReleasePage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeReleasePage').then((m) => m.KnowledgeReleasePage),
+);
 // 模型配置与调用记录独立授权，使用各自的后台入口。
 const ModelPage = lazyPage(() => import('../modules/models/ModelPage').then((m) => m.ModelPage));
-const ModelCallsPage = lazyPage(() => import('../modules/models/ModelCallsPage').then((m) => m.ModelCallsPage));
+const ModelCallsPage = lazyPage(() =>
+  import('../modules/models/ModelCallsPage').then((m) => m.ModelCallsPage),
+);
 
 /**
  * 工作区路由同时用于内容渲染与权限、菜单和面包屑定位。
@@ -153,6 +173,11 @@ const workspaceRoutes = [
   // 表说明和字段治理的工作台与办理页。
   { path: '/governance', element: <GovernancePage /> },
   { path: '/governance/:id', element: <GovernanceDetailPage /> },
+  // 知识文档列表及其草稿、当前确认和历史修订。
+  { path: '/knowledge', element: <KnowledgePage /> },
+  { path: '/knowledge/:id', element: <KnowledgeDocumentPage /> },
+  { path: '/test-cases', element: <KnowledgeTestPage /> },
+  { path: '/releases', element: <KnowledgeReleasePage /> },
   // 系统配置的真实模型与诊断入口。
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },
@@ -187,6 +212,10 @@ export function Application() {
   const { message } = App.useApp();
 
   const [loggingOut, setLoggingOut] = useState(false);
+  const [menuExpansion, setMenuExpansion] = useState<{ path: string; keys: string[] }>({
+    path: '',
+    keys: [],
+  });
 
   const navigate = useNavigate();
 
@@ -373,11 +402,12 @@ export function Application() {
             key,
             label,
             icon,
-            children: permitted.map(([code, name]) => ({
-              key: `pending-${code}`,
-              label: name,
-              disabled: true,
-            })),
+            children: permitted.map(([code, name]) => {
+              // 已接入的页面沿用原分组和顺序。
+              const path = '/' + code;
+              const ready = visible.some((item) => item.key === path);
+              return { key: ready ? path : 'pending-' + code, label: name, disabled: !ready };
+            }),
           },
         ]
       : [];
@@ -427,7 +457,9 @@ export function Application() {
               ...(session.permissionCodes.includes('governance-dashboard.view')
                 ? [{ key: 'pending-governance-dashboard', label: '治理概览', disabled: true }]
                 : []),
-              ...visible.filter(({ key }) => key === '/governance').map(({ key, label }) => ({ key, label })),
+              ...visible
+                .filter(({ key }) => key === '/governance')
+                .map(({ key, label }) => ({ key, label })),
             ],
           },
         ]
@@ -460,13 +492,16 @@ export function Application() {
         ]
       : []),
     ...(visible.some(({ key }) => key === '/models' || key === '/diagnostics')
-      ? [{
-          key: 'system-group',
-          label: '系统配置',
-          icon: <SettingOutlined />,
-          children: visible.filter(({ key }) => key === '/models' || key === '/diagnostics')
-            .map(({ key, label }) => ({ key, label })),
-        }]
+      ? [
+          {
+            key: 'system-group',
+            label: '系统配置',
+            icon: <SettingOutlined />,
+            children: visible
+              .filter(({ key }) => key === '/models' || key === '/diagnostics')
+              .map(({ key, label }) => ({ key, label })),
+          },
+        ]
       : []),
     {
       key: 'personal-group',
@@ -486,6 +521,15 @@ export function Application() {
   const activeMenuGroup = menus.find(
     (item) => 'children' in item && item.children?.some((child) => child.key === activeMenuKey),
   );
+  // 跨页跳转展开当前分组，保留用户手动展开的其他分组。
+  if (menuExpansion.path !== location.pathname) {
+    const group = activeMenuGroup?.key;
+    const keys =
+      group && !menuExpansion.keys.includes(group)
+        ? [...menuExpansion.keys, group]
+        : menuExpansion.keys;
+    setMenuExpansion({ path: location.pathname, keys });
+  }
 
   // 顶栏贯穿整个窗口，侧栏从顶栏下方开始，沿用原型的导航层级。
   return (
@@ -572,7 +616,8 @@ export function Application() {
               mode="inline"
               inlineIndent={12}
               aria-label="后台管理菜单"
-              defaultOpenKeys={activeMenuGroup ? [activeMenuGroup.key] : []}
+              openKeys={menuExpansion.keys}
+              onOpenChange={(keys) => setMenuExpansion({ path: location.pathname, keys })}
               selectedKeys={activeMenuKey ? [activeMenuKey] : []}
               onClick={({ key }) => openPage(key)}
               items={menus}

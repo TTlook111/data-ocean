@@ -384,9 +384,13 @@ export function RolesPage() {
   // 名称和状态过滤顺序与结果表头保持一致。
   return (
     <>
-      <section className="panel query-panel">
+      <section
+        className="panel query-panel compact-query registry-query-panel"
+        aria-label="角色查询"
+      >
         <Form
           name="roles-query"
+          className="registry-query"
           form={form}
           layout="inline"
           initialValues={Object.fromEntries(params)}
@@ -411,30 +415,34 @@ export function RolesPage() {
               allowClear
             />
           </Form.Item>
-          <div className="query-tail status-tail">
-            <Form.Item name="lifecycle" className="status-query">
-              <Select
-                aria-label="状态"
-                placeholder="全部状态"
-                allowClear
-                options={[
-                  { value: 'ENABLED', label: '启用' },
-                  { value: 'DISABLED', label: '停用' },
-                  { value: 'ARCHIVED', label: '已归档' },
-                ]}
-              />
-            </Form.Item>
+          <Form.Item name="lifecycle" className="status-query">
+            <Select
+              aria-label="状态"
+              placeholder="全部状态"
+              allowClear
+              options={[
+                { value: 'ENABLED', label: '启用' },
+                { value: 'DISABLED', label: '停用' },
+                { value: 'ARCHIVED', label: '已归档' },
+              ]}
+            />
+          </Form.Item>
+          <div className="registry-query-actions">
             <Space>
               <Button htmlType="submit">查询</Button>
               <Button onClick={resetRoles}>重置</Button>
             </Space>
+            {allowed(session, 'roles.create') && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined aria-hidden="true" />}
+                onClick={() => configure()}
+              >
+                新增角色
+              </Button>
+            )}
           </div>
         </Form>
-        {allowed(session, 'roles.create') && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => configure()}>
-            新增角色
-          </Button>
-        )}
       </section>
       <section className="panel records-panel" aria-label="角色列表">
         <RecordTable<Role>

@@ -39,6 +39,24 @@
   place-items: center;
 }
 
+/* 窄窗时页签与发起采集一起换行，按钮不独占空白行。 */
+.ds-catalog-operations {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-inline-size: min(100%, 310px);
+}
+
+.ds-catalog-operations:empty {
+  display: none;
+}
+
+.ds-catalog-operations > .ant-btn {
+  flex: none;
+}
+
 /* 页签与当前数据源共享一条工具栏，使用短分隔线区分切源和切页。 */
 .ds-catalog-tabs {
   flex: 0 1 218px;
