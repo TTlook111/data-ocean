@@ -63,6 +63,7 @@ C 批治理详情已接入表说明、字段、关联、指标及状态与依据
 | 表格 | [Ant Design Table](https://ant.design/components/table) | 普通业务列表使用服务端分页、筛选与排序；统一列预算、长文本、操作列、空态与分页 |
 | 表单 | [Ant Design Form](https://ant.design/components/form) | 统一字段布局、联动、动态字段与校验反馈，优先使用同一套表单状态及校验机制 |
 | 图表 | [Apache ECharts](https://echarts.apache.org/handbook/en/basics/import/) | 覆盖概览与问数图表，按需加载；统一字体、色谱、图例和提示样式 |
+| 三维图形 | [Three.js](https://threejs.org/) | 登录页鱼群按需加载，本地打包；WebGL2 不可用时以静态品牌图形呈现 |
 | SSE 客户端 | [eventsource-client](https://github.com/rexxars/eventsource-client) | 基于 Fetch 订阅事件，支持自定义认证头、重连及初始事件游标；业务恢复由项目按任务协议落实 |
 | 样式 | CSS Modules 与统一设计变量 | 页面布局由项目维护，共用尺度集中管理；组件外观优先通过主题与公开配置调整 |
 
@@ -81,6 +82,7 @@ C 批治理详情已接入表说明、字段、关联、指标及状态与依据
 | React / React DOM | 19.3.1 | 两者保持相同版本，类型包选择匹配系列 |
 | TypeScript | 6.0.3 | 按当前 typescript-eslint 支持范围选择，不仅按最新主版本升级 |
 | Vite | 8.3.8 | React 插件和测试工具选择匹配版本并一起锁定 |
+| Three.js | 0.180.0 | 类型与运行库固定为同一版本，仅供登录水面场景使用 |
 | 代码与格式检查 | ESLint、typescript-eslint、Prettier | 分开代码质量与格式职责，兼容补丁及规则配置随实际检查验证 |
 | 组件测试 | Vitest、React Testing Library | 精确依赖随锁文件固定，测试布局见工程基线；浏览器验收仍走 ego-lite |
 
