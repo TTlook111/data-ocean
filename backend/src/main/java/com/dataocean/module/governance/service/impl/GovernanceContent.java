@@ -8,9 +8,11 @@ import com.dataocean.module.governance.entity.dto.CodeMeaningDTO;
 import com.dataocean.module.governance.entity.dto.ColumnDefinitionDTO;
 import com.dataocean.module.governance.entity.dto.TableDefinitionDTO;
 
+import java.lang.reflect.Modifier;
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -64,7 +66,7 @@ public class GovernanceContent {
                 }
                 if ("valueMappings".equals(key)) {
                     // 逐项核对字符串编码，前导零不参与数值转换。
-                    normalizeMappings(result, raw, ((ColumnDefinitionDTO) definition).valueMappings());
+                    normalizeMappings(result, raw, ((ColumnDefinitionDTO) definition).getValueMappings());
                 } else {
                     // 服务端不接受把数字或布尔值隐式转为业务文本。
                     if (!raw.isString()) {
@@ -90,7 +92,8 @@ public class GovernanceContent {
      */
     public void requirePath(boolean column, String path) {
         Class<?> type = column ? ColumnDefinitionDTO.class : TableDefinitionDTO.class;
-        boolean known = List.of(type.getRecordComponents()).stream().anyMatch(field -> field.getName().equals(path));
+        boolean known = Arrays.stream(type.getDeclaredFields())
+                .anyMatch(field -> !Modifier.isStatic(field.getModifiers()) && field.getName().equals(path));
         if (!known) {
             // 证据及核对问题只能关联当前定义的真实字段。
             throw BizIllegalException.invalid("来源或核对项对应的业务字段不存在");
@@ -173,13 +176,13 @@ public class GovernanceContent {
             String path = "valueMappings[" + index + "]";
             if (mapping == null || !raw.get(index).path("code").isString()
                     || !raw.get(index).path("meaning").isString()
-                    || mapping.code().isBlank() || mapping.meaning().isBlank()
-                    || !codes.add(mapping.code().strip())) {
+                    || mapping.getCode().isBlank() || mapping.getMeaning().isBlank()
+                    || !codes.add(mapping.getCode().strip())) {
                 throw invalid(path, "请填写唯一编码及对应含义");
             }
-            checkLength(path + ".code", mapping.code().strip(), 160);
-            checkLength(path + ".meaning", mapping.meaning().strip(), 400);
-            values.addObject().put("code", mapping.code().strip()).put("meaning", mapping.meaning().strip());
+            checkLength(path + ".code", mapping.getCode().strip(), 160);
+            checkLength(path + ".meaning", mapping.getMeaning().strip(), 400);
+            values.addObject().put("code", mapping.getCode().strip()).put("meaning", mapping.getMeaning().strip());
         }
     }
 

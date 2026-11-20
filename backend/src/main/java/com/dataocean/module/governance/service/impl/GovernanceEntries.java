@@ -104,11 +104,11 @@ public class GovernanceEntries {
             throw BizIllegalException.state("当前来源或条目状态无法办理此操作");
         }
         Integer version = context.item() == null ? null : context.item().getVersion();
-        if (!Objects.equals(version, precondition.expectedVersion())) {
+        if (!Objects.equals(version, precondition.getExpectedVersion())) {
             // 复核新增与编辑版本均参与并发校验。
             throw BizIllegalException.conflict();
         }
-        if (context.structureRevision() != Ids.parse(precondition.expectedStructureRevisionId())) {
+        if (context.structureRevision() != Ids.parse(precondition.getExpectedStructureRevisionId())) {
             // 单字段操作固定字段修订，表说明固定对象修订。
             throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "目录结构已变化，请重新核对");
         }

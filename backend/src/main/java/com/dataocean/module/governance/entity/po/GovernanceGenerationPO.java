@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+import lombok.ToString;
 
 /**
  * 一次持久接收的表说明生成任务。
@@ -84,6 +85,7 @@ public class GovernanceGenerationPO {
     /**
      * 本次 Java 回读租约。
      */
+    @ToString.Exclude
     private String leaseToken;
 
     /**

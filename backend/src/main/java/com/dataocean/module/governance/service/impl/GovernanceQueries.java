@@ -171,10 +171,10 @@ public class GovernanceQueries implements GovernanceQueryService {
         var context = entries.get(state, GovernanceTarget.table(source, object));
         var current = current(context);
         var review = impacts.pending(source, object).stream().map(this::impact).toList();
-        GovernanceTargetVO next = review.isEmpty() ? null : review.get(0).target();
-        if (next == null && !"CONFIRMED".equals(current.state())) {
+        GovernanceTargetVO next = review.isEmpty() ? null : review.get(0).getTarget();
+        if (next == null && !"CONFIRMED".equals(current.getState())) {
             // 首次办理通常从表说明开始。
-            next = current.target();
+            next = current.getTarget();
         } else if (next == null && "AVAILABLE".equals(context.availability())) {
             // 表说明已处理时定位第一个当前待治理的字段。
             var query = new GovernanceColumnQuery();
@@ -182,7 +182,7 @@ public class GovernanceQueries implements GovernanceQueryService {
             query.setStatus("PENDING");
             var page = columnsOf(state, context, query);
             if (!page.getItems().isEmpty()) {
-                next = page.getItems().get(0).target();
+                next = page.getItems().get(0).getTarget();
             }
         }
         var reference = context.entry().observation().structure().object();

@@ -5,7 +5,9 @@ import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Pair;
 
 import java.util.List;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * 页面编辑当前候选，单独回看当时的证据和依赖。
@@ -13,38 +15,82 @@ import lombok.Data;
 @Data
 public class GovernanceCandidateVO {
 
-    /** 候选稳定标识。 */
+    /**
+     * 候选稳定标识。
+     */
     private String id;
 
-    /** 原发现任务标识。 */
+    /**
+     * 原发现任务标识。
+     */
     private String requestId;
 
-    /** 实际结构采集快照。 */
+    /**
+     * 实际结构采集快照。
+     */
     private String snapshotId;
 
-    /** 关联或指标。 */
+    /**
+     * 关联或指标。
+     */
     private String kind;
 
-    /** 当前人工编辑和审核版本。 */
+    /**
+     * 当前人工编辑和审核版本。
+     */
     private int version;
 
-    /** 待确认、草稿、已确认或待复核。 */
+    /**
+     * 待确认、草稿、已确认或待复核。
+     */
     private String state;
 
-    /** 候选当前定义，受限时为空。 */
+    /**
+     * 候选当前定义，受限时为空。
+     */
     private Definition definition;
 
-    /** 经资料权限裁剪的实际结构和来源。 */
+    /**
+     * 经资料权限裁剪的实际结构和来源。
+     */
     private Basis basis;
 
     /**
-     * @param name 业务名称
-     * @param meaning 关联条件或指标含义
-     * @param rule 完整键、数量关系或公式和适用筛选
-     * @param usage 使用边界及风险
-     * @param pairs 关联的实际有向字段对
-     * @param fields 计算或关联使用的实际字段
+     * 候选的历史定义与可编辑业务内容。
      */
-    public record Definition(String name, String meaning, String rule, String usage,
-                             List<Pair> pairs, List<String> fields) {}
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Definition {
+
+        /**
+         * 业务名称。
+         */
+        private String name;
+
+        /**
+         * 关联条件或指标含义。
+         */
+        private String meaning;
+
+        /**
+         * 完整键、数量关系或公式和适用筛选。
+         */
+        private String rule;
+
+        /**
+         * 使用边界及风险。
+         */
+        private String usage;
+
+        /**
+         * 关联的实际有向字段对。
+         */
+        private List<Pair> pairs;
+
+        /**
+         * 计算或关联使用的实际字段。
+         */
+        private List<String> fields;
+    }
 }

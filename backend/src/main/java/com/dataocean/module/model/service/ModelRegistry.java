@@ -110,8 +110,8 @@ public class ModelRegistry {
      */
     @Transactional
     public ModelConfigVO save(Long modelId, ModelSaveDTO input) {
-        String endpoint = checkedEndpoint(input.endpoint());
-        boolean needsCredential = input.credential() != null && !input.credential().isBlank();
+        String endpoint = checkedEndpoint(input.getEndpoint());
+        boolean needsCredential = input.getCredential() != null && !input.getCredential().isBlank();
         long revisionId = IdWorker.getId();
         Config current = null;
         long id;
@@ -125,8 +125,8 @@ public class ModelRegistry {
         } else {
             // 编辑读取真实当前版本，避免覆盖并行办理。
             id = modelId;
-            current = checkedModel(id, input.version());
-            if (needsCredential || !endpoint.equals(current.endpoint()) || !input.protocol().equals(current.protocol())) {
+            current = checkedModel(id, input.getVersion());
+            if (needsCredential || !endpoint.equals(current.endpoint()) || !input.getProtocol().equals(current.protocol())) {
                 // 改变认证资料的目标或协议同样需要凭据维护权。
                 permissions.require("models.credential");
             }
@@ -137,12 +137,12 @@ public class ModelRegistry {
             credentialId = IdWorker.getId();
             String keyVersion = credentials.version();
             models.insertCredential(credentialId, id, keyVersion,
-                    credentials.encrypt(input.credential().strip(), context(id, credentialId), keyVersion));
+                    credentials.encrypt(input.getCredential().strip(), context(id, credentialId), keyVersion));
         } else {
             credentialId = Objects.requireNonNull(current).credentialId();
         }
         var next = new Config(id, revisionId, current == null ? 1 : current.revision() + 1,
-                input.name().strip(), input.protocol(), endpoint, input.modelName().strip(), input.timeoutSeconds(),
+                input.getName().strip(), input.getProtocol(), endpoint, input.getModelName().strip(), input.getTimeoutSeconds(),
                 current == null || current.enabled(), current == null ? 1 : current.version() + 1, credentialId);
         models.insertRevision(next);
         if (current != null) {
@@ -157,10 +157,10 @@ public class ModelRegistry {
      */
     @Transactional
     public void setState(long id, ModelStateDTO input) {
-        var current = checkedModel(id, input.version());
-        if (input.enabled() != current.enabled()) {
+        var current = checkedModel(id, input.getVersion());
+        if (input.getEnabled() != current.enabled()) {
             // 用户的当前版本与服务端匹配才改变状态。
-            models.setEnabled(id, input.enabled());
+            models.setEnabled(id, input.getEnabled());
         }
     }
 
@@ -169,19 +169,19 @@ public class ModelRegistry {
      */
     @Transactional
     public void assign(String node, ModelAssignmentDTO input) {
-        if (input.modelId() != null) {
+        if (input.getModelId() != null) {
             // 与停用按同一模型行串行检查。
-            requireEnabled(models.lockModel(input.modelId()));
+            requireEnabled(models.lockModel(input.getModelId()));
         }
         var current = models.lockAssignment(node);
         if (current == null) {
             throw BizIllegalException.missing();
         }
-        if (current.version() != input.version()) {
+        if (current.version() != input.getVersion()) {
             throw BizIllegalException.conflict();
         }
-        if (!Objects.equals(current.modelId(), input.modelId())) {
-            models.assign(node, input.modelId());
+        if (!Objects.equals(current.modelId(), input.getModelId())) {
+            models.assign(node, input.getModelId());
         }
     }
 

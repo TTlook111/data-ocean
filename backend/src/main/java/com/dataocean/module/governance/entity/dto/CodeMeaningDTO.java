@@ -1,11 +1,20 @@
 package com.dataocean.module.governance.entity.dto;
 
+import lombok.Data;
+
 /**
  * 保留编码与业务含义的精确对应。
- *
- * @param code 原编码，保留前导零
- * @param meaning 编码的业务解释
  */
-public record CodeMeaningDTO(
-        String code,
-        String meaning) {}
+@Data
+public class CodeMeaningDTO {
+
+    /**
+     * 原编码，保留前导零。
+     */
+    private String code;
+
+    /**
+     * 编码的业务解释。
+     */
+    private String meaning;
+}

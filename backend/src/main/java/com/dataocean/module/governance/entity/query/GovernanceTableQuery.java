@@ -2,14 +2,14 @@ package com.dataocean.module.governance.entity.query;
 
 import com.dataocean.common.PageQuery;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * 治理工作台表级筛选及分页。
  */
-@Getter
-@Setter
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class GovernanceTableQuery extends PageQuery {
 
     /**

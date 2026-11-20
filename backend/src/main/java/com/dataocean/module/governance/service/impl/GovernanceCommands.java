@@ -157,11 +157,11 @@ public class GovernanceCommands implements GovernanceCommandService {
     @Override
     public GovernanceMutationVO draft(GovernanceTarget target, String command, GovernanceDraftDTO input) {
         MutationVO result = commands.execute("governance.edit", command, target.commandTarget(), input,
-                expected(input.precondition().expectedVersion()), false, false, () -> {
+                expected(input.getPrecondition().getExpectedVersion()), false, false, () -> {
                     var source = catalog.source(target.source(), true);
                     var current = entries.get(source, target);
-                    entries.verify(current, input.precondition(), false);
-                    var saved = save(source, current, input.draft());
+                    entries.verify(current, input.getPrecondition(), false);
+                    var saved = save(source, current, input.getDraft());
                     if (saved.changed()) {
                         // 实际业务更新才改变来源办理进度和审计。
                         var item = saved.item();
@@ -181,16 +181,16 @@ public class GovernanceCommands implements GovernanceCommandService {
     @Override
     public GovernanceMutationVO supplement(GovernanceTarget target, String command, GovernanceGapDTO input) {
         MutationVO result = commands.execute("governance.supplement", command, target.commandTarget(), input,
-                expected(input.precondition().expectedVersion()), false, false, () -> {
+                expected(input.getPrecondition().getExpectedVersion()), false, false, () -> {
                     var source = catalog.source(target.source(), true);
                     var current = entries.get(source, target);
-                    entries.verify(current, input.precondition(), false);
-                    content.requirePath(target.isColumn(), input.contentPath());
+                    entries.verify(current, input.getPrecondition(), false);
+                    content.requirePath(target.isColumn(), input.getContentPath());
                     var item = entries.ensure(target, current.entry().generation());
-                    String question = input.question().strip();
+                    String question = input.getQuestion().strip();
                     if (gaps.exists(Wrappers.<GovernanceGapPO>lambdaQuery()
                             .eq(GovernanceGapPO::getItemId, item.getId())
-                            .eq(GovernanceGapPO::getContentPath, input.contentPath())
+                            .eq(GovernanceGapPO::getContentPath, input.getContentPath())
                             .eq(GovernanceGapPO::getQuestion, question)
                             .eq(GovernanceGapPO::getState, "OPEN"))) {
                         // 重复补充只返回实际现行状态。
@@ -199,7 +199,7 @@ public class GovernanceCommands implements GovernanceCommandService {
                     var gap = new GovernanceGapPO();
                     gap.setItemId(item.getId());
                     gap.setFoundRevisionId(item.getHeadRevisionId());
-                    gap.setContentPath(input.contentPath());
+                    gap.setContentPath(input.getContentPath());
                     gap.setQuestion(question);
                     gap.setOrigin("MANUAL_SUPPLEMENT");
                     gap.setState("OPEN");
@@ -219,16 +219,16 @@ public class GovernanceCommands implements GovernanceCommandService {
      */
     @Override
     public GovernanceMutationVO confirm(GovernanceTarget target, String command, GovernanceConfirmDTO input) {
-        if (!List.of("CONFIRM", "ACK_REMOVAL").contains(input.action())) {
+        if (!List.of("CONFIRM", "ACK_REMOVAL").contains(input.getAction())) {
             // 只接受此模块公开的两类审核动作。
             throw BizIllegalException.invalid("不支持的治理确认动作");
         }
         MutationVO result = commands.execute("governance.confirm", command, target.commandTarget(), input,
-                expected(input.precondition().expectedVersion()), false, false, () -> {
+                expected(input.getPrecondition().getExpectedVersion()), false, false, () -> {
                     var source = catalog.source(target.source(), true);
                     var current = entries.get(source, target);
-                    boolean removal = "ACK_REMOVAL".equals(input.action());
-                    entries.verify(current, input.precondition(), removal);
+                    boolean removal = "ACK_REMOVAL".equals(input.getAction());
+                    entries.verify(current, input.getPrecondition(), removal);
                     return confirmUnderLock(source, current, input, removal, command);
                 });
         return outcome(target, result, true);
@@ -241,20 +241,20 @@ public class GovernanceCommands implements GovernanceCommandService {
     public GovernanceNoteChangeVO associate(long sourceId, long change, String command, GovernanceImpactTargetsDTO input) {
         permissions.require("business-notes.view");
         commands.execute("governance.edit", command, "governance-note:" + sourceId + "/" + change, input,
-                input.expectedVersion(), false, false, () -> {
+                input.getExpectedVersion(), false, false, () -> {
                     var source = catalog.source(sourceId, true);
                     var note = requireNoteChange(sourceId, change);
                     permissions.require("business-notes.view");
-                    if (!Objects.equals(note.getVersion(), input.expectedVersion())) {
+                    if (!Objects.equals(note.getVersion(), input.getExpectedVersion())) {
                         // 避免把另一位操作者已完成的关联覆盖掉。
                         throw BizIllegalException.conflict();
                     }
                     if (!"NEEDS_MAPPING".equals(note.getMappingState())) {
                         throw BizIllegalException.state("该资料已经完成定位");
                     }
-                    var targets = input.targets().stream()
-                            .map(target -> GovernanceTarget.parse(sourceId, Ids.parse(target.objectId()),
-                                    target.kind(), target.targetId())).toList();
+                    var targets = input.getTargets().stream()
+                            .map(target -> GovernanceTarget.parse(sourceId, Ids.parse(target.getObjectId()),
+                                    target.getKind(), target.getTargetId())).toList();
                     if (targets.stream().distinct().count() != targets.size()) {
                         throw BizIllegalException.invalid("请选择不重复的影响条目");
                     }
@@ -285,7 +285,7 @@ public class GovernanceCommands implements GovernanceCommandService {
         permissions.require("governance.forbid");
         var current = entries.get(catalog.source(target.source(), false), target);
         verifyForbid(current, input);
-        return reviews.preview("FORBID", target.commandTarget(), input.expectedVersion(), proposed(current, input),
+        return reviews.preview("FORBID", target.commandTarget(), input.getExpectedVersion(), proposed(current, input),
                 List.of(new ChangeVO("usage", "生产使用", queries.blocked(target) ? "禁止" : "允许", "禁止")),
                 List.of(new ImpactCountVO(target.isColumn() ? "字段" : "表及字段",
                         target.isColumn() ? 1 : current.entry().columns().size() + 1)),
@@ -298,18 +298,18 @@ public class GovernanceCommands implements GovernanceCommandService {
     @Override
     public GovernanceMutationVO forbid(GovernanceTarget target, String command, GovernanceControlDTO input) {
         MutationVO result = commands.execute("governance.forbid", command, target.commandTarget(), input,
-                expected(input.expectedVersion()), false, false, () -> {
+                expected(input.getExpectedVersion()), false, false, () -> {
                     var current = entries.get(catalog.source(target.source(), true), target);
                     verifyForbid(current, input);
-                    reviews.verify("FORBID", target.commandTarget(), input.expectedVersion(),
-                            proposed(current, input), input.reviewToken());
+                    reviews.verify("FORBID", target.commandTarget(), input.getExpectedVersion(),
+                            proposed(current, input), input.getReviewToken());
                     var item = current.item();
                     if (queries.blocked(target)) {
                         // 已存在当前权威使用限制。
                         return result(command, item);
                     }
                     item = entries.ensure(target, current.entry().generation());
-                    impacts.forbid(item, null, "MANUAL", input.proposal().getReason().strip(),
+                    impacts.forbid(item, null, "MANUAL", input.getProposal().getReason().strip(),
                             UUID.fromString(command).toString(), UserContext.getUser());
                     entries.update(item, item.getHeadRevisionId(), item.getLastConfirmedRevisionId());
                     record("governance.forbid", "governance_item", item.getId(), label(current), command, "禁止使用");
@@ -326,13 +326,13 @@ public class GovernanceCommands implements GovernanceCommandService {
         var item = current.item();
         var revision = head(item);
         boolean changed = false;
-        if (input.draft() != null) {
+        if (input.getDraft() != null) {
             // 仅审核者只能确认已经保存的内容。
             permissions.require("governance.edit");
             if (removal) {
                 throw BizIllegalException.invalid("移除确认只能处理删除事实");
             }
-            var saved = save(source, current, input.draft());
+            var saved = save(source, current, input.getDraft());
             item = saved.item();
             revision = saved.revision();
             changed = saved.changed();
@@ -360,7 +360,7 @@ public class GovernanceCommands implements GovernanceCommandService {
         var confirmation = new GovernanceConfirmationPO();
         confirmation.setItemId(item.getId());
         confirmation.setItemRevisionId(revision == null ? null : revision.getId());
-        confirmation.setAction(input.action());
+        confirmation.setAction(input.getAction());
         confirmation.setSnapshotId(current.entry().observation().snapshotId());
         confirmation.setObjectRevisionId(current.entry().observation().revisionId());
         confirmation.setColumnRevisionId(current.columnRevision());
@@ -383,20 +383,20 @@ public class GovernanceCommands implements GovernanceCommandService {
     private Saved save(Source source, Context context, GovernanceDraftInputDTO draft) {
         var item = context.item();
         var prior = head(item);
-        var after = content.normalize(context.target().isColumn(), draft.content());
+        var after = content.normalize(context.target().isColumn(), draft.getContent());
         var oldEvidence = evidence.list(prior == null ? null : prior.getId());
         var newEvidence = evidence.prepare(source, context, draft, oldEvidence);
         Long suggestionId = null;
-        if (draft.suggestionSelection() != null) {
+        if (draft.getSuggestionSelection() != null) {
             // 只有实际沿用的模型字段才与原始建议的证据相连。
-            var selection = draft.suggestionSelection();
-            var suggestion = generation.adopt(Ids.parse(selection.suggestionId()), context);
+            var selection = draft.getSuggestionSelection();
+            var suggestion = generation.adopt(Ids.parse(selection.getSuggestionId()), context);
             var proposed = json.mapper().readTree(suggestion.getContent());
-            if (selection.contentPaths().stream().distinct().count() != selection.contentPaths().size()
-                    || selection.contentPaths().stream().anyMatch(path -> !proposed.has(path))) {
+            if (selection.getContentPaths().stream().distinct().count() != selection.getContentPaths().size()
+                    || selection.getContentPaths().stream().anyMatch(path -> !proposed.has(path))) {
                 throw BizIllegalException.invalid("请选择当次原始建议的实际内容");
             }
-            var selected = selection.contentPaths().stream()
+            var selected = selection.getContentPaths().stream()
                     .filter(path -> proposed.path(path).equals(after.path(path))).toList();
             if (!selected.isEmpty()) {
                 // 人工实改保留其定义，明确选择替换的字段使用模型实际引用。
@@ -428,7 +428,7 @@ public class GovernanceCommands implements GovernanceCommandService {
             revisions.insert(revision);
             evidence.record(source.id(), revision.getId(), newEvidence);
         }
-        if (draft.gapResolutions() != null && !draft.gapResolutions().isEmpty()) {
+        if (draft.getGapResolutions() != null && !draft.getGapResolutions().isEmpty()) {
             // 已回答的实际业务内容与问题结论必须一起提交。
             resolveGaps(item, revision, draft, after);
             changed = true;
@@ -444,8 +444,8 @@ public class GovernanceCommands implements GovernanceCommandService {
         if (revision == null || item == null) {
             throw BizIllegalException.invalid("请先填写对应的业务说明");
         }
-        for (var input : draft.gapResolutions()) {
-            long gapId = Ids.parse(input.gapId());
+        for (var input : draft.getGapResolutions()) {
+            long gapId = Ids.parse(input.getGapId());
             var gap = gaps.selectById(gapId);
             if (gap == null || !gap.getItemId().equals(item.getId()) || !"OPEN".equals(gap.getState())
                     || !after.hasNonNull(gap.getContentPath())) {
@@ -454,7 +454,7 @@ public class GovernanceCommands implements GovernanceCommandService {
             gaps.update(Wrappers.<GovernanceGapPO>lambdaUpdate()
                     .eq(GovernanceGapPO::getId, gapId)
                     .set(GovernanceGapPO::getState, "RESOLVED")
-                    .set(GovernanceGapPO::getResolution, input.resolution().strip())
+                    .set(GovernanceGapPO::getResolution, input.getResolution().strip())
                     .set(GovernanceGapPO::getResolvedRevisionId, revision.getId())
                     .set(GovernanceGapPO::getResolvedBy, UserContext.getUser())
                     .setSql("resolved_at=UTC_TIMESTAMP(3)"));
@@ -492,19 +492,19 @@ public class GovernanceCommands implements GovernanceCommandService {
     private GovernanceMutationVO outcome(GovernanceTarget target, MutationVO result, boolean review) {
         var current = queries.item(target);
         // 同一命令编号可用于不同动作的防重范围，只有确认返回确认记录。
-        var confirmation = review && current.itemId() != null
+        var confirmation = review && current.getItemId() != null
                 ? confirmations.selectOne(Wrappers.<GovernanceConfirmationPO>lambdaQuery()
                         .eq(GovernanceConfirmationPO::getConfirmedBy, UserContext.getUser())
                         .eq(GovernanceConfirmationPO::getCommandId, result.getCommandId())
-                        .eq(GovernanceConfirmationPO::getItemId, current.itemId()))
+                        .eq(GovernanceConfirmationPO::getItemId, current.getItemId()))
                 : null;
         var affected = confirmation == null ? List.<String>of()
                 : impactRows.selectList(Wrappers.<GovernanceImpactPO>lambdaQuery()
                                 .eq(GovernanceImpactPO::getConfirmationId, confirmation.getId()))
                         .stream().map(impact -> Long.toString(impact.getId())).toList();
-        return new GovernanceMutationVO(result.getCommandId(), target.view(), current.itemId(),
-                result.getVersion() == 0 ? null : result.getVersion(), current.currentRevision(),
-                confirmation == null ? null : Long.toString(confirmation.getId()), affected, current.blocked());
+        return new GovernanceMutationVO(result.getCommandId(), target.view(), current.getItemId(),
+                result.getVersion() == 0 ? null : result.getVersion(), current.getCurrentRevision(),
+                confirmation == null ? null : Long.toString(confirmation.getId()), affected, current.isBlocked());
     }
 
     /**
@@ -544,7 +544,7 @@ public class GovernanceCommands implements GovernanceCommandService {
      * 用确切当前结构和受影响范围生成危险动作的核对提案。
      */
     private List<Object> proposed(Context current, GovernanceControlDTO input) {
-        return List.of(input.proposal(), current.structureRevision(),
+        return List.of(input.getProposal(), current.structureRevision(),
                 current.entry().columns().stream().map(column -> column.columnId()).toList());
     }
 
@@ -552,10 +552,10 @@ public class GovernanceCommands implements GovernanceCommandService {
      * 保持预览与正式命令核对相同的目标和版本。
      */
     private void verifyForbid(Context current, GovernanceControlDTO input) {
-        if (!"FORBID".equals(input.action()) || !"AVAILABLE".equals(current.availability())) {
+        if (!"FORBID".equals(input.getAction()) || !"AVAILABLE".equals(current.availability())) {
             throw BizIllegalException.state("当前条目不能执行该使用控制");
         }
-        if (!Objects.equals(input.expectedVersion(), current.item() == null ? null : current.item().getVersion())) {
+        if (!Objects.equals(input.getExpectedVersion(), current.item() == null ? null : current.item().getVersion())) {
             throw BizIllegalException.conflict();
         }
     }

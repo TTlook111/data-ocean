@@ -539,7 +539,7 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
                 context.target().commandTarget(),
                 context.item() == null ? null : context.item().getVersion(),
                 signature(scope),
-                input.reviewToken());
+                input.getReviewToken());
         return saveTask(scope, command, null);
     }
 
@@ -653,12 +653,12 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      */
     private Scope scope(GovernanceCatalog.Source source, long object, GenerateScopeDTO input) {
         requireModelSource(source.id());
-        var chosen = input.targets().get(0);
+        var chosen = input.getTargets().get(0);
         var target = requestedTarget(source.id(), object, input);
         var context = entries.get(source, target);
-        entries.verify(context, chosen.precondition(), false);
+        entries.verify(context, chosen.getPrecondition(), false);
         var availablePaths = target.isColumn() ? COLUMN_PATHS : TABLE_PATHS;
-        var paths = chosen.contentPaths() == null ? availablePaths : chosen.contentPaths();
+        var paths = chosen.getContentPaths() == null ? availablePaths : chosen.getContentPaths();
         if (paths.isEmpty()
                 || paths.stream().distinct().count() != paths.size()
                 || !availablePaths.containsAll(paths)) {
@@ -701,8 +701,8 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      * 绑定客户端提供的条目标识，后续由目录服务核对成员身份。
      */
     private GovernanceTarget requestedTarget(long source, long object, GenerateScopeDTO input) {
-        var chosen = input.targets().get(0);
-        return GovernanceTarget.parse(source, object, chosen.kind(), chosen.targetId());
+        var chosen = input.getTargets().get(0);
+        return GovernanceTarget.parse(source, object, chosen.getKind(), chosen.getTargetId());
     }
 
     /**

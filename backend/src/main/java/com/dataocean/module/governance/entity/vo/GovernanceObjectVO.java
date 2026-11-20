@@ -2,34 +2,78 @@ package com.dataocean.module.governance.entity.vo;
 
 import java.util.List;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
 /**
  * 展示治理详情需要的对象上下文和办理状态。
- *
- * @param sourceId 治理任务当前来源
- * @param sourceName 当前来源显示名
- * @param objectId 稳定对象
- * @param generation 对象世代
- * @param qualifiedName 限定路径
- * @param objectType 对象类型
- * @param sourceComment 来源原注释
- * @param structureBasis 详情的当前结构依据
- * @param availability 当前对象是否可办理
- * @param pendingFactCount 同表全部待核实事实数
- * @param tableEntry 实际表说明条目
- * @param nextPendingTarget 优先可定位的待治理条目
- * @param pendingImpacts 同表各条目的实际来源影响
  */
-public record GovernanceObjectVO(
-        String sourceId,
-        String sourceName,
-        String objectId,
-        int generation,
-        String qualifiedName,
-        String objectType,
-        String sourceComment,
-        GovernanceBasisVO structureBasis,
-        String availability,
-        int pendingFactCount,
-        GovernanceItemVO tableEntry,
-        GovernanceTargetVO nextPendingTarget,
-        List<GovernanceImpactVO> pendingImpacts) {}
+@Data
+@AllArgsConstructor
+public class GovernanceObjectVO {
+
+    /**
+     * 治理任务当前来源。
+     */
+    private String sourceId;
+
+    /**
+     * 当前来源显示名。
+     */
+    private String sourceName;
+
+    /**
+     * 稳定对象。
+     */
+    private String objectId;
+
+    /**
+     * 对象世代。
+     */
+    private int generation;
+
+    /**
+     * 限定路径。
+     */
+    private String qualifiedName;
+
+    /**
+     * 对象类型。
+     */
+    private String objectType;
+
+    /**
+     * 来源原注释。
+     */
+    private String sourceComment;
+
+    /**
+     * 详情的当前结构依据。
+     */
+    private GovernanceBasisVO structureBasis;
+
+    /**
+     * 当前对象是否可办理。
+     */
+    private String availability;
+
+    /**
+     * 同表全部待核实事实数。
+     */
+    private int pendingFactCount;
+
+    /**
+     * 实际表说明条目。
+     */
+    private GovernanceItemVO tableEntry;
+
+    /**
+     * 优先可定位的待治理条目。
+     */
+    private GovernanceTargetVO nextPendingTarget;
+
+    /**
+     * 同表各条目的实际来源影响。
+     */
+    private List<GovernanceImpactVO> pendingImpacts;
+}

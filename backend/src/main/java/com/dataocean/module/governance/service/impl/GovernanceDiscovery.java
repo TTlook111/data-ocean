@@ -185,11 +185,11 @@ public class GovernanceDiscovery {
         for (Prepared value : prepared) {
             // 同一口径换用新依据时保留旧记录，生成可办理的新候选。
             String definitionKey = digest(json.write(List.of(
-                    value.definition().pairs(),
-                    value.definition().fields(),
-                    value.definition().meaning(),
-                    value.definition().rule(),
-                    value.definition().usage())));
+                    value.definition().getPairs(),
+                    value.definition().getFields(),
+                    value.definition().getMeaning(),
+                    value.definition().getRule(),
+                    value.definition().getUsage())));
             String identity = identity(definitionKey, value.basis(), notes);
             if (alreadyDiscovered(task, definitionKey, identity, value.basis(), notes)) {
                 // 同一有效依据继续沿用原有草稿与审核。
@@ -298,8 +298,8 @@ public class GovernanceDiscovery {
                 text(input.getMeaning()),
                 text(input.getRule()),
                 text(input.getUsage()),
-                before.pairs(),
-                before.fields());
+                before.getPairs(),
+                before.getFields());
         boolean confirm = "CONFIRM".equals(input.getAction());
         if (!confirm || !before.equals(definition)) {
             // 只拥有审核权限的人可确认已经保存的内容。
@@ -309,9 +309,9 @@ public class GovernanceDiscovery {
         if (confirm) {
             // 核验人真正提交审核时，才记载确认及实际依赖。
             permissions.require("governance.confirm");
-            if (definition.name().isBlank()
-                    || definition.meaning().isBlank()
-                    || definition.rule().isBlank()) {
+            if (definition.getName().isBlank()
+                    || definition.getMeaning().isBlank()
+                    || definition.getRule().isBlank()) {
                 throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
             }
             references(definition, basis.structures());
@@ -421,7 +421,7 @@ public class GovernanceDiscovery {
                 text(proposal.usage()),
                 pairs,
                 List.copyOf(fieldIds));
-        if (List.of(definition.meaning(), definition.rule(), definition.usage()).stream()
+        if (List.of(definition.getMeaning(), definition.getRule(), definition.getUsage()).stream()
                 .anyMatch(value -> value.length() > 4000)) {
             return null;
         }
@@ -486,7 +486,7 @@ public class GovernanceDiscovery {
      */
     private void references(Definition value, List<StructureRef> structures) {
         // 字符串常量不参与物理字段判断。
-        var source = String.join(" ", value.meaning(), value.rule(), value.usage())
+        var source = String.join(" ", value.getMeaning(), value.getRule(), value.getUsage())
                 .replaceAll("'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"", "");
         var matcher = QUALIFIED.matcher(source);
         while (matcher.find()) {

@@ -2,14 +2,14 @@ package com.dataocean.module.governance.entity.query;
 
 import com.dataocean.common.PageQuery;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * 按原内容修订定位历史记录和确认。
  */
-@Getter
-@Setter
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class GovernanceHistoryQuery extends PageQuery {
 
     /**
