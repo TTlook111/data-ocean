@@ -171,6 +171,18 @@
   max-width: 800px;
 }
 
+/* 状态区沿用办理记录的阅读宽度，分页紧跟各自的列表。 */
+.gov-status {
+  display: grid;
+  gap: 20px;
+  max-width: 848px;
+  padding-bottom: 0;
+}
+
+.gov-status .ant-pagination {
+  margin-top: 12px;
+}
+
 /* 对象状态跟随条目标题，当前编辑任务从标题后的分隔开始。 */
 .gov-entry-title {
   max-width: 1184px;

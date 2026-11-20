@@ -381,6 +381,8 @@ export interface Item {
      * 可以读取 AI 建议。
      */
     canSuggest: boolean;
+    /** 具有生成权限但当前来源无法传给模型时的原因。 */
+    suggestUnavailableReason?: string | null;
     /**
      * 可以确认。
      */

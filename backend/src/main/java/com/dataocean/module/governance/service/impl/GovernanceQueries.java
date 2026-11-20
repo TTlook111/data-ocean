@@ -8,6 +8,7 @@ import com.dataocean.common.Times;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
+import com.dataocean.module.governance.config.GovernanceAiProperties;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
@@ -64,6 +65,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class GovernanceQueries implements GovernanceQueryService {
+
+    /**
+     * 当前部署允许模型处理的来源范围。
+     */
+    private final GovernanceAiProperties ai;
 
     /**
      * B 批来源的权威成功快照。
@@ -537,9 +543,11 @@ public class GovernanceQueries implements GovernanceQueryService {
         boolean removal = "REMOVED".equals(context.availability())
                 && context.item() != null
                 && impacts.open(context.item().getId());
+        boolean suggest = available && permissions.has("governance.suggest");
         return new GovernanceActionsVO(
                 available && permissions.has("governance.edit"),
-                available && permissions.has("governance.suggest"),
+                suggest,
+                suggest ? ai.sourceUnavailableReason(context.target().source()) : null,
                 available && permissions.has("governance.confirm"),
                 available && permissions.has("governance.supplement"),
                 available && permissions.has("governance.forbid"),

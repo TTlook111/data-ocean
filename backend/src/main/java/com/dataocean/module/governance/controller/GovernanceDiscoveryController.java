@@ -4,11 +4,13 @@ import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.governance.entity.dto.GovernanceCandidateDraftDTO;
 import com.dataocean.module.governance.entity.dto.GovernanceCandidateReviewDTO;
 import com.dataocean.module.governance.entity.vo.GenerationAcceptedVO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO;
 import com.dataocean.module.governance.service.impl.GovernanceDiscovery;
 import com.dataocean.module.governance.service.impl.GovernanceGenerationTasks;
+import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.security.RequirePermission;
 
 import jakarta.validation.Valid;
@@ -58,6 +60,18 @@ public class GovernanceDiscoveryController {
     public Result<PageVO<GovernanceCandidateVO>> list(@PathVariable String source, @PathVariable String object,
             @RequestParam String kind, PageQuery query) {
         return Result.success(discovery.list(Ids.parse(source), Ids.parse(object), kind, query));
+    }
+
+    /**
+     * 直接保存人工定义或在权限及依赖齐全时一并确认。
+     */
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("governance.view")
+    public Result<MutationVO> create(@PathVariable String source, @PathVariable String object,
+            @RequestParam String kind, @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceCandidateDraftDTO data) {
+        return Result.success(discovery.create(Ids.parse(source), Ids.parse(object), kind, command, data));
     }
 
     /**

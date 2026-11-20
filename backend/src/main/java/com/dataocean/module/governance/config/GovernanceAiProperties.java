@@ -33,6 +33,13 @@ public class GovernanceAiProperties {
     private Set<Long> modelSourceIds = Set.of();
 
     /**
+     * 模型关闭或来源不在允许传输的范围内时，返回界面可直接显示的原因。
+     */
+    public String sourceUnavailableReason(long source) {
+        return enabled && modelSourceIds.contains(source) ? null : "当前数据源未配置治理模型传输范围";
+    }
+
+    /**
      * 各源允许在治理解释时外发样本的字段限定名，默认不外发业务行。
      */
     private Map<Long, Set<String>> sampleAllowedFields = Map.of();

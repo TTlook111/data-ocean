@@ -10,7 +10,8 @@ import { allowed, useSession } from '../../shared/session';
 import type { Page } from '../iam/types';
 import { GovernanceBatch, type BatchRun } from './GovernanceBatch';
 import { GovernanceEditor } from './GovernanceEditor';
-import { GovernanceDiscoveryPanel } from './GovernanceDiscoveryPanel';
+import { GovernanceDiscoveryPanel, type DiscoveryKind } from './GovernanceDiscoveryPanel';
+import { GovernanceStatus } from './GovernanceStatus';
 import type { ColumnRow, GenerationTarget, GovernanceObject, History, Item, Target } from './types';
 import './governance.css';
 
@@ -75,6 +76,9 @@ export function GovernanceDetailPage() {
     const fallback = new URLSearchParams(params);
     fallback.delete('entry');
     fallback.delete('section');
+    fallback.delete('field');
+    fallback.delete('candidate');
+    fallback.delete('candidatePage');
     navigate('/governance' + (previous ?? '?' + fallback.toString()), {
       state: { returnObject: id },
     });
@@ -88,6 +92,10 @@ export function GovernanceDetailPage() {
     const entry =
       typeof target === 'string' ? target : target.kind === 'TABLE' ? 'table' : target.targetId;
     next.set('entry', entry);
+    if (entry !== 'table') {
+      // 表说明使用自己的入口，字段页记住最后选中的字段。
+      next.set('field', entry);
+    }
     if (!keepTab) {
       // 定向目标自动打开对应的表说明或字段区域。
       next.delete('section');
@@ -110,6 +118,11 @@ export function GovernanceDetailPage() {
    */
   async function switchTab(next: string) {
     if (next === 'columns' && choice === 'table') {
+      const previous = params.get('field');
+      if (previous) {
+        choose(previous);
+        return;
+      }
       const preferred = object.data?.nextPendingTarget;
       if (preferred?.kind === 'COLUMN') {
         choose(preferred);
@@ -124,7 +137,21 @@ export function GovernanceDetailPage() {
     const replacement = new URLSearchParams(params);
     replacement.set('section', next);
     replacement.set('entry', next === 'table' ? 'table' : choice);
+    if (choice !== 'table') replacement.set('field', choice);
+    replacement.delete('candidate');
+    replacement.delete('candidatePage');
     setParams(replacement, { state });
+  }
+
+  /**
+   * 从全表状态定位到对应候选及其分页位置。
+   */
+  function openCandidate(kind: DiscoveryKind, candidate: string, page: number) {
+    const next = new URLSearchParams(params);
+    next.set('section', kind === 'RELATION' ? 'relations' : 'metrics');
+    next.set('candidate', candidate);
+    next.set('candidatePage', String(page));
+    setParams(next, { state });
   }
 
   /**
@@ -158,6 +185,7 @@ export function GovernanceDetailPage() {
     );
   }
 
+  const suggestReason = object.data?.tableEntry.actions.suggestUnavailableReason;
   return (
     <section className="record-page gov-detail" aria-label="表治理详情">
       {/* 保留正式后台侧栏、返回位置和当前业务源。 */}
@@ -179,10 +207,16 @@ export function GovernanceDetailPage() {
               {object.data.pendingFactCount > 0 && (
                 <Tag color="orange">来源事实待核实 {object.data.pendingFactCount} 项</Tag>
               )}
-              {object.data.tableEntry.actions.canSuggest && (
-                <Button onClick={() => setBatchOpen(true)}>
-                  {currentBatch ? '批量生成结果' : '批量生成 AI 建议'}
-                </Button>
+              {(currentBatch || object.data.tableEntry.actions.canSuggest) && (
+                <Space wrap>
+                  {suggestReason && <small>{suggestReason}</small>}
+                  <Button
+                    disabled={Boolean(suggestReason && !currentBatch)}
+                    onClick={() => setBatchOpen(true)}
+                  >
+                    {currentBatch ? '批量生成结果' : '批量生成 AI 建议'}
+                  </Button>
+                </Space>
               )}
             </header>
             {/* 关闭弹窗后可在当前详情重新打开已接收批次。 */}
@@ -239,13 +273,25 @@ export function GovernanceDetailPage() {
             {/* 字段导航并排布置，待复核的移除字段按实际来源保留独立入口。 */}
             {discoveryKind ? (
               <GovernanceDiscoveryPanel
-                key={base + discoveryKind}
+                key={base + discoveryKind + (params.get('candidate') ?? '')}
                 kind={discoveryKind}
                 source={source}
                 path={base + '/candidates'}
+                canCreate={object.data.tableEntry.actions.canEdit}
+                suggestReason={suggestReason}
+                initialCandidate={params.get('candidate') ?? undefined}
+                initialPage={Number(params.get('candidatePage')) || 1}
               />
             ) : (
               <div className={tab === 'columns' ? 'gov-split' : 'gov-single'}>
+                {tab === 'basis' && (
+                  <GovernanceStatus
+                    base={base}
+                    object={object.data}
+                    choose={choose}
+                    openCandidate={openCandidate}
+                  />
+                )}
                 {tab === 'columns' && (
                   <nav className="gov-column-nav" aria-label="字段导航">
                     <Input
@@ -416,8 +462,8 @@ function GovernanceHistory({
     queryFn: () => api<Page<History>>(path + '/history?' + queryString({ pageNum: page })),
   });
   return (
-    <section className="gov-history" aria-label="状态与依据">
-      <h2>{name}</h2>
+    <section className="gov-history" aria-label="当前条目记录">
+      <h2>{name} · 办理记录</h2>
       {/* 核清记录保留实际问题和人工结论。 */}
       {item.gaps
         .filter((gap) => gap.state === 'RESOLVED')

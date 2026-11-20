@@ -21,6 +21,11 @@ public class GovernanceActionsVO {
     private boolean canSuggest;
 
     /**
+     * 已有生成操作权限，但当前来源无法发起模型任务时的原因。
+     */
+    private String suggestUnavailableReason;
+
+    /**
      * 可确认内容。
      */
     private boolean canConfirm;

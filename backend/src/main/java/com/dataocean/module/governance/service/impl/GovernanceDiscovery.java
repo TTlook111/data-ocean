@@ -7,11 +7,14 @@ import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
+import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
+import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
 import com.dataocean.module.datasource.service.GovernanceNotes.Note;
+import com.dataocean.module.governance.entity.dto.GovernanceCandidateDraftDTO;
 import com.dataocean.module.governance.entity.dto.GovernanceCandidateReviewDTO;
 import com.dataocean.module.governance.entity.dto.GovernanceTargetDTO;
 import com.dataocean.module.governance.entity.po.GovernanceGenerationPO;
@@ -29,6 +32,8 @@ import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Structure
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Table;
 import com.dataocean.module.governance.service.GovernanceGenerationWire.Evidence;
 import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.iam.entity.vo.MutationVO;
+import com.dataocean.module.iam.service.MutationService;
 import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.model.service.ModelRegistry;
 
@@ -44,6 +49,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -81,6 +87,12 @@ public class GovernanceDiscovery {
 
     /** 对明确内部结构序列化。 */
     private final JsonCodec json;
+
+    /** 人工创建使用共用的命令防重和提交回执。 */
+    private final MutationService commands;
+
+    /** 在创建事务内记录操作和稳定候选身份。 */
+    private final AuditService audit;
 
     /**
      * 将外部类型转换为已接入的实际业务节点。
@@ -281,6 +293,58 @@ public class GovernanceDiscovery {
     }
 
     /**
+     * 人工新增独立于模型任务，首次提交同时固定来源、初始修订和审计。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MutationVO create(long source, long object, String kind, String command, GovernanceCandidateDraftDTO input) {
+        node(kind);
+        if ("REJECT".equals(input.getAction())) {
+            throw BizIllegalException.invalid("新增候选只能保存或确认");
+        }
+        return commands.execute("governance.edit", command, "governance-candidate:" + source + "/" + object + "/" + kind,
+                input, null, false, false, () -> createLocked(source, object, kind, command, input));
+    }
+
+    /**
+     * 按当前成功目录保存人工内容；只填了部分定义时允许先提交草稿。
+     */
+    private MutationVO createLocked(long source, long object, String kind, String command, GovernanceCandidateDraftDTO input) {
+        var origin = catalog.source(source, true);
+        var anchor = entries.get(origin, GovernanceTarget.table(source, object));
+        if (!"AVAILABLE".equals(anchor.availability())) {
+            throw BizIllegalException.state("当前来源状态不允许新增治理定义");
+        }
+        var empty = new Definition("", "", "", "", List.of(), List.of(), false);
+        var prepared = edited(origin, object, kind, empty, new Basis(List.of(), List.of(), false), input);
+        var definition = prepared.definition();
+        var basis = prepared.basis();
+        if (definition.equals(empty)) {
+            throw BizIllegalException.invalid("请填写治理内容或选择依赖字段");
+        }
+        boolean confirm = "CONFIRM".equals(input.getAction());
+        List<Dependency> dependencies = List.of();
+        if (confirm) {
+            permissions.require("governance.confirm");
+            dependencies = confirmDefinition(origin, definition, basis, true);
+        }
+        long id = IdWorker.getId();
+        String target = Long.toString(id);
+        String evidence = json.write(basis);
+        candidates.add(id, null, source, object, kind, digest("manual:" + id), origin.snapshotId(), evidence);
+        // 不完整的人工草稿仍归当前表，选定依赖后也能从实际涉及的表找到。
+        candidates.attach(id, object);
+        basis.structures().stream().map(StructureRef::objectId).distinct().map(Ids::parse)
+                .filter(related -> related != object).forEach(related -> candidates.attach(id, related));
+        candidates.revise(IdWorker.getId(), id, 1, confirm ? "CONFIRMED" : "DRAFT", json.write(definition),
+                json.write(dependencies), UserContext.getUser(), evidence);
+        audit.record(AuditWriteDTO.builder().actionCode("governance.edit").targetType("governance_candidate")
+                .targetId(target).targetName(definition.getName().isBlank() ? kind : definition.getName())
+                .securityVersion(commands.auditSecurityVersion(false)).commandId(UUID.fromString(command).toString())
+                .build());
+        return new MutationVO(command, "governance_candidate", target, 1);
+    }
+
+    /**
      * 以当前候选版本保存人工内容，并在确认时固定已审核的依赖。
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -321,17 +385,7 @@ public class GovernanceDiscovery {
             permissions.require("governance.confirm");
         }
         if (confirm) {
-            if (definition.getName().isBlank()
-                    || definition.getMeaning().isBlank()
-                    || definition.getRule().isBlank()) {
-                throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
-            }
-            if (definition.isDefaultMetric() && definition.getUsage().isBlank()) {
-                // 默认口径必须有明确的业务适用条件。
-                throw BizIllegalException.invalid("请填写默认口径的适用条件");
-            }
-            references(definition, basis.structures());
-            dependencies = dependencies(origin, basis);
+            dependencies = confirmDefinition(origin, definition, basis, row.requestId() == null);
         }
         String state = reject ? "REJECTED" : confirm ? "CONFIRMED" : "DRAFT";
         String content = json.write(definition);
@@ -368,6 +422,25 @@ public class GovernanceDiscovery {
     }
 
     /**
+     * 审核复用业务字段、实际引用和依赖确认校验。
+     */
+    private List<Dependency> confirmDefinition(Source origin, Definition definition,
+            Basis basis, boolean manual) {
+        if (definition.getName().isBlank() || definition.getMeaning().isBlank() || definition.getRule().isBlank()) {
+            throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
+        }
+        if (definition.isDefaultMetric() && definition.getUsage().isBlank()) {
+            throw BizIllegalException.invalid("请填写默认口径的适用条件");
+        }
+        if (manual && basis.structures().isEmpty()) {
+            // 部分草稿允许没有依赖，正式确认至少需要当前对象的实际字段。
+            throw BizIllegalException.invalid("请为当前治理对象选择依赖字段");
+        }
+        references(definition, basis.structures());
+        return dependencies(origin, basis);
+    }
+
+    /**
      * 保存前将人工修改的依赖解析为当前同源目录及确切结构版本。
      */
     private Prepared edited(
@@ -376,7 +449,7 @@ public class GovernanceDiscovery {
             String kind,
             Definition before,
             Basis original,
-            GovernanceCandidateReviewDTO input) {
+            GovernanceCandidateDraftDTO input) {
         boolean relation = "RELATION".equals(kind);
         boolean defaultMetric = input.getDefaultMetric() == null ? before.isDefaultMetric() : input.getDefaultMetric();
         if (relation && defaultMetric

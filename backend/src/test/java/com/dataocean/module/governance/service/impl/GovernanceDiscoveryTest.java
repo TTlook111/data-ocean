@@ -17,6 +17,7 @@ import static org.mockito.Mockito.when;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.PageQuery;
 import com.dataocean.infrastructure.JsonCodec;
+import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
@@ -35,6 +36,7 @@ import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Scope;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.StructureRef;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Table;
 import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.iam.service.MutationService;
 import com.dataocean.module.iam.service.PermissionService;
 
 import java.util.HashMap;
@@ -80,7 +82,9 @@ class GovernanceDiscoveryTest {
      * 使用真实候选验证逻辑。
      */
     private final GovernanceDiscovery discovery =
-            new GovernanceDiscovery(mapper, catalog, entries, mock(GovernanceNotes.class), permissions, json);
+            new GovernanceDiscovery(mapper, catalog, entries, mock(GovernanceNotes.class), permissions, json,
+                    mock(MutationService.class),
+                    mock(AuditService.class));
 
     /**
      * 只有同名字段的关系建议不能进入业务记录。

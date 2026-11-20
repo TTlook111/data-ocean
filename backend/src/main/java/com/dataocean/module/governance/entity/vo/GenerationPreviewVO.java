@@ -24,6 +24,11 @@ public class GenerationPreviewVO {
     private String objectId;
 
     /**
+     * 服务端核对过的目标，次序与签名使用的范围一致。
+     */
+    private List<Target> targets;
+
+    /**
      * 可披露的资料清单。
      */
     private List<GenerationNoteVO> notes;
@@ -38,4 +43,21 @@ public class GenerationPreviewVO {
      */
     @ToString.Exclude
     private String reviewToken;
+
+    /**
+     * 预览只披露核对范围，任务状态和执行编号在接收后产生。
+     */
+    @Data
+    @AllArgsConstructor
+    public static class Target {
+
+        /** 当前表说明、字段或发现任务的锚定对象。 */
+        private GovernanceTargetVO target;
+
+        /** 发现类型，普通起草为空。 */
+        private String discoveryKind;
+
+        /** 候选发现不按定义内容路径拆分。 */
+        private List<String> contentPaths;
+    }
 }

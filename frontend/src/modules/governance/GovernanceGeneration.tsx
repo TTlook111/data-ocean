@@ -11,6 +11,8 @@ import { useGenerationTask } from './useGenerationTask';
  * 生成前给出当次可见的实际资料修订。
  */
 export type GenerationPreview = {
+  /** 已由服务端核对的条目及其内容范围。 */
+  targets: { target: Target; discoveryKind: string | null; contentPaths: string[] }[];
   /**
    * 只在有原文查看权时带可识别的资料元数据。
    */

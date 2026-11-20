@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -76,7 +76,7 @@ type Structure = {
 /**
  * 候选与其可披露的实际证据。
  */
-type Candidate = {
+export type Candidate = {
   /** 候选身份。 */
   id: string;
   /** 编辑并发版本。 */
@@ -116,19 +116,28 @@ export function GovernanceDiscoveryPanel({
   kind,
   path,
   source,
+  canCreate,
+  suggestReason,
+  initialCandidate,
+  initialPage = 1,
 }: {
   kind: DiscoveryKind;
   path: string;
   source: string;
+  canCreate?: boolean;
+  suggestReason?: string | null;
+  initialCandidate?: string;
+  initialPage?: number;
 }) {
   const session = useSession();
   const client = useQueryClient();
   const { message, modal } = App.useApp();
   const label = kind === 'RELATION' ? '关联' : '指标';
   const [request, setRequest] = useState<string>();
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState(initialCandidate);
   const [draft, setDraft] = useState<Candidate>();
-  const [page, setPage] = useState(1);
+  const [newCandidate, setNewCandidate] = useState<Candidate>();
+  const [page, setPage] = useState(Math.max(1, Math.trunc(initialPage)));
   const key = ['governance-candidates', path, kind];
   const saveKey = ['governance-candidate-save', path];
   const saving = useIsMutating({ mutationKey: saveKey }) > 0;
@@ -165,8 +174,11 @@ export function GovernanceDiscoveryPanel({
     Boolean(request && !task.isError && !['FAILED', 'SUCCEEDED'].includes(terminal ?? ''));
   const items = list.data?.items ?? [];
   const latest = items.find((row) => row.id === (draft?.id ?? selected)) ?? items[0];
-  const candidate = draft && latest?.id === draft.id && latest.definition ? draft : latest;
-  const changed = candidate === draft && latest?.version !== draft?.version;
+  const candidate =
+    newCandidate ?? (draft && latest?.id === draft.id && latest.definition ? draft : latest);
+  const changed = Boolean(
+    !newCandidate && candidate === draft && latest?.version !== draft?.version,
+  );
   const readError = list.error;
   const temporarilyUnavailable =
     list.data && readError && (!(readError instanceof ApiError) || readError.code >= 500000);
@@ -180,7 +192,34 @@ export function GovernanceDiscoveryPanel({
       return;
     }
     setDraft(undefined);
+    setNewCandidate(undefined);
     next();
+  }
+
+  /**
+   * 打开空白编辑区，第一次保存前只保留本地草稿。
+   */
+  function begin() {
+    void leave(() =>
+      setNewCandidate({
+        id: '',
+        version: 0,
+        state: 'DRAFT',
+        snapshotId: '',
+        definition: { name: '', meaning: '', rule: '', usage: '', defaultMetric: false, pairs: [] },
+        basis: { structures: [], notes: [], foreignKey: false },
+      }),
+    );
+  }
+
+  /**
+   * 创建后回读候选列表，最新候选在首页。
+   */
+  async function created(id: string) {
+    setPage(1);
+    setSelected(id);
+    await client.invalidateQueries({ queryKey: key });
+    setNewCandidate(undefined);
   }
 
   /**
@@ -203,17 +242,24 @@ export function GovernanceDiscoveryPanel({
 
   return (
     <section className="gov-discovery">
-      {/* 沿用原型页签内的发现入口，空状态也允许执行。 */}
-      {allowed(session, 'governance.suggest') && (
-        <div className="gov-discovery-toolbar">
-          <Button
-            type={items.length ? 'default' : 'primary'}
-            loading={running}
-            onClick={() => launch.mutate(crypto.randomUUID())}
-          >
-            发现 AI {label}
-          </Button>
-        </div>
+      {/* 手工填写和 AI 发现都从当前页签进入。 */}
+      {(canCreate || allowed(session, 'governance.suggest')) && (
+        <Space className="gov-discovery-toolbar" wrap>
+          {canCreate && (
+            <Button type="primary" disabled={saving || Boolean(newCandidate)} onClick={begin}>
+              新增{label}
+            </Button>
+          )}
+          {allowed(session, 'governance.suggest') && (
+            <Button
+              disabled={Boolean(suggestReason)}
+              loading={running}
+              onClick={() => launch.mutate(crypto.randomUUID())}
+            >
+              发现 AI {label}
+            </Button>
+          )}
+        </Space>
       )}
       {task.error && <Alert type="error" title={readErrorMessage(task.error)} />}
       {terminal === 'FAILED' && (
@@ -234,6 +280,7 @@ export function GovernanceDiscoveryPanel({
             key={candidate.id + ':' + candidate.version}
             candidate={candidate}
             items={items}
+            kind={kind}
             path={path}
             source={source}
             label={label}
@@ -243,6 +290,7 @@ export function GovernanceDiscoveryPanel({
             saveKey={saveKey}
             choose={(id) => void leave(() => setSelected(id))}
             reload={() => void leave(() => undefined)}
+            created={created}
             update={update}
           />
         ) : (
@@ -274,6 +322,7 @@ export function GovernanceDiscoveryPanel({
 function CandidateEditor({
   candidate,
   items,
+  kind,
   path,
   source,
   label,
@@ -283,10 +332,12 @@ function CandidateEditor({
   saveKey,
   choose,
   reload,
+  created,
   update,
 }: {
   candidate: Candidate;
   items: Candidate[];
+  kind: DiscoveryKind;
   path: string;
   source: string;
   label: string;
@@ -296,6 +347,7 @@ function CandidateEditor({
   saveKey: string[];
   choose: (id: string) => void;
   reload: () => void;
+  created: (id: string) => Promise<void>;
   update: (saved: Candidate) => Promise<void>;
 }) {
   const session = useSession();
@@ -306,11 +358,13 @@ function CandidateEditor({
   const [dependenciesOpen, setDependenciesOpen] = useState(false);
   const [dependencyEdit, setDependencyEdit] = useState<Dependencies>();
   const [error, setError] = useState('');
+  const createCommand = useRef<{ payload: string; id: string }>(undefined);
+  const creating = !candidate.id;
   const edit = allowed(session, 'governance.edit');
   const confirm = allowed(session, 'governance.confirm');
   const save = useMutation({
     mutationKey: saveKey,
-    mutationFn: ({
+    mutationFn: async ({
       action,
       values,
     }: {
@@ -331,15 +385,33 @@ function CandidateEditor({
               fields: dependencyEdit.fields.map(({ target }) => target),
             }
           : undefined;
-      return api<Candidate>(path + '/' + candidate.id, {
+      const body = { ...values, ...dependencies, action };
+      if (creating) {
+        // 同样的人工内容重试时沿用原命令，避免重复建立候选。
+        const payload = JSON.stringify(body);
+        if (createCommand.current?.payload !== payload) {
+          createCommand.current = { payload, id: crypto.randomUUID() };
+        }
+        const result = await mutation<{ targetId: string }>(
+          path + '?' + queryString({ kind }),
+          'POST',
+          body,
+          'governance.edit',
+          createCommand.current.id,
+        );
+        return { createdId: result.targetId };
+      }
+      const saved = await api<Candidate>(path + '/' + candidate.id, {
         method: 'PUT',
-        body: { ...values, ...dependencies, action, version: candidate.version },
+        body: { ...body, version: candidate.version },
       });
+      return { saved };
     },
-    onSuccess: async (saved, { action }) => {
+    onSuccess: async (result, { action }) => {
       // 再次读取平台确认版本，保留当前候选。
       setError('');
-      await update(saved);
+      if (result.saved) await update(result.saved);
+      else await created(result.createdId);
       setDependencyEdit(undefined);
       onDraftChange();
       void message.success(
@@ -418,7 +490,7 @@ function CandidateEditor({
       <div className="gov-content gov-discovery-editor">
         {/* 候选名称和当前状态定位在用来编辑的条目前。 */}
         <div className="gov-entry-title">
-          <h2>{definition.name || label + '候选'}</h2>
+          <h2>{creating ? '新增' + label : definition.name || label + '候选'}</h2>
           <Tag>{status[candidate.state] ?? candidate.state}</Tag>
           {definition.defaultMetric && candidate.state === 'CONFIRMED' && (
             <Tag color="blue">默认口径</Tag>
@@ -444,7 +516,7 @@ function CandidateEditor({
               }}
             >
               <Form.Item label={label + '名称'} name="name">
-                <Input maxLength={80} />
+                <Input autoFocus={creating} maxLength={80} />
               </Form.Item>
               <Form.Item label={label === '关联' ? '关联条件' : '指标含义'} name="meaning">
                 <Input.TextArea rows={2} maxLength={4000} />
@@ -500,7 +572,12 @@ function CandidateEditor({
             )}
             {error && <Alert type="error" title={error} showIcon />}
             <div className="gov-editor-actions">
-              {confirm && label === '关联' && candidate.state !== 'REJECTED' && (
+              {creating && (
+                <Button disabled={save.isPending} onClick={reload}>
+                  取消
+                </Button>
+              )}
+              {!creating && confirm && label === '关联' && candidate.state !== 'REJECTED' && (
                 <Button
                   disabled={save.isPending || changed}
                   onClick={() => {
@@ -517,7 +594,7 @@ function CandidateEditor({
               )}
               {edit && (
                 <Button
-                  disabled={save.isPending || changed}
+                  disabled={save.isPending || changed || (creating && !dirty)}
                   onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
                 >
                   保存草稿
@@ -526,7 +603,7 @@ function CandidateEditor({
               {confirm && (
                 <Button
                   type="primary"
-                  disabled={changed}
+                  disabled={changed || (creating && !dirty)}
                   loading={save.isPending}
                   onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
                 >
@@ -536,27 +613,31 @@ function CandidateEditor({
             </div>
           </div>
           {/* 候选仍复用原证据与固定资料回看入口。 */}
-          <aside className="gov-reference" aria-label="候选来源">
-            <section className="gov-evidence gov-reference-evidence" aria-label="候选依据">
-              <h3>候选依据</h3>
-              <Space wrap>
-                <Button type="link" onClick={() => setStructure(true)}>
-                  {candidate.basis.foreignKey ? '查看采集外键' : '查看结构依据'}
-                </Button>
-                {candidate.basis.notes.map((note) => (
-                  <Button
-                    key={note.revisionId}
-                    type="link"
-                    onClick={() =>
-                      setPeek({ kind: 'note', id: note.noteId, revision: note.revision })
-                    }
-                  >
-                    {note.title} · 第 {note.revision} 版
-                  </Button>
-                ))}
-              </Space>
-            </section>
-          </aside>
+          {(candidate.basis.structures.length > 0 || candidate.basis.notes.length > 0) && (
+            <aside className="gov-reference" aria-label="候选来源">
+              <section className="gov-evidence gov-reference-evidence" aria-label="候选依据">
+                <h3>候选依据</h3>
+                <Space wrap>
+                  {candidate.basis.structures.length > 0 && (
+                    <Button type="link" onClick={() => setStructure(true)}>
+                      {candidate.basis.foreignKey ? '查看采集外键' : '查看结构依据'}
+                    </Button>
+                  )}
+                  {candidate.basis.notes.map((note) => (
+                    <Button
+                      key={note.revisionId}
+                      type="link"
+                      onClick={() =>
+                        setPeek({ kind: 'note', id: note.noteId, revision: note.revision })
+                      }
+                    >
+                      {note.title} · 第 {note.revision} 版
+                    </Button>
+                  ))}
+                </Space>
+              </section>
+            </aside>
+          )}
         </div>
       </div>
       {structure && (

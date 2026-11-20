@@ -200,7 +200,7 @@ export function GovernanceBatch({
               ? targets.length
                 ? done + ' / ' + targets.length + ' 项完成'
                 : '正在读取'
-              : count + ' 项'}
+              : (preview.data?.result.targets?.length ?? count) + ' 项'}
           </dd>
         </dl>
         {!reviewing && !run && (

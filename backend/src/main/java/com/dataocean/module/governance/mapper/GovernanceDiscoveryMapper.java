@@ -60,7 +60,7 @@ public interface GovernanceDiscoveryMapper {
                     + """
             JOIN gov_discovery_object o ON o.candidate_id=c.id
             WHERE c.source_id=#{source} AND o.object_id=#{object} AND c.kind=#{kind}
-            ORDER BY c.id
+            ORDER BY c.id DESC
             """)
     Page<Candidate> list(
             Page<Candidate> page,
@@ -92,12 +92,12 @@ public interface GovernanceDiscoveryMapper {
             @Param("source") long source, @Param("kind") String kind, @Param("identity") String identity);
 
     /**
-     * 保存可追溯的原始发现。
+     * 保存候选的初始依据。人工新增没有模型任务。
      */
     @Insert(
             """
             INSERT INTO gov_discovery_candidate(id,request_id,source_id,object_id,kind,identity_key,snapshot_id,evidence)
-            VALUES(#{id},#{request},#{source},#{object},#{kind},#{identity},#{snapshot},#{evidence})
+            VALUES(#{id},#{request,jdbcType=CHAR},#{source},#{object},#{kind},#{identity},#{snapshot},#{evidence})
             """)
     void add(
             @Param("id") long id,

@@ -242,6 +242,10 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
         return new GenerationPreviewVO(
                 Long.toString(sourceId),
                 Long.toString(object),
+                scopes.stream()
+                        .map(scope -> new GenerationPreviewVO.Target(
+                                scope.context().target().view(), scope.discoveryKind(), scope.paths()))
+                        .toList(),
                 permissions.has("business-notes.view")
                         ? scopes.get(0).notes().stream()
                                 .map(note -> noteView(note, "REGISTERED"))
@@ -792,9 +796,10 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      * 凭据、模型目的地和可传数据源完全由服务端受控配置。
      */
     private void requireModelSource(long source) {
-        if (!properties.isEnabled() || !properties.getModelSourceIds().contains(source)) {
+        String reason = properties.sourceUnavailableReason(source);
+        if (reason != null) {
             // 当前源未授权对指定模型发送目录和企业说明。
-            throw BizIllegalException.state("当前数据源未配置治理模型传输范围");
+            throw BizIllegalException.state(reason);
         }
     }
 

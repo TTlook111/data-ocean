@@ -641,7 +641,7 @@ export function GovernanceEditor({
           <div className="gov-editor-actions">
             {/* 辅助处理和危险操作靠左，常规保存和确认靠右。 */}
             <Space wrap>
-              {base.actions.canSuggest && (
+              {base.actions.canSuggest && !base.actions.suggestUnavailableReason && (
                 <Button disabled={busy} onClick={() => setGeneration(true)}>
                   {selected ? '重新生成 AI 建议' : '生成 AI 建议'}
                 </Button>
