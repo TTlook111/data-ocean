@@ -67,6 +67,11 @@ public class GovernanceModelCallPO {
     private Integer outputTokens;
 
     /**
+     * 可披露的上下文裁剪原因编码列表，以逗号分隔。
+     */
+    private String inputLimits;
+
+    /**
      * 调用记录实际落库时间。
      */
     private LocalDateTime recordedAt;

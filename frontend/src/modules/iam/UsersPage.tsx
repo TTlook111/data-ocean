@@ -1,4 +1,5 @@
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { App, Avatar, Button, Descriptions, Drawer, Form, Input, Select, Space } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
@@ -31,6 +32,7 @@ export function UsersPage() {
   const [params, setParams] = useSearchParams();
 
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -70,7 +72,17 @@ export function UsersPage() {
    * 查询字段按姓名、登录名、部门、状态的表头顺序应用。
    */
   function search(values: Record<string, string>) {
-    setParams(queryString({ ...values, pageNum: 1, pageSize: params.get('pageSize') ?? 10 }));
+    setMoreOpen(false);
+    setParams(
+      queryString({
+        ...values,
+        departmentId: allowed(session, 'departments.view')
+          ? form.getFieldValue('departmentId')
+          : undefined,
+        pageNum: 1,
+        pageSize: params.get('pageSize') ?? 10,
+      }),
+    );
     form.focusField('displayName');
   }
 
@@ -78,6 +90,7 @@ export function UsersPage() {
    * 清除已应用条件并恢复首个输入焦点。
    */
   function reset() {
+    setMoreOpen(false);
     form.resetFields();
     form.setFieldsValue({
       displayName: undefined,
@@ -240,7 +253,7 @@ export function UsersPage() {
   // 查询区、结果表格和分页共享工作区，状态反馈不隐藏表头。
   return (
     <>
-      <section className="panel query-panel" aria-label="人员查询">
+      <section className="panel query-panel compact-query" aria-label="人员查询">
         <Form
           name="users-query"
           form={form}
@@ -254,31 +267,38 @@ export function UsersPage() {
           <Form.Item name="username">
             <Input aria-label="登录名" placeholder="登录名" allowClear />
           </Form.Item>
-          {allowed(session, 'departments.view') && (
-            <Form.Item name="departmentId">
-              <Select
-                aria-label="所属部门"
-                placeholder="所属部门"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                options={flatten(departmentTree.data ?? []).map((item) => ({
-                  label: item.name,
-                  value: item.id,
-                }))}
-              />
-            </Form.Item>
-          )}
-          <div className="query-tail status-tail">
-            <Form.Item name="displayStatus" className="status-query">
-              <Select
-                aria-label="状态"
-                placeholder="全部状态"
-                allowClear
-                options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
-              />
-            </Form.Item>
+          {/* 常用查询保持一行，低频字段仍可按原规则提交。 */}
+          <Form.Item name="displayStatus" className="status-query">
+            <Select
+              aria-label="状态"
+              placeholder="全部状态"
+              allowClear
+              options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
+            />
+          </Form.Item>
+          <div className="query-tail-actions">
             <Space>
+              {allowed(session, 'departments.view') && (
+                <MoreFilters
+                  open={moreOpen}
+                  setOpen={setMoreOpen}
+                  count={Number(params.has('departmentId'))}
+                >
+                  <Form.Item name="departmentId">
+                    <Select
+                      aria-label="所属部门"
+                      placeholder="所属部门"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      options={flatten(departmentTree.data ?? []).map((item) => ({
+                        label: item.name,
+                        value: item.id,
+                      }))}
+                    />
+                  </Form.Item>
+                </MoreFilters>
+              )}
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>

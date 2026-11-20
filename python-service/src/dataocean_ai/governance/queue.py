@@ -1,6 +1,5 @@
 """可靠接收表说明生成任务，Redis 仅保存任务引用和受控结果。"""
 
-import os
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
@@ -10,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from redis.exceptions import RedisError, WatchError
 
+from dataocean_ai.core.config import GovernanceSettings
 from dataocean_ai.governance.security import verify_java
 
 # 内部端点由机器身份保护，只接受单个真实任务。
@@ -41,13 +41,16 @@ class QueueState(BaseModel):
 @lru_cache(maxsize=1)
 def connection() -> Redis:
     """复用当前进程的受控 Redis 客户端与连接池。"""
-    url = os.environ["DATAOCEAN_AI_GOVERNANCE_REDIS_URL"]
-    return Redis.from_url(url, decode_responses=True, socket_timeout=4)
+    url = GovernanceSettings.from_environment().redis_url
+    if url is None:
+        # 启动最小 API 时不会隐式接入外部队列。
+        raise KeyError("AI_QUEUE_URL")
+    return Redis.from_url(url.get_secret_value(), decode_responses=True, socket_timeout=4)
 
 
 def prefix() -> str:
     """在固定配置下隔离本服务的队列和任务状态。"""
-    return os.getenv("DATAOCEAN_AI_GOVERNANCE_NAMESPACE", "dataocean:governance")
+    return GovernanceSettings.from_environment().namespace
 
 
 def stream() -> str:

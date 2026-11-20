@@ -1,7 +1,6 @@
 import {
   App,
   Button,
-  DatePicker,
   Descriptions,
   Drawer,
   Empty,
@@ -25,6 +24,8 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
+import { QueryDateRange } from '../../shared/QueryDateRange';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
@@ -35,7 +36,9 @@ import type { CollectionTask, SourceOption } from './types';
 /**
  * 采集记录和目录共用当前来源选择与 URL 状态。
  */
-export function useSourceSelection(purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES' | 'GOVERNANCE') {
+export function useSourceSelection(
+  purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES' | 'GOVERNANCE',
+) {
   const [params, setParams] = useSearchParams();
   const sources = useQuery({
     queryKey: ['datasource-options', purpose],
@@ -132,6 +135,7 @@ export function CollectionPage() {
   const navigate = useNavigate();
   const { params, setParams, sources, selected } = useSourceSelection('COLLECTIONS');
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [opened, setOpened] = useState<string | null>(params.get('task'));
   const [review, setReview] = useState<ReviewSubmission | null>(null);
   const [cancelling, setCancelling] = useState<CollectionTask | null>(null);
@@ -170,6 +174,7 @@ export function CollectionPage() {
    * 清空任务筛选时保留当前源和每页条数。
    */
   function reset() {
+    setMoreOpen(false);
     form.setFieldsValue({
       taskNoKeyword: undefined,
       triggerKind: undefined,
@@ -290,7 +295,7 @@ export function CollectionPage() {
         {selected ? (
           <>
             {/* 仅在存在可用来源时显示该源的记录筛选。 */}
-            <div className="panel query-panel ds-query-panel">
+            <div className="panel query-panel ds-query-panel compact-query">
               <Form
                 name="collection-query"
                 layout="inline"
@@ -300,7 +305,10 @@ export function CollectionPage() {
                   dates:
                     from || to ? [from ? dayjs(from) : null, to ? dayjs(to) : null] : undefined,
                 }}
-                onFinish={(values) => {
+                onFinish={() => {
+                  // 保留未展开的日期条件，只有查询或重置才应用。
+                  const values = form.getFieldsValue(true);
+                  setMoreOpen(false);
                   // 将实际开始日区间放入查询参数，切页时保留已确认条件。
                   const range = values.dates;
                   setParams(
@@ -335,29 +343,32 @@ export function CollectionPage() {
                     options={datasourceOptions(['MANUAL', 'RETRY', 'SCHEDULED'])}
                   />
                 </Form.Item>
-                {/* 日期区间、状态和按钮共同换行，保持既定的筛选顺序。 */}
-                <div className="query-tail ds-date-query-tail">
-                  <Form.Item name="dates">
-                    <DatePicker.RangePicker
-                      aria-label="采集开始时间范围"
-                      placeholder={['开始日期', '结束日期']}
-                    />
-                  </Form.Item>
-                  <Form.Item name="state" className="status-query">
-                    <Select
-                      aria-label="任务状态"
-                      placeholder="任务状态"
-                      allowClear
-                      options={datasourceOptions([
-                        'QUEUED',
-                        'RUNNING',
-                        'SUCCEEDED',
-                        'FAILED',
-                        'CANCELLED',
-                      ])}
-                    />
-                  </Form.Item>
+                {/* 日期收入更多筛选，常用的采集条件和操作保持一行。 */}
+                <Form.Item name="state" className="status-query">
+                  <Select
+                    aria-label="任务状态"
+                    placeholder="任务状态"
+                    allowClear
+                    options={datasourceOptions([
+                      'QUEUED',
+                      'RUNNING',
+                      'SUCCEEDED',
+                      'FAILED',
+                      'CANCELLED',
+                    ])}
+                  />
+                </Form.Item>
+                <div className="query-tail-actions">
                   <Space>
+                    <MoreFilters
+                      open={moreOpen}
+                      setOpen={setMoreOpen}
+                      count={Number(Boolean(from || to))}
+                    >
+                      <Form.Item name="dates" className="query-more-date">
+                        <QueryDateRange label="采集开始时间范围" />
+                      </Form.Item>
+                    </MoreFilters>
                     <Button htmlType="submit">查询</Button>
                     <Button onClick={reset}>重置</Button>
                   </Space>

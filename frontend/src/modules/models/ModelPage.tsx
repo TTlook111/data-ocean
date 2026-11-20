@@ -3,10 +3,10 @@ import {
   App,
   Button,
   Descriptions,
-  Drawer,
   Form,
   Input,
   InputNumber,
+  Modal,
   Select,
   Space,
   Tabs,
@@ -16,11 +16,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { RecordTable } from '../../shared/RecordTable';
-import { DetailFooter, readErrorMessage, Status } from '../../shared/Records';
+import { DetailFooter, displayTime, readErrorMessage, Status } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useFormClose } from '../../shared/useFormClose';
 import type { Page } from '../iam/types';
-import { modelProtocols, type ModelConfig, type ModelInput, type ModelNode } from './types';
+import {
+  modelFailureLabels,
+  modelNodeInfo,
+  modelProtocols,
+  type ModelConfig,
+  type ModelConnectionTest,
+  type ModelInput,
+  type ModelNode,
+} from './types';
 
 /**
  * 模型配置和独立节点分配沿用原型的两个页签。
@@ -33,6 +41,7 @@ export function ModelPage() {
   const [editor, setEditor] = useState<ModelConfig | 'new' | null>(null);
   const [detail, setDetail] = useState<ModelConfig | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
   const models = useQuery({
     queryKey: ['models', 'list', paging, keyword],
@@ -48,6 +57,25 @@ export function ModelPage() {
     queryKey: ['models', 'options'],
     queryFn: () => api<ModelConfig[]>('/models/options'),
     enabled: tab === 'nodes',
+  });
+
+  // 以当前详情的配置修订读取记录，避免把旧配置的结果带入新修订。
+  const connectionPath = detail ? `/models/${detail.id}/connection-tests/${detail.revisionId}` : '';
+  const connection = useQuery({
+    queryKey: ['models', 'connection-test', connectionPath],
+    queryFn: async () => (await api<ModelConnectionTest | null>(connectionPath)) ?? null,
+    enabled: Boolean(connectionPath),
+  });
+  const testConnection = useMutation({
+    mutationFn: (path: string) => api<ModelConnectionTest>(path, { method: 'POST' }),
+    onSuccess: (result, path) => {
+      // 提交结果只更新本次请求对应的修订。
+      client.setQueryData(['models', 'connection-test', path], result);
+    },
+    onError: (error) => {
+      // 权限、并行编辑或服务未启用由上游统一反馈。
+      void message.error(readErrorMessage(error));
+    },
   });
 
   /**
@@ -95,7 +123,7 @@ export function ModelPage() {
     if (
       !modelId &&
       !(await modal.confirm({
-        title: '清空表说明生成的模型？',
+        title: `清空「${modelNodeInfo[node.code]?.name ?? node.code}」的模型？`,
         content: '清空后将暂时无法生成建议。',
         okText: '清空',
         cancelText: '取消',
@@ -141,9 +169,9 @@ export function ModelPage() {
     {
       title: '节点',
       width: 170,
-      render: () => (
+      render: (_, node) => (
         <>
-          <strong>表说明生成</strong>
+          <strong>{modelNodeInfo[node.code]?.name ?? node.code}</strong>
           <div>数据治理</div>
         </>
       ),
@@ -151,14 +179,14 @@ export function ModelPage() {
     {
       title: '这个节点做什么',
       width: 350,
-      render: () => '结合表结构和企业业务说明，提出用途、粒度、范围及更新规则建议。',
+      render: (_, node) => modelNodeInfo[node.code]?.description ?? '—',
     },
     {
       title: '分配模型',
       width: 280,
       render: (_, node) => (
         <Select
-          aria-label="为表说明生成分配模型"
+          aria-label={`为${modelNodeInfo[node.code]?.name ?? node.code}分配模型`}
           placeholder="未分配"
           size="middle"
           style={{ width: '100%' }}
@@ -182,17 +210,33 @@ export function ModelPage() {
   ];
 
   return (
-    <section aria-label="模型配置">
-      {/* 新增只在模型列表提供，节点页直接在表格分配。 */}
+    <section className="record-page" aria-label="模型配置">
+      {/* 两个工作区共享页签，模型查询和新增仅在列表提供。 */}
       <Tabs
+        className="model-tabs"
         activeKey={tab}
         onChange={setTab}
         tabBarExtraContent={
-          tab === 'models' &&
-          allowed(session, 'models.create') && (
-            <Button type="primary" onClick={() => setEditor('new')}>
-              新增模型
-            </Button>
+          tab === 'models' && (
+            <Space>
+              <Input.Search
+                aria-label="配置名称"
+                placeholder="配置名称"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                allowClear
+                onSearch={(value) => {
+                  // 换查询条件时保留每页量并回到第一页。
+                  setKeyword(value.trim());
+                  setPaging({ ...paging, pageNum: 1 });
+                }}
+              />
+              {allowed(session, 'models.create') && (
+                <Button type="primary" onClick={() => setEditor('new')}>
+                  新增模型
+                </Button>
+              )}
+            </Space>
           )
         }
         items={[
@@ -200,17 +244,8 @@ export function ModelPage() {
             key: 'models',
             label: '模型列表',
             children: (
-              <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                <Input.Search
-                  aria-label="配置名称"
-                  placeholder="配置名称"
-                  allowClear
-                  style={{ width: 260 }}
-                  onSearch={(value) => {
-                    setKeyword(value.trim());
-                    setPaging({ ...paging, pageNum: 1 });
-                  }}
-                />
+              <section className="panel records-panel" aria-label="模型列表">
+                {/* 模型配置结果与真实分页保持在同一面板。 */}
                 <RecordTable
                   rowKey="id"
                   columns={modelColumns}
@@ -225,38 +260,54 @@ export function ModelPage() {
                     onChange: (pageNum, pageSize) => setPaging({ pageNum, pageSize }),
                   }}
                 />
-              </Space>
+              </section>
             ),
           },
           {
             key: 'nodes',
             label: '节点列表',
             children: (
-              <RecordTable
-                rowKey="code"
-                columns={nodeColumns}
-                dataSource={nodes.data}
-                loading={nodes.isPending}
-                error={nodes.error ?? options.error}
-                retry={() => {
-                  void nodes.refetch();
-                  void options.refetch();
-                }}
-                pagination={false}
-              />
+              <section className="panel records-panel" aria-label="节点列表">
+                {/* 节点表直接承接独立分配，没有额外的保存步骤。 */}
+                <RecordTable
+                  rowKey="code"
+                  columns={nodeColumns}
+                  dataSource={nodes.data}
+                  loading={nodes.isPending}
+                  error={nodes.error ?? options.error}
+                  retry={() => {
+                    // 节点与下拉选项从独立接口回读。
+                    void nodes.refetch();
+                    void options.refetch();
+                  }}
+                  pagination={false}
+                />
+              </section>
             ),
           },
         ]}
       />
       {/* 只显示凭据已设置，编辑表单不会预填秘密。 */}
-      <Drawer
-        title="模型详情"
+      <Modal
+        title={detail ? `模型详情 · ${detail.name}` : '模型详情'}
+        centered
+        width={680}
         open={Boolean(detail)}
-        onClose={() => setDetail(null)}
+        onCancel={() => setDetail(null)}
         destroyOnHidden
         footer={
           detail && (
             <DetailFooter close={() => setDetail(null)}>
+              {/* 连接测试有独立权限，停用时禁止向提供方发起新请求。 */}
+              {allowed(session, 'models.test') && (
+                <Button
+                  disabled={!detail.enabled}
+                  loading={testConnection.isPending}
+                  onClick={() => testConnection.mutate(connectionPath)}
+                >
+                  测试连接
+                </Button>
+              )}
               {allowed(session, 'models.disable') && (
                 <Button danger={detail.enabled} onClick={() => void setEnabled(detail)}>
                   {detail.enabled ? '停用' : '恢复'}
@@ -288,10 +339,24 @@ export function ModelPage() {
               { key: 'credential', label: '访问凭据', children: '已设置' },
               { key: 'timeout', label: '调用超时', children: `${detail.timeoutSeconds} 秒` },
               { key: 'revision', label: '配置修订', children: `r${detail.revision}` },
+              {
+                key: 'connection',
+                label: '最近连接测试',
+                children: (
+                  <ModelConnectionStatus
+                    testing={
+                      testConnection.isPending && testConnection.variables === connectionPath
+                    }
+                    pending={connection.isPending}
+                    error={connection.isError}
+                    result={connection.data}
+                  />
+                ),
+              },
             ]}
           />
         )}
-      </Drawer>
+      </Modal>
       {/* 区分新建与编辑，提交后销毁暂存凭据的表单。 */}
       {editor && (
         <ModelEditor
@@ -301,6 +366,41 @@ export function ModelPage() {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * 在详情原位展示测试状态、失败原因与完成时间。
+ */
+function ModelConnectionStatus({
+  testing,
+  pending,
+  error,
+  result,
+}: {
+  testing: boolean;
+  pending: boolean;
+  error: boolean;
+  result?: ModelConnectionTest | null;
+}) {
+  if (testing) {
+    // 测试期间就地标记正在等待提供方。
+    return <span role="status">测试中…</span>;
+  }
+  if (pending || error || !result) {
+    // 查询失败与确实未测分别表达。
+    return <span role="status">{pending ? '读取中…' : error ? '读取失败' : '未测试'}</span>;
+  }
+  // 连接测试在模型详情回看，未知响应时提示核对连接入口。
+  const failure =
+    result.failureCode === 'MODEL_RESULT_UNKNOWN'
+      ? '未收到可确认的响应，请检查地址和网络后重试。'
+      : (modelFailureLabels[result.failureCode ?? ''] ?? '连接测试失败。');
+  return (
+    <Space role="status" orientation="vertical" size={2}>
+      <span>{result.passed ? '通过' : failure}</span>
+      <span>{displayTime(result.testedAt)}</span>
+    </Space>
   );
 }
 
@@ -332,34 +432,42 @@ function ModelEditor({
     onError: (error) => {
       // 字段错误留在表单，其他失败用统一提示。
       const notice = applyFormError(form, error);
-      if (notice) void message.error(notice);
+      if (notice) {
+        // 合并同一次保存的重复通知，字段错误由表单原位处理。
+        void message.error({ key: 'save-model', content: notice });
+      }
     },
   });
   const requestClose = useFormClose(form, close, save.isPending);
   return (
-    <Drawer
+    <Modal
       open
+      centered
+      width={680}
       title={row ? '编辑模型' : '新增模型'}
-      onClose={() => void requestClose()}
-      footer={
-        <DetailFooter close={() => void requestClose()}>
-          <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
-            保存模型
-          </Button>
-        </DetailFooter>
-      }
+      onCancel={requestClose}
+      onOk={() => form.submit()}
+      okText="保存模型"
+      cancelText="取消"
+      confirmLoading={save.isPending}
+      cancelButtonProps={{ disabled: save.isPending }}
+      closable={!save.isPending}
+      keyboard={!save.isPending}
+      styles={{ body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } }}
     >
-      {/* 模型类型固定为当前已接入的生成能力，接口由管理人员明确选择。 */}
+      {/* 当前页面只管理生成模型，表单保留需填写的配置。 */}
       <Form
         form={form}
         layout="vertical"
         initialValues={row ?? { timeoutSeconds: 60 }}
-        onFinish={(input) => save.mutate(input)}
+        disabled={save.isPending}
+        scrollToFirstError={{ focus: true }}
+        onFinish={(input) => {
+          // 等待首笔保存结束再接受新的提交。
+          if (!save.isPending) save.mutate(input);
+        }}
         autoComplete="off"
       >
-        <Form.Item label="模型类型">
-          <Input value="生成" readOnly />
-        </Form.Item>
         <Form.Item
           name="protocol"
           label="接口格式"
@@ -372,7 +480,14 @@ function ModelEditor({
         <Form.Item name="name" label="配置名称" rules={[{ required: true, whitespace: true }]}>
           <Input maxLength={100} />
         </Form.Item>
-        <Form.Item name="endpoint" label="服务 URL" rules={[{ required: true, type: 'url' }]}>
+        <Form.Item
+          name="endpoint"
+          label="服务 URL"
+          rules={[
+            { required: true, type: 'url', message: '请输入有效的服务地址' },
+            { pattern: /^https:\/\//iu, message: '请输入 HTTPS 服务地址' },
+          ]}
+        >
           <Input maxLength={500} />
         </Form.Item>
         <Form.Item name="modelName" label="模型名称" rules={[{ required: true, whitespace: true }]}>
@@ -398,6 +513,6 @@ function ModelEditor({
           <InputNumber min={1} max={120} precision={0} />
         </Form.Item>
       </Form>
-    </Drawer>
+    </Modal>
   );
 }

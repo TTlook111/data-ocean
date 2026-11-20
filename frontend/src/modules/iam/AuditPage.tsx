@@ -1,5 +1,7 @@
 import { RecordTable } from '../../shared/RecordTable';
-import { Button, DatePicker, Descriptions, Drawer, Form, Input, Select, Space, Tag } from 'antd';
+import { MoreFilters } from '../../shared/MoreFilters';
+import { QueryDateRange } from '../../shared/QueryDateRange';
+import { Button, Descriptions, Drawer, Form, Input, Select, Space, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -164,6 +166,7 @@ export function AuditPage() {
   const session = useSession();
 
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const actor = params.get('actor') ?? undefined;
   const actionCode = params.get('actionCode') ?? undefined;
@@ -268,13 +271,10 @@ export function AuditPage() {
   /**
    * 时间范围按上海业务自然日提交，服务端转换为 UTC 边界。
    */
-  function search(values: {
-    actor?: string;
-    actionCode?: string;
-    target?: string;
-    outcome?: string;
-    period?: { format: (pattern: string) => string }[];
-  }) {
+  function search() {
+    // 未展开过的条件也来自表单初始值或当前 URL。
+    const values = form.getFieldsValue(true);
+    setMoreOpen(false);
     setParams(
       queryString({
         actor: values.actor,
@@ -295,6 +295,7 @@ export function AuditPage() {
    * 日期与其他条件一并清空，保留每页条数并返回首个查询输入。
    */
   function reset() {
+    setMoreOpen(false);
     form.setFieldsValue({
       actor: undefined,
       actionCode: undefined,
@@ -309,7 +310,7 @@ export function AuditPage() {
   // 筛选按操作者、动作、目标、结果和发生时间的表头顺序排列。
   return (
     <>
-      <section className="panel query-panel" aria-label="审计查询">
+      <section className="panel query-panel compact-query" aria-label="审计查询">
         <Form
           name="audit-query"
           form={form}
@@ -326,7 +327,7 @@ export function AuditPage() {
           <Form.Item name="actor">
             <Input
               aria-label="操作者姓名或登录名"
-              placeholder="操作者姓名或登录名"
+              placeholder="操作者"
               prefix={<SearchOutlined />}
               allowClear
             />
@@ -341,9 +342,6 @@ export function AuditPage() {
               options={Object.entries(actionLabels).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
-          <Form.Item name="target">
-            <Input aria-label="目标名称或编号" placeholder="目标名称或编号" allowClear />
-          </Form.Item>
           <Form.Item name="outcome" className="status-query">
             <Select
               aria-label="操作结果"
@@ -356,21 +354,20 @@ export function AuditPage() {
               ]}
             />
           </Form.Item>
-          <div className="query-tail">
-            <label className="sr-only" htmlFor="audit-start-date">
-              操作开始日期
-            </label>
-            <label className="sr-only" htmlFor="audit-end-date">
-              操作结束日期
-            </label>
-            <Form.Item name="period">
-              <DatePicker.RangePicker
-                id={{ start: 'audit-start-date', end: 'audit-end-date' }}
-                format="YYYY-MM-DD"
-                placeholder={['开始日期', '结束日期']}
-              />
-            </Form.Item>
+          <div className="query-tail-actions">
             <Space>
+              <MoreFilters
+                open={moreOpen}
+                setOpen={setMoreOpen}
+                count={Number(Boolean(fromDate || toDate)) + Number(Boolean(target))}
+              >
+                <Form.Item name="target">
+                  <Input aria-label="目标名称或编号" placeholder="目标名称或编号" allowClear />
+                </Form.Item>
+                <Form.Item name="period" className="query-more-date">
+                  <QueryDateRange label="操作日期范围" />
+                </Form.Item>
+              </MoreFilters>
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>

@@ -9,8 +9,10 @@ import com.dataocean.module.model.entity.dto.ModelSaveDTO;
 import com.dataocean.module.model.entity.dto.ModelStateDTO;
 import com.dataocean.module.model.entity.vo.ModelCallVO;
 import com.dataocean.module.model.entity.vo.ModelConfigVO;
+import com.dataocean.module.model.entity.vo.ModelConnectionTestVO;
 import com.dataocean.module.model.entity.vo.ModelNodeVO;
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.model.service.impl.ModelConnectionTestService;
 
 import java.util.List;
 
@@ -37,6 +39,11 @@ public class ModelController {
      * 版本化模型配置和诊断服务。
      */
     private final ModelRegistry registry;
+
+    /**
+     * 独立的合成连接测试及回读。
+     */
+    private final ModelConnectionTestService connectionTests;
 
     /**
      * 读取可披露的当前模型配置。
@@ -73,6 +80,24 @@ public class ModelController {
     public Result<Boolean> state(@PathVariable long id, @Valid @RequestBody ModelStateDTO body) {
         registry.setState(id, body);
         return Result.success(true);
+    }
+
+    /**
+     * 测试当前保存的模型配置。
+     */
+    @PostMapping("/{id}/connection-tests/{revisionId}")
+    @RequirePermission("models.test")
+    public Result<ModelConnectionTestVO> testConnection(@PathVariable long id, @PathVariable long revisionId) {
+        return Result.success(connectionTests.test(id, revisionId));
+    }
+
+    /**
+     * 按详情的修订展示已知的最新测试结果。
+     */
+    @GetMapping("/{id}/connection-tests/{revisionId}")
+    @RequirePermission("models.view")
+    public Result<ModelConnectionTestVO> latestConnectionTest(@PathVariable long id, @PathVariable long revisionId) {
+        return Result.success(connectionTests.latest(id, revisionId));
     }
 
     /**

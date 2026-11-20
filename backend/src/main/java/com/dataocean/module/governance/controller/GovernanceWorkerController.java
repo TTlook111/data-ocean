@@ -50,4 +50,14 @@ public class GovernanceWorkerController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(Result.success(tasks.authorizeModel(requestId, runVersion)));
     }
+
+    /**
+     * 每次外发前复核字段 Agent 的当前任务资格。
+     */
+    @PostMapping("/{requestId}/model/recheck")
+    @RequirePermission(access = RequirePermission.Access.SERVICE)
+    public Result<Boolean> recheck(@PathVariable String requestId, @RequestParam int runVersion) {
+        tasks.verifyContinuation(requestId, runVersion);
+        return Result.success(true);
+    }
 }

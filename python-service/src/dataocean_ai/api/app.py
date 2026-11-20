@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 
-from dataocean_ai.core.config import Settings
+from dataocean_ai.adapters.probe import router as model_router
+from dataocean_ai.core.config import GovernanceSettings, Settings
 from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.core.result import Result
 from dataocean_ai.governance.queue import router as governance_router
@@ -42,6 +43,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="DataOcean AI", version=release)
     # 工作流接收入口使用独立服务身份，不处理浏览器会话。
     app.include_router(governance_router)
+    # 连接测试与任务接收复用机器身份。
+    app.include_router(model_router)
 
     @app.middleware("http")
     async def correlate(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -89,7 +92,8 @@ def create_app() -> FastAPI:
 def main() -> None:
     """使用中央配置启动宿主机进程，配置无效时交给启动边界明确失败。"""
     settings = Settings.from_environment()
-    configure_logging(settings.log_level)
+    GovernanceSettings.from_environment().validate_startup(worker=False)
+    configure_logging(settings.log_level, settings.log_output)
     logger.info("Python API 启动，service=dataocean-ai，port=%s", settings.port)
     uvicorn.run(
         create_app(), host=settings.host, port=settings.port, log_config=None, access_log=False

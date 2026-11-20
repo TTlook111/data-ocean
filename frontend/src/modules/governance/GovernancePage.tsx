@@ -1,11 +1,12 @@
 import { Button, Form, Input, Select, Space, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import type { GovernanceRow, Target } from './types';
@@ -48,6 +49,7 @@ export function GovernancePage() {
   const focusRestored = useRef(false);
   const { params, setParams, sources, selected } = useSourceSelection('GOVERNANCE');
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
   const size = Number(params.get('pageSize') ?? 10);
   const filters = ['keyword', 'pendingKind', 'hasPendingImpact', 'progress'];
   const filtered = filters.some((key) => params.has(key));
@@ -75,6 +77,7 @@ export function GovernancePage() {
    * 重置查询条件并保留当前源及页尺寸。
    */
   function reset(source = selected?.id) {
+    setMoreOpen(false);
     // 显式清空上一个数据源的查询条件。
     form.setFieldsValue({
       keyword: undefined,
@@ -106,7 +109,7 @@ export function GovernancePage() {
   return (
     <section className="record-page" aria-label="治理工作台">
       {/* 表治理查询面板的条件依表头顺序排列。 */}
-      <div className="panel query-panel gov-query">
+      <div className="panel query-panel gov-query compact-query">
         <Form
           name="governance-list-query"
           layout="inline"
@@ -114,7 +117,16 @@ export function GovernancePage() {
           initialValues={Object.fromEntries(params)}
           onFinish={(values) => {
             // 查找留在当前源，应用条件和分页保存在 URL。
-            setParams(queryString({ ...values, source: selected?.id, pageSize: size }));
+            setMoreOpen(false);
+            setParams(
+              queryString({
+                ...values,
+                pendingKind: form.getFieldValue('pendingKind'),
+                hasPendingImpact: form.getFieldValue('hasPendingImpact'),
+                source: selected?.id,
+                pageSize: size,
+              }),
+            );
             form.focusField('keyword');
           }}
         >
@@ -124,44 +136,50 @@ export function GovernancePage() {
           <Form.Item name="keyword">
             <Input
               aria-label="表名、业务名称或原注释"
-              placeholder="表名、业务名称或原注释"
+              placeholder="表名或说明"
               prefix={<SearchOutlined />}
               allowClear
             />
           </Form.Item>
-          <Form.Item name="pendingKind">
+          {/* 常用查询保持一行，低频字段仍可按原规则提交。 */}
+          <Form.Item name="progress" className="status-query">
             <Select
               allowClear
-              aria-label="待处理内容"
-              placeholder="待处理内容"
-              options={[
-                { value: 'TABLE', label: '表说明' },
-                { value: 'COLUMN', label: '字段' },
-              ]}
+              aria-label="治理进度"
+              placeholder="治理进度"
+              options={Object.entries(progressNames).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
-          <Form.Item name="hasPendingImpact">
-            <Select
-              allowClear
-              aria-label="变更后待核对项"
-              placeholder="变更后待核对项"
-              options={[
-                { value: 'true', label: '有待核对项' },
-                { value: 'false', label: '无待核对项' },
-              ]}
-            />
-          </Form.Item>
-          {/* 末项筛选和常用查询动作保持成组。 */}
-          <div className="query-tail status-tail">
-            <Form.Item name="progress" className="status-query">
-              <Select
-                allowClear
-                aria-label="治理进度"
-                placeholder="治理进度"
-                options={Object.entries(progressNames).map(([value, label]) => ({ value, label }))}
-              />
-            </Form.Item>
+          <div className="query-tail-actions">
             <Space>
+              <MoreFilters
+                open={moreOpen}
+                setOpen={setMoreOpen}
+                count={Number(params.has('pendingKind')) + Number(params.has('hasPendingImpact'))}
+              >
+                <Form.Item name="pendingKind">
+                  <Select
+                    allowClear
+                    aria-label="待处理内容"
+                    placeholder="待处理内容"
+                    options={[
+                      { value: 'TABLE', label: '表说明' },
+                      { value: 'COLUMN', label: '字段' },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item name="hasPendingImpact">
+                  <Select
+                    allowClear
+                    aria-label="变更后待核对项"
+                    placeholder="变更后待核对项"
+                    options={[
+                      { value: 'true', label: '有待核对项' },
+                      { value: 'false', label: '无待核对项' },
+                    ]}
+                  />
+                </Form.Item>
+              </MoreFilters>
               <Button htmlType="submit">查询</Button>
               <Button onClick={() => reset()}>重置</Button>
             </Space>

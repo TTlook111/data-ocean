@@ -36,8 +36,18 @@ server:
   # 本机后端开发端口；修改后同步前端代理地址。
   port: 18080
 
-# 三、本机密钥文件（可选）。
-# 使用 tools/dev/start-backend.ps1 时自动生成并注入，保持以下内容注释即可。
-# 用 IDE 手动启动时，取消以下两行注释，并填写已存在的本机密钥文件绝对路径。
+# 三、本机服务密钥和治理 AI 设置。
+# 启动脚本自动注入 HMAC 文件。IDE 手动启动时可设置 secret-key-file。
+# 运行 tools/dev/init-ai-service-identity.ps1 后按需启用 governance-ai。
+# 内部地址需与 Python 的监听地址一致，文件路径以 backend 为工作目录。
+# models.allowed-hosts 按部署允许的模型服务主机填写，协议、URL 和凭据由系统页面管理。
 # dataocean:
 #   secret-key-file: 'C:/your-project/data-ocean/.dataocean/hmac-key.txt'
+#   governance-ai:
+#     enabled: true
+#     python-url: http://127.0.0.1:18090
+#     java-private-key-file: ../.dataocean/java-private.pem
+#     java-public-key-file: ../.dataocean/java-public.pem
+#     python-public-key-file: ../.dataocean/python-public.pem
+#   models:
+#     allowed-hosts: 'maas.qianwenaiapi.com,dashscope.aliyuncs.com,api.openai.com,api.anthropic.com'

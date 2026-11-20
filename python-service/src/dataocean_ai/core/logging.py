@@ -5,13 +5,13 @@ import sys
 import time
 
 
-def configure_logging(level: str) -> None:
-    """日志统一使用 UTC 秒级时间，不记录请求正文或连接凭据。"""
+def configure_logging(level: str, output: str = "stdout") -> None:
+    """统一使用 UTC 秒级时间，按启动配置选定宿主机输出流。"""
     logging.Formatter.converter = time.gmtime
     logging.basicConfig(
         level=level,
         format="%(asctime)sZ %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
-        stream=sys.stdout,
+        stream=sys.stderr if output == "stderr" else sys.stdout,
         force=True,
     )

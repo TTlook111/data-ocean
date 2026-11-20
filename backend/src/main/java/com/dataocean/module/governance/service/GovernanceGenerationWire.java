@@ -22,10 +22,13 @@ public final class GovernanceGenerationWire {
      * @param columns 获准发送的技术字段
      * @param contentPaths 本次实际生成范围
      * @param notes 已核对当前状态的输入片段
+     * @param inputLimits Java 选取阶段触发的裁剪原因
+     * @param targetColumn 当前字段的结构，表说明任务为空
+     * @param discovery 作用于当前对象的候选发现范围
      */
     public record Context(
             String objectName, String sourceComment, List<Column> columns, List<String> contentPaths,
-            List<Note> notes) {}
+            List<Note> notes, List<String> inputLimits, Column targetColumn, GovernanceDiscoveryWire.Scope discovery) {}
 
     /**
      * 源库列的必要技术事实。
@@ -71,9 +74,12 @@ public final class GovernanceGenerationWire {
      * @param evidence 实际采用的出处
      * @param usedNoteIds 本次实际取用的限定资料
      * @param call 实际模型的调用诊断
+     * @param inputLimits 本次调用的受控裁剪原因
+     * @param candidates 候选发现时实际返回的列表
      */
     public record Result(
-            JsonNode content, List<Evidence> evidence, List<String> usedNoteIds, Call call) {
+            JsonNode content, List<Evidence> evidence, List<String> usedNoteIds, Call call,
+            List<String> inputLimits, List<GovernanceDiscoveryWire.Proposal> candidates) {
     }
 
     /**

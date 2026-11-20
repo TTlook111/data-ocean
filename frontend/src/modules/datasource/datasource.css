@@ -1,37 +1,7 @@
-/* 数据源列表共享可伸缩的结果区。 */
-.record-page {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 24px;
-}
-
 /* 数据源枚举筛选沿用普通字段的 200px 基准和状态列的最小宽度。 */
 .ds-query-panel .ant-form-item:has(.ant-select) {
   flex: 0 1 200px;
   min-width: 160px;
-}
-
-/* 日期查询前的普通字段等宽，独立换行时也不会独自撑满整行。 */
-.ds-query-panel .ant-form:has(> .ds-date-query-tail) > .ant-form-item {
-  flex: 0 1 200px;
-  min-width: min(100%, 200px);
-}
-
-/* 双日期、状态与按钮在同组对齐，工作区不足时按字段换行。 */
-.ds-query-panel .ds-date-query-tail {
-  flex-basis: 600px;
-  min-width: min(100%, 600px);
-  flex-wrap: wrap;
-}
-
-/* 日期组件占满实际预算，消除日期后方未被控件使用的列宽。 */
-.ds-query-panel .ds-date-query-tail .ant-form-item:has(.ant-picker) {
-  flex-basis: 280px;
-  flex-grow: 1;
-  min-width: min(100%, 280px);
 }
 
 /* 记录来源和主要操作处在同一工具栏。 */
@@ -194,20 +164,6 @@
   margin-block-start: 16px;
   padding-block-start: 16px;
   border-block-start: 1px solid var(--do-line);
-}
-
-/* 对话框名称仅供读屏使用，标题栏不占表单可视空间。 */
-.ds-editor.ant-modal .ant-modal-header {
-  min-height: 0;
-  height: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-/* 右上角关闭键独立于隐藏标题，首组标签给它保留点击空间。 */
-.ds-editor .ds-editor-section:first-child > h3 {
-  padding-inline-end: 40px;
 }
 
 /* 字段标签使用后台正文字号和较稳的字重，输入本身保留原样。 */

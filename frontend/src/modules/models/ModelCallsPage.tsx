@@ -6,7 +6,7 @@ import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { DetailFooter, displayTime, Status } from '../../shared/Records';
 import type { Page } from '../iam/types';
-import { modelFailureLabels, modelProtocols, type ModelConfig } from './types';
+import { modelFailureLabels, modelNodeInfo, modelProtocols, type ModelConfig } from './types';
 
 /**
  * 调用记录复用配置的字段含义，历史缺项显示未知。
@@ -16,6 +16,10 @@ interface ModelCall {
    * 调用记录 ID。
    */
   id: string;
+  /**
+   * 实际用于当次调用的业务节点。
+   */
+  nodeCode: string;
   /**
    * 当次配置名称。
    */
@@ -57,10 +61,23 @@ interface ModelCall {
    */
   outputTokens: number | null;
   /**
+   * 可披露的上下文裁剪原因编码。
+   */
+  inputLimits?: string | null;
+  /**
    * 调用的 UTC 时间。
    */
   recordedAt: string;
 }
+
+/**
+ * 诊断只显示限制原因，原始资料和列名沿用治理权限。
+ */
+const inputLimitLabels: Record<string, string> = {
+  COLUMN_LIMIT: '结构列数超过上限',
+  INPUT_BUDGET: '部分上下文超出输入预算',
+  ATTACHMENT_UNAVAILABLE: '部分附件未能提取文本',
+};
 
 /**
  * 显示真实调用及使用的历史配置修订。
@@ -72,7 +89,7 @@ export function ModelCallsPage() {
     queryKey: ['model-calls', paging],
     queryFn: () => api<Page<ModelCall>>(`/models/calls?${queryString(paging)}`),
   });
-  // 当前正式接通的诊断来自表说明节点，兼容该节点的早期调用编码。
+  // 调用节点以当次回执为准。
   const columns: TableProps<ModelCall>['columns'] = [
     {
       title: '当次模型 / 修订',
@@ -80,7 +97,11 @@ export function ModelCallsPage() {
       render: (_, row) =>
         row.configName ? `${row.configName} · r${row.revision}` : (row.modelName ?? '未知'),
     },
-    { title: '节点', width: 130, render: () => '表说明生成' },
+    {
+      title: '节点',
+      width: 130,
+      render: (_, row) => modelNodeInfo[row.nodeCode]?.name ?? row.nodeCode,
+    },
     {
       title: '接口格式',
       width: 180,
@@ -106,22 +127,24 @@ export function ModelCallsPage() {
     },
   ];
   return (
-    <section aria-label="调用记录与故障">
+    <section className="record-page" aria-label="调用记录与故障">
       {/* 诊断列表使用共用分页和空态。 */}
-      <RecordTable
-        rowKey="id"
-        columns={columns}
-        dataSource={calls.data?.items}
-        loading={calls.isPending}
-        error={calls.error}
-        retry={() => void calls.refetch()}
-        pagination={{
-          current: calls.data?.pageNum ?? paging.pageNum,
-          pageSize: paging.pageSize,
-          total: calls.data?.total,
-          onChange: (pageNum, pageSize) => setPaging({ pageNum, pageSize }),
-        }}
-      />
+      <div className="panel records-panel">
+        <RecordTable
+          rowKey="id"
+          columns={columns}
+          dataSource={calls.data?.items}
+          loading={calls.isPending}
+          error={calls.error}
+          retry={() => void calls.refetch()}
+          pagination={{
+            current: calls.data?.pageNum ?? paging.pageNum,
+            pageSize: paging.pageSize,
+            total: calls.data?.total,
+            onChange: (pageNum, pageSize) => setPaging({ pageNum, pageSize }),
+          }}
+        />
+      </div>
       {/* 详情仅显示当次配置元数据和可披露的调用事实。 */}
       <Drawer
         title="调用详情"
@@ -161,6 +184,19 @@ export function ModelCallsPage() {
                     ? '未知'
                     : `输入 ${detail.inputTokens} · 输出 ${detail.outputTokens} token`,
               },
+              ...(detail.inputLimits
+                ? [
+                    {
+                      key: 'input-limits',
+                      label: '输入范围',
+                      children: detail.inputLimits
+                        .split(',')
+                        .map((code) => inputLimitLabels[code])
+                        .filter(Boolean)
+                        .join('、'),
+                    },
+                  ]
+                : []),
               ...(detail.failureCode
                 ? [
                     {

@@ -481,6 +481,12 @@ export function Application() {
     },
   ];
 
+  // 直接进入深链时展开当前模块，保证侧栏能显示实际页面位置。
+  const activeMenuKey = location.pathname === '/account' ? '/account' : selected?.key;
+  const activeMenuGroup = menus.find(
+    (item) => 'children' in item && item.children?.some((child) => child.key === activeMenuKey),
+  );
+
   // 顶栏贯穿整个窗口，侧栏从顶栏下方开始，沿用原型的导航层级。
   return (
     <SessionContext.Provider value={session}>
@@ -566,8 +572,8 @@ export function Application() {
               mode="inline"
               inlineIndent={12}
               aria-label="后台管理菜单"
-              defaultOpenKeys={['sources-group', 'people-group', 'personal-group']}
-              selectedKeys={[location.pathname === '/account' ? '/account' : (selected?.key ?? '')]}
+              defaultOpenKeys={activeMenuGroup ? [activeMenuGroup.key] : []}
+              selectedKeys={activeMenuKey ? [activeMenuKey] : []}
               onClick={({ key }) => openPage(key)}
               items={menus}
             />

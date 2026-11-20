@@ -65,10 +65,17 @@ import lombok.RequiredArgsConstructor;
 public class GovernanceGenerationTasks implements GovernanceGenerationService {
 
     /**
-     * 首段仅做表说明，字段生成依赖后续节点。
+     * 表说明可以生成的文本范围。
      */
     private static final List<String> TABLE_PATHS = List.of("businessName", "purpose", "rowGrain", "rowIdentity",
             "dataScope", "timeSemantics", "updatePolicy", "usageNotes", "qualityNotes");
+
+    /**
+     * 字段解释先生成可独立审核的文本说明，编码映射保留人工核对。
+     */
+    private static final List<String> COLUMN_PATHS = List.of("businessName", "meaning", "valueDescription",
+            "unit", "format", "nullMeaning", "emptyMeaning", "zeroMeaning", "timeSemantics", "businessTimeZone",
+            "usageRule", "usageNotes", "sensitivityNotes");
 
     /**
      * 仅登记预览中明确可见的、有界同源资料输入。
@@ -112,6 +119,11 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      * 保存完整固定输入与目标范围。
      */
     private final GovernanceGenerationRecords records;
+
+    /**
+     * 候选发现的范围校验与版本存储。
+     */
+    private final GovernanceDiscovery discovery;
 
     /**
      * 保留模型原始业务建议。
@@ -207,7 +219,7 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
         permissions.require("governance.suggest");
         var source = catalog.source(sourceId, false);
         var scope = scope(source, object, input);
-        models.requireBinding(ModelRegistry.TABLE_DESCRIPTION);
+        models.requireBinding(node(scope.context().target()));
         var review = reviews.preview("governance.suggest", scope.context().target().commandTarget(),
                 scope.context().item() == null ? null : scope.context().item().getVersion(), signature(scope),
                 List.of(), List.of(), List.of());
@@ -223,9 +235,32 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public GenerationAcceptedVO accept(long sourceId, long object, GenerateScopeDTO input, String command) {
-        var target = GovernanceTarget.table(sourceId, object);
+        var target = requestedTarget(sourceId, object, input);
         MutationVO saved = commands.execute("governance.suggest", command, target.commandTarget(), input, null,
                 false, false, () -> acceptLocked(sourceId, object, input, command));
+        var task = require(saved.getTargetId(), sourceId);
+        return new GenerationAcceptedVO(task.getRequestId(), task.getCommandId(), task.getState(), task.getVersion());
+    }
+
+    /**
+     * 在原队列和幂等命令边界内接收一个发现任务。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public GenerationAcceptedVO discover(long sourceId, long object, String kind, String command) {
+        discovery.node(kind);
+        var target = GovernanceTarget.table(sourceId, object);
+        MutationVO saved = commands.execute("governance.suggest", command, target.commandTarget() + "/" + kind,
+                kind, null, false, false, () -> {
+                    // 接收时锁定同一来源的目录与有权读取的资料。
+                    requireModelSource(sourceId);
+                    var scope = catalog.source(sourceId, true);
+                    var context = entries.get(scope, target);
+                    if (!"AVAILABLE".equals(context.availability())) {
+                        throw BizIllegalException.state("当前对象不可发现候选");
+                    }
+                    var inputs = availableNotes(sourceId);
+                    return saveTask(new Scope(context, List.of(), inputs), command, kind);
+                });
         var task = require(saved.getTargetId(), sourceId);
         return new GenerationAcceptedVO(task.getRequestId(), task.getCommandId(), task.getState(), task.getVersion());
     }
@@ -255,8 +290,8 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
                             .stream().map(evidence::view).toList(),
                     permissions.has("diagnostics.view") ? Long.toString(suggestion.getModelCallId()) : null);
         }
-        var targetView = new GenerationTargetVO(GovernanceTarget.table(source, task.getObjectId()).view(),
-                task.getState(), entries.basis(task.getSnapshotId(), target.objectRevisionId(), null),
+        var targetView = new GenerationTargetVO(savedTarget(task, target).view(),
+                task.getState(), entries.basis(task.getSnapshotId(), target.objectRevisionId(), target.columnRevisionId()),
                 detail, task.getFailureCode());
         var supplied = showNotes ? input.stream()
                 .map(row -> noteView(notes.revision(source, row.noteId(), row.noteRevisionId()), row.state())).toList() : null;
@@ -276,9 +311,11 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
             // 老任务或已终结的代次不能再次取用资料。
             throw stale();
         }
-        var current = eligible(task, catalog.source(task.getSourceId(), false));
+        var source = catalog.source(task.getSourceId(), false);
+        var current = eligible(task, source);
         var inputs = inputs(task);
         var attachments = new ArrayList<GovernanceGenerationWire.Note>();
+        var inputLimits = new ArrayList<String>();
         int remaining = 4 * MAX_ATTACHMENT_BYTES;
         for (var note : inputs) {
             // 仅选择受控预算内的原件，较大原件保留在来源记录供人工阅读。
@@ -289,17 +326,30 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
                     remaining -= file.byteSize();
                     files.add(new GovernanceGenerationWire.Attachment(Long.toString(file.id()), file.name(),
                             Base64.getEncoder().encodeToString(notes.attachment(note, file.id()))));
+                } else if (!inputLimits.contains("INPUT_BUDGET")) {
+                    // 仅回传触发预算的原因，原件仍按来源权限回看。
+                    inputLimits.add("INPUT_BUDGET");
                 }
             }
             attachments.add(new GovernanceGenerationWire.Note(Long.toString(note.noteId()), note.body(), files));
         }
         var origin = current.entry().observation().structure().object();
+        if (current.entry().columns().size() > 100) {
+            // Java 的结构选择上限也进入当次模型上下文回执。
+            inputLimits.add("COLUMN_LIMIT");
+        }
+        var field = current.field();
+        var targetColumn = field == null ? null
+                : new GovernanceGenerationWire.Column(field.name(), field.nativeType(), field.sourceComment());
+        var discoveryScope = task.getDiscoveryKind() == null ? null
+                : discovery.input(source, current.entry(), task.getDiscoveryKind()).scope();
         return new GovernanceGenerationWire.Context(
                 (Objects.toString(origin.schema(), "").isBlank() ? "" : origin.schema() + ".") + origin.name(),
                 origin.comment(),
                 current.entry().columns().stream().limit(100).map(column -> new GovernanceGenerationWire.Column(
                         column.name(), column.nativeType(), column.sourceComment())).toList(),
-                json.strings(records.target(task.getRequestId()).contentPaths()), attachments);
+                json.strings(records.target(task.getRequestId()).contentPaths()), attachments, inputLimits, targetColumn,
+                discoveryScope);
     }
 
     /**
@@ -327,6 +377,24 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
         update.setModelStartedAt(LocalDateTime.now(ZoneOffset.UTC));
         tasks.updateById(update);
         return invocation;
+    }
+
+    /**
+     * 字段解释每轮外发前复核原任务、来源、当前资格和原模型修订。
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public void verifyContinuation(String requestId, int runVersion) {
+        var task = require(requestId, null);
+        var target = records.target(task.getRequestId());
+        if (!"COLUMN".equals(target.kind()) || task.getRunVersion() != runVersion
+                || task.getModelStartedAt() == null || task.getModelRevisionId() == null
+                || terminal(task.getState()) || secondsRemaining(task) <= 0) {
+            // 只有当次已取得外发凭据的字段任务才可继续核验。
+            throw stale();
+        }
+        eligible(task, catalog.source(task.getSourceId(), false));
+        inputs(task);
+        models.verifyActive(task.getModelRevisionId());
     }
 
     /**
@@ -372,7 +440,13 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
             try {
                 var entry = eligible(current, source);
                 var inputs = inputs(current);
-                finish(current, entry, inputs, status.result());
+                if (current.getDiscoveryKind() == null) {
+                    // 单条治理建议沿用原有回写。
+                    finish(current, entry, inputs, status.result());
+                } else {
+                    // 发现结果写成待确认候选，人工内容和审核单独办理。
+                    finishDiscovery(current, source, entry, inputs, status.result());
+                }
                 advanceState(current, "SUCCEEDED", null, 0);
             } catch (BizIllegalException error) {
                 // 资格变化使旧结果不得进入业务建议。
@@ -426,6 +500,16 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
         var context = scope.context();
         reviews.verify("governance.suggest", context.target().commandTarget(),
                 context.item() == null ? null : context.item().getVersion(), signature(scope), input.reviewToken());
+        return saveTask(scope, command, null);
+    }
+
+    /**
+     * 新接收的任务共用资料固定、命令记录及队列状态。
+     */
+    private MutationVO saveTask(Scope scope, String command, String kind) {
+        var context = scope.context();
+        var sourceId = context.target().source();
+        var object = context.target().object();
         var item = entries.ensure(context.target(), context.entry().generation());
 
         var task = new GovernanceGenerationPO();
@@ -434,21 +518,25 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
         task.setSourceId(sourceId);
         task.setObjectId(object);
         task.setSnapshotId(context.entry().observation().snapshotId());
-        task.setModelRevisionId(models.requireBinding(ModelRegistry.TABLE_DESCRIPTION));
+        task.setDiscoveryKind(kind);
+        task.setModelRevisionId(models.requireBinding(kind == null ? node(context.target()) : discovery.node(kind)));
         task.setRequestedBy(UserContext.getUser());
         task.setAuthenticationVersion(UserContext.current().authenticationVersion());
         task.setState("PENDING_DISPATCH");
         task.setRunVersion(1);
         task.setVersion(1);
         tasks.insert(task);
-        records.insertTarget(task.getRequestId(), item.getId(), item.getVersion(), context.structureRevision(),
-                json.write(scope.paths()));
+        records.insertTarget(task.getRequestId(), item.getId(), item.getVersion(),
+                context.entry().observation().revisionId(), context.columnRevision(), json.write(scope.paths()));
         for (var note : scope.notes()) {
             // 同一来源锁中登记准确输入，原件删除与取用只能有一方成功。
             notes.reference(sourceId, note, "GOV_TASK_INPUT", task.getRequestId());
             records.addInput(task.getRequestId(), note.noteId(), note.revisionId());
         }
-        impacts.started(sourceId, item.getId());
+        if (kind == null) {
+            // 关联、指标发现不计入表说明及字段的进度。
+            impacts.started(sourceId, item.getId());
+        }
         events.requested(sourceId, task.getRequestId(), task.getCommandId());
         audit.record(AuditWriteDTO.builder().actionCode("governance.suggest").targetType("governance_generation")
                 .targetId(task.getRequestId()).targetName(context.entry().observation().structure().object().name())
@@ -462,7 +550,7 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      */
     private void finish(GovernanceGenerationPO task, GovernanceEntries.Context entry, List<Note> inputs,
             GovernanceGenerationWire.Result result) {
-        var definition = content.normalize(false, result.content());
+        var definition = content.normalize(entry.target().isColumn(), result.content());
         var allowed = Set.copyOf(json.strings(records.target(task.getRequestId()).contentPaths()));
         var reported = result.call();
         if (definition.isEmpty() || !allowed.containsAll(definition.propertyNames())
@@ -488,7 +576,7 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
             throw stale();
         }
 
-        var call = recordCall(task, "SUCCEEDED", null, reported);
+        var call = recordCall(task, "SUCCEEDED", null, reported, result.inputLimits());
 
         var suggestion = new GovernanceSuggestionPO();
         suggestion.setRequestId(task.getRequestId());
@@ -510,22 +598,50 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
     }
 
     /**
+     * 对账真实调用及已固定的同源输入，再持久化候选。
+     */
+    private void finishDiscovery(GovernanceGenerationPO task, GovernanceCatalog.Source source,
+            GovernanceEntries.Context entry, List<Note> inputs, GovernanceGenerationWire.Result result) {
+        var reported = result.call();
+        if (reported == null || task.getModelStartedAt() == null || task.getModelRevisionId() == null
+                || !Long.toString(task.getModelRevisionId()).equals(reported.revisionId())
+                || result.usedNoteIds() == null || !inputs.stream().map(note -> Long.toString(note.noteId()))
+                        .collect(java.util.stream.Collectors.toSet()).containsAll(result.usedNoteIds())) {
+            // 未取得授权、模型修订不一致或来源越界时不接收结果。
+            throw stale();
+        }
+        discovery.finish(task, discovery.input(source, entry.entry(), task.getDiscoveryKind()), inputs,
+                result.candidates());
+        recordCall(task, "SUCCEEDED", null, reported, result.inputLimits());
+        for (Note note : inputs) {
+            // 区分提供给模型的输入与候选实际引用的出处。
+            records.inputState(task.getRequestId(), note.noteId(),
+                    result.usedNoteIds().contains(Long.toString(note.noteId())) ? "USED" : "SKIPPED");
+        }
+    }
+
+    /**
      * 权限、源、结构及人工内容原版本需持续满足。
      */
     private GovernanceEntries.Context eligible(
             GovernanceGenerationPO task, GovernanceCatalog.Source source) {
         requireModelSource(source.id());
+        if (task.getDiscoveryKind() != null && !Objects.equals(task.getSnapshotId(), source.snapshotId())) {
+            // 多表发现只允许在接收时固定的整个成功目录上执行。
+            throw stale();
+        }
         var rights = actors.require(task.getRequestedBy(), task.getAuthenticationVersion(),
                 "governance.view", "governance.suggest");
         if (!records.inputs(task.getRequestId()).isEmpty() && !rights.contains("business-notes.view")) {
             // 发起人失去原资料资格时停止新的外发和结果应用。
             throw BizIllegalException.denied();
         }
-        var current = entries.get(source, GovernanceTarget.table(source.id(), task.getObjectId()));
         var destination = records.target(task.getRequestId());
+        var current = entries.get(source, savedTarget(task, destination));
         if (!"AVAILABLE".equals(current.availability()) || current.item() == null
                 || current.item().getVersion() != destination.baseItemVersion()
-                || current.structureRevision() != destination.objectRevisionId()) {
+                || current.entry().observation().revisionId() != destination.objectRevisionId()
+                || !Objects.equals(current.columnRevision(), destination.columnRevisionId())) {
             throw stale();
         }
         return current;
@@ -557,33 +673,61 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
     }
 
     /**
-     * 创建本阶段的单一表说明生成范围。
+     * 创建一个表说明或字段解释生成范围。
      */
     private Scope scope(GovernanceCatalog.Source source, long object, GenerateScopeDTO input) {
         requireModelSource(source.id());
         var chosen = input.targets().get(0);
-        if (!"TABLE".equals(chosen.kind()) || !Long.toString(object).equals(chosen.targetId())) {
-            // 单张表说明是本阶段唯一真实 AI 能力。
-            throw BizIllegalException.invalid("请选择当前对象的表说明");
-        }
-        var context = entries.get(source, GovernanceTarget.table(source.id(), object));
+        var target = requestedTarget(source.id(), object, input);
+        var context = entries.get(source, target);
         entries.verify(context, chosen.precondition(), false);
-        var paths = chosen.contentPaths() == null ? TABLE_PATHS : chosen.contentPaths();
-        if (paths.isEmpty() || paths.stream().distinct().count() != paths.size() || !TABLE_PATHS.containsAll(paths)) {
-            throw BizIllegalException.invalid("请选择实际可生成的表说明字段");
+        var availablePaths = target.isColumn() ? COLUMN_PATHS : TABLE_PATHS;
+        var paths = chosen.contentPaths() == null ? availablePaths : chosen.contentPaths();
+        if (paths.isEmpty() || paths.stream().distinct().count() != paths.size() || !availablePaths.containsAll(paths)) {
+            // 字段和表说明各自限定可生成文本。
+            throw BizIllegalException.invalid("请选择当前条目可生成的内容");
         }
-        var available = permissions.has("business-notes.view")
-                ? notes.active(source.id()).stream().limit(NOTE_LIMIT).toList() : List.<Note>of();
+        var available = availableNotes(source.id());
         return new Scope(context, paths, available);
+    }
+
+    /**
+     * 复用有界的同源有效资料选择。
+     */
+    private List<Note> availableNotes(long source) {
+        return permissions.has("business-notes.view")
+                ? notes.active(source).stream().limit(NOTE_LIMIT).toList() : List.of();
     }
 
     /**
      * 核对确切结构及实质依据，标题改动仍使用同内容固定修订。
      */
     private List<Object> signature(Scope scope) {
-        return List.of(scope.context().structureRevision(), scope.paths(),
+        return List.of(scope.context().entry().observation().revisionId(), scope.context().structureRevision(), scope.paths(),
                 scope.notes().stream().map(note -> List.of(note.noteId(), note.body(),
                         note.files().stream().map(GovernanceNotes.File::digest).sorted().toList())).toList());
+    }
+
+    /**
+     * 绑定客户端提供的条目标识，后续由目录服务核对成员身份。
+     */
+    private GovernanceTarget requestedTarget(long source, long object, GenerateScopeDTO input) {
+        var chosen = input.targets().get(0);
+        return GovernanceTarget.parse(source, object, chosen.kind(), chosen.targetId());
+    }
+
+    /**
+     * 由任务和固定条目记录重建实际治理目标。
+     */
+    private GovernanceTarget savedTarget(GovernanceGenerationPO task, GovernanceGenerationRecords.Target target) {
+        return new GovernanceTarget(task.getSourceId(), task.getObjectId(), target.kind(), target.targetId());
+    }
+
+    /**
+     * 选择当前真实业务目标所分配的模型。
+     */
+    private String node(GovernanceTarget target) {
+        return target.isColumn() ? ModelRegistry.FIELD_EXPLANATION : ModelRegistry.TABLE_DESCRIPTION;
     }
 
     /**
@@ -638,10 +782,11 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
      * 以平台固定的任务修订记录可审计的调用元数据。
      */
     private GovernanceModelCallPO recordCall(GovernanceGenerationPO task, String state, String error,
-            GovernanceGenerationWire.Call report) {
+            GovernanceGenerationWire.Call report, List<String> inputLimits) {
         var call = new GovernanceModelCallPO();
         call.setRequestId(task.getRequestId());
-        call.setNodeCode(ModelRegistry.TABLE_DESCRIPTION);
+        call.setNodeCode(task.getDiscoveryKind() == null
+                ? node(savedTarget(task, records.target(task.getRequestId()))) : discovery.node(task.getDiscoveryKind()));
         call.setState(state);
         call.setFailureCode(error);
         if (report != null) {
@@ -651,6 +796,12 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
             call.setElapsedMs(report.elapsedMs());
             call.setInputTokens(report.inputTokens());
             call.setOutputTokens(report.outputTokens());
+        }
+        if (inputLimits != null && !inputLimits.isEmpty()) {
+            // 记录固定原因集合，不把工作者返回的任意文本存入诊断。
+            var allowed = Set.of("COLUMN_LIMIT", "ATTACHMENT_UNAVAILABLE", "INPUT_BUDGET");
+            call.setInputLimits(String.join(",", inputLimits.stream()
+                    .filter(Objects::nonNull).filter(allowed::contains).distinct().sorted().toList()));
         }
         modelCalls.insert(call);
         return call;
@@ -662,7 +813,7 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
     private void advanceState(GovernanceGenerationPO task, String state, String error, int delay) {
         if ("FAILED".equals(state) && task.getModelStartedAt() != null) {
             // 只记录曾实际领取外发许可的失败，不伪造提供方回执。
-            recordCall(task, state, error, null);
+            recordCall(task, state, error, null, null);
         }
         records.advance(task.getRequestId(), task.getLeaseToken(), state, error, delay);
     }

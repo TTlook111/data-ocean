@@ -1,11 +1,6 @@
 /* 列表查询延续项目统一的 40px 控件和源内布局。 */
 .gov-query .ant-select {
-  min-width: 156px;
-}
-
-/* 工作台搜索框在下一项换行前保留完整的提示文字。 */
-.gov-query input[aria-label='表名、业务名称或原注释'] {
-  min-width: 180px;
+  width: 100%;
 }
 
 /* 同一行的复核入口紧贴目标字段名称。 */
@@ -20,6 +15,11 @@
 /* 复核链接为内容保留操作区域，避免多条来源导致名称互相挤压。 */
 .gov-impact-links .ant-btn {
   padding-inline: 0;
+}
+
+/* 标题、页签与正文各自承接面板内距，避免在详情外框重复叠加。 */
+.panel.gov-detail-panel {
+  padding: 0;
 }
 
 /* 详情沿用 24px 的工作区内距，保留紧凑标题和来源。 */
@@ -165,6 +165,7 @@
 .gov-editor-actions {
   display: flex;
   flex-wrap: wrap;
+  gap: 8px;
   position: sticky;
   z-index: 1;
   bottom: 0;
@@ -213,4 +214,32 @@
   .gov-split {
     grid-template-columns: 184px minmax(0, 1fr);
   }
+}
+/* 候选发现操作向右与现有页签内容对齐。 */
+.gov-discovery-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 24px;
+}
+
+/* 候选表单采用与其他治理定义相同的阅读宽度。 */
+.gov-discovery-editor {
+  width: 100%;
+  max-width: 848px;
+  padding-top: 0;
+}
+
+/* 候选状态和证据入口在表单前可见，阅读长标题时按完整入口折行。 */
+.gov-candidate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+}
+
+/* 固定底栏集中处理候选，确认位于右侧。 */
+.gov-discovery-editor .gov-editor-actions {
+  justify-content: flex-end;
 }

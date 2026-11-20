@@ -422,7 +422,7 @@ public class GovernanceQueries implements GovernanceQueryService {
         boolean removal = "REMOVED".equals(context.availability()) && context.item() != null
                 && impacts.open(context.item().getId());
         return new GovernanceActionsVO(available && permissions.has("governance.edit"),
-                available && !context.target().isColumn() && permissions.has("governance.suggest"),
+                available && permissions.has("governance.suggest"),
                 available && permissions.has("governance.confirm"),
                 available && permissions.has("governance.supplement"),
                 available && permissions.has("governance.forbid"),

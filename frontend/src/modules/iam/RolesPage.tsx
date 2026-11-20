@@ -1,4 +1,5 @@
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import {
   Alert,
@@ -849,11 +850,13 @@ function RoleMembers({
   const [form] = Form.useForm();
 
   const [personId, setPersonId] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   /**
    * 角色成员按姓名、登录名和状态查询，重置保留当前每页条数。
    */
   function resetMembers() {
+    setMoreOpen(false);
     form.setFieldsValue({ displayName: undefined, username: undefined, displayStatus: undefined });
     setQuery((previous) => ({
       displayName: '',
@@ -964,35 +967,51 @@ function RoleMembers({
                       name="role-members-query"
                       form={form}
                       layout="inline"
-                      className="member-query"
+                      className="member-query compact-query"
                       onFinish={(values) => {
-                        setQuery((previous) => ({ ...previous, ...values, pageNum: 1 }));
+                        // 保留收起的登录名和账号状态，筛选回到首页。
+                        setMoreOpen(false);
+                        setQuery((previous) => ({
+                          ...previous,
+                          ...values,
+                          username: form.getFieldValue('username') ?? '',
+                          displayStatus: form.getFieldValue('displayStatus') ?? '',
+                          pageNum: 1,
+                        }));
                         form.focusField('displayName');
                       }}
                     >
                       <Form.Item name="displayName">
                         <Input aria-label="姓名" placeholder="姓名" allowClear />
                       </Form.Item>
-                      <Form.Item name="username">
-                        <Input aria-label="登录名" placeholder="登录名" allowClear />
-                      </Form.Item>
-                      {/* 与部门成员共用状态及查询的成组换行，避免抽屉内按钮孤立。 */}
-                      <div className="member-query-tail">
-                        <Form.Item name="displayStatus">
-                          <Select
-                            aria-label="账号状态"
-                            placeholder="全部状态"
-                            allowClear
-                            options={[
-                              { value: 'ENABLED', label: '正常' },
-                              { value: 'DISABLED', label: '停用' },
-                              { value: 'ARCHIVED', label: '已归档' },
-                              { value: 'PENDING_FIRST_LOGIN', label: '待首次登录' },
-                              { value: 'PASSWORD_CHANGE_REQUIRED', label: '待改密' },
-                            ]}
-                          />
-                        </Form.Item>
+                      {/* 抽屉内的成员查询和部门成员共用紧凑入口。 */}
+                      <div className="query-tail-actions">
                         <Space>
+                          <MoreFilters
+                            open={moreOpen}
+                            setOpen={setMoreOpen}
+                            count={
+                              Number(Boolean(query.username)) + Number(Boolean(query.displayStatus))
+                            }
+                          >
+                            <Form.Item name="username">
+                              <Input aria-label="登录名" placeholder="登录名" allowClear />
+                            </Form.Item>
+                            <Form.Item name="displayStatus">
+                              <Select
+                                aria-label="账号状态"
+                                placeholder="全部状态"
+                                allowClear
+                                options={[
+                                  { value: 'ENABLED', label: '正常' },
+                                  { value: 'DISABLED', label: '停用' },
+                                  { value: 'ARCHIVED', label: '已归档' },
+                                  { value: 'PENDING_FIRST_LOGIN', label: '待首次登录' },
+                                  { value: 'PASSWORD_CHANGE_REQUIRED', label: '待改密' },
+                                ]}
+                              />
+                            </Form.Item>
+                          </MoreFilters>
                           <Button htmlType="submit">查询</Button>
                           <Button onClick={resetMembers}>重置</Button>
                         </Space>

@@ -161,7 +161,7 @@ export function CatalogPage() {
         {selected && tab === 'objects' && (
           <>
             {/* 目录筛选与结果面板分别占据统一的工作区边界。 */}
-            <div className="panel query-panel ds-query-panel ds-catalog-query">
+            <div className="panel query-panel ds-query-panel ds-catalog-query compact-query">
               <Form
                 name="catalog-query"
                 form={form}
@@ -201,16 +201,16 @@ export function CatalogPage() {
                     ])}
                   />
                 </Form.Item>
-                {/* 末项状态与查询动作一起换行，按钮继续贴在所在行右侧。 */}
-                <div className="query-tail status-tail">
-                  <Form.Item name="catalogState" className="status-query">
-                    <Select
-                      aria-label="目录状态"
-                      placeholder="目录状态"
-                      allowClear
-                      options={datasourceOptions(['COLLECTED', 'IDENTITY_UNCERTAIN'])}
-                    />
-                  </Form.Item>
+                {/* 日期以外的目录条件常用，直接保持并排。 */}
+                <Form.Item name="catalogState" className="status-query">
+                  <Select
+                    aria-label="目录状态"
+                    placeholder="目录状态"
+                    allowClear
+                    options={datasourceOptions(['COLLECTED', 'IDENTITY_UNCERTAIN'])}
+                  />
+                </Form.Item>
+                <div className="query-tail-actions">
                   <Space>
                     <Button htmlType="submit">查询</Button>
                     <Button onClick={reset}>重置</Button>

@@ -16,6 +16,11 @@ import lombok.Data;
 public class GovernanceGenerationPO {
 
     /**
+     * 关联或指标发现类型，表说明和字段解释为空。
+     */
+    private String discoveryKind;
+
+    /**
      * 生成任务的 UUID。
      */
     @TableId(type = IdType.INPUT)

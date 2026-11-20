@@ -177,22 +177,6 @@
   min-width: min(480px, 100%);
 }
 
-.access-query-tail.has-dates {
-  flex: 1 1 455px;
-  min-width: min(455px, 100%);
-  flex-wrap: wrap;
-}
-
-.query-panel.access-toolbar .access-date-field {
-  flex: 0 1 400px;
-  min-width: min(280px, 100%);
-  max-width: 400px;
-}
-
-.access-date-field .ant-picker {
-  width: 100%;
-}
-
 .access-query-actions {
   min-width: 0;
   margin-inline-start: auto;

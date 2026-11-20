@@ -1,15 +1,4 @@
-import {
-  App,
-  Button,
-  DatePicker,
-  Descriptions,
-  Drawer,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-} from 'antd';
+import { App, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
@@ -18,6 +7,8 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { DetailFooter, ReadState, displayTime } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
+import { QueryDateRange } from '../../shared/QueryDateRange';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
@@ -63,6 +54,7 @@ export function StructureChanges({ source }: { source: string }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [id, setId] = useState<string | null>(null);
   const [checking, setChecking] = useState<StructureChange | null>(null);
   const [review, setReview] = useState<ReviewSubmission | null>(null);
@@ -93,6 +85,7 @@ export function StructureChanges({ source }: { source: string }) {
    * 清除用户和来源链接带入的条件，同时保留当前源、页签与分页尺寸。
    */
   function reset() {
+    setMoreOpen(false);
     form.setFieldsValue({
       keyword: undefined,
       changeType: undefined,
@@ -105,7 +98,7 @@ export function StructureChanges({ source }: { source: string }) {
   return (
     <>
       {/* 过滤顺序按变化对象、类型、发现时间与处理阶段。 */}
-      <div className="panel query-panel ds-query-panel">
+      <div className="panel query-panel ds-query-panel compact-query">
         <Form
           name="structure-change-query"
           form={form}
@@ -114,7 +107,10 @@ export function StructureChanges({ source }: { source: string }) {
             ...Object.fromEntries(params),
             dates: from || to ? [from ? dayjs(from) : null, to ? dayjs(to) : null] : undefined,
           }}
-          onFinish={(values) => {
+          onFinish={() => {
+            // 保留未展开的日期条件，只有查询或重置才应用。
+            const values = form.getFieldsValue(true);
+            setMoreOpen(false);
             const next = {
               ...Object.fromEntries(params),
               pageNum: 1,
@@ -155,23 +151,26 @@ export function StructureChanges({ source }: { source: string }) {
               ])}
             />
           </Form.Item>
-          {/* 变化筛选和采集记录共用完整的日期及查询操作布局。 */}
-          <div className="query-tail ds-date-query-tail">
-            <Form.Item name="dates">
-              <DatePicker.RangePicker
-                aria-label="发现时间范围"
-                placeholder={['开始日期', '结束日期']}
-              />
-            </Form.Item>
-            <Form.Item name="stage" className="status-query">
-              <Select
-                aria-label="处理阶段"
-                placeholder="处理阶段"
-                allowClear
-                options={datasourceOptions(['PENDING_REVIEW', 'PENDING_GOVERNANCE', 'COMPLETED'])}
-              />
-            </Form.Item>
+          {/* 常用阶段在工具栏中，发现日期收入更多筛选。 */}
+          <Form.Item name="stage" className="status-query">
+            <Select
+              aria-label="处理阶段"
+              placeholder="处理阶段"
+              allowClear
+              options={datasourceOptions(['PENDING_REVIEW', 'PENDING_GOVERNANCE', 'COMPLETED'])}
+            />
+          </Form.Item>
+          <div className="query-tail-actions">
             <Space>
+              <MoreFilters
+                open={moreOpen}
+                setOpen={setMoreOpen}
+                count={Number(Boolean(from || to))}
+              >
+                <Form.Item name="dates" className="query-more-date">
+                  <QueryDateRange label="发现时间范围" />
+                </Form.Item>
+              </MoreFilters>
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>

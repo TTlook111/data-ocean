@@ -1,0 +1,398 @@
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  App,
+  Button,
+  Descriptions,
+  Drawer,
+  Empty,
+  Form,
+  Input,
+  Pagination,
+  Space,
+  Tag,
+} from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useBeforeUnload, useBlocker } from 'react-router';
+import { api, mutation, queryString } from '../../shared/api';
+import { readErrorMessage, ReadState } from '../../shared/Records';
+import { allowed, useSession } from '../../shared/session';
+import type { Page } from '../iam/types';
+import { modelFailureLabels } from '../models/types';
+import { GovernanceSourceDrawer } from './GovernanceSources';
+import type { SourcePeek } from './GovernanceSources';
+import type { Generation } from './types';
+
+/**
+ * 当前页签对应的实际发现节点。
+ */
+export type DiscoveryKind = 'RELATION' | 'METRIC';
+
+/**
+ * 当前候选的可编辑业务定义。
+ */
+type Definition = {
+  /** 当前名称。 */
+  name: string;
+  /** 关联条件或含义。 */
+  meaning: string;
+  /** 完整规则。 */
+  rule: string;
+  /** 适用边界。 */
+  usage: string;
+};
+
+/**
+ * 当次发现保留的结构位置。
+ */
+type Structure = {
+  /** 字段稳定标识。 */
+  fieldId: string;
+  /** 对象的固定修订。 */
+  objectRevision: string;
+  /** 字段固定修订。 */
+  fieldRevision: string;
+  /** 实际限定名。 */
+  label: string;
+  /** 采集类型。 */
+  type: string;
+};
+
+/**
+ * 候选与其可披露的实际证据。
+ */
+type Candidate = {
+  /** 候选身份。 */
+  id: string;
+  /** 编辑并发版本。 */
+  version: number;
+  /** 最新编辑或审核状态。 */
+  state: string;
+  /** 固定结构快照。 */
+  snapshotId: string;
+  /** 可见范围内的当前业务内容和关联配对。 */
+  definition: (Definition & { pairs: { left: string; right: string }[] }) | null;
+  /** 原候选采用的确切结构和资料。 */
+  basis: {
+    /** 用到的同源字段。 */
+    structures: Structure[];
+    /** 原文仍从资料查看入口取用。 */
+    notes: { noteId: string; revisionId: string; revision: number; title: string }[];
+    /** 是否来自采集外键。 */
+    foreignKey: boolean;
+  };
+};
+
+/**
+ * 直接在关联、指标页签发现和办理实际候选。
+ */
+export function GovernanceDiscoveryPanel({
+  kind,
+  path,
+  source,
+}: {
+  kind: DiscoveryKind;
+  path: string;
+  source: string;
+}) {
+  const session = useSession();
+  const client = useQueryClient();
+  const { message } = App.useApp();
+  const label = kind === 'RELATION' ? '关联' : '指标';
+  const [request, setRequest] = useState<string>();
+  const [selected, setSelected] = useState<string>();
+  const [page, setPage] = useState(1);
+  const key = ['governance-candidates', path, kind];
+  const list = useQuery({
+    queryKey: [...key, page],
+    queryFn: () =>
+      api<Page<Candidate>>(path + '?' + queryString({ kind, pageNum: page, pageSize: 12 })),
+  });
+  const task = useQuery({
+    queryKey: ['candidate-discovery', source, request],
+    enabled: Boolean(request),
+    queryFn: () => api<Generation>(`/governance/sources/${source}/generations/${request}`),
+    refetchInterval: ({ state }) =>
+      ['SUCCEEDED', 'FAILED'].includes(state.data?.state ?? '') ? false : 1000,
+  });
+  const terminal = task.data?.state;
+  useEffect(() => {
+    // 以持久任务结果触发列表回读，避免用模型响应直接覆盖编辑区。
+    if (terminal === 'SUCCEEDED') {
+      void client.invalidateQueries({ queryKey: ['governance-candidates', path, kind] });
+    }
+  }, [terminal, client, path, kind]);
+  const launch = useMutation({
+    mutationFn: (command: string) =>
+      mutation<Generation & { targetId?: string }>(
+        `${path}/discovery/${kind}`,
+        'POST',
+        undefined,
+        'governance.suggest',
+        command,
+      ),
+    onSuccess: (result) => {
+      // 已接收和成功产出分别由实际请求与回读表达。
+      setRequest(result.requestId ?? result.targetId);
+    },
+    onError: (error) => void message.error(readErrorMessage(error)),
+  });
+  const running =
+    launch.isPending ||
+    Boolean(request && !task.isError && !['FAILED', 'SUCCEEDED'].includes(terminal ?? ''));
+  const items = list.data?.items ?? [];
+  const candidate = items.find((row) => row.id === selected) ?? items[0];
+  return (
+    <section className="gov-discovery">
+      {/* 沿用原型页签内的发现入口，空状态也允许执行。 */}
+      <div className="gov-discovery-toolbar">
+        {allowed(session, 'governance.suggest') && (
+          <Button
+            type={items.length ? 'default' : 'primary'}
+            loading={running}
+            onClick={() => launch.mutate(crypto.randomUUID())}
+          >
+            发现 AI {label}
+          </Button>
+        )}
+      </div>
+      {task.error && <Alert type="error" title={readErrorMessage(task.error)} />}
+      {terminal === 'FAILED' && (
+        <Alert
+          type="error"
+          title={modelFailureLabels[task.data?.failureCode ?? ''] ?? '发现候选未完成'}
+        />
+      )}
+      <ReadState error={list.error} loading={list.isPending} retry={() => void list.refetch()}>
+        {candidate ? (
+          <CandidateEditor
+            key={candidate.id + ':' + candidate.version}
+            candidate={candidate}
+            items={items}
+            path={path}
+            source={source}
+            label={label}
+            choose={setSelected}
+            update={() => void client.invalidateQueries({ queryKey: key })}
+          />
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              terminal === 'SUCCEEDED' ? `当前依据未发现${label}候选` : `暂无${label}候选`
+            }
+          />
+        )}
+        {(list.data?.total ?? 0) > 12 && (
+          <Pagination
+            current={list.data?.pageNum ?? page}
+            pageSize={12}
+            total={list.data?.total}
+            onChange={setPage}
+            showSizeChanger={false}
+          />
+        )}
+      </ReadState>
+    </section>
+  );
+}
+
+/**
+ * 依据与可编辑定义同页呈现，保存不替代人工确认。
+ */
+function CandidateEditor({
+  candidate,
+  items,
+  path,
+  source,
+  label,
+  choose,
+  update,
+}: {
+  candidate: Candidate;
+  items: Candidate[];
+  path: string;
+  source: string;
+  label: string;
+  choose: (id: string) => void;
+  update: () => void;
+}) {
+  const session = useSession();
+  const { modal, message } = App.useApp();
+  const [form] = Form.useForm<Definition>();
+  const [peek, setPeek] = useState<SourcePeek>();
+  const [structure, setStructure] = useState(false);
+  const [error, setError] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const edit = allowed(session, 'governance.edit');
+  const confirm = allowed(session, 'governance.confirm');
+  const save = useMutation({
+    mutationFn: ({ action, values }: { action: 'SAVE' | 'CONFIRM'; values: Definition }) =>
+      api<Candidate>(`${path}/${candidate.id}`, {
+        method: 'PUT',
+        body: { ...values, action, version: candidate.version },
+      }),
+    onSuccess: (_, { action }) => {
+      // 再次读取平台确认版本，保留当前候选。
+      setDirty(false);
+      setError('');
+      update();
+      void message.success(action === 'CONFIRM' ? '治理已确认' : '草稿已保存');
+    },
+    onError: (failure) => setError(readErrorMessage(failure)),
+  });
+  const blocker = useBlocker(dirty || save.isPending);
+  useBeforeUnload((event) => {
+    // 浏览器级离开也保护实际修改。
+    if (dirty || save.isPending) event.preventDefault();
+  });
+  useEffect(() => {
+    // 页签和返回操作都等候人工决定是否丢弃。
+    if (blocker.state !== 'blocked') return;
+    if (save.isPending) {
+      blocker.reset();
+      return;
+    }
+    void Promise.resolve(
+      modal.confirm({
+        title: '有未保存的修改',
+        content: '放弃本次修改？',
+        okText: '放弃修改',
+        cancelText: '继续编辑',
+      }),
+    ).then((discard) => (discard ? blocker.proceed() : blocker.reset()));
+  }, [blocker, modal, save.isPending]);
+  const definition = candidate.definition;
+  const status: Record<string, string> = {
+    CANDIDATE: '待确认',
+    DRAFT: '草稿',
+    CONFIRMED: '已确认',
+    REVIEW: '待复核',
+  };
+  if (!definition) return <Alert type="warning" title="当前权限无法查看该候选依据" />;
+  return (
+    <div className={items.length > 1 ? 'gov-split' : 'gov-single'}>
+      {/* 多候选显示同页导航，单条直接进入行内办理。 */}
+      {items.length > 1 && (
+        <nav className="gov-column-nav" aria-label={label + '候选'}>
+          {items.map((row) => (
+            <Button
+              key={row.id}
+              type={row.id === candidate.id ? 'primary' : 'text'}
+              disabled={save.isPending}
+              onClick={async () => {
+                // 同页候选切换与路由切换一样保护改动。
+                if (row.id === candidate.id) return;
+                if (
+                  dirty &&
+                  !(await modal.confirm({
+                    title: '有未保存的修改',
+                    content: '放弃本次修改？',
+                    okText: '放弃修改',
+                    cancelText: '继续编辑',
+                  }))
+                )
+                  return;
+                choose(row.id);
+              }}
+            >
+              {row.definition?.name ?? '受限候选'}
+            </Button>
+          ))}
+        </nav>
+      )}
+      <div className="gov-content gov-discovery-editor">
+        {/* 先回看依据再决定口径，入口与当前候选状态放在表单的同一行。 */}
+        <div className="gov-candidate-header">
+          <Tag>{status[candidate.state] ?? candidate.state}</Tag>
+          <section className="gov-evidence" aria-label="候选依据">
+            <Space wrap>
+              <Button type="link" onClick={() => setStructure(true)}>
+                {candidate.basis.foreignKey ? '查看采集外键' : '查看结构依据'}
+              </Button>
+              {candidate.basis.notes.map((note) => (
+                <Button
+                  key={note.revisionId}
+                  type="link"
+                  onClick={() =>
+                    setPeek({ kind: 'note', id: note.noteId, revision: note.revision })
+                  }
+                >
+                  {note.title} · 第 {note.revision} 版
+                </Button>
+              ))}
+            </Space>
+          </section>
+        </div>
+        {/* 编辑沿用原型明示的关联或指标字段。 */}
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={definition}
+          disabled={!edit || save.isPending}
+          onValuesChange={() => {
+            // 与当前修订比较，恢复原值不触发离开保护。
+            const values = form.getFieldsValue();
+            setDirty(
+              (['name', 'meaning', 'rule', 'usage'] as const).some(
+                (key) => values[key] !== definition[key],
+              ),
+            );
+          }}
+        >
+          <Form.Item label={label + '名称'} name="name">
+            <Input maxLength={80} />
+          </Form.Item>
+          <Form.Item label={label === '关联' ? '关联条件' : '指标含义'} name="meaning">
+            <Input.TextArea rows={2} maxLength={4000} />
+          </Form.Item>
+          <Form.Item label={label === '关联' ? '数量关系与完整键' : '公式与筛选条件'} name="rule">
+            <Input.TextArea rows={2} maxLength={4000} />
+          </Form.Item>
+          <Form.Item label={label === '关联' ? '适用条件与限制' : '单位与统计边界'} name="usage">
+            <Input.TextArea rows={2} maxLength={4000} />
+          </Form.Item>
+        </Form>
+        {error && <Alert type="error" title={error} showIcon />}
+        <div className="gov-editor-actions">
+          {edit && (
+            <Button
+              disabled={save.isPending}
+              onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
+            >
+              保存草稿
+            </Button>
+          )}
+          {confirm && (
+            <Button
+              type="primary"
+              loading={save.isPending}
+              onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
+            >
+              确认治理
+            </Button>
+          )}
+        </div>
+      </div>
+      {structure && (
+        <Drawer open width={640} title="结构依据" onClose={() => setStructure(false)}>
+          {/* 固定字段与采集时修订只读回看。 */}
+          <Descriptions
+            column={1}
+            items={[
+              { key: 'snapshot', label: '采集快照', children: candidate.snapshotId },
+              ...candidate.basis.structures.map((ref) => ({
+                key: ref.fieldId,
+                label: ref.label,
+                children: `${ref.type} · 对象修订 ${ref.objectRevision} · 字段修订 ${ref.fieldRevision}`,
+              })),
+            ]}
+          />
+        </Drawer>
+      )}
+      {peek && (
+        <GovernanceSourceDrawer peek={peek} source={source} close={() => setPeek(undefined)} />
+      )}
+    </div>
+  );
+}

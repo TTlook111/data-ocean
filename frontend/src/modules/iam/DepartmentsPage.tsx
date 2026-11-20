@@ -1,3 +1,4 @@
+import { MoreFilters } from '../../shared/MoreFilters';
 import { RecordTable } from '../../shared/RecordTable';
 import { DepartmentAccessPanel } from '../access/ScopePages';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
@@ -39,6 +40,7 @@ export function DepartmentsPage() {
   const [treeKeyword, setTreeKeyword] = useState('');
 
   const [memberForm] = Form.useForm();
+  const [moreMemberFiltersOpen, setMoreMemberFiltersOpen] = useState(false);
 
   const displayName = params.get('displayName') ?? undefined;
   const username = params.get('username') ?? undefined;
@@ -114,6 +116,7 @@ export function DepartmentsPage() {
    * 重置成员条件但保留当前部门、查看范围和每页条数。
    */
   function resetMembers() {
+    setMoreMemberFiltersOpen(false);
     memberForm.setFieldsValue({
       displayName: undefined,
       username: undefined,
@@ -295,38 +298,48 @@ export function DepartmentsPage() {
           name="department-members-query"
           form={memberForm}
           layout="inline"
-          className="member-query"
+          className="member-query compact-query"
           initialValues={Object.fromEntries(params)}
-          onFinish={(values) =>
+          onFinish={(values) => {
+            // 未展开的条件仍使用原表单值，成员范围继续由工具栏独立控制。
+            setMoreMemberFiltersOpen(false);
             setParams(
               queryString({
                 ...values,
+                username: memberForm.getFieldValue('username'),
+                displayStatus: memberForm.getFieldValue('displayStatus'),
                 department: selected,
                 tab: 'members',
                 includeDescendants: params.get('includeDescendants') !== 'false',
                 pageNum: 1,
                 pageSize: params.get('pageSize') ?? 10,
               }),
-            )
-          }
+            );
+          }}
         >
           <Form.Item name="displayName">
             <Input aria-label="姓名" placeholder="姓名" allowClear />
           </Form.Item>
-          <Form.Item name="username">
-            <Input aria-label="登录名" placeholder="登录名" allowClear />
-          </Form.Item>
-          {/* 状态与查询操作作为整体换行，窄成员区不留下孤立按钮。 */}
-          <div className="member-query-tail">
-            <Form.Item name="displayStatus">
-              <Select
-                aria-label="状态"
-                placeholder="全部状态"
-                allowClear
-                options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
-              />
-            </Form.Item>
+          {/* 窄成员面板优先保留姓名搜索，登录名与状态收入同一浮层。 */}
+          <div className="query-tail-actions">
             <Space>
+              <MoreFilters
+                open={moreMemberFiltersOpen}
+                setOpen={setMoreMemberFiltersOpen}
+                count={Number(params.has('username')) + Number(params.has('displayStatus'))}
+              >
+                <Form.Item name="username">
+                  <Input aria-label="登录名" placeholder="登录名" allowClear />
+                </Form.Item>
+                <Form.Item name="displayStatus">
+                  <Select
+                    aria-label="状态"
+                    placeholder="全部状态"
+                    allowClear
+                    options={Object.entries(statuses).map(([value, label]) => ({ value, label }))}
+                  />
+                </Form.Item>
+              </MoreFilters>
               <Button htmlType="submit">查询</Button>
               <Button onClick={resetMembers}>重置</Button>
             </Space>

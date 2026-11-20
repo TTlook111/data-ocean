@@ -226,7 +226,12 @@ export function BusinessNotesPage() {
           empty="暂无企业业务说明"
           filters={[
             { name: 'keyword', placeholder: '资料标题' },
-            { name: 'author', placeholder: '提交人', ariaLabel: '提交人姓名或登录名' },
+            {
+              name: 'author',
+              placeholder: '提交人',
+              ariaLabel: '提交人姓名或登录名',
+              inMore: true,
+            },
             {
               name: 'state',
               placeholder: '全部资料状态',

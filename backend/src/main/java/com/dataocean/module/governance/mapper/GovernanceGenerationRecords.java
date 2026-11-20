@@ -57,16 +57,24 @@ public interface GovernanceGenerationRecords {
      * 持久保存接收时的稳定目标和表说明范围。
      */
     @Insert("""
-            INSERT INTO gov_generation_target(request_id,item_id,base_item_version,object_revision_id,content_paths)
-            VALUES(#{request},#{item},#{version},#{revision},#{paths})
+            INSERT INTO gov_generation_target(
+                request_id,item_id,base_item_version,object_revision_id,column_revision_id,content_paths
+            )
+            VALUES(#{request},#{item},#{version},#{revision},#{columnRevision},#{paths})
             """)
     int insertTarget(@Param("request") String request, @Param("item") long item, @Param("version") int version,
-            @Param("revision") long revision, @Param("paths") String paths);
+            @Param("revision") long revision, @Param("columnRevision") Long columnRevision,
+            @Param("paths") String paths);
 
     /**
-     * 只读取当次接受的表说明目标。
+     * 从同一稳定治理条目读取实际表或字段身份。
      */
-    @Select("SELECT item_id,base_item_version,object_revision_id,content_paths FROM gov_generation_target WHERE request_id=#{id}")
+    @Select("""
+            SELECT t.item_id,t.base_item_version,t.object_revision_id,t.column_revision_id,t.content_paths,
+                   i.kind,i.target_id
+            FROM gov_generation_target t JOIN gov_item i ON i.id=t.item_id
+            WHERE t.request_id=#{id}
+            """)
     Target target(String id);
 
     /**
@@ -94,14 +102,18 @@ public interface GovernanceGenerationRecords {
     int inputState(@Param("request") String request, @Param("note") long note, @Param("state") String state);
 
     /**
-     * 固定表说明目标的业务和结构版本。
+     * 固定生成目标的业务和结构版本。
      *
      * @param itemId 治理条目
      * @param baseItemVersion 接收后的业务版本
      * @param objectRevisionId 接收时表结构修订
+     * @param columnRevisionId 接收时字段结构修订，表说明为空
      * @param contentPaths 实际允许模型生成的字段集合
+     * @param kind 稳定条目类别
+     * @param targetId 实际表或字段标识
      */
-    record Target(long itemId, int baseItemVersion, long objectRevisionId, String contentPaths) {}
+    record Target(long itemId, int baseItemVersion, long objectRevisionId, Long columnRevisionId,
+                  String contentPaths, String kind, long targetId) {}
 
     /**
      * 任务实际取得资格的资料修订。

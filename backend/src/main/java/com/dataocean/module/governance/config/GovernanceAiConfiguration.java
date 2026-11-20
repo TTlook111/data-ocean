@@ -6,6 +6,7 @@ import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -19,6 +20,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -89,10 +91,7 @@ public class GovernanceAiConfiguration {
         var key = (RSAPrivateKey) KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pem(privateFile)));
         var jwk = new RSAKey.Builder(publicKey(publicFile)).privateKey(key).keyID("dataocean-java").build();
         var encoder = new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(jwk)));
-        var factory = new JdkClientHttpRequestFactory(java.net.http.HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(3)).build());
-        factory.setReadTimeout(Duration.ofSeconds(5));
-        return RestClient.builder().baseUrl(url).requestFactory(factory)
+        return RestClient.builder().baseUrl(url).requestFactory(requestFactory(5))
                 .requestInterceptor((request, body, execution) -> {
                     // 用户 Cookie 不进入内部服务连接。
                     Instant now = Instant.now();
@@ -103,6 +102,26 @@ public class GovernanceAiConfiguration {
                             encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue());
                     return execution.execute(request, body);
                 }).build();
+    }
+
+    /**
+     * 连接测试有独立的 15 秒模型预算，沿用已有内部身份与目的地。
+     */
+    @Bean
+    RestClient modelTestPythonClient(@Qualifier("governancePythonClient") RestClient client) {
+        return client.mutate().requestFactory(requestFactory(20)).build();
+    }
+
+    /**
+     * 为两种内部动作分别设定有限的读超时。
+     */
+    private JdkClientHttpRequestFactory requestFactory(int readSeconds) {
+        // Uvicorn 的本机 HTTP 入口使用 HTTP/1.1，避免 h2c 升级中断 POST 正文。
+        var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(3)).build());
+        factory.setReadTimeout(Duration.ofSeconds(readSeconds));
+        return factory;
     }
 
     /**

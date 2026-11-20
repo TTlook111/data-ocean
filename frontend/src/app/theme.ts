@@ -83,6 +83,13 @@ export const appTheme: ThemeConfig = {
   },
   // 通过公开主题接口统一各组件，不修改组件库的交互实现。
   components: {
+    // 中文双月日历使用紧凑网格，避免在较窄桌面挡住整个工作区。
+    DatePicker: {
+      /** 日期列保持整周均匀排布。 */
+      cellWidth: 32,
+      /** 日期点击区与后台紧凑控件尺度协调。 */
+      cellHeight: 28,
+    },
     // 抽屉标题使用 16px 区块尺度，避免跟随输入控件的 14px large 字体。
     Drawer: {
       /** 查看型详情标题与正文形成清楚的层级。 */

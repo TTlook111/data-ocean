@@ -46,6 +46,7 @@ export function GovernanceGeneration({
   const [request, setRequest] = useState<string>();
   const [selected, setSelected] = useState<(keyof Definition)[]>();
   const base = path.split('/items/')[0];
+  const subject = item.target.kind === 'COLUMN' ? '字段解释' : '表说明';
   const scope = {
     targets: [
       {
@@ -60,7 +61,13 @@ export function GovernanceGeneration({
     ],
   };
   const preview = useQuery({
-    queryKey: ['governance-ai-preview', base, item.version, item.structureBasis.objectRevisionId],
+    queryKey: [
+      'governance-ai-preview',
+      path,
+      item.version,
+      item.structureBasis.objectRevisionId,
+      item.structureBasis.columnRevisionId,
+    ],
     queryFn: () => api<Preview>(base + '/generation-preview', { method: 'POST', body: scope }),
     enabled: request === undefined,
     staleTime: Infinity,
@@ -137,7 +144,7 @@ export function GovernanceGeneration({
       {/* 预览只展示可见修订和当前范围。 */}
       {!request && (
         <Space orientation="vertical" size="middle" className="gov-generation">
-          <strong>表说明</strong>
+          <strong>{subject}</strong>
           {preview.isPending && <Spin size="small" />}
           {preview.error && <Alert type="error" title={preview.error.message} />}
           {preview.data?.notes?.map((note) => (
@@ -152,7 +159,7 @@ export function GovernanceGeneration({
       {request && !suggestion && !failed && !withheld && !task.error && (
         <Space>
           <Spin size="small" />
-          正在生成表说明
+          正在生成{subject}
         </Space>
       )}
       {withheld && <Alert type="warning" title="当前权限无法查看生成结果" />}

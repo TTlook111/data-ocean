@@ -1,16 +1,4 @@
-import {
-  Alert,
-  App,
-  Button,
-  DatePicker,
-  Drawer,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Tag,
-} from 'antd';
+import { Alert, App, Button, Drawer, Form, Grid, Input, Modal, Select, Space, Tag } from 'antd';
 import type { FormInstance, SelectProps, TableProps } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -19,6 +7,8 @@ import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import type { Page, Preview } from '../iam/types';
 import { api, mutation, queryString } from '../../shared/api';
+import { MoreFilters } from '../../shared/MoreFilters';
+import { QueryDateRange } from '../../shared/QueryDateRange';
 import { RecordTable } from '../../shared/RecordTable';
 import { DetailFooter, readErrorMessage } from '../../shared/Records';
 import { useFormClose } from '../../shared/useFormClose';
@@ -112,6 +102,8 @@ export interface AccessFilter {
   kind?: 'source';
   /** 日期范围会由起止两项合并为一个控件。 */
   date?: boolean;
+  /** 低频条件在更多筛选中编辑。 */
+  inMore?: boolean;
 }
 
 /**
@@ -202,7 +194,7 @@ export function accessList<T>(
 }
 
 /**
- * 日期字段和筛选按钮在同行成组排布，与后台原型一致。
+ * 访问列表共用查询表单，低频条件可通过浮层展开。
  */
 export function AccessToolbar({
   filters,
@@ -215,11 +207,22 @@ export function AccessToolbar({
   search: (values: Record<string, string | undefined>) => void;
   action?: ReactNode;
 }) {
-  const [form] = Form.useForm<Record<string, string | [string, string] | undefined>>();
+  const [form] = Form.useForm<Record<string, string | DateRange | undefined>>();
+  const [moreOpen, setMoreOpen] = useState(false);
   const dates = filters.filter((item) => item.date);
   const fields = filters.filter((item) => !item.date);
+  const hasDates = dates.length > 0;
+  const hasMore = hasDates || filters.some((item) => item.inMore);
+  const narrow = Grid.useBreakpoint().lg === false;
+  // 窄桌面将状态一并收入浮层，给姓名和数据源保留输入空间。
+  const moreFields = fields.filter(
+    (item) => item.inMore || (hasMore && narrow && item.name === 'state'),
+  );
+  const moreCount =
+    moreFields.filter(({ name }) => Boolean(query[name])).length +
+    Number(hasDates && Boolean(query.dateFrom || query.dateTo));
   const trailingStatus =
-    !dates.length && fields.at(-1)?.name === 'state' ? fields.at(-1) : undefined;
+    !hasMore && !dates.length && fields.at(-1)?.name === 'state' ? fields.at(-1) : undefined;
   const dateRange: [string, string] | undefined =
     query.dateFrom && query.dateTo ? [query.dateFrom, query.dateTo] : undefined;
   const rangeName = dates[0]?.placeholder ?? '';
@@ -244,7 +247,9 @@ export function AccessToolbar({
   /**
    * 查询前将日期范围拆成公共服务的起点和终点参数。
    */
-  function apply(values: Record<string, string | [string, string] | undefined>) {
+  function apply() {
+    // URL 已带条件时，尚未打开的筛选字段也必须参与查询。
+    const values = form.getFieldsValue(true) as Record<string, string | DateRange | undefined>;
     const range = values.dates;
     const strings = Object.fromEntries(
       Object.entries(values).filter(
@@ -252,6 +257,7 @@ export function AccessToolbar({
       ),
     );
     search({ ...strings, dateFrom: range?.[0], dateTo: range?.[1] });
+    setMoreOpen(false);
     if (fields[0]) form.focusField(fields[0].name);
   }
 
@@ -263,6 +269,7 @@ export function AccessToolbar({
       ...Object.fromEntries(fields.map(({ name }) => [name, undefined])),
       dates: undefined,
     });
+    setMoreOpen(false);
     search({});
     if (fields[0]) {
       // 与既有后台工具栏保持键盘回到查询起点。
@@ -303,36 +310,67 @@ export function AccessToolbar({
     );
   }
 
+  /**
+   * 仅提交完整且顺序正确的日期范围，错误时保留待修改的值。
+   */
+  function validateRange(_: unknown, range?: DateRange) {
+    if (range?.some(Boolean) && (!range[0] || !range[1])) {
+      // 部分输入保留在原字段，提示补充另一端。
+      return Promise.reject(new Error('请选择开始日期和结束日期'));
+    }
+    if (range?.[0] && range[1] && range[0] > range[1]) {
+      // ISO 日期可以直接按字面顺序比较。
+      return Promise.reject(new Error('开始日期不能晚于结束日期'));
+    }
+    return Promise.resolve();
+  }
+
+  const dateField = hasDates && (
+    <Form.Item name="dates" className="query-more-date" rules={[{ validator: validateRange }]}>
+      <AccessDateRange label={rangeName} />
+    </Form.Item>
+  );
+
   return (
-    <div className="panel query-panel access-toolbar">
+    <div className={`panel query-panel access-toolbar${hasMore ? ' compact-query' : ''}`}>
       <Form
         form={form}
         layout="inline"
         initialValues={{ ...query, dates: dateRange }}
         onFinish={apply}
+        onFinishFailed={() => {
+          // 重新打开校验失败的隐藏条件，保留已输入的日期。
+          if (hasDates) setMoreOpen(true);
+        }}
       >
-        {/* 日期组维持原顺序，无日期时末项状态与查询按钮同组。 */}
-        {fields.filter((field) => field !== trailingStatus).map(renderField)}
+        {/* 常用条件留在主工具栏，次要字段按原顺序收进浮层。 */}
+        {fields
+          .filter((field) => field !== trailingStatus && !moreFields.includes(field))
+          .map(renderField)}
         {(filters.length > 0 || action) && (
           <div
             className={
-              dates.length
-                ? 'access-query-tail has-dates'
-                : trailingStatus
-                  ? 'access-query-tail has-status'
+              trailingStatus
+                ? 'access-query-tail has-status'
+                : hasMore
+                  ? 'access-query-tail query-tail-actions'
                   : 'access-query-tail'
             }
           >
             {trailingStatus && renderField(trailingStatus)}
-            {dates.length > 0 && (
-              <Form.Item name="dates" className="access-date-field">
-                <AccessDateRange label={rangeName} />
-              </Form.Item>
-            )}
-            <Space wrap className="access-query-actions">
+            <Space wrap={!hasMore} className="access-query-actions">
+              {/* 浮层只控制字段可见性，提交和重置继续使用外层表单。 */}
+              {hasMore && (
+                <MoreFilters open={moreOpen} setOpen={setMoreOpen} count={moreCount}>
+                  {moreFields.map(renderField)}
+                  {dateField}
+                </MoreFilters>
+              )}
               {filters.length > 0 && (
                 <>
-                  <Button htmlType="submit">查询</Button>
+                  <Button type={hasMore && !action ? 'primary' : 'default'} htmlType="submit">
+                    查询
+                  </Button>
                   <Button onClick={reset}>重置</Button>
                 </>
               )}
@@ -345,31 +383,34 @@ export function AccessToolbar({
   );
 }
 
+/** 日期范围的两个端点在提交前允许分别编辑。 */
+type DateRange = [string?, string?];
+
 /**
- * 同一日期范围控件保留原型的开始／结束关系。
+ * 复用中文日期范围，浮层内采用与原型相近的紧凑双月日历。
  */
 function AccessDateRange({
   value,
   onChange,
   label,
 }: {
-  value?: [string, string];
-  onChange?: (value?: [string, string]) => void;
+  /** 当前输入的 ISO 业务日期。 */
+  value?: DateRange;
+  /** 将输入同步到访问列表表单。 */
+  onChange?: (value?: DateRange) => void;
+  /** 日期的业务语义。 */
   label: string;
 }) {
   return (
-    <DatePicker.RangePicker
-      aria-label={label}
-      placeholder={['开始日期', '结束日期']}
-      separator="至"
-      value={value ? [dayjs(value[0]), dayjs(value[1])] : null}
-      format="YYYY-MM-DD"
+    <QueryDateRange
+      label={label}
+      allowEmpty={[true, true]}
+      order={false}
+      value={value ? [value[0] ? dayjs(value[0]) : null, value[1] ? dayjs(value[1]) : null] : null}
       onChange={(range) => {
-        // 清除时同时清除两个端点。
-        const first = range?.[0];
-        const last = range?.[1];
+        // 清空同时移除两端，已输入的端点以接口日期格式保存。
         onChange?.(
-          first && last ? [first.format('YYYY-MM-DD'), last.format('YYYY-MM-DD')] : undefined,
+          range ? [range[0]?.format('YYYY-MM-DD'), range[1]?.format('YYYY-MM-DD')] : undefined,
         );
       }}
     />

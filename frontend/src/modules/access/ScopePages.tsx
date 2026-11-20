@@ -77,20 +77,21 @@ export function GrantsPage() {
           ) : undefined
         }
         filters={[
-          { name: 'applicant', placeholder: '被授权人姓名或登录名' },
+          { name: 'applicant', placeholder: '被授权人', ariaLabel: '被授权人姓名或登录名' },
           { name: 'sourceId', placeholder: '数据源', kind: 'source' },
           {
             name: fromGrant ? 'grantId' : fromRequest ? 'requestId' : 'keyword',
             placeholder: fromGrant ? '授权来源编号' : '来源名称或编号',
+            inMore: true,
           },
-          { name: 'handler', placeholder: '批准人姓名或登录名' },
+          { name: 'handler', placeholder: '批准人姓名或登录名', inMore: true },
           {
             name: 'state',
             placeholder: '全部状态',
             options: statusOptions(['EFFECTIVE', 'SUSPENDED', 'ENDED']),
           },
-          { name: 'dateFrom', placeholder: '生效日期范围', date: true },
-          { name: 'dateTo', placeholder: '生效日期范围', date: true },
+          { name: 'dateFrom', placeholder: '生效日期', date: true, inMore: true },
+          { name: 'dateTo', placeholder: '生效日期', date: true, inMore: true },
         ]}
         columns={[
           {
@@ -723,7 +724,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
         <AccessToolbar
           filters={[
             { name: 'sourceName', placeholder: '数据源名称' },
-            { name: 'ruleName', placeholder: '输出限制规则名称' },
+            { name: 'ruleName', placeholder: '输出限制规则名称', inMore: true },
           ]}
           query={query}
           search={search}

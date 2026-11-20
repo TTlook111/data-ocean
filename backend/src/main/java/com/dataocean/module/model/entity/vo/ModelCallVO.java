@@ -22,12 +22,13 @@ import java.time.LocalDateTime;
  * @param elapsedMs 已知耗时，单位毫秒
  * @param inputTokens 已知输入用量
  * @param outputTokens 已知输出用量
+ * @param inputLimits 当次上下文裁剪原因编码列表，可空
  * @param recordedAtUtc 数据库中存储的 UTC 记录时间
  */
 public record ModelCallVO(
         String id, String nodeCode, String configName, String protocol, Integer revision,
         String modelName, String endpoint, String state, String failureCode, Integer elapsedMs,
-        Integer inputTokens, Integer outputTokens, @JsonIgnore LocalDateTime recordedAtUtc) {
+        Integer inputTokens, Integer outputTokens, String inputLimits, @JsonIgnore LocalDateTime recordedAtUtc) {
 
     /**
      * 明确返回 UTC 时刻，统一由页面按业务时区转换。

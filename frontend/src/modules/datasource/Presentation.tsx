@@ -29,6 +29,7 @@ const labels: Record<string, string> = {
   IDENTITY_UNCERTAIN: '身份待核实',
   PENDING_REVIEW: '待核实',
   PENDING_GOVERNANCE: '待治理',
+  GOVERNANCE_IN_PROGRESS: '治理中',
   COMPLETED: '已完成',
   CONFIRMED: '已确认',
   EXCLUDED: '已排除',

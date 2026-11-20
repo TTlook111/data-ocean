@@ -90,7 +90,7 @@ function MyRequestsPage() {
         rowKey="id"
         filters={[
           { name: 'keyword', placeholder: '申请事项' },
-          { name: 'requestId', placeholder: '申请编号' },
+          { name: 'requestId', placeholder: '申请编号', inMore: true },
           {
             name: 'state',
             placeholder: '全部状态',
@@ -218,7 +218,7 @@ function ApprovalInbox() {
   const queue =
     queues.find(({ value }) => value === current)?.value ?? queues[0]?.value ?? 'PENDING';
   const filters: AccessFilter[] = [
-    { name: 'applicant', placeholder: '申请人姓名或登录名' },
+    { name: 'applicant', placeholder: '申请人', ariaLabel: '申请人姓名或登录名' },
     { name: 'requestId', placeholder: '申请编号' },
     { name: 'sourceId', placeholder: '数据源', kind: 'source' },
     ...(queue === 'HANDLED'
@@ -236,8 +236,8 @@ function ApprovalInbox() {
           },
         ]
       : []),
-    { name: 'dateFrom', placeholder: '提交日期范围', date: true },
-    { name: 'dateTo', placeholder: '提交日期范围', date: true },
+    { name: 'dateFrom', placeholder: '提交日期范围', date: true, inMore: true },
+    { name: 'dateTo', placeholder: '提交日期范围', date: true, inMore: true },
   ];
   const { query, read, search, pagination, filtered } = useAccessList<AccessRequest>(
     '/requests',

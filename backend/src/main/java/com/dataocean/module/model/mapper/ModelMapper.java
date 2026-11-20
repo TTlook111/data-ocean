@@ -2,6 +2,7 @@ package com.dataocean.module.model.mapper;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.model.entity.vo.ModelCallVO;
+import com.dataocean.module.model.entity.vo.ModelConnectionTestVO;
 
 import java.util.List;
 
@@ -91,6 +92,15 @@ public interface ModelMapper {
     Config lockModel(long id);
 
     /**
+     * 读取当前可测试修订，外部请求不持有平台库行锁。
+     */
+    @Select("SELECT " + CONFIG_COLUMNS + """
+             FROM mdl_model m JOIN mdl_config_revision c ON c.id = m.revision_id
+             WHERE m.id = #{id}
+            """)
+    Config current(long id);
+
+    /**
      * 获取任务固定的内容修订及当前模型启停。
      */
     @Select("SELECT " + CONFIG_COLUMNS + """
@@ -174,12 +184,34 @@ public interface ModelMapper {
     Long binding(String node);
 
     /**
+     * 保存测试诊断，凭据或原始响应不进入记录。
+     */
+    @Insert("""
+            INSERT INTO mdl_connection_test (id, revision_id, failure_code)
+            VALUES (#{id}, #{revisionId}, #{failureCode})
+            """)
+    void insertConnectionTest(@Param("id") long id, @Param("revisionId") long revisionId,
+                              @Param("failureCode") String failureCode);
+
+    /**
+     * 只在被查看的配置修订及资源下回读最近发起的测试。
+     */
+    @Select("""
+            SELECT t.failure_code IS NULL AS passed, t.failure_code, t.tested_at AS tested_at_utc
+            FROM mdl_connection_test t JOIN mdl_config_revision c ON c.id = t.revision_id
+            WHERE c.model_id = #{modelId} AND t.revision_id = #{revisionId}
+            ORDER BY t.id DESC LIMIT 1
+            """)
+    ModelConnectionTestVO latestConnectionTest(@Param("modelId") long modelId,
+                                               @Param("revisionId") long revisionId);
+
+    /**
      * 调用记录通过原任务关联当次修订，旧联调记录保留缺失事实。
      */
     @Select("""
             SELECT CAST(g.id AS CHAR) AS id, g.node_code, c.name AS config_name, c.protocol, c.revision,
                    g.model_name, c.endpoint, g.state, g.failure_code, g.elapsed_ms, g.input_tokens,
-                   g.output_tokens, g.recorded_at AS recorded_at_utc
+                   g.output_tokens, g.input_limits, g.recorded_at AS recorded_at_utc
             FROM gov_model_call g JOIN gov_generation_task t ON t.request_id = g.request_id
             LEFT JOIN mdl_config_revision c ON c.id = t.model_revision_id
             ORDER BY g.id DESC

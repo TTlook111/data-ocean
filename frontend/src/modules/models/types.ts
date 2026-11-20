@@ -7,6 +7,28 @@ export const modelProtocols = {
 } as const;
 
 /**
+ * 实际接入的治理节点及其明示用途。
+ */
+export const modelNodeInfo: Record<string, { name: string; description: string }> = {
+  'table-description': {
+    name: '表说明生成',
+    description: '结合表结构和业务说明，建议表的用途、粒度和范围。',
+  },
+  'field-explanation': {
+    name: '字段解释生成',
+    description: '结合字段结构和业务依据，建议字段含义及用法。',
+  },
+  'relation-discovery': {
+    name: '关联候选发现',
+    description: '根据同源外键和业务资料，给出可审核的表关联。',
+  },
+  'metric-discovery': {
+    name: '指标候选发现',
+    description: '根据实际字段和业务依据，给出指标公式及适用条件。',
+  },
+};
+
+/**
  * 模型配置与不可变修订的可披露字段。
  */
 export interface ModelConfig {
@@ -84,6 +106,18 @@ export interface ModelNode {
 }
 
 /**
+ * 已保存配置修订的最近连接测试。
+ */
+export interface ModelConnectionTest {
+  /** 固定合成请求是否返回预期结构。 */
+  passed: boolean;
+  /** 可披露的失败原因编码，通过时为空。 */
+  failureCode: string | null;
+  /** 测试完成的 UTC 时刻。 */
+  testedAt: string;
+}
+
+/**
  * 调用失败的稳定提示，供治理和诊断复用。
  */
 export const modelFailureLabels: Record<string, string> = {
@@ -95,4 +129,5 @@ export const modelFailureLabels: Record<string, string> = {
   MODEL_TIMEOUT: '本次生成已超过处理时限。',
   MODEL_FORMAT: '模型未返回符合要求的建议。',
   MODEL_RESULT_UNKNOWN: '模型调用结果待核查，请先查看调用记录。',
+  MODEL_TEST_UNAVAILABLE: '暂时无法从 Python 服务取得测试结果。',
 };

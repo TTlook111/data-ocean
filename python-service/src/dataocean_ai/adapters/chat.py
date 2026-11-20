@@ -2,6 +2,8 @@
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import Literal
 from urllib.parse import urlsplit
@@ -10,7 +12,8 @@ import httpx
 import httpx2
 from anthropic import AsyncAnthropic
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
@@ -75,11 +78,9 @@ class _ControlledAnthropic(ChatAnthropic):
         )
 
 
-async def generate[Answer: BaseModel](
-    config: ChatConfiguration, system: str, prompt: str, schema: type[Answer]
-) -> tuple[Answer, CallReceipt]:
-    """用配置选择协议并生成类型化候选，按硬时限结束本次调用。"""
-    started = time.monotonic()
+@asynccontextmanager
+async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatModel]:
+    """按同一配置打开受控模型，模型与工具循环共享总时限。"""
     settings = {
         "model": config.model_name,
         "base_url": config.endpoint,
@@ -98,9 +99,10 @@ async def generate[Answer: BaseModel](
             client_type(follow_redirects=False, trust_env=False) as transport,
         ):
             if openai:
-                # 百炼验证模型使用非思考 JSON 模式，其他服务沿用标准协议。
+                # 千问已验证的模型使用非思考 JSON 模式。
                 host = urlsplit(config.endpoint).hostname or ""
-                dashscope = host == "dashscope.aliyuncs.com" and config.model_name in {
+                hosts = {"dashscope.aliyuncs.com", "maas.qianwenaiapi.com"}
+                qwen = host in hosts and config.model_name in {
                     "qwen-plus",
                     "qwen-plus-latest",
                     "qwen-flash",
@@ -109,22 +111,21 @@ async def generate[Answer: BaseModel](
                     **settings,
                     http_async_client=transport,
                     use_responses_api=False,
-                    extra_body={"enable_thinking": False} if dashscope else None,
+                    extra_body={"enable_thinking": False} if qwen else None,
                 )
-                runner = model.with_structured_output(schema, method="json_mode", include_raw=True)
             else:
                 # Messages 使用原生 Schema，传输模型只包含已声明的字段。
                 model = _ControlledAnthropic(**settings)
                 model._transport = transport
-                runner = model.with_structured_output(
-                    schema, method="json_schema", include_raw=True
-                )
             with tracing_context(enabled=False):
-                # 调用只持有当次系统提示和获准资料，不开启 Agent 或远程工具。
-                result = await runner.ainvoke([SystemMessage(system), HumanMessage(prompt)])
+                # 工作流只在受控传输存活时向提供方发送消息。
+                yield model
     except TimeoutError:
         # 读超时后服务端仍可能已收到请求，保留待核实事实。
         raise ModelFailure("MODEL_RESULT_UNKNOWN") from None
+    except ModelFailure:
+        # 业务层已分类的失败沿用原原因。
+        raise
     except Exception as error:
         # 提供方异常可能带原始响应，只转换稳定分类。
         status = getattr(error, "status_code", None)
@@ -133,20 +134,45 @@ async def generate[Answer: BaseModel](
         code = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
         raise ModelFailure(code.get(status, "MODEL_RESULT_UNKNOWN")) from None
 
+
+async def generate[Answer: BaseModel](
+    config: ChatConfiguration, system: str, prompt: str, schema: type[Answer]
+) -> tuple[Answer, CallReceipt]:
+    """进行一次结构化非 Agent 调用。"""
+    started = time.monotonic()
+    async with model_session(config) as model:
+        # 两种已验收协议各用自己的结构化模式。
+        method = "json_mode" if config.protocol == "OPENAI_CHAT_COMPLETIONS" else "json_schema"
+        runner = model.with_structured_output(schema, method=method, include_raw=True)
+        result = await runner.ainvoke([SystemMessage(system), HumanMessage(prompt)])
     answer = result["parsed"]
     if not isinstance(answer, schema):
-        # 拒绝、截断或解析失败都没有可写入的候选。
+        # 拒绝、截断或解析失败不产生可写入的候选。
         raise ModelFailure("MODEL_FORMAT")
-    message = result["raw"]
-    usage = message.usage_metadata or {}
-    metadata = message.response_metadata
+    return answer, call_receipt(config, [result["raw"]], started)
+
+
+def call_receipt(
+    config: ChatConfiguration, replies: list[AIMessage], started: float
+) -> CallReceipt:
+    """一轮或多轮响应均以当次固定修订生成诊断，累计已知用量。"""
+    metadata = replies[-1].response_metadata if replies else {}
     model_name = metadata.get("model_name") or metadata.get("model")
     provider_id = metadata.get("id")
-    return answer, CallReceipt(
+
+    def total(key: str) -> int | None:
+        """只在各轮都提供计数时返回完整用量。"""
+        values = [(message.usage_metadata or {}).get(key) for message in replies]
+        if not values or any(value is None for value in values):
+            # 避免把缺失轮次当作零用量。
+            return None
+        return sum(value for value in values if value is not None)
+
+    return CallReceipt(
         revision_id=config.revision_id,
         model_name=str(model_name)[:120] if model_name else None,
         provider_call_id=str(provider_id)[:160] if provider_id else None,
         elapsed_ms=int((time.monotonic() - started) * 1000),
-        input_tokens=usage.get("input_tokens"),
-        output_tokens=usage.get("output_tokens"),
+        input_tokens=total("input_tokens"),
+        output_tokens=total("output_tokens"),
     )

@@ -83,6 +83,22 @@ public class GovernanceCatalog {
     }
 
     /**
+     * 读取当前成功目录中有界的可治理对象，不把源外目录传给工作流。
+     */
+    public List<Entry> peers(Source source, long anchor, int limit) {
+        if (source.snapshotId() == null) {
+            // 首次采集前没有可用于发现的目录。
+            return List.of();
+        }
+        return catalog.members(source.snapshotId()).stream()
+                .map(Observation::objectId).filter(id -> id != null && id != anchor)
+                .distinct().sorted().limit(limit)
+                .map(id -> current(source, id))
+                .filter(entry -> entry != null && !entry.retired() && pending(source.id(), entry.id()) == 0)
+                .toList();
+    }
+
+    /**
      * 读取两侧确切成功观察，字段名字只在对应的固定观察中用于定位。
      */
     public Entry observed(long source, Long observation) {

@@ -112,7 +112,11 @@ def _validate_config() -> None:
     if not settings.qwen_embedding_model:
         missing.append("QWEN_EMBEDDING_MODEL")
     if missing:
-        logger.warning("以下关键配置缺失，相关功能将不可用: %s", ", ".join(missing))
+        # 保留入口用于旧实现查阅，正式启动方式和模型配置以新工程为准。
+        logger.warning(
+            "当前运行保留版问数服务，部分能力未配置。"
+            "正式服务使用 dataocean-ai-api，模型在系统「模型配置」中添加。"
+        )
 
 
 app = FastAPI(

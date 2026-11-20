@@ -25,6 +25,7 @@ import { api, queryString } from '../../shared/api';
 import { displayTime, readErrorMessage, ReadState } from '../../shared/Records';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { RecordTable } from '../../shared/RecordTable';
+import { MoreFilters } from '../../shared/MoreFilters';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
@@ -118,6 +119,7 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
   const { message } = App.useApp();
   const [params, setParams] = useSearchParams();
   const [form] = Form.useForm();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [opened, setOpened] = useState<string | null>(params.get('detail'));
   const [editor, setEditor] = useState<SourceDetail | 'new' | null>(null);
   const [replace, setReplace] = useState<SourceDetail | null>(null);
@@ -180,13 +182,25 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
    * 提交服务器分页；条件变化回到第一页。
    */
   function search(values: Record<string, string | undefined>) {
-    setParams(new URLSearchParams(queryString({ ...values, pageSize: size })));
+    setMoreOpen(false);
+    setParams(
+      new URLSearchParams(
+        queryString({
+          ...values,
+          databaseType: form.getFieldValue('databaseType'),
+          technicalContactKeyword: form.getFieldValue('technicalContactKeyword'),
+          pageSize: size,
+        }),
+      ),
+    );
+    form.focusField('name');
   }
 
   /**
    * 工具栏和无匹配状态共用恢复入口，将焦点交回名称搜索框。
    */
   function reset() {
+    setMoreOpen(false);
     form.setFieldsValue(Object.fromEntries(sourceFilters.map((key) => [key, undefined])));
     setParams({ pageSize: String(size) });
     form.focusField('name');
@@ -195,7 +209,7 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
   return (
     <section className="record-page" aria-label="数据源管理">
       {/* 将查询项按对应列表列顺序排列。 */}
-      <div className="panel query-panel ds-query-panel" aria-label="数据源查询">
+      <div className="panel query-panel ds-query-panel compact-query" aria-label="数据源查询">
         <Form
           name="datasource-query"
           form={form}
@@ -211,28 +225,36 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
               allowClear
             />
           </Form.Item>
-          <Form.Item name="databaseType">
+          {/* 常用查询保持一行，低频字段仍可按原规则提交。 */}
+          <Form.Item name="lifecycle" className="status-query">
             <Select
-              aria-label="数据库类型"
-              placeholder="数据库类型"
+              aria-label="配置状态"
+              placeholder="配置状态"
               allowClear
-              options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
+              options={datasourceOptions(['DRAFT', 'ENABLED', 'DISABLED', 'RETIRED'])}
             />
           </Form.Item>
-          <Form.Item name="technicalContactKeyword">
-            <Input aria-label="技术联系人" placeholder="技术联系人姓名或登录名" allowClear />
-          </Form.Item>
-          {/* 状态与查询动作一起换行，保持检索操作紧邻。 */}
-          <div className="query-tail status-tail">
-            <Form.Item name="lifecycle" className="status-query">
-              <Select
-                aria-label="配置状态"
-                placeholder="配置状态"
-                allowClear
-                options={datasourceOptions(['DRAFT', 'ENABLED', 'DISABLED', 'RETIRED'])}
-              />
-            </Form.Item>
+          <div className="query-tail-actions">
             <Space>
+              <MoreFilters
+                open={moreOpen}
+                setOpen={setMoreOpen}
+                count={
+                  Number(params.has('databaseType')) + Number(params.has('technicalContactKeyword'))
+                }
+              >
+                <Form.Item name="databaseType">
+                  <Select
+                    aria-label="数据库类型"
+                    placeholder="数据库类型"
+                    allowClear
+                    options={datasourceOptions(['MYSQL', 'POSTGRESQL'])}
+                  />
+                </Form.Item>
+                <Form.Item name="technicalContactKeyword">
+                  <Input aria-label="技术联系人" placeholder="技术联系人姓名或登录名" allowClear />
+                </Form.Item>
+              </MoreFilters>
               <Button htmlType="submit">查询</Button>
               <Button onClick={reset}>重置</Button>
             </Space>
@@ -938,7 +960,7 @@ function SourceEditor({
       <Modal
         centered
         open={!review}
-        title={<span className="sr-only">{source ? '编辑连接' : '新增数据源'}</span>}
+        title={source ? '编辑连接' : '新增数据源'}
         width={848}
         className="ds-editor"
         onCancel={requestClose}

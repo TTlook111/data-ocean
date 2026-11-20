@@ -1,9 +1,11 @@
 package com.dataocean.module.model.service;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.dataocean.common.ErrorVO.FieldErrorVO;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.FieldValidationException;
 import com.dataocean.infrastructure.CredentialProtection;
 import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.model.entity.dto.ModelAssignmentDTO;
@@ -37,6 +39,21 @@ public class ModelRegistry {
      * 表说明生成的正式业务节点标识。
      */
     public static final String TABLE_DESCRIPTION = "table-description";
+
+    /**
+     * 字段解释 Agent 的独立模型分配。
+     */
+    public static final String FIELD_EXPLANATION = "field-explanation";
+
+    /**
+     * 关联候选发现的独立模型分配。
+     */
+    public static final String RELATION_DISCOVERY = "relation-discovery";
+
+    /**
+     * 指标候选发现的独立模型分配。
+     */
+    public static final String METRIC_DISCOVERY = "metric-discovery";
 
     /**
      * 平台配置和调用诊断的查询入口。
@@ -184,6 +201,38 @@ public class ModelRegistry {
      */
     public ModelInvocation invocation(Long revisionId, int remainingSeconds) {
         var config = revisionId == null ? null : models.revision(revisionId);
+        return invocation(config, remainingSeconds);
+    }
+
+    /**
+     * 多轮调用前核对原修订当前是否仍可外发，无需再次解密。
+     */
+    public void verifyActive(long revisionId) {
+        var config = models.revision(revisionId);
+        requireEnabled(config);
+        checkedEndpoint(config.endpoint());
+    }
+
+    /**
+     * 测试已保存的当前修订，避免详情打开后测试到另一组凭据。
+     */
+    public ModelInvocation connectionTestInvocation(long modelId, long revisionId) {
+        var config = models.current(modelId);
+        if (config == null) {
+            // 无法定位的模型不产生测试。
+            throw BizIllegalException.missing();
+        }
+        if (config.revisionId() != revisionId) {
+            // 并行编辑后由操作者重新查看并选择实际修订。
+            throw BizIllegalException.conflict();
+        }
+        return invocation(config, 15);
+    }
+
+    /**
+     * 在调用边界复核当前启停、目标主机和秘密归属。
+     */
+    private ModelInvocation invocation(Config config, int remainingSeconds) {
         requireEnabled(config);
         String endpoint = checkedEndpoint(config.endpoint());
         var secret = models.credential(config.credentialId(), config.id());
@@ -220,18 +269,30 @@ public class ModelRegistry {
      * 服务地址使用部署准入的 HTTPS 基址，避免目标和秘密混用。
      */
     private String checkedEndpoint(String address) {
+        URI uri;
         try {
-            var uri = URI.create(address.strip());
-            if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null && uri.getUserInfo() == null
-                    && uri.getQuery() == null && uri.getFragment() == null && (uri.getPort() == -1 || uri.getPort() == 443)
-                    && Arrays.stream(allowedHosts.split(",")).map(String::strip)
-                            .anyMatch(uri.getHost()::equalsIgnoreCase)) {
-                return uri.toString();
-            }
+            uri = URI.create(address.strip());
         } catch (IllegalArgumentException ignored) {
-            // 无效或未准入的 URL 使用相同的业务反馈，避免输出提交的地址。
+            // 语法错误直接关联输入，不回显提交地址。
+            throw endpointError("请输入有效的 HTTPS 服务地址");
         }
-        throw BizIllegalException.invalid("请输入已准入的 HTTPS 模型服务地址");
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null
+                || uri.getQuery() != null || uri.getFragment() != null || uri.getPort() != -1 && uri.getPort() != 443) {
+            // 只接受 HTTPS SDK 基址，连接凭据不得嵌进 URL。
+            throw endpointError("填写 HTTPS 服务基址，使用默认端口，去掉查询参数和片段");
+        }
+        if (Arrays.stream(allowedHosts.split(",")).map(String::strip).noneMatch(uri.getHost()::equalsIgnoreCase)) {
+            // 合法 URL 但主机不在部署准入清单时，提示实际处理方式。
+            throw endpointError("此服务主机未获准访问，请使用已准入的主机或联系部署管理员");
+        }
+        return uri.toString();
+    }
+
+    /**
+     * 保留服务地址字段定位信息供模型表单显示。
+     */
+    private static FieldValidationException endpointError(String message) {
+        return new FieldValidationException(List.of(new FieldErrorVO("endpoint", "VALIDATION_FAILED", message)));
     }
 
     /**

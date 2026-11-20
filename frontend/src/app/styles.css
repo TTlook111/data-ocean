@@ -315,6 +315,118 @@ h3 {
   flex: none;
   margin-left: auto;
 }
+/* 低频条件较多的列表把常用筛选和按钮放在同一桌面工具栏。 */
+.query-panel.compact-query > .ant-form {
+  flex-wrap: nowrap;
+  gap: clamp(8px, 1vw, 16px);
+}
+
+/* 搜索框和数据源优先吸收剩余空间，状态仅保留选项所需宽度。 */
+.query-panel.compact-query > .ant-form > .ant-form-item {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 320px;
+}
+
+/* 状态列跟随桌面窗口收缩，保留完整的常用状态名称。 */
+.query-panel.compact-query > .ant-form > :is(.access-status-field, .status-query) {
+  flex: 0 1 144px;
+  min-width: 104px;
+}
+
+/* 操作区靠右，文字与图标保持完整。 */
+.compact-query .query-tail-actions {
+  display: flex;
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* 将浮层放在触发器旁，Tab 可继续遍历展开的输入。 */
+.query-more-anchor {
+  position: relative;
+}
+
+/* 已生效的更多条件即使收起也有明确反馈。 */
+.compact-query .query-more-active {
+  color: var(--do-primary, #2f63d5);
+  border-color: currentColor;
+  background: var(--ant-color-primary-bg, #eaf0fc);
+}
+
+/* 模型列表和节点列表共用原型的紧凑页签工具条。 */
+.model-tabs > .ant-tabs-nav {
+  flex: none;
+  margin: 0 0 24px;
+  padding: 0 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: white;
+}
+
+/* 查询和新增位于同一操作区，给门类页签留出宽度。 */
+.model-tabs .ant-input-search {
+  width: clamp(132px, 22vw, 260px);
+}
+
+/* 选中的页签用余高展示结果，表格与对应的无障碍页签面板保持关联。 */
+.model-tabs,
+.model-tabs > .ant-tabs-body-holder,
+.model-tabs .ant-tabs-body,
+.model-tabs .ant-tabs-content-active {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 低频筛选浮层内两项文字条件并列，日期独占一行。 */
+.query-more-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: min(416px, calc(100vw - 64px));
+  padding: 4px;
+}
+
+/* 浮层字段服从网格宽度，保留错误文案的行高。 */
+.query-panel.compact-query .query-more-fields > .ant-form-item {
+  min-width: 0;
+  max-width: none;
+}
+
+/* 开始日与结束日共享同一个有清除入口的控件。 */
+.query-more-fields > :is(.query-more-date, .ant-form-item:only-child) {
+  grid-column: 1 / -1;
+}
+
+/* 日期范围继承所在网格的宽度，清除按钮留在控件内。 */
+.query-more-date .query-range-picker {
+  width: 100%;
+}
+
+/* 日期区间沿用原型的图标、等宽输入及居中分隔。 */
+.query-range-picker .ant-picker-input > input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 让日历和范围分隔在线框内清晰可见。 */
+.query-range-picker .ant-picker-prefix,
+.query-range-picker .ant-picker-separator {
+  color: var(--ant-color-text-secondary, #5b6575);
+}
+
+/* 后台列表在独立进入时也使用完整工作区，分页留在结果面板底部。 */
+.record-page {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+}
+
 /* 表格面板去掉额外标题和内距，分页固定在表体下方。 */
 .records-panel {
   flex: 1;
@@ -1025,10 +1137,10 @@ h3 {
 .template-content {
   padding: 24px;
 }
-/* 成员筛选允许整组换行。 */
+/* 成员范围可另占一行，实际查询字段和操作保持同一行。 */
 .member-query {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
   align-items: center;
   padding: 16px 24px;
@@ -1038,25 +1150,7 @@ h3 {
 .member-query .ant-form-item {
   margin: 0;
   flex: 1 1 150px;
-  min-width: 130px;
-}
-/* 嵌入列表的状态与操作整体换行，沿用查询区的末行对齐规则。 */
-.member-query-tail {
-  display: flex;
-  flex: 1 1 296px;
-  align-items: center;
-  gap: 12px;
-  min-width: min(100%, 296px);
-}
-/* 状态吸收按钮之外的可用空间，保留 112px 的可读宽度。 */
-.member-query .member-query-tail > .ant-form-item {
-  flex: 1 1 140px;
-  min-width: 112px;
-}
-/* 查询和重置不拆开，使用所在行末端的稳定操作轴。 */
-.member-query-tail > .ant-space {
-  flex: none;
-  margin-inline-start: auto;
+  min-width: 0;
 }
 /* 表头与至少一条成员记录保留阅读空间，空间不足由工作区滚动。 */
 .department-panel {
