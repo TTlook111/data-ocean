@@ -19,13 +19,16 @@ public interface GovernanceReadMapper {
     /**
      * 与 B 批复用成功观察、核实身份和当前 Schema 条件。历史移除从来源入口查看。
      */
-    String TABLES = """
+    String TABLES =
+            """
             WITH directory AS (
                 SELECT o.id AS observation_id,o.snapshot_id,o.namespace,o.source_name AS name,o.object_type,
                        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(o.candidate_structure,'$.object.comment')),'null') AS source_comment,
                        COALESCE(r.resolved_object_id,o.object_id) AS object_id,
                        COALESCE(r.resolved_object_revision_id,o.object_revision_id) AS revision_id
-            """ + DatasourcePageMapper.CATALOG_JOINS + """
+            """
+                    + DatasourcePageMapper.CATALOG_JOINS
+                    + """
                 WHERE s.source_id=#{source} AND s.id=#{snapshot} AND s.status='SUCCEEDED'
                   AND o.read_status='COMPLETE'
                   AND (o.namespace='' OR EXISTS (SELECT 1 FROM ds_connection_schema scope
@@ -81,16 +84,22 @@ public interface GovernanceReadMapper {
     @Select(TABLES + "ORDER BY IF(#{ascending},namespace,NULL),IF(#{ascending},name,NULL),"
             + "IF(#{ascending},NULL,namespace) DESC,IF(#{ascending},NULL,name) DESC,observation_id")
     Page<Table> tables(
-            Page<Table> page, @Param("source") long source, @Param("snapshot") long snapshot,
-            @Param("configuration") long configuration, @Param("drafts") boolean drafts,
-            @Param("word") String word, @Param("progress") String progress,
-            @Param("pendingImpact") Boolean pendingImpact, @Param("pendingKind") String pendingKind,
+            Page<Table> page,
+            @Param("source") long source,
+            @Param("snapshot") long snapshot,
+            @Param("configuration") long configuration,
+            @Param("drafts") boolean drafts,
+            @Param("word") String word,
+            @Param("progress") String progress,
+            @Param("pendingImpact") Boolean pendingImpact,
+            @Param("pendingKind") String pendingKind,
             @Param("ascending") boolean ascending);
 
     /**
      * 当前字段导航与审核状态在同一结构修订内计算。
      */
-    @Select("""
+    @Select(
+            """
             WITH columns AS (
                 SELECT c.column_id,c.id AS revision_id,c.source_name AS name,c.native_type,c.nullable,c.source_comment,
                     f.ordinal,g.id AS item_id,
@@ -116,13 +125,18 @@ public interface GovernanceReadMapper {
             ORDER BY ordinal,column_id
             """)
     Page<Column> columns(
-            Page<Column> page, @Param("source") long source, @Param("object") long object,
-            @Param("revision") long revision, @Param("word") String word, @Param("state") String state);
+            Page<Column> page,
+            @Param("source") long source,
+            @Param("object") long object,
+            @Param("revision") long revision,
+            @Param("word") String word,
+            @Param("state") String state);
 
     /**
      * 按当前草稿与最后确认仍实际采用的资料反查，历史引用不生成新工作。
      */
-    @Select("""
+    @Select(
+            """
             SELECT DISTINCT e.* FROM gov_evidence_ref e JOIN gov_item_revision v ON v.id=e.item_revision_id
             JOIN gov_item i ON i.id=v.item_id AND (i.head_revision_id=v.id OR i.last_confirmed_revision_id=v.id)
             WHERE e.source_id=#{source} AND e.note_id=#{note}
@@ -130,9 +144,28 @@ public interface GovernanceReadMapper {
     List<GovernanceEvidencePO> currentNoteReferences(@Param("source") long source, @Param("note") long note);
 
     /**
+     * 当前定义已采用的建议实际取用资料，但没有可以定位影响的确切引用。
+     */
+    @Select(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM gov_item i
+                JOIN gov_item_revision v ON v.item_id=i.id
+                    AND (i.head_revision_id=v.id OR i.last_confirmed_revision_id=v.id)
+                JOIN gov_suggestion s ON s.id=v.suggestion_id
+                JOIN gov_generation_input n ON n.request_id=s.request_id
+                WHERE i.source_id=#{source} AND n.note_id=#{note} AND n.state='USED'
+                  AND NOT EXISTS (SELECT 1 FROM gov_evidence_ref e
+                      WHERE e.item_revision_id=v.id AND e.note_id=n.note_id)
+            )
+            """)
+    boolean hasUnmappedNoteUse(@Param("source") long source, @Param("note") long note);
+
+    /**
      * 结构变化沿已确认对象或字段的显式引用定向传播。
      */
-    @Select("""
+    @Select(
+            """
             <script>
             SELECT DISTINCT i.* FROM gov_evidence_ref e JOIN gov_item_revision v ON v.id=e.item_revision_id
             JOIN gov_item i ON i.id=v.item_id AND (i.head_revision_id=v.id OR i.last_confirmed_revision_id=v.id)
@@ -158,7 +191,8 @@ public interface GovernanceReadMapper {
     /**
      * 以追加内容或确认的实际发生时间提供统一的历史页。
      */
-    @Select("""
+    @Select(
+            """
             <script>
             SELECT * FROM (
                 SELECT 'REVISION' AS kind,id,item_id,id AS revision_id,revision,previous_revision_id,
@@ -196,9 +230,21 @@ public interface GovernanceReadMapper {
      * @param progress 表及字段的实际进度
      */
     record Table(
-            long observationId, Long objectId, Integer generation, String namespace, String name, String objectType,
-            String sourceComment, String businessName, String purpose, int totalCount, int confirmedCount,
-            boolean tableConfirmed, boolean hasPendingImpact, boolean sourcePending, String progress) {}
+            long observationId,
+            Long objectId,
+            Integer generation,
+            String namespace,
+            String name,
+            String objectType,
+            String sourceComment,
+            String businessName,
+            String purpose,
+            int totalCount,
+            int confirmedCount,
+            boolean tableConfirmed,
+            boolean hasPendingImpact,
+            boolean sourcePending,
+            String progress) {}
 
     /**
      * 同一结构修订下的字段和当前完成情况。
@@ -214,8 +260,15 @@ public interface GovernanceReadMapper {
      * @param state 当前归一的治理状态
      */
     record Column(
-            long columnId, long revisionId, String name, String nativeType, boolean nullable, String sourceComment,
-            boolean pendingReview, boolean blocked, String state) {}
+            long columnId,
+            long revisionId,
+            String name,
+            String nativeType,
+            boolean nullable,
+            String sourceComment,
+            boolean pendingReview,
+            boolean blocked,
+            String state) {}
 
     /**
      * 从两个独立时间序列整理的历史记录。
@@ -234,6 +287,16 @@ public interface GovernanceReadMapper {
      * @param columnRevisionId 结构依据的字段修订
      */
     record History(
-            String kind, long id, long itemId, Long revisionId, Integer revision, Long previousRevisionId, long actor,
-            LocalDateTime occurredAt, String action, long snapshotId, long objectRevisionId, Long columnRevisionId) {}
+            String kind,
+            long id,
+            long itemId,
+            Long revisionId,
+            Integer revision,
+            Long previousRevisionId,
+            long actor,
+            LocalDateTime occurredAt,
+            String action,
+            long snapshotId,
+            long objectRevisionId,
+            Long columnRevisionId) {}
 }

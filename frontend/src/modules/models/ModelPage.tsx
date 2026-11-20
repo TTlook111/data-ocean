@@ -22,8 +22,10 @@ import { useFormClose } from '../../shared/useFormClose';
 import type { Page } from '../iam/types';
 import {
   modelFailureLabels,
+  modelCapabilities,
   modelNodeInfo,
   modelProtocols,
+  protocolCapability,
   type ModelConfig,
   type ModelConnectionTest,
   type ModelInput,
@@ -43,6 +45,8 @@ export function ModelPage() {
   const [keyword, setKeyword] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
+  const [nodeKeyword, setNodeKeyword] = useState('');
+  const [nodeModule, setNodeModule] = useState<string>();
   const models = useQuery({
     queryKey: ['models', 'list', paging, keyword],
     queryFn: () => api<Page<ModelConfig>>(`/models?${queryString({ ...paging, keyword })}`),
@@ -58,6 +62,20 @@ export function ModelPage() {
     queryFn: () => api<ModelConfig[]>('/models/options'),
     enabled: tab === 'nodes',
   });
+  const nodeOrder = Object.keys(modelNodeInfo);
+  const nodeGroups = [
+    ...new Set(Object.values(modelNodeInfo).map(({ module }) => module ?? '数据治理')),
+  ];
+  const visibleNodes = nodes.data
+    ?.filter(({ code }) => {
+      // 模块和关键词取交集，保留产品流程顺序和真实节点能力。
+      const info = modelNodeInfo[code];
+      if (nodeModule && (info?.module ?? '数据治理') !== nodeModule) return false;
+      return (info?.name + ' ' + info?.description + ' ' + code)
+        .toLowerCase()
+        .includes(nodeKeyword.trim().toLowerCase());
+    })
+    .sort((left, right) => nodeOrder.indexOf(left.code) - nodeOrder.indexOf(right.code));
 
   // 以当前详情的配置修订读取记录，避免把旧配置的结果带入新修订。
   const connectionPath = detail ? `/models/${detail.id}/connection-tests/${detail.revisionId}` : '';
@@ -122,9 +140,10 @@ export function ModelPage() {
   async function assign(node: ModelNode, modelId?: string) {
     if (
       !modelId &&
+      node.capability !== 'RERANK' &&
       !(await modal.confirm({
         title: `清空「${modelNodeInfo[node.code]?.name ?? node.code}」的模型？`,
-        content: '清空后将暂时无法生成建议。',
+        content: '清空后，该节点将处于未配置状态。',
         okText: '清空',
         cancelText: '取消',
       }))
@@ -136,7 +155,11 @@ export function ModelPage() {
   // 查询条件与结果的同名列对齐，详情动作集中在底栏。
   const modelColumns: TableProps<ModelConfig>['columns'] = [
     { title: '配置名称', dataIndex: 'name', width: 180, ellipsis: true },
-    { title: '模型类型', width: 96, render: () => '生成' },
+    {
+      title: '模型类型',
+      width: 108,
+      render: (_, row) => modelCapabilities[protocolCapability[row.protocol]],
+    },
     {
       title: '接口格式',
       dataIndex: 'protocol',
@@ -169,23 +192,23 @@ export function ModelPage() {
   const nodeColumns: TableProps<ModelNode>['columns'] = [
     {
       title: '节点',
-      width: 170,
+      width: '24%',
       render: (_, node) => (
         <>
           {/* 节点名称与所属模块采用统一的双行尺度。 */}
           <span className="model-node-name">{modelNodeInfo[node.code]?.name ?? node.code}</span>
-          <span className="table-secondary">数据治理</span>
+          <span className="table-secondary">{modelNodeInfo[node.code]?.module ?? '数据治理'}</span>
         </>
       ),
     },
     {
       title: '这个节点做什么',
-      width: 350,
+      width: '40%',
       render: (_, node) => modelNodeInfo[node.code]?.description ?? '—',
     },
     {
       title: '分配模型',
-      width: 280,
+      width: '36%',
       render: (_, node) => (
         <Select
           aria-label={`为${modelNodeInfo[node.code]?.name ?? node.code}分配模型`}
@@ -198,11 +221,13 @@ export function ModelPage() {
           value={node.modelId ?? undefined}
           disabled={!allowed(session, 'models.assign') || assignment.isPending || options.isError}
           loading={options.isPending}
-          options={options.data?.map((row) => ({
-            value: row.id,
-            label: row.enabled ? row.name : `${row.name}（已停用）`,
-            disabled: !row.enabled,
-          }))}
+          options={options.data
+            ?.filter((row) => protocolCapability[row.protocol] === node.capability)
+            .map((row) => ({
+              value: row.id,
+              label: row.enabled ? row.name : `${row.name}（已停用）`,
+              disabled: !row.enabled,
+            }))}
           onChange={(value) => {
             void assign(node, value);
           }}
@@ -219,7 +244,7 @@ export function ModelPage() {
         activeKey={tab}
         onChange={setTab}
         tabBarExtraContent={
-          tab === 'models' && (
+          tab === 'models' ? (
             <Space>
               <Input.Search
                 aria-label="配置名称"
@@ -238,6 +263,25 @@ export function ModelPage() {
                   新增模型
                 </Button>
               )}
+            </Space>
+          ) : (
+            <Space className="model-node-filters">
+              {/* 节点规模有限，搜索结果直接响应输入。 */}
+              <Input
+                aria-label="节点名称或用途"
+                placeholder="节点名称或用途"
+                allowClear
+                value={nodeKeyword}
+                onChange={(event) => setNodeKeyword(event.target.value)}
+              />
+              <Select
+                aria-label="所属模块"
+                placeholder="所属模块"
+                allowClear
+                value={nodeModule}
+                onChange={setNodeModule}
+                options={nodeGroups.map((name) => ({ value: name, label: name }))}
+              />
             </Space>
           )
         }
@@ -282,7 +326,13 @@ export function ModelPage() {
                 <RecordTable
                   rowKey="code"
                   columns={nodeColumns}
-                  dataSource={nodes.data}
+                  dataSource={visibleNodes}
+                  filtered={Boolean(nodeKeyword || nodeModule)}
+                  onReset={() => {
+                    // 清空客户端节点筛选，不影响已保存模型分配。
+                    setNodeKeyword('');
+                    setNodeModule(undefined);
+                  }}
                   loading={nodes.isPending}
                   error={nodes.error ?? options.error}
                   retry={() => {
@@ -348,6 +398,11 @@ export function ModelPage() {
             column={1}
             items={[
               { key: 'name', label: '配置名称', children: detail.name },
+              {
+                key: 'type',
+                label: '模型类型',
+                children: modelCapabilities[protocolCapability[detail.protocol]],
+              },
               { key: 'protocol', label: '接口格式', children: modelProtocols[detail.protocol] },
               { key: 'endpoint', label: '服务 URL', children: detail.endpoint },
               { key: 'model', label: '模型名称', children: detail.modelName },
@@ -437,6 +492,9 @@ function ModelEditor({
   mayReplace: boolean;
 }) {
   const [form] = Form.useForm<ModelInput>();
+  const [capability, setCapability] = useState<keyof typeof modelCapabilities>(
+    row ? protocolCapability[row.protocol] : 'GENERATION',
+  );
   const { message } = App.useApp();
   const client = useQueryClient();
   const save = useMutation({
@@ -475,7 +533,7 @@ function ModelEditor({
       closable={!save.isPending}
       keyboard={!save.isPending}
     >
-      {/* 当前页面只管理生成模型，表单保留需填写的配置。 */}
+      {/* 模型能力约束可选协议，凭据与其他接入信息沿用同一表单。 */}
       <Form
         form={form}
         layout="vertical"
@@ -489,13 +547,27 @@ function ModelEditor({
         }}
         autoComplete="off"
       >
+        <Form.Item label="模型类型">
+          <Select
+            aria-label="模型类型"
+            value={capability}
+            options={Object.entries(modelCapabilities).map(([value, label]) => ({ value, label }))}
+            onChange={(value) => {
+              // 能力切换时清除旧协议，避免提交不匹配格式。
+              setCapability(value);
+              form.setFieldValue('protocol', undefined);
+            }}
+          />
+        </Form.Item>
         <Form.Item
           name="protocol"
           label="接口格式"
           rules={[{ required: true, message: '请选择接口格式' }]}
         >
           <Select
-            options={Object.entries(modelProtocols).map(([value, label]) => ({ value, label }))}
+            options={(Object.keys(modelProtocols) as (keyof typeof modelProtocols)[])
+              .filter((value) => protocolCapability[value] === capability)
+              .map((value) => ({ value, label: modelProtocols[value] }))}
           />
         </Form.Item>
         <Form.Item name="name" label="配置名称" rules={[{ required: true, whitespace: true }]}>

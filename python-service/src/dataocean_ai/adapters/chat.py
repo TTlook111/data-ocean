@@ -3,7 +3,7 @@
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from functools import cached_property
 from typing import Literal
 from urllib.parse import urlsplit
@@ -21,7 +21,7 @@ from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
 
-class ChatConfiguration(BaseModel):
+class ModelConfiguration(BaseModel):
     """Java 在外发前签发的单次模型配置。"""
 
     # 内部接口字段使用 Java 端同名别名。
@@ -29,8 +29,10 @@ class ChatConfiguration(BaseModel):
 
     # 当次固定的配置修订，不随改绑变化。
     revision_id: str = Field(alias="revisionId")
-    # 明确声明的生成协议。
-    protocol: Literal["OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES"]
+    # 明确声明的可连接协议。
+    protocol: Literal[
+        "OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES", "OPENAI_EMBEDDINGS", "COHERE_RERANK"
+    ]
     # 已校验的服务端 SDK 基址。
     endpoint: str
     # 发送给服务的模型标识。
@@ -39,6 +41,13 @@ class ChatConfiguration(BaseModel):
     timeout: int = Field(alias="timeoutSeconds", ge=1, le=120)
     # 仅在适配器持有的访问凭据。
     api_key: SecretStr = Field(alias="apiKey")
+
+
+class ChatConfiguration(ModelConfiguration):
+    """治理执行上下文只接受已支持的生成协议。"""
+
+    # 向量和重排测试不能进入生成适配器。
+    protocol: Literal["OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES"]
 
 
 class CallReceipt(BaseModel):
@@ -99,6 +108,7 @@ async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatMode
         async with (
             asyncio.timeout(config.timeout),
             client_type(follow_redirects=False, trust_env=False) as transport,
+            AsyncExitStack() as clients,
         ):
             if openai:
                 # 千问已验证的模型使用非思考 JSON 模式。
@@ -111,6 +121,10 @@ async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatMode
                 }
                 model = ChatOpenAI(
                     **settings,
+                    # LangChain 同时构造同步 SDK，确保其也使用相同出站策略。
+                    http_client=clients.enter_context(
+                        httpx.Client(follow_redirects=False, trust_env=False)
+                    ),
                     http_async_client=transport,
                     use_responses_api=False,
                     extra_body={"enable_thinking": False} if qwen else None,

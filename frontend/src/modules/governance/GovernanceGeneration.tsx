@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { api, ApiError, mutation } from '../../shared/api';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import { modelFailureLabels } from '../models/types';
-import type { Definition, Generation, Item, Suggestion } from './types';
+import type { Definition, Generation, Item, Suggestion, Target } from './types';
+import { useGenerationTask } from './useGenerationTask';
 
 /**
  * 生成前给出当次可见的实际资料修订。
  */
-type Preview = {
+export type GenerationPreview = {
   /**
    * 只在有原文查看权时带可识别的资料元数据。
    */
@@ -19,6 +20,47 @@ type Preview = {
    */
   reviewToken: string;
 };
+
+/**
+ * 从实际打开的定义构造生成前置条件，单项和批量使用同一约束。
+ */
+export function generationTarget(item: Item) {
+  return {
+    kind: item.target.kind,
+    targetId: item.target.targetId,
+    precondition: {
+      expectedVersion: item.version,
+      expectedStructureRevisionId:
+        item.structureBasis.columnRevisionId ?? item.structureBasis.objectRevisionId,
+    },
+  };
+}
+
+/**
+ * 生成核对区共用固定资料清单，保留真实标题和修订。
+ */
+export function GenerationNotes({ notes }: { notes: GenerationPreview['notes'] }) {
+  if (!notes) return null;
+  return (
+    <section aria-label="本次取用的业务说明">
+      <h3>
+        业务说明 <small>{notes.length} 份</small>
+      </h3>
+      {notes.length ? (
+        <ul className="gov-generation-notes" tabIndex={0}>
+          {notes.map((note) => (
+            <li key={note.noteId}>
+              <span>{note.title}</span>
+              <small>第 {note.revision} 版</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="gov-empty">当前没有可取用的业务说明</p>
+      )}
+    </section>
+  );
+}
 
 /**
  * 提交真实任务、回读实际状态，最后按差异保留人工输入。
@@ -31,6 +73,7 @@ export function GovernanceGeneration({
   current,
   apply,
   close,
+  initialRequest,
 }: {
   source: string;
   path: string;
@@ -39,27 +82,16 @@ export function GovernanceGeneration({
   current: Definition;
   apply: (suggestion: Suggestion, paths: (keyof Definition)[]) => void;
   close: () => void;
+  initialRequest?: string;
 }) {
   useReturnFocus();
   const { message } = App.useApp();
   const [command] = useState(() => crypto.randomUUID());
-  const [request, setRequest] = useState<string>();
+  const [request, setRequest] = useState(initialRequest);
   const [selected, setSelected] = useState<(keyof Definition)[]>();
   const base = path.split('/items/')[0];
   const subject = item.target.kind === 'COLUMN' ? '字段解释' : '表说明';
-  const scope = {
-    targets: [
-      {
-        kind: item.target.kind,
-        targetId: item.target.targetId,
-        precondition: {
-          expectedVersion: item.version,
-          expectedStructureRevisionId:
-            item.structureBasis.columnRevisionId ?? item.structureBasis.objectRevisionId,
-        },
-      },
-    ],
-  };
+  const scope = { targets: [generationTarget(item)] };
   const preview = useQuery({
     queryKey: [
       'governance-ai-preview',
@@ -68,7 +100,8 @@ export function GovernanceGeneration({
       item.structureBasis.objectRevisionId,
       item.structureBasis.columnRevisionId,
     ],
-    queryFn: () => api<Preview>(base + '/generation-preview', { method: 'POST', body: scope }),
+    queryFn: () =>
+      api<GenerationPreview>(base + '/generation-preview', { method: 'POST', body: scope }),
     enabled: request === undefined,
     staleTime: Infinity,
     gcTime: 0,
@@ -95,14 +128,11 @@ export function GovernanceGeneration({
       }
     },
   });
-  const task = useQuery({
-    queryKey: ['governance', source, 'generation', request],
-    queryFn: () => api<Generation>('/governance/sources/' + source + '/generations/' + request),
-    enabled: Boolean(request),
-    refetchInterval: ({ state }) =>
-      ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(state.data?.state ?? '') ? false : 1000,
-  });
-  const suggestion = task.data?.targets?.[0]?.suggestion;
+  const task = useGenerationTask(source, request);
+  const individual = task.data?.targets?.find(
+    ({ target, discoveryKind }) => !discoveryKind && sameTarget(target, item.target),
+  );
+  const suggestion = individual?.suggestion;
   const differences = suggestion
     ? fields.filter(
         ({ key }) =>
@@ -111,8 +141,8 @@ export function GovernanceGeneration({
       )
     : [];
   const checked = selected ?? differences.filter(({ key }) => !current[key]).map(({ key }) => key);
-  const failed = task.data?.state === 'FAILED';
-  const withheld = task.data?.state === 'SUCCEEDED' && !suggestion;
+  const failed = (individual?.state ?? task.data?.state) === 'FAILED';
+  const withheld = individual?.state === 'SUCCEEDED' && !suggestion;
 
   /**
    * 生成和填入是当前弹窗的连续操作，写入仍通过治理草稿。
@@ -168,25 +198,7 @@ export function GovernanceGeneration({
               action={<Button onClick={() => void preview.refetch()}>重新核对</Button>}
             />
           )}
-          {preview.data?.notes && (
-            <section aria-label="本次取用的业务说明">
-              <h3>
-                业务说明 <small>{preview.data.notes.length} 份</small>
-              </h3>
-              {preview.data.notes.length ? (
-                <ul className="gov-generation-notes">
-                  {preview.data.notes.map((note) => (
-                    <li key={note.noteId}>
-                      <span>{note.title}</span>
-                      <small>第 {note.revision} 版</small>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="gov-empty">当前没有可取用的业务说明</p>
-              )}
-            </section>
-          )}
+          <GenerationNotes notes={preview.data?.notes} />
         </div>
       )}
       {/* 只展示已持久化的终态建议，模型错误保留当前输入。 */}
@@ -203,7 +215,8 @@ export function GovernanceGeneration({
           type="error"
           title="生成未完成"
           description={
-            modelFailureLabels[task.data?.failureCode ?? ''] ?? '模型服务未返回可用建议。'
+            modelFailureLabels[individual?.failureCode ?? task.data?.failureCode ?? ''] ??
+            '模型服务未返回可用建议。'
           }
         />
       )}
@@ -241,6 +254,36 @@ export function GovernanceGeneration({
         </Checkbox.Group>
       )}
       {suggestion && !differences.length && <Alert type="info" title="建议与当前内容相同" />}
+      {/* 只列获准的实际读数和诊断语句，原始值不出现在任务页面。 */}
+      {!!individual?.samples?.length && (
+        <details className="gov-dependency-summary">
+          <summary>辅助读取 · {individual.samples.length} 轮</summary>
+          <ul className="gov-batch-results">
+            {individual.samples.map((round) => (
+              <li key={round.attempt}>
+                <div>
+                  第 {round.attempt} 轮 · {round.returnedRows} 行
+                  {round.statement && <small className="gov-pre-line">{round.statement}</small>}
+                </div>
+                <span>
+                  {round.status === 'SUCCEEDED'
+                    ? '已读取'
+                    : round.status === 'FAILED'
+                      ? '读取失败'
+                      : '未交付'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </Modal>
   );
+}
+
+/**
+ * 批次首项回读整批时，只采用与当前编辑器准确匹配的建议。
+ */
+function sameTarget(left: Target | undefined, right: Target) {
+  return left?.targetId === right.targetId && left.kind === right.kind;
 }

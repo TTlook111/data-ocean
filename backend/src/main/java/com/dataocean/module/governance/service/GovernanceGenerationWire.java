@@ -25,10 +25,18 @@ public final class GovernanceGenerationWire {
      * @param inputLimits Java 选取阶段触发的裁剪原因
      * @param targetColumn 当前字段的结构，表说明任务为空
      * @param discovery 作用于当前对象的候选发现范围
+     * @param sampleAvailable 当前字段是否开放受控读取入口
      */
     public record Context(
-            String objectName, String sourceComment, List<Column> columns, List<String> contentPaths,
-            List<Note> notes, List<String> inputLimits, Column targetColumn, GovernanceDiscoveryWire.Scope discovery) {}
+            String objectName,
+            String sourceComment,
+            List<Column> columns,
+            List<String> contentPaths,
+            List<Note> notes,
+            List<String> inputLimits,
+            Column targetColumn,
+            GovernanceDiscoveryWire.Scope discovery,
+            boolean sampleAvailable) {}
 
     /**
      * 源库列的必要技术事实。
@@ -78,9 +86,12 @@ public final class GovernanceGenerationWire {
      * @param candidates 候选发现时实际返回的列表
      */
     public record Result(
-            JsonNode content, List<Evidence> evidence, List<String> usedNoteIds, Call call,
-            List<String> inputLimits, List<GovernanceDiscoveryWire.Proposal> candidates) {
-    }
+            JsonNode content,
+            List<Evidence> evidence,
+            List<String> usedNoteIds,
+            Call call,
+            List<String> inputLimits,
+            List<GovernanceDiscoveryWire.Proposal> candidates) {}
 
     /**
      * 模型适配器报告的诊断元数据，不包含提示词及响应原文。
@@ -92,9 +103,13 @@ public final class GovernanceGenerationWire {
      * @param inputTokens 已知输入 token 数
      * @param outputTokens 已知输出 token 数
      */
-    public record Call(String revisionId, String modelName, String providerCallId, Integer elapsedMs,
-                       Integer inputTokens, Integer outputTokens) {
-    }
+    public record Call(
+            String revisionId,
+            String modelName,
+            String providerCallId,
+            Integer elapsedMs,
+            Integer inputTokens,
+            Integer outputTokens) {}
 
     /**
      * 只在本次实际输入里验证的资料引用。
@@ -105,5 +120,6 @@ public final class GovernanceGenerationWire {
      * @param start 正文范围开始
      * @param end 正文范围结束
      */
-    public record Evidence(String contentPath, String noteId, String attachmentId, Integer start, Integer end) {}
+    public record Evidence(
+            String contentPath, String noteId, String attachmentId, Integer start, Integer end, String section) {}
 }

@@ -12,6 +12,7 @@ import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 实时授权范围和已生效来源的撤销边界。
@@ -22,6 +23,11 @@ public interface AccessScopeService {
      * 服务端按人员和当前有效来源计算数据源与输出限制。
      */
     List<AccessScopeVO> current(long user);
+
+    /**
+     * 查询实时源授权，可选能力在没有访问权时仍可继续办理自身任务。
+     */
+    Optional<AccessScopeVO> findSource(long user, long source);
 
     /**
      * 校验源访问并返回权威当前规则，供受控业务执行使用。

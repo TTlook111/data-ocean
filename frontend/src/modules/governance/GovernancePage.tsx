@@ -10,6 +10,7 @@ import { MoreFilters } from '../../shared/MoreFilters';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import type { GovernanceRow, Target } from './types';
+import { GovernanceNoteMapping } from './GovernanceNoteMapping';
 import './governance.css';
 
 /**
@@ -92,7 +93,7 @@ export function GovernancePage() {
   /**
    * 打开已核实的对象或定向的复核条目。
    */
-  function open(row: GovernanceRow, target?: Target) {
+  function open(row: Pick<GovernanceRow, 'sourceId' | 'objectId'>, target?: Target) {
     // 用稳定源和目标标识保持入口及返回条件。
     const next = new URLSearchParams(params);
     next.set('source', row.sourceId);
@@ -196,6 +197,11 @@ export function GovernancePage() {
           <SourceUnavailable />
         ) : (
           <section className="panel records-panel" aria-label="表治理列表">
+            <GovernanceNoteMapping
+              key={selected.id}
+              source={selected.id}
+              open={(target) => open({ sourceId: selected.id, objectId: target.objectId }, target)}
+            />
             <RecordTable<GovernanceRow>
               rowKey="observationId"
               dataSource={table.data?.page.items}

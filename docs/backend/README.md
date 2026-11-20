@@ -9,7 +9,7 @@
 | Java 后端 | JDK 17、Spring Boot、MyBatis-Plus、Spring Security、Hutool | 业务管理、身份与权限、元数据采集、受控 SQL 执行、业务记录及对前端统一提供 API；跨端边界见应用职责 |
 | 登录态 | Spring Security、Spring Session Redis | Cookie 携带服务端登录会话，Java 通过 UserContext 读取请求用户；退出失效、内部服务 JWT 和凭据注入统一见[认证方案](../architecture/认证与身份上下文.md) |
 | Python AI 后端 | LangGraph、FastAPI | Python 主要负责 Agent 调用与流程编排；LangGraph 承担 Agent 编排，FastAPI 承担 HTTP API 服务 |
-| 存储组件 | MySQL 8 系列、Redis、Milvus | 平台 MySQL 保存业务数据和会话历史，Redis 保存 LangGraph 检查点并承担缓存与临时协调，Milvus 保存向量；细则见存储分工 |
+| 存储组件 | MySQL 8 系列、Redis、Milvus、阿里云 OSS | 平台 MySQL 保存业务数据和会话历史，Redis 保存 LangGraph 检查点并承担缓存与临时协调，Milvus 保存向量，OSS 保存企业业务说明原件。细则见存储分工 |
 
 Java 基线已确定为 JDK 17，平台数据库使用 MySQL 8 系列，不预先锁定 8.4；MySQL 的具体小版本与补丁在部署基线中固定。接入业务源的数据库类型及版本按适配器能力单独核验，不由平台库版本推定。
 
@@ -28,6 +28,7 @@ Hutool 是 Java 通用工具库，包含字符串、日期、集合、文件与 
 | 图与检查点 | LangGraph 1.2.22、langgraph-checkpoint 4.3.2、langgraph-checkpoint-redis 0.6.0 | API/Worker 同包同锁，Redis 适配器与图版本共同验证；Python redis 包版本不等同 Redis 服务端版本 |
 | 平台数据库 | MySQL 8 系列、Redis 8.10.3 | MySQL 小版本与补丁仍待部署确认；Redis 持久化与检查点隔离按存储方案落实 |
 | 向量服务与 SDK | Milvus 2.6.26、PyMilvus 2.6.17 | 按官方对应组合验证，不机械要求服务端和 SDK 补丁号相同 |
+| 原件对象存储 | 阿里云 OSS Java SDK V2 0.5.1 | Java 通过各环境的私有 Bucket 上传、下载和清理，真实 Bucket 联调以实际配置为准 |
 
 基线依据参考 [Spring Boot 要求](https://docs.spring.io/spring-boot/system-requirements.html)、[MyBatis-Plus 安装](https://baomidou.com/en/getting-started/install/)、[Redis Checkpointer 依赖](https://github.com/redis-developer/langgraph-redis/blob/main/pyproject.toml)及 [Milvus 对应表](https://milvus.io/docs/v2.6.x/release_notes.md)。具体版本只在本节维护，共用工程文档链接引用。
 

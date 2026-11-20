@@ -101,6 +101,22 @@ dataocean:
   # HMAC 密钥文件路径；开发脚本注入本机文件，手动启动时须自行提供。
   secret-key-file: ${DATAOCEAN_SECRET_FILE:}
 
+  # 企业业务说明原件使用 OSS；各环境配置自己的私有 Bucket 和凭据。
+  oss:
+    # Bucket 所在地域，例如 cn-hangzhou。
+    region: ${DATAOCEAN_OSS_REGION:}
+    # HTTPS 域名；留空时使用 SDK 根据地域推导的公网域名。
+    endpoint: ${DATAOCEAN_OSS_ENDPOINT:}
+    # 原件所在的私有 Bucket。
+    bucket: ${DATAOCEAN_OSS_BUCKET:}
+    # 同一 Bucket 内区分开发环境的对象键前缀。
+    object-prefix: ${DATAOCEAN_OSS_OBJECT_PREFIX:dataocean}
+    # endpoint 是已绑定 Bucket 的自定义域名时启用。
+    use-cname: ${DATAOCEAN_OSS_USE_CNAME:false}
+    # 仅授权对应 Bucket 与对象前缀的访问凭据。
+    access-key-id: ${DATAOCEAN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${DATAOCEAN_OSS_ACCESS_KEY_SECRET:}
+
   # 无真实用户活动时的最大会话空闲时长，单位：秒（30 分钟）。
   session-idle-seconds: 1800
   # 一次登录的最长持续时长，单位：秒（8 小时）。

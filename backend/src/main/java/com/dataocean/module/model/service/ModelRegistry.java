@@ -91,11 +91,13 @@ public class ModelRegistry {
     }
 
     /**
-     * 列出已接入的节点及当前选择。
+     * 列出产品定义的节点、所需能力及当前选择。
      */
     public List<ModelNodeVO> nodes() {
-        return models.assignments().stream().map(row -> new ModelNodeVO(
-                row.nodeCode(), Objects.toString(row.modelId(), null), row.version())).toList();
+        return models.assignments().stream()
+                .map(row -> new ModelNodeVO(
+                        row.nodeCode(), row.capability(), Objects.toString(row.modelId(), null), row.version()))
+                .toList();
     }
 
     /**
@@ -111,7 +113,8 @@ public class ModelRegistry {
     @Transactional
     public ModelConfigVO save(Long modelId, ModelSaveDTO input) {
         String endpoint = checkedEndpoint(input.getEndpoint());
-        boolean needsCredential = input.getCredential() != null && !input.getCredential().isBlank();
+        boolean needsCredential =
+                input.getCredential() != null && !input.getCredential().isBlank();
         long revisionId = IdWorker.getId();
         Config current = null;
         long id;
@@ -126,7 +129,14 @@ public class ModelRegistry {
             // 编辑读取真实当前版本，避免覆盖并行办理。
             id = modelId;
             current = checkedModel(id, input.getVersion());
-            if (needsCredential || !endpoint.equals(current.endpoint()) || !input.getProtocol().equals(current.protocol())) {
+            if (!capability(input.getProtocol()).equals(capability(current.protocol()))
+                    && models.assignedCount(id) > 0) {
+                // 变更模型能力前必须解除旧分配，避免已有节点接入错误协议。
+                throw BizIllegalException.state("请先解除节点分配，再修改模型类型");
+            }
+            if (needsCredential
+                    || !endpoint.equals(current.endpoint())
+                    || !input.getProtocol().equals(current.protocol())) {
                 // 改变认证资料的目标或协议同样需要凭据维护权。
                 permissions.require("models.credential");
             }
@@ -136,14 +146,26 @@ public class ModelRegistry {
             // 只有明确替换才保存新的凭据修订。
             credentialId = IdWorker.getId();
             String keyVersion = credentials.version();
-            models.insertCredential(credentialId, id, keyVersion,
+            models.insertCredential(
+                    credentialId,
+                    id,
+                    keyVersion,
                     credentials.encrypt(input.getCredential().strip(), context(id, credentialId), keyVersion));
         } else {
             credentialId = Objects.requireNonNull(current).credentialId();
         }
-        var next = new Config(id, revisionId, current == null ? 1 : current.revision() + 1,
-                input.getName().strip(), input.getProtocol(), endpoint, input.getModelName().strip(), input.getTimeoutSeconds(),
-                current == null || current.enabled(), current == null ? 1 : current.version() + 1, credentialId);
+        var next = new Config(
+                id,
+                revisionId,
+                current == null ? 1 : current.revision() + 1,
+                input.getName().strip(),
+                input.getProtocol(),
+                endpoint,
+                input.getModelName().strip(),
+                input.getTimeoutSeconds(),
+                current == null || current.enabled(),
+                current == null ? 1 : current.version() + 1,
+                credentialId);
         models.insertRevision(next);
         if (current != null) {
             // 原任务仍引用原修订，新任务读取新修订。
@@ -169,9 +191,11 @@ public class ModelRegistry {
      */
     @Transactional
     public void assign(String node, ModelAssignmentDTO input) {
+        Config selected = null;
         if (input.getModelId() != null) {
             // 与停用按同一模型行串行检查。
-            requireEnabled(models.lockModel(input.getModelId()));
+            selected = models.lockModel(input.getModelId());
+            requireEnabled(selected);
         }
         var current = models.lockAssignment(node);
         if (current == null) {
@@ -180,9 +204,24 @@ public class ModelRegistry {
         if (current.version() != input.getVersion()) {
             throw BizIllegalException.conflict();
         }
+        if (selected != null && !current.capability().equals(capability(selected.protocol()))) {
+            // 直接调用接口也不能把能力不匹配的模型分配给节点。
+            throw BizIllegalException.invalid("模型类型不符合该节点所需能力");
+        }
         if (!Objects.equals(current.modelId(), input.getModelId())) {
             models.assign(node, input.getModelId());
         }
+    }
+
+    /**
+     * 返回注册接口格式所具备的实际模型能力。
+     */
+    private String capability(String protocol) {
+        return switch (protocol) {
+            case "OPENAI_EMBEDDINGS" -> "EMBEDDING";
+            case "COHERE_RERANK" -> "RERANK";
+            default -> "GENERATION";
+        };
     }
 
     /**
@@ -236,10 +275,15 @@ public class ModelRegistry {
         requireEnabled(config);
         String endpoint = checkedEndpoint(config.endpoint());
         var secret = models.credential(config.credentialId(), config.id());
-        String key = credentials.decrypt(secret.ciphertext(), context(config.id(), config.credentialId()),
-                secret.keyVersion());
-        return new ModelInvocation(Long.toString(config.revisionId()), config.protocol(), endpoint, config.modelName(),
-                Math.min(config.timeoutSeconds(), remainingSeconds), key);
+        String key = credentials.decrypt(
+                secret.ciphertext(), context(config.id(), config.credentialId()), secret.keyVersion());
+        return new ModelInvocation(
+                Long.toString(config.revisionId()),
+                config.protocol(),
+                endpoint,
+                config.modelName(),
+                Math.min(config.timeoutSeconds(), remainingSeconds),
+                key);
     }
 
     /**
@@ -276,8 +320,12 @@ public class ModelRegistry {
             // 语法错误直接关联输入，不回显提交地址。
             throw endpointError("请输入有效的 HTTPS 服务地址");
         }
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null
-                || uri.getQuery() != null || uri.getFragment() != null || uri.getPort() != -1 && uri.getPort() != 443) {
+        if (!"https".equalsIgnoreCase(uri.getScheme())
+                || uri.getHost() == null
+                || uri.getUserInfo() != null
+                || uri.getQuery() != null
+                || uri.getFragment() != null
+                || uri.getPort() != -1 && uri.getPort() != 443) {
             // 只接受 HTTPS SDK 基址，连接凭据不得嵌进 URL。
             throw endpointError("填写 HTTPS 服务基址，使用默认端口，去掉查询参数和片段");
         }
@@ -306,7 +354,16 @@ public class ModelRegistry {
      * 只映射后台可披露字段。
      */
     private static ModelConfigVO view(Config row) {
-        return new ModelConfigVO(Long.toString(row.id()), Long.toString(row.revisionId()), row.revision(), row.name(),
-                row.protocol(), row.endpoint(), row.modelName(), row.timeoutSeconds(), row.enabled(), row.version());
+        return new ModelConfigVO(
+                Long.toString(row.id()),
+                Long.toString(row.revisionId()),
+                row.revision(),
+                row.name(),
+                row.protocol(),
+                row.endpoint(),
+                row.modelName(),
+                row.timeoutSeconds(),
+                row.enabled(),
+                row.version());
     }
 }

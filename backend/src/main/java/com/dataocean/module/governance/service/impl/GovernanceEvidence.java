@@ -101,7 +101,8 @@ public class GovernanceEvidence {
         for (var reference : former) {
             // 草稿更新可只改变定义文字，也可明确清空某一类证据。
             boolean keep = "STRUCTURE".equals(reference.getKind())
-                    ? draft.getStructureRefs() == null : draft.getManualEvidence() == null;
+                    ? draft.getStructureRefs() == null
+                    : draft.getManualEvidence() == null;
             if (keep) {
                 selected.add(reference);
             }
@@ -127,7 +128,10 @@ public class GovernanceEvidence {
      * 比较时只看经过归一化的字段、种类及实质定位。
      */
     public List<String> keys(List<GovernanceEvidencePO> refs) {
-        return refs.stream().map(ref -> ref.getContentPath() + "/" + ref.getLocatorKey()).sorted().toList();
+        return refs.stream()
+                .map(ref -> ref.getContentPath() + "/" + ref.getLocatorKey())
+                .sorted()
+                .toList();
     }
 
     /**
@@ -141,9 +145,11 @@ public class GovernanceEvidence {
         if (ref.getAttachmentId() != null) {
             // 原件摘要一致时才认定附件引用未受影响。
             var previous = original.files().stream()
-                    .filter(file -> file.id() == ref.getAttachmentId()).findFirst().orElse(null);
-            return previous != null && current.files().stream()
-                    .anyMatch(file -> file.digest().equals(previous.digest()));
+                    .filter(file -> file.id() == ref.getAttachmentId())
+                    .findFirst()
+                    .orElse(null);
+            return previous != null
+                    && current.files().stream().anyMatch(file -> file.digest().equals(previous.digest()));
         }
         var location = json.read(ref.getLocation(), EvidenceLocationDTO.class);
         String quoted = excerpt(original.body(), location);
@@ -181,7 +187,9 @@ public class GovernanceEvidence {
                 verifyNote(ref);
             } else if ("STRUCTURE".equals(ref.getKind())) {
                 var current = catalog.current(source, ref.getObjectId());
-                if (current == null || current.retired() || source.scopePending()
+                if (current == null
+                        || current.retired()
+                        || source.scopePending()
                         || catalog.pending(source.id(), ref.getObjectId()) > 0
                         || ref.getColumnId() != null && current.column(ref.getColumnId()) == null) {
                     // 删除或未核实依赖必须处理后才能确认本定义。
@@ -199,21 +207,29 @@ public class GovernanceEvidence {
                 || "STRUCTURE".equals(ref.getKind()) && !permissions.has("catalog.view");
         if (redacted) {
             // 受限资料的编号、附件、位置以及原文均不进入响应。
-            return new GovernanceEvidenceVO(ref.getKind(), ref.getContentPath(), true, null, null, null,
-                    null, null, null, null);
+            return new GovernanceEvidenceVO(
+                    ref.getKind(), ref.getContentPath(), true, null, null, null, null, null, null, null);
         }
         if ("NOTE".equals(ref.getKind())) {
             // 仅披露权限允许的确切修订和引用位置。
             var note = notes.revision(ref.getSourceId(), ref.getNoteId(), ref.getNoteRevisionId());
-            return new GovernanceEvidenceVO("NOTE", ref.getContentPath(), false, null,
-                    Long.toString(ref.getNoteId()), Long.toString(ref.getNoteRevisionId()), note.revision(),
+            return new GovernanceEvidenceVO(
+                    "NOTE",
+                    ref.getContentPath(),
+                    false,
+                    null,
+                    Long.toString(ref.getNoteId()),
+                    Long.toString(ref.getNoteRevisionId()),
+                    note.revision(),
                     Objects.toString(ref.getAttachmentId(), null),
-                    json.read(ref.getLocation(), EvidenceLocationDTO.class), null);
+                    json.read(ref.getLocation(), EvidenceLocationDTO.class),
+                    null);
         }
-        var basis = ref.getSnapshotId() == null ? null
+        var basis = ref.getSnapshotId() == null
+                ? null
                 : entries.basis(ref.getSnapshotId(), ref.getObjectRevisionId(), ref.getColumnRevisionId());
-        return new GovernanceEvidenceVO(ref.getKind(), ref.getContentPath(), false, basis, null, null, null,
-                null, null, ref.getManualBasis());
+        return new GovernanceEvidenceVO(
+                ref.getKind(), ref.getContentPath(), false, basis, null, null, null, null, null, ref.getManualBasis());
     }
 
     /**
@@ -221,15 +237,19 @@ public class GovernanceEvidence {
      */
     public GovernanceEvidencePO model(long source, Note note, GovernanceGenerationWire.Evidence citation) {
         Long file = citation.attachmentId() == null ? null : Ids.parse(citation.attachmentId());
-        var location = new EvidenceLocationDTO(file == null ? "BODY" : "ATTACHMENT", citation.start(), citation.end());
+        var section = file == null ? "BODY" : Objects.toString(citation.section(), "ATTACHMENT");
+        var location = new EvidenceLocationDTO(section, citation.start(), citation.end());
         if (file == null) {
             // 正文定位须落在真实固定资料内。
             excerpt(note.body(), location);
-        } else if (note.files().stream().noneMatch(attachment -> attachment.id() == file)) {
-            // 原件必须是当时实际固定的修订成员。
-            throw BizIllegalException.missing();
+        } else {
+            // 校验内部工作者返回的附件定位格式和固定修订成员。
+            attachment(note, file, location);
         }
-        var ref = base(source, citation.contentPath(), "NOTE",
+        var ref = base(
+                source,
+                citation.contentPath(),
+                "NOTE",
                 List.of(note.noteId(), note.revisionId(), file == null ? 0L : file, location));
         ref.setNoteId(note.noteId());
         ref.setNoteRevisionId(note.revisionId());
@@ -255,8 +275,14 @@ public class GovernanceEvidence {
             // 字段必须属于此固定对象修订。
             throw BizIllegalException.missing();
         }
-        var ref = base(source.id(), input.getContentPath(), "STRUCTURE",
-                List.of(object, target.observation().revisionId(), column == null ? 0L : column,
+        var ref = base(
+                source.id(),
+                input.getContentPath(),
+                "STRUCTURE",
+                List.of(
+                        object,
+                        target.observation().revisionId(),
+                        column == null ? 0L : column,
                         field == null ? 0L : field.revisionId()));
         ref.setObjectId(object);
         ref.setObjectRevisionId(target.observation().revisionId());
@@ -273,11 +299,17 @@ public class GovernanceEvidence {
         content.requirePath(context.target().isColumn(), input.getContentPath());
         if (input.getManualBasis() != null && !input.getManualBasis().isBlank()) {
             // 人工说明是独立证据类型，不能同时声明已引用原文件。
-            if (input.getNoteId() != null || input.getRevisionId() != null || input.getLocation() != null
+            if (input.getNoteId() != null
+                    || input.getRevisionId() != null
+                    || input.getLocation() != null
                     || input.getAttachmentId() != null) {
                 throw BizIllegalException.invalid("人工依据与资料引用需分别填写");
             }
-            var ref = base(source.id(), input.getContentPath(), "MANUAL", input.getManualBasis().strip());
+            var ref = base(
+                    source.id(),
+                    input.getContentPath(),
+                    "MANUAL",
+                    input.getManualBasis().strip());
             ref.setManualBasis(input.getManualBasis().strip());
             return ref;
         }
@@ -294,20 +326,35 @@ public class GovernanceEvidence {
         if (file == null) {
             // 以原文中确实存在的范围作为可回看的出处。
             excerpt(original.body(), location);
-        } else if (!"ATTACHMENT".equals(location.getSection()) || location.getStart() != null || location.getEnd() != null
-                || original.files().stream().noneMatch(attachment -> attachment.id() == file)) {
-            // 手工引用原件需命中本修订已存在的成员。
-            throw BizIllegalException.invalid("附件不属于该资料修订或位置无效");
+        } else {
+            // 引用至少指向某份实际原件，自动片段还可保留更细的位置。
+            attachment(original, file, location);
         }
 
-        var ref = base(source.id(), input.getContentPath(), "NOTE",
-                List.of(id, revision, file == null ? 0L : file, location));
+        var ref = base(
+                source.id(), input.getContentPath(), "NOTE", List.of(id, revision, file == null ? 0L : file, location));
         ref.setNoteId(id);
         ref.setNoteRevisionId(revision);
         ref.setLocation(json.write(location));
         ref.setAttachmentId(file);
         verifyNote(ref);
         return ref;
+    }
+
+    /**
+     * 验证原件和固定位置属于同一资料修订，接受历史整件引用。
+     */
+    private void attachment(Note note, long file, EvidenceLocationDTO location) {
+        String section = location.getSection();
+        if (section == null
+                || !section.matches("ATTACHMENT|(?:PDF_PAGE|DOCX_PARAGRAPH|TEXT_LINE):[1-9]\\d{0,6}"
+                        + "|CSV_LINES:[1-9]\\d{0,6}-[1-9]\\d{0,6}|XLSX_CELL:[1-9]\\d{0,5}:[A-Z]{1,3}[1-9]\\d{0,6}")
+                || location.getStart() != null
+                || location.getEnd() != null
+                || note.files().stream().noneMatch(attachment -> attachment.id() == file)) {
+            // 不接受未知成员或与正文偏移混用的原件位置。
+            throw BizIllegalException.invalid("附件不属于该资料修订或位置无效");
+        }
     }
 
     /**
@@ -327,8 +374,12 @@ public class GovernanceEvidence {
      * 安全定位原始正文选段，偏移采用浏览器和 Java 一致的 UTF-16 字符坐标。
      */
     private String excerpt(String body, EvidenceLocationDTO location) {
-        if (!"BODY".equals(location.getSection()) || location.getStart() == null || location.getEnd() == null
-                || location.getStart() < 0 || location.getEnd() > body.length() || location.getEnd() <= location.getStart()) {
+        if (!"BODY".equals(location.getSection())
+                || location.getStart() == null
+                || location.getEnd() == null
+                || location.getStart() < 0
+                || location.getEnd() > body.length()
+                || location.getEnd() <= location.getStart()) {
             // 任何不合法范围均作为可纠正的请求错误。
             throw BizIllegalException.invalid("引用段落不属于该资料修订");
         }
@@ -348,7 +399,8 @@ public class GovernanceEvidence {
         ref.setSourceId(source);
         ref.setContentPath(path);
         ref.setKind(kind);
-        ref.setLocatorKey(HexFormat.of().formatHex(secrets.hmac("governance:evidence|" + kind + "|" + json.write(location))));
+        ref.setLocatorKey(
+                HexFormat.of().formatHex(secrets.hmac("governance:evidence|" + kind + "|" + json.write(location))));
         return ref;
     }
 }

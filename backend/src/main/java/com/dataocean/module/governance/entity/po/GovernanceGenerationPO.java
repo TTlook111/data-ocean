@@ -10,7 +10,7 @@ import lombok.Data;
 import lombok.ToString;
 
 /**
- * 一次持久接收的表说明生成任务。
+ * 单项持久生成任务，可归入同一用户命令接收的批次。
  */
 @Data
 @TableName("gov_generation_task")
@@ -26,6 +26,21 @@ public class GovernanceGenerationPO {
      */
     @TableId(type = IdType.INPUT)
     private String requestId;
+
+    /**
+     * 同一批次首个实际任务的编号，独立或首个任务为空。
+     */
+    private String batchRequestId;
+
+    /**
+     * 批内后续任务的选择顺序，首项为零。
+     */
+    private Integer batchPosition;
+
+    /**
+     * 接收时固定的每轮最大取样行数，未获准或无有效预算时为空。
+     */
+    private String sampleRowLimits;
 
     /**
      * 接收的原命令 UUID。

@@ -26,7 +26,7 @@ public class ModelSaveDTO {
      * 生成接口格式。
      */
     @NotBlank
-    @Pattern(regexp = "OPENAI_CHAT_COMPLETIONS|ANTHROPIC_MESSAGES")
+    @Pattern(regexp = "OPENAI_CHAT_COMPLETIONS|ANTHROPIC_MESSAGES|OPENAI_EMBEDDINGS|COHERE_RERANK")
     private String protocol;
 
     /**

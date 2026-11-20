@@ -127,7 +127,7 @@ export interface EvidenceLocation {
   /**
    * 正文使用 BODY，整份原件使用 ATTACHMENT。
    */
-  section: 'BODY' | 'ATTACHMENT';
+  section: string;
   /**
    * 正文起始偏移，单位为 UTF-16 字符。
    */
@@ -616,7 +616,50 @@ export interface Generation {
   /**
    * 当前条目对应的已存结果。
    */
-  targets?: { suggestion?: Suggestion | null }[];
+  targets?: GenerationTarget[];
+}
+
+/**
+ * 批内独立执行项也用于单项任务回读。
+ */
+export interface GenerationTarget {
+  /**
+   * 本项独立执行编号，用于回看建议。
+   */
+  requestId: string;
+  /**
+   * 本项处理的稳定条目。
+   */
+  target: Target;
+  /**
+   * 关联或指标候选发现，普通建议没有此值。
+   */
+  discoveryKind?: 'RELATION' | 'METRIC' | null;
+  /**
+   * 单项实际状态，可独立成功或失败。
+   */
+  state: string;
+  /**
+   * 当前能够获准回看的原始建议。
+   */
+  suggestion?: Suggestion | null;
+  /**
+   * 单项失败原因编码。
+   */
+  failureCode?: string | null;
+  /**
+   * 当前有源访问权限时可见的实际辅助读取摘要。
+   */
+  samples?: {
+    /** 真实尝试顺序。 */
+    attempt: number;
+    /** 查询结果的稳定状态。 */
+    status: string;
+    /** 源库实际返回行数。 */
+    returnedRows: number;
+    /** 有诊断权时回看的固定只读语句。 */
+    statement?: string | null;
+  }[] | null;
 }
 
 /**

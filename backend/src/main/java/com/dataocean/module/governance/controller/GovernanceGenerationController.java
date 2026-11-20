@@ -7,11 +7,14 @@ import com.dataocean.module.governance.entity.vo.GenerationAcceptedVO;
 import com.dataocean.module.governance.entity.vo.GenerationDetailVO;
 import com.dataocean.module.governance.entity.vo.GenerationPreviewVO;
 import com.dataocean.module.governance.service.GovernanceGenerationService;
+import com.dataocean.module.governance.service.impl.GovernanceGenerationStream;
 import com.dataocean.module.iam.security.RequirePermission;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import lombok.RequiredArgsConstructor;
 
@@ -35,6 +39,11 @@ public class GovernanceGenerationController {
      * 负责业务侧委派、当前资格和实际结果发布。
      */
     private final GovernanceGenerationService tasks;
+
+    /**
+     * 任务状态通知只通过授权会话打开。
+     */
+    private final GovernanceGenerationStream streams;
 
     /**
      * 预览与正式生成绑定同一明确范围。
@@ -53,7 +62,9 @@ public class GovernanceGenerationController {
     @RequirePermission("governance.suggest")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Result<GenerationAcceptedVO> accept(
-            @PathVariable String sourceId, @PathVariable String objectId, @Valid @RequestBody GenerateScopeDTO input,
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @Valid @RequestBody GenerateScopeDTO input,
             @RequestHeader("Idempotency-Key") String command) {
         return Result.success(tasks.accept(Ids.parse(sourceId), Ids.parse(objectId), input, command));
     }
@@ -65,5 +76,16 @@ public class GovernanceGenerationController {
     @RequirePermission("governance.view")
     public Result<GenerationDetailVO> detail(@PathVariable String sourceId, @PathVariable String requestId) {
         return Result.success(tasks.detail(Ids.parse(sourceId), requestId));
+    }
+
+    /**
+     * 订阅真实任务版本变化，断线后回读当前快照。
+     */
+    @GetMapping(value = "/generations/{requestId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RequirePermission("governance.view")
+    public SseEmitter events(
+            @PathVariable String sourceId, @PathVariable String requestId, HttpServletRequest request) {
+        return streams.open(
+                Ids.parse(sourceId), requestId, request.getSession(false).getId());
     }
 }

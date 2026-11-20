@@ -2,6 +2,7 @@ package com.dataocean.module.governance.mapper;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -17,7 +18,7 @@ public interface GovernanceDiscoveryMapper {
      */
     String CURRENT =
             """
-            SELECT c.id,c.request_id,c.source_id,c.kind,c.snapshot_id,c.evidence,
+            SELECT c.id,c.request_id,c.source_id,c.kind,c.snapshot_id,COALESCE(r.basis,c.evidence) AS evidence,
                    c.version,r.state,r.content,r.dependencies,
                    EXISTS(SELECT 1 FROM gov_generation_input i
                           WHERE i.request_id=c.request_id AND i.state='USED') AS used_business_notes
@@ -115,12 +116,18 @@ public interface GovernanceDiscoveryMapper {
     void attach(@Param("candidate") long candidate, @Param("object") long object);
 
     /**
+     * 替换当前可编辑定义的表入口，历史技术依据保留在候选修订。
+     */
+    @Delete("DELETE FROM gov_discovery_object WHERE candidate_id=#{candidate}")
+    void detachObjects(long candidate);
+
+    /**
      * 保存生成、人工作业或确认形成的独立修订。
      */
     @Insert(
             """
-            INSERT INTO gov_discovery_revision(id,candidate_id,version,state,content,dependencies,actor_id)
-            VALUES(#{id},#{candidate},#{version},#{state},#{content},#{dependencies},#{actor})
+            INSERT INTO gov_discovery_revision(id,candidate_id,version,state,content,dependencies,actor_id,basis)
+            VALUES(#{id},#{candidate},#{version},#{state},#{content},#{dependencies},#{actor},#{basis})
             """)
     void revise(
             @Param("id") long id,
@@ -129,7 +136,8 @@ public interface GovernanceDiscoveryMapper {
             @Param("state") String state,
             @Param("content") String content,
             @Param("dependencies") String dependencies,
-            @Param("actor") long actor);
+            @Param("actor") long actor,
+            @Param("basis") String basis);
 
     /**
      * 推进当前指针，旧版本不能覆盖人工内容。

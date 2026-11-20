@@ -27,6 +27,8 @@ import com.dataocean.module.datasource.mapper.DatasourceRecordMapper;
 import com.dataocean.module.datasource.mapper.NoteAttachmentMapper;
 import com.dataocean.module.datasource.service.BusinessNoteService;
 import com.dataocean.module.datasource.service.DatasourceEvents;
+import com.dataocean.module.datasource.service.NoteAttachmentCleanup;
+import com.dataocean.module.datasource.service.NoteAttachmentStorage;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
 import com.dataocean.module.iam.entity.vo.ImpactCountVO;
 import com.dataocean.module.iam.entity.vo.ImpactPreviewVO;
@@ -40,19 +42,21 @@ import com.dataocean.module.iam.service.ReviewService;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import lombok.RequiredArgsConstructor;
 
@@ -80,9 +84,24 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
     private final BusinessNoteRevisionMapper revisions;
 
     /**
-     * 原文件保存，普通回读不载入字节。
+     * 原件元数据及其存储定位。
      */
     private final NoteAttachmentMapper attachments;
+
+    /**
+     * 原件使用当前环境配置的私有 OSS 存储。
+     */
+    private final NoteAttachmentStorage storage;
+
+    /**
+     * 上传崩溃回收预留及资料删除后的原件清理。
+     */
+    private final NoteAttachmentCleanup cleanup;
+
+    /**
+     * 在独立预留提交后开启资料写入事务。
+     */
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * 修订、原文件关系和历史引用。
@@ -168,10 +187,10 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
     }
 
     /**
-     * 新增或编辑在原命令事务中提交文件、修订和资料状态。
+     * 新增或编辑先登记 OSS 上传预留，再在命令事务中提交原件关系、修订和资料状态。
      */
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public MutationVO save(Long id, String command, BusinessNoteDTO input, List<Attachment> files) {
         var commandFiles = files.stream().map(this::prepareFile).toList();
         var retained = input.getKeptAttachmentIds() == null
@@ -191,9 +210,16 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
         }
         String operation = id == null ? "business-notes.submit" : "business-notes.replace";
         var signatures = commandFiles.stream()
-                .map(file -> List.of(file.getName(), file.getDigest()))
+                .map(file -> List.of(file.metadata().getName(), file.metadata().getDigest()))
                 .toList();
-        return mutations.execute(
+        var newFiles = commandFiles.stream().map(PreparedAttachment::metadata).toList();
+        if (!newFiles.isEmpty()) {
+            // 预留须独立提交，进程中断也能回收未经资料事务确认的对象。
+            newFiles.forEach(storage::assignLocation);
+            cleanup.reserveUploads(newFiles);
+        }
+
+        Supplier<MutationVO> mutation = () -> mutations.execute(
                 operation,
                 command,
                 id == null ? "new" : "business-note:" + id,
@@ -263,6 +289,15 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                             null,
                             new ChangeVO("revision", "资料修订", beforeTitle, title + " · 第 " + note.getRevision() + " 版"));
                 });
+
+        var transaction = new TransactionTemplate(transactionManager);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return transaction.execute(status -> {
+            // 命令防重或业务提交成功后，同一事务撤销本次各对象的回收预留。
+            var result = mutation.get();
+            cleanup.completeUploads(newFiles);
+            return result;
+        });
     }
 
     /**
@@ -276,7 +311,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
             // 直接访问附件编号不能解除修订归属约束。
             throw BizIllegalException.missing();
         }
-        return new Attachment(file.getName(), file.getContent());
+        return new Attachment(file.getName(), storage.download(file));
     }
 
     /**
@@ -336,7 +371,8 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                         note.setStateReason(input.getReason().strip());
                     }
                     if ("DELETED".equals(next)) {
-                        // 资料编号保留在审计中，已核实未引用的原文件允许清除。
+                        // 清理任务和资料删除一同提交，后台只能领取已提交的对象。
+                        cleanup.queueDeletion(id);
                         revisions.delete(Wrappers.<BusinessNoteRevisionPO>lambdaQuery()
                                 .eq(BusinessNoteRevisionPO::getNoteId, id));
                         attachments.delete(
@@ -428,7 +464,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
      * 保存当前版本的新正文和准确附件集合。
      */
     private long writeRevision(
-            BusinessNotePO note, String body, List<NoteAttachmentPO> kept, List<NoteAttachmentPO> added) {
+            BusinessNotePO note, String body, List<NoteAttachmentPO> kept, List<PreparedAttachment> added) {
         var revision = new BusinessNoteRevisionPO();
         revision.setNoteId(note.getId());
         revision.setRevision(note.getRevision());
@@ -437,8 +473,11 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
         revision.setChangedBy(UserContext.getUser());
         revisions.insert(revision);
         var all = new ArrayList<>(kept);
-        for (var file : added) {
-            // 原文件保存在其资料下，历史可复用同一附件。
+        for (var original : added) {
+            // 先锁住回收预留，再上传原件；旧修订仍可复用各自已保存的附件。
+            var file = original.metadata();
+            cleanup.lockUpload(file);
+            storage.upload(file, original.bytes());
             file.setNoteId(note.getId());
             attachments.insert(file);
             all.add(file);
@@ -450,7 +489,7 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
     /**
      * 按文件名、大小及文件格式基本特征验证原文件。
      */
-    private NoteAttachmentPO prepareFile(Attachment upload) {
+    private PreparedAttachment prepareFile(Attachment upload) {
         String name = Objects.toString(upload.name(), "").strip();
         if (name.isEmpty()
                 || name.length() > 180
@@ -472,18 +511,19 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
         }
         var row = new NoteAttachmentPO();
         row.setName(name);
-        row.setContent(bytes);
         row.setByteSize(bytes.length);
-        try {
-            // 防重摘要包含完整文件内容，不把原始字节放进审计和命令记录。
-            row.setDigest(HexFormat.of()
-                    .formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)));
-        } catch (NoSuchAlgorithmException failure) {
-            // Java 标准实现必须提供 SHA-256。
-            throw new IllegalStateException("运行环境缺少 SHA-256", failure);
-        }
-        return row;
+        // 防重摘要包含完整文件内容，不把原始字节放进审计和命令记录。
+        row.setDigest(NoteAttachmentStorage.sha256(bytes));
+        return new PreparedAttachment(row, bytes);
     }
+
+    /**
+     * 当前提交中已通过校验的文件，原件字节只供本次上传使用。
+     *
+     * @param metadata 随修订落库的文件摘要及定位
+     * @param bytes 待上传的实际原件
+     */
+    private record PreparedAttachment(NoteAttachmentPO metadata, byte[] bytes) {}
 
     /**
      * 在不解压或渲染用户文件的情况下执行允许类型的基础格式校验。

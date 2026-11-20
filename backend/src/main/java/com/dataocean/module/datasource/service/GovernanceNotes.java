@@ -40,6 +40,11 @@ public class GovernanceNotes {
     private final BusinessNoteReadMapper reads;
 
     /**
+     * 从确切修订绑定的对象读取原件。
+     */
+    private final NoteAttachmentStorage storage;
+
+    /**
      * 为预览或受控任务列出当前同源的有效修订，按资料身份稳定排序。
      */
     public List<Note> active(long source) {
@@ -87,7 +92,7 @@ public class GovernanceNotes {
             // 不允许从其他修订复用未登记的原件。
             throw BizIllegalException.missing();
         }
-        return attachment.getContent();
+        return storage.download(attachment);
     }
 
     /**

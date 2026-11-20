@@ -8,9 +8,10 @@ import { displayTime, ReadState } from '../../shared/Records';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import { allowed, useSession } from '../../shared/session';
 import type { Page } from '../iam/types';
+import { GovernanceBatch, type BatchRun } from './GovernanceBatch';
 import { GovernanceEditor } from './GovernanceEditor';
 import { GovernanceDiscoveryPanel } from './GovernanceDiscoveryPanel';
-import type { ColumnRow, GovernanceObject, History, Item, Target } from './types';
+import type { ColumnRow, GenerationTarget, GovernanceObject, History, Item, Target } from './types';
 import './governance.css';
 
 /**
@@ -43,6 +44,10 @@ export function GovernanceDetailPage() {
   const [fieldTerm, setFieldTerm] = useState('');
   const [fieldState, setFieldState] = useState('ALL');
   const [fieldPage, setFieldPage] = useState(1);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batch, setBatch] = useState<{ base: string; run: BatchRun }>();
+  const [batchSuggestion, setBatchSuggestion] = useState<GenerationTarget>();
+  const currentBatch = batch?.base === base ? batch.run : undefined;
   const columns = useQuery({
     queryKey: ['governance', source, 'columns', id, fieldTerm, fieldState, fieldPage],
     enabled: Boolean(object.data) && tab === 'columns',
@@ -122,6 +127,27 @@ export function GovernanceDetailPage() {
     setParams(replacement, { state });
   }
 
+  /**
+   * 从批次结果进入对应治理条目，继续使用当前编辑区的离开保护。
+   */
+  function viewBatchResult(result: GenerationTarget) {
+    setBatchOpen(false);
+    if (result.discoveryKind) {
+      // 发现结果持久化为候选，交回同一对象的人工审核页签。
+      void switchTab(result.discoveryKind === 'RELATION' ? 'relations' : 'metrics');
+    } else {
+      // 只有切到匹配条目后才显示建议差异。
+      setBatchSuggestion(result);
+      if (
+        result.target.targetId !== item.data?.target.targetId ||
+        tab === 'basis' ||
+        discoveryKind
+      ) {
+        choose(result.target);
+      }
+    }
+  }
+
   if (!id || !source) {
     return (
       <Alert
@@ -153,7 +179,26 @@ export function GovernanceDetailPage() {
               {object.data.pendingFactCount > 0 && (
                 <Tag color="orange">来源事实待核实 {object.data.pendingFactCount} 项</Tag>
               )}
+              {object.data.tableEntry.actions.canSuggest && (
+                <Button onClick={() => setBatchOpen(true)}>
+                  {currentBatch ? '批量生成结果' : '批量生成 AI 建议'}
+                </Button>
+              )}
             </header>
+            {/* 关闭弹窗后可在当前详情重新打开已接收批次。 */}
+            {batchOpen && (
+              <GovernanceBatch
+                key={base}
+                base={base}
+                source={source}
+                sourceName={object.data.sourceName}
+                table={object.data.tableEntry}
+                run={currentBatch}
+                accepted={(run) => setBatch(run ? { base, run } : undefined)}
+                onView={viewBatchResult}
+                close={() => setBatchOpen(false)}
+              />
+            )}
             {object.data.pendingFactCount > 0 && allowed(session, 'collections.view') && (
               <Alert
                 className="gov-source-alert"
@@ -325,6 +370,13 @@ export function GovernanceDetailPage() {
                           name={item.data.displayName}
                           nativeType={item.data.nativeType ?? undefined}
                           sourceComment={item.data.sourceComment}
+                          suggestionRequest={
+                            batchSuggestion?.target.targetId === item.data.target.targetId &&
+                            batchSuggestion.target.kind === item.data.target.kind
+                              ? batchSuggestion.requestId
+                              : undefined
+                          }
+                          onSuggestionClose={() => setBatchSuggestion(undefined)}
                           next={
                             initial && initial.targetId !== item.data.target.targetId
                               ? next

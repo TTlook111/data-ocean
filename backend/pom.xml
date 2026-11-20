@@ -25,6 +25,8 @@
     <mybatis-plus.version>3.5.18</mybatis-plus.version>
     <!-- Hutool 通用工具库版本。 -->
     <hutool.version>5.8.48</hutool.version>
+    <!-- 阿里云 OSS Java SDK V2 用于业务说明附件。 -->
+    <aliyun-oss.version>0.5.1</aliyun-oss.version>
     <!-- Java 格式检查插件版本。 -->
     <spotless.version>3.0.0</spotless.version>
     <!-- Spotless 使用的 Java 格式化引擎版本。 -->
@@ -113,6 +115,13 @@
       <groupId>cn.hutool</groupId>
       <artifactId>hutool-all</artifactId>
       <version>${hutool.version}</version>
+    </dependency>
+
+    <!-- Java 后端通过私有 Bucket 保存和读取原件。 -->
+    <dependency>
+      <groupId>com.aliyun</groupId>
+      <artifactId>alibabacloud-oss-v2</artifactId>
+      <version>${aliyun-oss.version}</version>
     </dependency>
 
     <!-- 编译期代码生成：由 Lombok 生成访问器、构造方法等样板代码。 -->

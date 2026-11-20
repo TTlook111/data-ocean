@@ -14,6 +14,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -79,8 +80,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(FieldValidationException.class)
     ResponseEntity<Result<ErrorVO>> businessFields(FieldValidationException error) {
-        return ResponseEntity.badRequest().body(
-                new Result<>(error.getCode(), error.getMessage(), new ErrorVO(error.getFields(), null, null)));
+        return ResponseEntity.badRequest()
+                .body(new Result<>(error.getCode(), error.getMessage(), new ErrorVO(error.getFields(), null, null)));
     }
 
     /**
@@ -144,5 +145,13 @@ public class GlobalExceptionHandler {
         log.error("请求处理异常，traceId={}", response.getHeader("X-Trace-Id"), error);
         return ResponseEntity.internalServerError()
                 .body(new Result<>(ErrorCode.INTERNAL_ERROR.getCode(), "操作未完成，请通过请求编号联系管理员", null));
+    }
+
+    /**
+     * 客户端已断开异步响应时，容器负责结束连接，避免再次写入已关闭响应。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    void streamClosed() {
+        // 浏览器关闭任务弹窗是正常断开，不产生系统错误或重复日志。
     }
 }

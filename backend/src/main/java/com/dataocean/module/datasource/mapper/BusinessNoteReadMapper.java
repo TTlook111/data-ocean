@@ -37,7 +37,7 @@ public interface BusinessNoteReadMapper {
             @Param("author") String author);
 
     /**
-     * 只读取该版附件名称，不在普通查询中读取字节。
+     * 普通修订查询只读取展示和内容比对所需的附件元数据。
      */
     @Select(
             """
@@ -52,7 +52,8 @@ public interface BusinessNoteReadMapper {
      */
     @Select(
             """
-            SELECT a.* FROM ds_business_attachment a
+            SELECT a.id,a.note_id,a.name,a.byte_size,a.digest,a.object_bucket,a.object_key
+            FROM ds_business_attachment a
             JOIN ds_business_revision_attachment link ON link.note_id=a.note_id AND link.attachment_id=a.id
             JOIN ds_business_note_revision r ON r.id=link.revision_id AND r.note_id=link.note_id
             WHERE a.note_id=#{note} AND r.revision=#{revision} AND a.id=#{attachment}

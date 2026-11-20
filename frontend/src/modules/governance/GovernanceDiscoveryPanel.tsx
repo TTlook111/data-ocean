@@ -3,6 +3,7 @@ import {
   Alert,
   App,
   Button,
+  Checkbox,
   Descriptions,
   Drawer,
   Empty,
@@ -19,9 +20,15 @@ import { readErrorMessage, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import type { Page } from '../iam/types';
 import { modelFailureLabels } from '../models/types';
+import {
+  GovernanceDependencyDialog,
+  type Dependencies,
+  type DependencyField,
+} from './GovernanceDependencyDialog';
 import { GovernanceSourceDrawer } from './GovernanceSources';
 import type { SourcePeek } from './GovernanceSources';
 import type { Generation } from './types';
+import { useGenerationTask } from './useGenerationTask';
 
 /**
  * 当前页签对应的实际发现节点。
@@ -40,12 +47,20 @@ type Definition = {
   rule: string;
   /** 适用边界。 */
   usage: string;
+  /**
+   * 当前指标是否指定为适用条件内的默认口径。
+   */
+  defaultMetric?: boolean;
 };
 
 /**
  * 当次发现保留的结构位置。
  */
 type Structure = {
+  /**
+   * 字段所属的稳定表编号。
+   */
+  objectId: string;
   /** 字段稳定标识。 */
   fieldId: string;
   /** 对象的固定修订。 */
@@ -122,13 +137,7 @@ export function GovernanceDiscoveryPanel({
     queryFn: () =>
       api<Page<Candidate>>(path + '?' + queryString({ kind, pageNum: page, pageSize: 12 })),
   });
-  const task = useQuery({
-    queryKey: ['candidate-discovery', source, request],
-    enabled: Boolean(request),
-    queryFn: () => api<Generation>(`/governance/sources/${source}/generations/${request}`),
-    refetchInterval: ({ state }) =>
-      ['SUCCEEDED', 'FAILED'].includes(state.data?.state ?? '') ? false : 1000,
-  });
+  const task = useGenerationTask(source, request);
   const terminal = task.data?.state;
   useEffect(() => {
     // 以持久任务结果触发列表回读，避免用模型响应直接覆盖编辑区。
@@ -294,22 +303,48 @@ function CandidateEditor({
   const [form] = Form.useForm<Definition>();
   const [peek, setPeek] = useState<SourcePeek>();
   const [structure, setStructure] = useState(false);
+  const [dependenciesOpen, setDependenciesOpen] = useState(false);
+  const [dependencyEdit, setDependencyEdit] = useState<Dependencies>();
   const [error, setError] = useState('');
   const edit = allowed(session, 'governance.edit');
   const confirm = allowed(session, 'governance.confirm');
   const save = useMutation({
     mutationKey: saveKey,
-    mutationFn: ({ action, values }: { action: 'SAVE' | 'CONFIRM'; values: Definition }) =>
-      api<Candidate>(`${path}/${candidate.id}`, {
+    mutationFn: ({
+      action,
+      values,
+    }: {
+      action: 'SAVE' | 'CONFIRM' | 'REJECT';
+      values?: Definition;
+    }) => {
+      // 只有明确修改才提交新的技术依赖，拒绝只保存审核结论。
+      const dependencies =
+        dependencyEdit && action !== 'REJECT'
+          ? {
+              pairs:
+                label === '关联'
+                  ? dependencyEdit.pairs.map(({ left, right }) => ({
+                      left: left!.target,
+                      right: right!.target,
+                    }))
+                  : undefined,
+              fields: dependencyEdit.fields.map(({ target }) => target),
+            }
+          : undefined;
+      return api<Candidate>(path + '/' + candidate.id, {
         method: 'PUT',
-        body: { ...values, action, version: candidate.version },
-      }),
+        body: { ...values, ...dependencies, action, version: candidate.version },
+      });
+    },
     onSuccess: async (saved, { action }) => {
       // 再次读取平台确认版本，保留当前候选。
       setError('');
       await update(saved);
+      setDependencyEdit(undefined);
       onDraftChange();
-      void message.success(action === 'CONFIRM' ? '治理已确认' : '草稿已保存');
+      void message.success(
+        action === 'CONFIRM' ? '治理已确认' : action === 'REJECT' ? '已拒绝关联' : '草稿已保存',
+      );
     },
     onError: (failure) => setError(readErrorMessage(failure)),
   });
@@ -338,8 +373,24 @@ function CandidateEditor({
     DRAFT: '草稿',
     CONFIRMED: '已确认',
     REVIEW: '待复核',
+    REJECTED: '已拒绝',
   };
   if (!definition) return <Alert type="warning" title="当前权限无法查看该候选依据" />;
+  const fields = new Map(
+    candidate.basis.structures.map((ref) => [
+      ref.fieldId,
+      {
+        target: { kind: 'COLUMN', objectId: ref.objectId, targetId: ref.fieldId },
+        label: ref.label,
+      } satisfies DependencyField,
+    ]),
+  );
+  const pairs = definition.pairs ?? [];
+  const pairIds = new Set(pairs.flatMap(({ left, right }) => [left, right]));
+  const dependencies = dependencyEdit ?? {
+    pairs: pairs.map(({ left, right }) => ({ left: fields.get(left), right: fields.get(right) })),
+    fields: [...fields.entries()].filter(([id]) => !pairIds.has(id)).map(([, field]) => field),
+  };
   return (
     <div className={items.length > 1 ? 'gov-split' : 'gov-single'}>
       {/* 多候选显示同页导航，单条直接进入行内办理。 */}
@@ -369,6 +420,9 @@ function CandidateEditor({
         <div className="gov-entry-title">
           <h2>{definition.name || label + '候选'}</h2>
           <Tag>{status[candidate.state] ?? candidate.state}</Tag>
+          {definition.defaultMetric && candidate.state === 'CONFIRMED' && (
+            <Tag color="blue">默认口径</Tag>
+          )}
         </div>
         <div className="gov-editor-layout">
           <div className="gov-editor-main">
@@ -381,9 +435,11 @@ function CandidateEditor({
               onValuesChange={() => {
                 // 与当前修订比较，恢复原值不触发离开保护。
                 const values = form.getFieldsValue();
-                const modified = (['name', 'meaning', 'rule', 'usage'] as const).some(
-                  (key) => values[key] !== definition[key],
-                );
+                const modified =
+                  Boolean(dependencyEdit) ||
+                  (['name', 'meaning', 'rule', 'usage', 'defaultMetric'] as const).some(
+                    (key) => values[key] !== definition[key],
+                  );
                 onDraftChange(modified ? candidate : undefined);
               }}
             >
@@ -405,7 +461,35 @@ function CandidateEditor({
               >
                 <Input.TextArea rows={2} maxLength={4000} />
               </Form.Item>
+              {label === '指标' && (
+                <Form.Item name="defaultMetric" valuePropName="checked">
+                  <Checkbox>设为适用条件下的默认口径</Checkbox>
+                </Form.Item>
+              )}
             </Form>
+            {/* 技术依赖与业务文字分别核对，确认前可明确调整。 */}
+            <section className="gov-dependency-summary" aria-label="技术依赖">
+              <div>
+                <strong>技术依赖</strong>
+                {edit && (
+                  <Button
+                    type="link"
+                    disabled={save.isPending}
+                    onClick={() => setDependenciesOpen(true)}
+                  >
+                    调整依赖
+                  </Button>
+                )}
+              </div>
+              {dependencies.pairs.map(({ left, right }, index) => (
+                <p key={index}>
+                  {left?.label} → {right?.label}
+                </p>
+              ))}
+              {dependencies.fields.length > 0 && (
+                <p>{dependencies.fields.map(({ label: name }) => name).join('、')}</p>
+              )}
+            </section>
             {changed && (
               <Alert
                 type="warning"
@@ -416,6 +500,21 @@ function CandidateEditor({
             )}
             {error && <Alert type="error" title={error} showIcon />}
             <div className="gov-editor-actions">
+              {confirm && label === '关联' && candidate.state !== 'REJECTED' && (
+                <Button
+                  disabled={save.isPending || changed}
+                  onClick={() => {
+                    // 拒绝固定候选版本，保留原定义和依据。
+                    void modal.confirm({
+                      title: '拒绝该关联候选？',
+                      okText: '拒绝关联',
+                      onOk: () => save.mutateAsync({ action: 'REJECT' }),
+                    });
+                  }}
+                >
+                  拒绝关联
+                </Button>
+              )}
               {edit && (
                 <Button
                   disabled={save.isPending || changed}
@@ -461,7 +560,7 @@ function CandidateEditor({
         </div>
       </div>
       {structure && (
-        <Drawer open width={640} title="结构依据" onClose={() => setStructure(false)}>
+        <Drawer open size={640} title="结构依据" onClose={() => setStructure(false)}>
           {/* 固定字段与采集时修订只读回看。 */}
           <Descriptions
             column={1}
@@ -478,6 +577,20 @@ function CandidateEditor({
       )}
       {peek && (
         <GovernanceSourceDrawer peek={peek} source={source} close={() => setPeek(undefined)} />
+      )}
+      {dependenciesOpen && (
+        <GovernanceDependencyDialog
+          source={source}
+          relation={label === '关联'}
+          initial={dependencies}
+          close={() => setDependenciesOpen(false)}
+          apply={(selection) => {
+            // 应用只更新当前编辑副本，正式保存仍核对候选版本。
+            setDependencyEdit(selection);
+            onDraftChange(candidate);
+            setDependenciesOpen(false);
+          }}
+        />
       )}
     </div>
   );

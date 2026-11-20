@@ -3,6 +3,8 @@ package com.dataocean.module.governance.controller;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.governance.service.GovernanceGenerationWire.Context;
 import com.dataocean.module.governance.service.impl.GovernanceGenerationTasks;
+import com.dataocean.module.governance.service.impl.GovernanceSamples;
+import com.dataocean.module.governance.service.impl.GovernanceSamples.Sample;
 import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.model.service.ModelInvocation;
 
@@ -33,6 +35,11 @@ public class GovernanceWorkerController {
     private final GovernanceGenerationTasks tasks;
 
     /**
+     * 限定字段的实时采样，只为当前服务执行开放。
+     */
+    private final GovernanceSamples samples;
+
+    /**
      * 工作者执行前使用真实任务与执行代次核对来源。
      */
     @GetMapping("/{requestId}/context")
@@ -47,7 +54,8 @@ public class GovernanceWorkerController {
     @PostMapping("/{requestId}/model")
     @RequirePermission(access = RequirePermission.Access.SERVICE)
     public ResponseEntity<Result<ModelInvocation>> model(@PathVariable String requestId, @RequestParam int runVersion) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
                 .body(Result.success(tasks.authorizeModel(requestId, runVersion)));
     }
 
@@ -59,5 +67,20 @@ public class GovernanceWorkerController {
     public Result<Boolean> recheck(@PathVariable String requestId, @RequestParam int runVersion) {
         tasks.verifyContinuation(requestId, runVersion);
         return Result.success(true);
+    }
+
+    /**
+     * 当现有依据不足时，读取已获准字段的一小批值，禁止缓存。
+     */
+    @PostMapping("/{requestId}/samples")
+    @RequirePermission(access = RequirePermission.Access.SERVICE)
+    public ResponseEntity<Result<Sample>> sample(
+            @PathVariable String requestId,
+            @RequestParam int runVersion,
+            @RequestParam int round,
+            @RequestParam String reason) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(Result.success(samples.read(requestId, runVersion, round, reason)));
     }
 }

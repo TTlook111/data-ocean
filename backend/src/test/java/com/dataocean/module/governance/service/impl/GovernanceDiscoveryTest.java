@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -100,7 +101,7 @@ class GovernanceDiscoveryTest {
                 .add(anyLong(), eq("fixture-task"), eq(2L), eq(1L), eq("RELATION"), anyString(), eq(4L), anyString());
         verify(mapper).attach(anyLong(), eq(1L));
         verify(mapper).attach(anyLong(), eq(2L));
-        verify(mapper).revise(anyLong(), anyLong(), eq(1), eq("CANDIDATE"), anyString(), eq("[]"), eq(7L));
+        verify(mapper).revise(anyLong(), anyLong(), eq(1), eq("CANDIDATE"), anyString(), eq("[]"), eq(7L), isNull());
     }
 
     /**
@@ -137,7 +138,7 @@ class GovernanceDiscoveryTest {
     @Test
     void guardsDefinitionEvenWhenModelDidNotCiteInputs() {
         when(catalog.source(2L, false)).thenReturn(mock(Source.class));
-        var definition = new Definition("商品数", "在册商品数", "COUNT(*)", "件", List.of(), List.of("11"));
+        var definition = new Definition("商品数", "在册商品数", "COUNT(*)", "件", List.of(), List.of("11"), false);
         var stored = new Candidate(
                 17L,
                 "fixture-task",
@@ -194,8 +195,8 @@ class GovernanceDiscoveryTest {
         // JSON 库按实际最小数字类型读取这份已保存依赖。
         var field = new StructureRef("1", "8", "11", "9", "products.product_id", "bigint");
         var basis = json.write(new Basis(List.of(field), List.of(), false));
-        var definition = json.write(
-                new Definition("商品数", "在册商品数", "COUNT(DISTINCT products.product_id)", "件", List.of(), List.of("11")));
+        var definition = json.write(new Definition(
+                "商品数", "在册商品数", "COUNT(DISTINCT products.product_id)", "件", List.of(), List.of("11"), false));
         var stored = new Candidate(
                 17L,
                 "fixture-task",

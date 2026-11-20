@@ -13,6 +13,7 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
 import com.dataocean.module.datasource.service.GovernanceNotes.Note;
 import com.dataocean.module.governance.entity.dto.GovernanceCandidateReviewDTO;
+import com.dataocean.module.governance.entity.dto.GovernanceTargetDTO;
 import com.dataocean.module.governance.entity.po.GovernanceGenerationPO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
@@ -210,7 +211,14 @@ public class GovernanceDiscovery {
                     .distinct()
                     .forEach(object -> candidates.attach(id, Ids.parse(object)));
             candidates.revise(
-                    IdWorker.getId(), id, 1, "CANDIDATE", json.write(value.definition()), "[]", task.getRequestedBy());
+                    IdWorker.getId(),
+                    id,
+                    1,
+                    "CANDIDATE",
+                    json.write(value.definition()),
+                    "[]",
+                    task.getRequestedBy(),
+                    null);
         }
     }
 
@@ -287,40 +295,58 @@ public class GovernanceDiscovery {
             // 并行编辑采用当前版本比较。
             throw BizIllegalException.conflict();
         }
-        var basis = json.read(row.evidence(), Basis.class);
-        if (row.usedBusinessNotes() || !basis.notes().isEmpty()) {
+        var original = json.read(row.evidence(), Basis.class);
+        if (row.usedBusinessNotes() || !original.notes().isEmpty()) {
             // 模型漏标引用时，仍按实际发送的资料核对工作人员资格。
             permissions.require("business-notes.view");
         }
         var before = json.read(row.content(), Definition.class);
-        var definition = new Definition(
-                text(input.getName()),
-                text(input.getMeaning()),
-                text(input.getRule()),
-                text(input.getUsage()),
-                before.getPairs(),
-                before.getFields());
+        boolean reject = "REJECT".equals(input.getAction());
         boolean confirm = "CONFIRM".equals(input.getAction());
-        if (!confirm || !before.equals(definition)) {
+        if (reject && !"RELATION".equals(row.kind())) {
+            // 拒绝表示关系审核结论，仅适用于关系候选。
+            throw BizIllegalException.invalid("只有关联候选可以拒绝");
+        }
+        var updated =
+                reject ? new Prepared(before, original) : edited(origin, object, row.kind(), before, original, input);
+        var definition = updated.definition();
+        var basis = updated.basis();
+        if (!reject && (!confirm || !before.equals(definition) || !original.equals(basis))) {
             // 只拥有审核权限的人可确认已经保存的内容。
             permissions.require("governance.edit");
         }
         List<Dependency> dependencies = List.of();
-        if (confirm) {
+        if (confirm || reject) {
             // 核验人真正提交审核时，才记载确认及实际依赖。
             permissions.require("governance.confirm");
+        }
+        if (confirm) {
             if (definition.getName().isBlank()
                     || definition.getMeaning().isBlank()
                     || definition.getRule().isBlank()) {
                 throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
             }
+            if (definition.isDefaultMetric() && definition.getUsage().isBlank()) {
+                // 默认口径必须有明确的业务适用条件。
+                throw BizIllegalException.invalid("请填写默认口径的适用条件");
+            }
             references(definition, basis.structures());
             dependencies = dependencies(origin, basis);
         }
-        String state = confirm ? "CONFIRMED" : "DRAFT";
+        String state = reject ? "REJECTED" : confirm ? "CONFIRMED" : "DRAFT";
         String content = json.write(definition);
         String versions = json.write(dependencies);
-        candidates.revise(IdWorker.getId(), id, row.version() + 1, state, content, versions, UserContext.getUser());
+        String evidence = json.write(basis);
+        candidates.revise(
+                IdWorker.getId(), id, row.version() + 1, state, content, versions, UserContext.getUser(), evidence);
+        if (!original.structures().equals(basis.structures())) {
+            // 当前两端入口指向新依赖，历史修订继续保留原结构。
+            candidates.detachObjects(id);
+            basis.structures().stream()
+                    .map(StructureRef::objectId)
+                    .distinct()
+                    .forEach(target -> candidates.attach(id, Ids.parse(target)));
+        }
         if (candidates.promote(id, row.version()) != 1) {
             // 指针推进失败时本次新修订回滚。
             throw BizIllegalException.conflict();
@@ -332,13 +358,148 @@ public class GovernanceDiscovery {
                         source,
                         row.kind(),
                         row.snapshotId(),
-                        row.evidence(),
+                        evidence,
                         row.version() + 1,
                         state,
                         content,
                         versions,
                         row.usedBusinessNotes()),
                 origin);
+    }
+
+    /**
+     * 保存前将人工修改的依赖解析为当前同源目录及确切结构版本。
+     */
+    private Prepared edited(
+            Source source,
+            long anchor,
+            String kind,
+            Definition before,
+            Basis original,
+            GovernanceCandidateReviewDTO input) {
+        boolean relation = "RELATION".equals(kind);
+        boolean defaultMetric = input.getDefaultMetric() == null ? before.isDefaultMetric() : input.getDefaultMetric();
+        if (relation && defaultMetric
+                || !relation && input.getPairs() != null && !input.getPairs().isEmpty()) {
+            // 关联和指标只接受各自的专属定义。
+            throw BizIllegalException.invalid("所选定义与当前治理类型不符");
+        }
+        var pairs = before.getPairs();
+        var basis = original;
+        if (input.getFields() != null || input.getPairs() != null) {
+            var refs = new LinkedHashMap<String, StructureRef>();
+            var oldPairs = before.getPairs().stream()
+                    .flatMap(pair -> java.util.stream.Stream.of(pair.left(), pair.right()))
+                    .collect(Collectors.toSet());
+            if (input.getFields() == null) {
+                // 未提交替换时保留旧用途和筛选字段，旧连接字段由当前字段对提供。
+                original.structures().stream()
+                        .filter(ref -> input.getPairs() == null || !oldPairs.contains(ref.fieldId()))
+                        .map(ref -> structure(source, ref.objectId(), ref.fieldId()))
+                        .forEach(ref -> refs.put(ref.fieldId(), ref));
+            } else {
+                // 显式选择的范围按稳定对象和字段身份重读。
+                input.getFields().stream()
+                        .map(target -> structure(source, target))
+                        .forEach(ref -> refs.put(ref.fieldId(), ref));
+            }
+            if (input.getPairs() != null) {
+                // 修改完整连接键后，原字段对留在历史定义。
+                pairs = input.getPairs().stream()
+                        .map(pair -> {
+                            var left = structure(source, pair.getLeft());
+                            var right = structure(source, pair.getRight());
+                            refs.put(left.fieldId(), left);
+                            refs.put(right.fieldId(), right);
+                            return new Pair(left.fieldId(), right.fieldId());
+                        })
+                        .toList();
+            } else {
+                // 只修改筛选字段时仍保留现有关系键。
+                original.structures().stream()
+                        .filter(ref -> oldPairs.contains(ref.fieldId()))
+                        .map(ref -> structure(source, ref.objectId(), ref.fieldId()))
+                        .forEach(ref -> refs.put(ref.fieldId(), ref));
+            }
+            var structures = List.copyOf(refs.values());
+            validateSelection(anchor, relation, pairs, structures, refs);
+            basis = new Basis(
+                    structures,
+                    original.notes(),
+                    original.foreignKey()
+                            && before.getPairs().equals(pairs)
+                            && original.structures().stream().allMatch(structures::contains));
+        }
+        var definition = new Definition(
+                text(input.getName()),
+                text(input.getMeaning()),
+                text(input.getRule()),
+                text(input.getUsage()),
+                pairs,
+                basis.structures().stream().map(StructureRef::fieldId).toList(),
+                defaultMetric);
+        return new Prepared(definition, basis);
+    }
+
+    /**
+     * 保证完整连接键定位到同一对表，且至少一端是当前治理对象。
+     */
+    private void validateSelection(
+            long anchor,
+            boolean relation,
+            List<Pair> pairs,
+            List<StructureRef> structures,
+            Map<String, StructureRef> refs) {
+        String object = Long.toString(anchor);
+        if (structures.stream().noneMatch(ref -> object.equals(ref.objectId()))) {
+            // 指标和关联都必须真实涉及当前页面对象。
+            throw BizIllegalException.invalid("请为当前治理对象选择依赖字段");
+        }
+        if (relation) {
+            if (pairs.isEmpty() || pairs.stream().distinct().count() != pairs.size()) {
+                // 复合关系必须包含明确且不重复的完整字段对。
+                throw BizIllegalException.invalid("请选择不重复的连接字段对");
+            }
+            String left = refs.get(pairs.get(0).left()).objectId();
+            String right = refs.get(pairs.get(0).right()).objectId();
+            if (left.equals(right)
+                    || !(object.equals(left) || object.equals(right))
+                    || pairs.stream()
+                            .anyMatch(pair -> !left.equals(refs.get(pair.left()).objectId())
+                                    || !right.equals(refs.get(pair.right()).objectId()))) {
+                // 防止混合多张表的字段构建一条不明确的关系。
+                throw BizIllegalException.invalid("连接字段必须属于相同的两张同源表");
+            }
+        }
+    }
+
+    /**
+     * 人工依赖仅接受页面定向选择的真实字段。
+     */
+    private StructureRef structure(Source source, GovernanceTargetDTO target) {
+        if (!"COLUMN".equals(target.getKind())) {
+            // 表说明依赖由确切字段所属对象推导，不能伪造字段身份。
+            throw BizIllegalException.invalid("请选择真实字段");
+        }
+        return structure(source, target.getObjectId(), target.getTargetId());
+    }
+
+    /**
+     * 固定当前成功目录里的实际字段与所属表版本。
+     */
+    private StructureRef structure(Source source, String object, String field) {
+        var context = entries.get(source, GovernanceTarget.column(source.id(), Ids.parse(object), Ids.parse(field)));
+        if (!"AVAILABLE".equals(context.availability())) {
+            // 已移除或身份待核实的目标不能作为当前依赖。
+            throw BizIllegalException.invalid("当前字段不可作为治理依赖");
+        }
+        return new StructureRef(
+                object,
+                Ids.text(context.entry().observation().revisionId()),
+                field,
+                Ids.text(context.columnRevision()),
+                qualified(context.entry()) + "." + context.field().name(),
+                context.field().nativeType());
     }
 
     /**
@@ -420,7 +581,8 @@ public class GovernanceDiscovery {
                 text(proposal.rule()),
                 text(proposal.usage()),
                 pairs,
-                List.copyOf(fieldIds));
+                List.copyOf(fieldIds),
+                false);
         if (List.of(definition.getMeaning(), definition.getRule(), definition.getUsage()).stream()
                 .anyMatch(value -> value.length() > 4000)) {
             return null;

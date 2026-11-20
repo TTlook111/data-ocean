@@ -1,12 +1,9 @@
 """治理建议的资料准备、模型调用与证据验证工作流。"""
 
-import base64
-import io
 import json
-import zipfile
 from functools import partial
+from itertools import islice
 from typing import Literal, TypedDict
-from xml.etree import ElementTree
 
 import httpx
 from langgraph.graph import END, START, StateGraph
@@ -14,6 +11,7 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel, ConfigDict, Field
 
 from dataocean_ai.adapters.chat import CallReceipt, ChatConfiguration, ModelFailure, generate
+from dataocean_ai.governance.attachments import fragments
 from dataocean_ai.governance.discovery import (
     DISCOVERY_PROMPT,
     Candidate,
@@ -124,6 +122,9 @@ class SourceContext(BaseModel):
     # 只在关联、指标候选任务中出现的同源目录。
     discovery: DiscoveryScope | None = None
 
+    # 资料不足时允许尝试的字段只读工具，实际权限仍由每轮 Java 读取判定。
+    sampleAvailable: bool = False  # noqa: N815
+
 
 class Evidence(BaseModel):
     """从提交给模型的有界出处中选择证据。"""
@@ -142,6 +143,9 @@ class Evidence(BaseModel):
 
     # Java 记录的正文出处终点。
     end: int | None = None
+
+    # 附件中实际提取位置，正文继续使用字符偏移。
+    section: str | None = None
 
 
 class SuggestedField(BaseModel):
@@ -229,43 +233,6 @@ class ModelGraphState(TypedDict, total=False):
     result: GenerationResult
 
 
-def read_attachment(attachment: SourceAttachment) -> str:
-    """解析获准的小体积附件，固定可读取类型并限制展开量。"""
-    suffix = attachment.name.rsplit(".", 1)[-1].casefold()
-    data = base64.b64decode(attachment.data, validate=True)
-    if suffix in {"txt", "md", "csv"}:
-        # 文本类按 B 批规范使用 UTF-8。
-        return data.decode("utf-8-sig")
-    if suffix in {"docx", "xlsx"}:
-        # 仅在既定字节限额内读取 OpenXML 文本，不执行宏、公式或外部引用。
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            names = [
-                item
-                for item in archive.infolist()
-                if (
-                    item.filename == "word/document.xml"
-                    or item.filename == "xl/sharedStrings.xml"
-                    or item.filename.startswith("xl/worksheets/sheet")
-                    and item.filename.endswith(".xml")
-                )
-                and item.file_size <= 1024 * 1024
-            ][:8]
-            parts = []
-            for info in names:
-                # XML 内的类型化文本节点独立处理，表格公式不进入模型。
-                with archive.open(info) as member:
-                    raw = member.read(1024 * 1024 + 1)
-                if len(raw) > 1024 * 1024 or b"<!DOCTYPE" in raw.upper():
-                    continue
-                root = ElementTree.fromstring(raw)
-                parts.extend(
-                    node.text for node in root.iter() if node.tag.endswith("}t") and node.text
-                )
-            return "\n".join(parts)
-    # 解析失败或不可抽取类型不形成实际依据。
-    return ""
-
-
 def compact_json(value: object) -> str:
     """模型消息和预算核对使用同一序列化格式。"""
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -328,21 +295,23 @@ def prepare(state: ModelGraphState) -> ModelGraphState:
         remaining -= size
     for note in context.notes:
         # 只记录真正发给提供方的片段及实际位置。
-        segments = [(note.body, None)]
+        segments = [(note.body, None, None)]
         for attachment in note.attachments:
-            # 每个原件独立解析，单个失败不会掩盖其他证据。
-            try:
-                line = read_attachment(attachment)
-            except (ValueError, zipfile.BadZipFile, ElementTree.ParseError):
-                # 不打印原件内容或名称。
-                line = ""
-            if line.strip():
-                # 原件使用固定附件编号回指。
-                segments.append((line, attachment.id))
-            else:
-                # 不可解析的 PDF 和异常原件均可回查限制作业状态。
+            # 每个原件最多取前 32 段有效内容，保留其确切位置。
+            extracted = (
+                (value, attachment.id, section)
+                for section, value in fragments(attachment.name, attachment.data)
+                if value.strip()
+            )
+            parts = list(islice(extracted, 33))
+            if len(parts) > 32:
+                # 单个附件不能占用全部上下文片段。
+                limits.add("INPUT_BUDGET")
+            if not parts:
+                # 无文本和异常原件均留下可回读的受限状态。
                 limits.add("ATTACHMENT_UNAVAILABLE")
-        for raw, file_id in segments:
+            segments.extend(parts[:32])
+        for raw, file_id, section in segments:
             # 字符裁剪后重新以 JSON 字节估算，位置只覆盖发出的文本。
             text = raw[:MAX_EXCERPT_CHARS]
             if len(text) < len(raw):
@@ -365,6 +334,7 @@ def prepare(state: ModelGraphState) -> ModelGraphState:
                 attachmentId=file_id,
                 start=0 if file_id is None else None,
                 end=len(text.encode("utf-16-le")) // 2 if file_id is None else None,
+                section=section,
             )
             snippets.append(excerpt)
             if note.id not in used:
@@ -437,7 +407,11 @@ async def invoke_model(state: ModelGraphState, runtime: Runtime[TaskContext]) ->
     if state["context"].targetColumn is not None:
         # 字段解释可以按需取证，普通表说明沿用单轮生成。
         answer, call, used_notes = await explain_field(
-            config, state["prompt"], ModelAnswer, partial(recheck_field, task)
+            config,
+            state["prompt"],
+            ModelAnswer,
+            partial(recheck_field, task),
+            partial(read_field_sample, task) if state["context"].sampleAvailable else None,
         )
         if not used_notes:
             # 没调用资料工具时，不登记资料取用，也无法引用相关编号。
@@ -464,6 +438,22 @@ async def recheck_field(task: TaskContext) -> None:
     except (httpx.HTTPError, KeyError, OSError):
         # 无法复核资格时终止调用。
         raise ModelFailure("MODEL_UNAVAILABLE") from None
+
+
+async def read_field_sample(task: TaskContext, round_number: int, reason: str) -> dict:
+    """读取 Java 生成的固定字段样本，值只在 Agent 本次执行期间存在。"""
+    try:
+        # 工具只传用途和轮号，SQL、字段和读取量由 Java 决定。
+        response = await task["client"].post(
+            f"{task['java_url']}/internal/v1/governance/tasks/{task['request_id']}/samples",
+            params={"runVersion": task["run_version"], "round": round_number, "reason": reason},
+            headers={"Authorization": "Bearer " + worker_token()},
+        )
+        response.raise_for_status()
+        return response.json()["data"]
+    except (httpx.HTTPError, KeyError, OSError):
+        # 回包丢失或不可核实的样本不进入提示。
+        return {"status": "UNAVAILABLE", "values": [], "remaining": 0}
 
 
 def validate_answer(state: ModelGraphState) -> ModelGraphState:

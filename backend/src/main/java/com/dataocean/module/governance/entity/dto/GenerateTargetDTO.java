@@ -9,19 +9,19 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 /**
- * 本阶段的表说明生成目标和固定内容范围。
+ * 表说明或字段解释的生成目标和固定内容范围。
  */
 @Data
 public class GenerateTargetDTO {
 
     /**
-     * 首段支持 TABLE。
+     * TABLE 表示表说明，COLUMN 表示字段解释。
      */
     @NotBlank
     private String kind;
 
     /**
-     * 被选择的稳定对象。
+     * 被选择的稳定表或字段编号。
      */
     @NotBlank
     private String targetId;

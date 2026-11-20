@@ -17,7 +17,8 @@ public interface GovernanceGenerationRecords {
     /**
      * 并发读取一笔有资格办理的原任务，远程调用在事务外执行。
      */
-    @Select("""
+    @Select(
+            """
             SELECT * FROM gov_generation_task
             WHERE state IN ('PENDING_DISPATCH','QUEUED','RUNNING') AND due_at<=UTC_TIMESTAMP(3)
             ORDER BY due_at,request_id LIMIT 1 FOR UPDATE SKIP LOCKED
@@ -27,7 +28,8 @@ public interface GovernanceGenerationRecords {
     /**
      * 保存本次背景回读的临时资格。失败或退出后可再次获取同一任务。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE gov_generation_task SET lease_token=#{lease},due_at=TIMESTAMPADD(SECOND,12,UTC_TIMESTAMP(3))
             WHERE request_id=#{id}
             """)
@@ -36,7 +38,8 @@ public interface GovernanceGenerationRecords {
     /**
      * 只接受当前背景租约推进的队列状态或终态。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE gov_generation_task SET
                 started_at=IF(#{state} IN ('RUNNING','SUCCEEDED'),COALESCE(started_at,UTC_TIMESTAMP(3)),started_at),
                 version=version+IF(state!=#{state},1,0),state=#{state},lease_token=NULL,
@@ -44,8 +47,12 @@ public interface GovernanceGenerationRecords {
                 ended_at=IF(#{state} IN ('SUCCEEDED','FAILED'),UTC_TIMESTAMP(3),NULL)
             WHERE request_id=#{id} AND lease_token=#{lease}
             """)
-    int advance(@Param("id") String id, @Param("lease") String lease, @Param("state") String state,
-            @Param("failure") String failure, @Param("delay") int delay);
+    int advance(
+            @Param("id") String id,
+            @Param("lease") String lease,
+            @Param("state") String state,
+            @Param("failure") String failure,
+            @Param("delay") int delay);
 
     /**
      * 最终结果核对在真正写入时锁定原任务。
@@ -54,22 +61,34 @@ public interface GovernanceGenerationRecords {
     GovernanceGenerationPO lock(String id);
 
     /**
+     * 以接收时的顺序读取同批独立执行项。
+     */
+    @Select("SELECT * FROM gov_generation_task WHERE batch_request_id=#{request} ORDER BY batch_position")
+    List<GovernanceGenerationPO> batchMembers(String request);
+
+    /**
      * 持久保存接收时的稳定目标和表说明范围。
      */
-    @Insert("""
+    @Insert(
+            """
             INSERT INTO gov_generation_target(
                 request_id,item_id,base_item_version,object_revision_id,column_revision_id,content_paths
             )
             VALUES(#{request},#{item},#{version},#{revision},#{columnRevision},#{paths})
             """)
-    int insertTarget(@Param("request") String request, @Param("item") long item, @Param("version") int version,
-            @Param("revision") long revision, @Param("columnRevision") Long columnRevision,
+    int insertTarget(
+            @Param("request") String request,
+            @Param("item") long item,
+            @Param("version") int version,
+            @Param("revision") long revision,
+            @Param("columnRevision") Long columnRevision,
             @Param("paths") String paths);
 
     /**
      * 从同一稳定治理条目读取实际表或字段身份。
      */
-    @Select("""
+    @Select(
+            """
             SELECT t.item_id,t.base_item_version,t.object_revision_id,t.column_revision_id,t.content_paths,
                    i.kind,i.target_id
             FROM gov_generation_target t JOIN gov_item i ON i.id=t.item_id
@@ -80,7 +99,8 @@ public interface GovernanceGenerationRecords {
     /**
      * 先登记当前任务的确切资料输入，资料防删除与 task 同一事务。
      */
-    @Insert("""
+    @Insert(
+            """
             INSERT INTO gov_generation_input(request_id,note_id,note_revision_id,state)
             VALUES(#{request},#{note},#{revision},'REGISTERED')
             """)
@@ -89,13 +109,15 @@ public interface GovernanceGenerationRecords {
     /**
      * 通过原任务及固定修订读取已经接受的实际资料范围。
      */
-    @Select("SELECT note_id,note_revision_id,state FROM gov_generation_input WHERE request_id=#{request} ORDER BY note_id")
+    @Select(
+            "SELECT note_id,note_revision_id,state FROM gov_generation_input WHERE request_id=#{request} ORDER BY note_id")
     List<Input> inputs(String request);
 
     /**
      * 当次实际取用或跳过的资料留下可回读的身份及时间。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE gov_generation_input SET state=#{state},processed_at=UTC_TIMESTAMP(3)
             WHERE request_id=#{request} AND note_id=#{note}
             """)
@@ -112,8 +134,14 @@ public interface GovernanceGenerationRecords {
      * @param kind 稳定条目类别
      * @param targetId 实际表或字段标识
      */
-    record Target(long itemId, int baseItemVersion, long objectRevisionId, Long columnRevisionId,
-                  String contentPaths, String kind, long targetId) {}
+    record Target(
+            long itemId,
+            int baseItemVersion,
+            long objectRevisionId,
+            Long columnRevisionId,
+            String contentPaths,
+            String kind,
+            long targetId) {}
 
     /**
      * 任务实际取得资格的资料修订。

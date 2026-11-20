@@ -35,9 +35,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import lombok.RequiredArgsConstructor;
-
 import tools.jackson.databind.JsonNode;
+
+import lombok.RequiredArgsConstructor;
 
 /**
  * 同步把 B 批确切结构和资料变动投影到受影响的真实条目。
@@ -128,7 +128,8 @@ public class GovernanceImpacts {
     @Transactional(propagation = Propagation.MANDATORY)
     public void noteChanged(SourceNoteChanged event) {
         var before = notes.revision(event.sourceId(), event.noteId(), event.beforeRevisionId());
-        var after = event.afterRevisionId() == null ? null
+        var after = event.afterRevisionId() == null
+                ? null
                 : notes.revision(event.sourceId(), event.noteId(), event.afterRevisionId());
         if (after != null && before.equivalent(after)) {
             // 原件整体和正文相同，复核状态延续原事实。
@@ -142,7 +143,8 @@ public class GovernanceImpacts {
                 itemIds.add(revisions.selectById(reference.getItemRevisionId()).getItemId());
             }
         }
-        if (itemIds.isEmpty()) {
+        boolean needsMapping = reads.hasUnmappedNoteUse(event.sourceId(), event.noteId());
+        if (itemIds.isEmpty() && !needsMapping) {
             // 只有历史取用的资料仍受删除保护，当前无须产生业务复核。
             return;
         }
@@ -153,7 +155,7 @@ public class GovernanceImpacts {
         change.setBeforeRevisionId(event.beforeRevisionId());
         change.setAfterRevisionId(event.afterRevisionId());
         change.setKind(after == null ? "WITHDRAWN" : "CONTENT_CHANGED");
-        change.setMappingState("MAPPED");
+        change.setMappingState(needsMapping ? "NEEDS_MAPPING" : "MAPPED");
         change.setVersion(1);
         noteChanges.insert(change);
 
@@ -176,7 +178,9 @@ public class GovernanceImpacts {
      * 以一个对象为范围取待办，包含当前目录已移除的字段。
      */
     public List<GovernanceImpactPO> pending(long source, long object) {
-        var ids = reads.items(source, object).stream().map(GovernanceItemPO::getId).toList();
+        var ids = reads.items(source, object).stream()
+                .map(GovernanceItemPO::getId)
+                .toList();
         if (ids.isEmpty()) {
             // 不允许空集合释放 SQL 查询范围。
             return List.of();
@@ -223,7 +227,9 @@ public class GovernanceImpacts {
             if ("REVIEWED".equals(impact.getState())) {
                 continue;
             }
-            boolean knowledge = removal || blocked || "NEW_ITEM".equals(impact.getImpactKind())
+            boolean knowledge = removal
+                    || blocked
+                    || "NEW_ITEM".equals(impact.getImpactKind())
                     || !Objects.equals(item.getHeadRevisionId(), impact.getBaselineRevisionId());
             impacts.update(Wrappers.<GovernanceImpactPO>lambdaUpdate()
                     .eq(GovernanceImpactPO::getId, impact.getId())
@@ -261,10 +267,12 @@ public class GovernanceImpacts {
         if (needsMapping || records.stream().anyMatch(record -> !"REVIEWED".equals(record.getState()))) {
             // 已经有实际办理的来源不能因新增影响倒退到未开始。
             return records.stream().anyMatch(record -> !"PENDING".equals(record.getState()))
-                    ? "GOVERNANCE_IN_PROGRESS" : "PENDING_GOVERNANCE";
+                    ? "GOVERNANCE_IN_PROGRESS"
+                    : "PENDING_GOVERNANCE";
         }
         return records.stream().anyMatch(record -> Boolean.TRUE.equals(record.getKnowledgeRequired()))
-                ? "KNOWLEDGE_IN_PROGRESS" : "COMPLETED";
+                ? "KNOWLEDGE_IN_PROGRESS"
+                : "COMPLETED";
     }
 
     /**
@@ -350,7 +358,12 @@ public class GovernanceImpacts {
             var current = after.column(field.columnId());
             if (current == null || current.revisionId() != field.revisionId()) {
                 // 仅对同一稳定字段或确证消失的历史字段办理影响。
-                markColumn(source, fact, before, field, current == null ? "REMOVAL" : "RECHECK",
+                markColumn(
+                        source,
+                        fact,
+                        before,
+                        field,
+                        current == null ? "REMOVAL" : "RECHECK",
                         current == null || incompatible(field, current));
             }
         }
@@ -417,8 +430,12 @@ public class GovernanceImpacts {
             var same = new HashSet<>(oldForeign);
             same.retainAll(newForeign);
             changed.removeAll(same);
-            changed.stream().flatMap(List::stream).map(pair -> pair.substring(0, pair.indexOf('|')))
-                    .distinct().map(after::named).filter(Objects::nonNull)
+            changed.stream()
+                    .flatMap(List::stream)
+                    .map(pair -> pair.substring(0, pair.indexOf('|')))
+                    .distinct()
+                    .map(after::named)
+                    .filter(Objects::nonNull)
                     .forEach(field -> depends(source, after.id(), field.columnId(), fact.id()));
         }
     }
@@ -430,7 +447,9 @@ public class GovernanceImpacts {
         return keys.stream().collect(Collectors.groupingBy(Key::name)).values().stream()
                 .map(members -> members.stream()
                         .map(key -> key.field() + "|" + key.referencedObject() + "|" + key.referencedField())
-                        .sorted().toList()).collect(Collectors.toSet());
+                        .sorted()
+                        .toList())
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -457,8 +476,13 @@ public class GovernanceImpacts {
         var item = entries.ensure(GovernanceTarget.column(source, object.id(), field.columnId()), object.generation());
         link(source, item.getId(), fact.id(), null, kind);
         if (blocked) {
-            forbid(item, fact.id(), "REMOVAL".equals(kind) ? "COLUMN_REMOVED" : "INCOMPATIBLE",
-                    "来源字段已移除或结构不兼容", null, null);
+            forbid(
+                    item,
+                    fact.id(),
+                    "REMOVAL".equals(kind) ? "COLUMN_REMOVED" : "INCOMPATIBLE",
+                    "来源字段已移除或结构不兼容",
+                    null,
+                    null);
         }
         if (!"NEW_ITEM".equals(kind)) {
             depends(source, object.id(), field.columnId(), fact.id());
@@ -484,7 +508,8 @@ public class GovernanceImpacts {
                 .eq(noteChange != null, GovernanceImpactPO::getNoteChangeId, noteChange));
         if (existing != null) {
             // 同一来源直接移除优先于其普通依赖复核。
-            if ("REMOVAL".equals(kind) && !"REMOVAL".equals(existing.getImpactKind())
+            if ("REMOVAL".equals(kind)
+                    && !"REMOVAL".equals(existing.getImpactKind())
                     && !"REVIEWED".equals(existing.getState())) {
                 impacts.update(Wrappers.<GovernanceImpactPO>lambdaUpdate()
                         .eq(GovernanceImpactPO::getId, existing.getId())
@@ -538,8 +563,8 @@ public class GovernanceImpacts {
             // 整数显示宽度不等于数值域，文本长度或数值精度则需要比较。
             int scaleLeft = left.group(2) == null ? 0 : Integer.parseInt(left.group(2));
             int scaleRight = right.group(2) == null ? 0 : Integer.parseInt(right.group(2));
-            return scaleRight < scaleLeft || Integer.parseInt(right.group(1)) - scaleRight
-                    < Integer.parseInt(left.group(1)) - scaleLeft;
+            return scaleRight < scaleLeft
+                    || Integer.parseInt(right.group(1)) - scaleRight < Integer.parseInt(left.group(1)) - scaleLeft;
         }
         return false;
     }
@@ -567,8 +592,8 @@ public class GovernanceImpacts {
      * 一个结构来源的全部影响。
      */
     private List<GovernanceImpactPO> byStructure(long change) {
-        return impacts.selectList(Wrappers.<GovernanceImpactPO>lambdaQuery()
-                .eq(GovernanceImpactPO::getStructureChangeId, change));
+        return impacts.selectList(
+                Wrappers.<GovernanceImpactPO>lambdaQuery().eq(GovernanceImpactPO::getStructureChangeId, change));
     }
 
     /**

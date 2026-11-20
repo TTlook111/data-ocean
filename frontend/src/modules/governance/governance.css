@@ -444,10 +444,131 @@
 /* 少量资料自然收缩，长清单使用弹窗正文的滚动。 */
 .gov-generation-notes {
   margin: 8px 0 0;
+  max-height: 280px;
+  overflow-y: auto;
   padding: 0;
   list-style: none;
   border: 1px solid var(--do-line);
   border-radius: 6px;
+}
+
+/* 批量范围沿用生成摘要轴，标签只占用所需宽度。 */
+.gov-generation-summary.gov-batch-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.2fr) auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+/* 选择范围和字段分开排列，在窄桌面仍可直接搜索。 */
+.gov-batch-selection {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+/* 字段标签靠近控件，避免占用额外高度。 */
+.gov-batch-selection label[for] {
+  margin-bottom: -5px;
+}
+
+/* 核对阶段保留用户选定的真实条目，长名称在摘要下自然换行。 */
+.gov-batch-targets {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 执行结果共享一条读轴，长字段和原因可以在左列换行。 */
+.gov-batch-results {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 状态始终与本项标签和可用操作相邻。 */
+.gov-batch-results li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 46px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 把错误原因留在负责该项的名称下方。 */
+.gov-batch-results li > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 次级原因不会抢占条目名称的对比度。 */
+.gov-batch-results li small {
+  display: block;
+  color: var(--do-muted);
+}
+
+/* 待定位资料以紧凑列表贴近治理表格，沿用同一对齐轴。 */
+.gov-unmapped {
+  margin: 4px 0 16px;
+  padding: 12px 16px;
+}
+
+/* 数量与标题一起阅读，主表头仍是页面的主轴。 */
+.gov-unmapped h2 {
+  font-size: var(--do-font-body);
+  margin: 0 0 8px;
+}
+
+/* 数量使用辅助对比度。 */
+.gov-unmapped h2 small {
+  margin-left: 6px;
+  color: var(--do-muted);
+}
+
+/* 待定位条目的加入按钮与多选同排，避免被展开的列表覆盖。 */
+.gov-map-field-actions {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+/* 候选的技术路径与正文共享同一读轴，长限定名可自然换行。 */
+.gov-dependency-summary {
+  border-top: 1px solid var(--do-line);
+  margin: 12px 0;
+  padding-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 从标题右侧进入技术编辑，正文仍保持连续。 */
+.gov-dependency-summary > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 已选技术路径采用次级文字。 */
+.gov-dependency-summary p {
+  margin: 4px 0;
+  color: var(--do-muted);
+}
+
+/* 连接键并排核对，两端等宽，移除动作固定在右侧。 */
+.gov-dependency-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+/* 同一字段的对象和列共享局部轴线。 */
+.gov-dependency-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* 修订号右对齐，长标题保留全文。 */

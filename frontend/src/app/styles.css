@@ -381,6 +381,16 @@ h3 {
   width: clamp(132px, 22vw, 260px);
 }
 
+/* 十八节点的查询与模块筛选并列，宽度为治理详情保留稳定的桌面尺度。 */
+.model-node-filters .ant-input-affix-wrapper {
+  width: 176px;
+}
+
+/* 所属模块的中文长名称可完整阅读。 */
+.model-node-filters .ant-select {
+  width: 132px;
+}
+
 /* 节点与所属模块沿用共用列表的双行排版。 */
 .model-node-name {
   font-weight: 500;

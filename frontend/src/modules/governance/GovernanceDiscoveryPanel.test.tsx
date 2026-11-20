@@ -105,7 +105,9 @@ it.each([
     fireEvent.click(await screen.findByRole('button', { name: '发现 AI ' + label }));
     expect(await screen.findByText('待确认')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: structure }));
-    expect(await screen.findByText('products.product_id')).toBeVisible();
+    expect(
+      await within(screen.getByRole('dialog')).findByText('products.product_id'),
+    ).toBeVisible();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /关闭|Close/ }));
     fireEvent.click(screen.getByRole('button', { name: '合成业务资料 · 第 1 版' }));
     expect(await screen.findByText('明确的测试定义')).toBeVisible();

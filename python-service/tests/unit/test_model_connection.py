@@ -1,4 +1,4 @@
-"""用合成模型响应验证真实双协议适配与内部边界。"""
+"""用合成模型响应验证模型接入协议与内部权限边界。"""
 
 from pathlib import Path
 
@@ -12,18 +12,33 @@ from dataocean_ai.core.config import GovernanceSettings
 from dataocean_ai.governance.security import verify_java
 
 
-@pytest.mark.parametrize("protocol", ["OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES"])
-def test_connection_uses_protocol_adapter(monkeypatch: pytest.MonkeyPatch, protocol: str) -> None:
+@pytest.mark.parametrize(
+    ("protocol", "endpoint", "request_path"),
+    [
+        ("OPENAI_CHAT_COMPLETIONS", "https://model.example/v1", "/v1/chat/completions"),
+        ("ANTHROPIC_MESSAGES", "https://model.example", "/v1/messages"),
+        ("OPENAI_EMBEDDINGS", "https://model.example/v1", "/v1/embeddings"),
+        ("COHERE_RERANK", "https://model.example/v2", "/v2/rerank"),
+    ],
+)
+def test_connection_uses_protocol_adapter(
+    monkeypatch: pytest.MonkeyPatch, protocol: str, endpoint: str, request_path: str
+) -> None:
     """走与正式调用相同的 SDK，从合成服务验证消息格式和响应解析。"""
-    openai = protocol == "OPENAI_CHAT_COMPLETIONS"
-    transport_module = httpx if openai else httpx2
+    transport_module = httpx2 if protocol == "ANTHROPIC_MESSAGES" else httpx
     base_client = transport_module.AsyncClient
     calls: list[str] = []
 
     def handle(request):
         """模拟提供方的真实协议响应，截断所有实际外发。"""
         calls.append(request.url.path)
-        if openai:
+        if protocol == "OPENAI_EMBEDDINGS":
+            # 向量值符合 OpenAI 返回格式，可由现用 SDK 直接解析。
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.6]}]})
+        if protocol == "COHERE_RERANK":
+            # 真实协议只需本次两个合成文档中的命中项和分值。
+            return httpx.Response(200, json={"results": [{"index": 0, "relevance_score": 0.9}]})
+        if protocol == "OPENAI_CHAT_COMPLETIONS":
             # Chat Completions 返回 assistant 消息和已知用量。
             return httpx.Response(
                 200,
@@ -66,6 +81,19 @@ def test_connection_uses_protocol_adapter(monkeypatch: pytest.MonkeyPatch, proto
         """仅在合成协议测试中替代真实服务身份。"""
 
     monkeypatch.setattr(transport_module, "AsyncClient", SimulatedClient)
+    if protocol in {"OPENAI_CHAT_COMPLETIONS", "OPENAI_EMBEDDINGS"}:
+        # LangChain 会同时初始化同步 SDK。测试也为它固定内存传输，避免读取系统证书。
+        sync_client = httpx.Client
+
+        class SimulatedSyncClient(sync_client):
+            """在无需网络的单测中承接 SDK 的同步客户端初始化。"""
+
+            def __init__(self, **kwargs):
+                """使用相同的合成响应，无外部地址访问。"""
+                kwargs.setdefault("transport", httpx.MockTransport(handle))
+                super().__init__(**kwargs)
+
+        monkeypatch.setattr(httpx, "Client", SimulatedSyncClient)
     app = create_app()
     app.dependency_overrides[verify_java] = authenticated_java
     with TestClient(app) as api:
@@ -75,15 +103,16 @@ def test_connection_uses_protocol_adapter(monkeypatch: pytest.MonkeyPatch, proto
             json={
                 "revisionId": "1",
                 "protocol": protocol,
-                "endpoint": "https://model.example/v1" if openai else "https://model.example",
+                "endpoint": endpoint,
                 "modelName": "fixture",
-                "timeoutSeconds": 15,
+                # 给首次导入 SDK 和结构化模块预留时间，HTTP 仍由内存传输截获。
+                "timeoutSeconds": 120,
                 "apiKey": "fixture",
             },
         )
     assert response.status_code == 200
+    assert calls == [request_path]
     assert response.json() == {"passed": True, "failureCode": None}
-    assert calls == ["/v1/chat/completions" if openai else "/v1/messages"]
 
 
 def test_unconfigured_identity_blocks_probe(monkeypatch: pytest.MonkeyPatch) -> None:

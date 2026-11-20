@@ -3,13 +3,10 @@ package com.dataocean.module.datasource.service.impl;
 import com.dataocean.common.exception.CommonException;
 import com.dataocean.common.security.IamPrincipal;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.infrastructure.DataOceanProperties;
 import com.dataocean.module.datasource.entity.vo.CollectionDetailVO;
 import com.dataocean.module.datasource.entity.vo.CollectionDetailVO.Content;
 import com.dataocean.module.datasource.entity.vo.CollectionDetailVO.Counts;
-import com.dataocean.module.iam.mapper.UserMapper;
-import com.dataocean.module.iam.security.CurrentIdentityFilter;
-import com.dataocean.module.iam.service.PermissionService;
+import com.dataocean.module.iam.service.StreamSessionPermission;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -19,10 +16,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -41,29 +34,14 @@ public class CollectionEventStream {
     private final ConcurrentHashMap<String, Subscriber> subscribers = new ConcurrentHashMap<>();
 
     /**
-     * 与 HTTP 请求相同的权威会话仓库。
+     * 复核原会话和实际查看权限。
      */
-    private final FindByIndexNameSessionRepository<? extends Session> sessions;
-
-    /**
-     * 查阅当前操作者和对应认证版本。
-     */
-    private final UserMapper users;
-
-    /**
-     * 每轮发送前重核任务查看权限。
-     */
-    private final PermissionService permissions;
+    private final StreamSessionPermission sessions;
 
     /**
      * 读取实际任务状态、冻结范围及版本。
      */
     private final CollectionServiceImpl collection;
-
-    /**
-     * 应用统一的会话空闲及绝对期限。
-     */
-    private final DataOceanProperties configuration;
 
     /**
      * UTC 服务时间。
@@ -98,49 +76,12 @@ public class CollectionEventStream {
         subscribers.forEach((key, subscriber) -> {
             try {
                 // 任一依赖故障也结束本订阅，禁止回退到陈旧资格。
-                if (!permitted(subscriber)) {
-                    close(key, subscriber);
-                    return;
-                }
+                sessions.require(subscriber.sessionId, subscriber.actor, "collections.view");
                 send(key, subscriber, collection.streamSnapshot(subscriber.task));
             } catch (RuntimeException error) {
                 close(key, subscriber);
             }
         });
-    }
-
-    /**
-     * 核验实际会话、认证版本、时限和当前页面权限，流式读取不续期。
-     */
-    private boolean permitted(Subscriber subscriber) {
-        Session session = sessions.findById(subscriber.sessionId);
-        if (session == null) {
-            return false;
-        }
-        SecurityContext context =
-                session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
-        if (context == null
-                || context.getAuthentication() == null
-                || !(context.getAuthentication().getPrincipal() instanceof IamPrincipal principal)
-                || principal.userId() != subscriber.actor.userId()
-                || principal.authenticationVersion() != subscriber.actor.authenticationVersion()) {
-            return false;
-        }
-        Long authenticated = session.getAttribute(CurrentIdentityFilter.AUTH_AT);
-        Long activity = session.getAttribute(CurrentIdentityFilter.ACTIVITY_AT);
-        long now = clock.instant().getEpochSecond();
-        if (authenticated == null
-                || activity == null
-                || now - authenticated >= configuration.getSessionAbsoluteSeconds()
-                || now - activity >= configuration.getSessionIdleSeconds()) {
-            return false;
-        }
-        var user = users.selectById(principal.userId());
-        return user != null
-                && "ENABLED".equals(user.getLifecycle())
-                && !user.isMustChangePassword()
-                && user.getAuthenticationVersion() == principal.authenticationVersion()
-                && permissions.effective(principal.userId()).contains("collections.view");
     }
 
     /**

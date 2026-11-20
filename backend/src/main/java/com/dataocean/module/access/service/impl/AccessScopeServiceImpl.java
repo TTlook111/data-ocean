@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -149,11 +150,18 @@ public class AccessScopeServiceImpl implements AccessScopeService {
      */
     @Override
     public AccessScopeVO requireSource(long user, long source) {
+        return findSource(user, source).orElseThrow(BizIllegalException::denied);
+    }
+
+    /**
+     * 使用同一权威范围读取可选源授权，缺少来源是正常的查询结果。
+     */
+    @Override
+    public Optional<AccessScopeVO> findSource(long user, long source) {
         var target = Long.toString(source);
         return current(user).stream()
                 .filter(item -> item.getSource().getId().equals(target))
-                .findFirst()
-                .orElseThrow(BizIllegalException::denied);
+                .findFirst();
     }
 
     /**

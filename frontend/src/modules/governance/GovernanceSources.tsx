@@ -12,7 +12,29 @@ import type { BusinessNoteExcerpt, Definition, NoteReference } from './types';
  * 保留可回看的固定资料版本或已核实来源。
  */
 export type SourcePeek =
-  { kind: 'note'; id: string; revision: number } | { kind: 'change'; id: string };
+  | { kind: 'note'; id: string; revision: number; attachmentId?: string | null; section?: string }
+  | { kind: 'change'; id: string };
+
+/**
+ * 将实际保存的附件位置转成可阅读的行号、页码或单元格。
+ */
+export function attachmentLocation(section?: string) {
+  const [kind, location, cell] = (section ?? '').split(':');
+  switch (kind) {
+    case 'PDF_PAGE':
+      return '第 ' + location + ' 页';
+    case 'DOCX_PARAGRAPH':
+      return '第 ' + location + ' 段';
+    case 'TEXT_LINE':
+      return '第 ' + location + ' 行';
+    case 'CSV_LINES':
+      return '行 ' + location;
+    case 'XLSX_CELL':
+      return '工作表 ' + location + ' / ' + cell;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * 原样展示 B 批的可披露技术值，空值保持明确。
@@ -82,6 +104,9 @@ export function GovernanceSourceDrawer({
                 >
                   {file.name}
                 </a>
+                {file.id === peek.attachmentId && attachmentLocation(peek.section) && (
+                  <span className="table-secondary">{attachmentLocation(peek.section)}</span>
+                )}
               </div>
             ))}
           </div>

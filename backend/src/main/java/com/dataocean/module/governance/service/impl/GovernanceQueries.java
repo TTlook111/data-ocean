@@ -151,14 +151,30 @@ public class GovernanceQueries implements GovernanceQueryService {
             }
             var page = query.<GovernanceReadMapper.Table>toFixedOrderMpPage();
             page.setOptimizeCountSql(false);
-            reads.tables(page, sourceId, source.snapshotId(), source.configurationId(), canReadDraft(),
-                    keyword(query.getKeyword()), progress, query.getHasPendingImpact(), pendingKind, ascending);
+            reads.tables(
+                    page,
+                    sourceId,
+                    source.snapshotId(),
+                    source.configurationId(),
+                    canReadDraft(),
+                    keyword(query.getKeyword()),
+                    progress,
+                    query.getHasPendingImpact(),
+                    pendingKind,
+                    ascending);
             result = PageVO.from(page, row -> table(source, row));
         }
-        return new GovernanceTablePageVO(result, string(source.snapshotId()), source.catalogVersion(),
-                new GovernanceFreshnessVO(source.scopePending(), source.staleSince() != null,
+        return new GovernanceTablePageVO(
+                result,
+                string(source.snapshotId()),
+                source.catalogVersion(),
+                new GovernanceFreshnessVO(
+                        source.scopePending(),
+                        source.staleSince() != null,
                         source.scopePending() ? null : Times.instant(source.successfulAt()),
-                        Times.instant(source.staleSince())), source.effectiveScope(), source.snapshotScope());
+                        Times.instant(source.staleSince())),
+                source.effectiveScope(),
+                source.snapshotScope());
     }
 
     /**
@@ -186,9 +202,20 @@ public class GovernanceQueries implements GovernanceQueryService {
             }
         }
         var reference = context.entry().observation().structure().object();
-        return new GovernanceObjectVO(Long.toString(source), state.name(), Long.toString(object),
-                context.entry().generation(), path(reference.schema(), reference.name()), reference.type(),
-                reference.comment(), basis(context), context.availability(), context.pending(), current, next, review);
+        return new GovernanceObjectVO(
+                Long.toString(source),
+                state.name(),
+                Long.toString(object),
+                context.entry().generation(),
+                path(reference.schema(), reference.name()),
+                reference.type(),
+                reference.comment(),
+                basis(context),
+                context.availability(),
+                context.pending(),
+                current,
+                next,
+                review);
     }
 
     /**
@@ -243,11 +270,14 @@ public class GovernanceQueries implements GovernanceQueryService {
             // 读取具体资料的办理历史需要同源和资料读取权。
             permissions.require("business-notes.view");
         }
-        var page = query.<GovernanceNoteChangePO>toFixedOrderMpPage(OrderItem.desc("occurred_at"), OrderItem.desc("id"));
-        noteChanges.selectPage(page, Wrappers.<GovernanceNoteChangePO>lambdaQuery()
-                .eq(GovernanceNoteChangePO::getSourceId, source)
-                .eq(note == null, GovernanceNoteChangePO::getMappingState, "NEEDS_MAPPING")
-                .eq(note != null, GovernanceNoteChangePO::getNoteId, note));
+        var page =
+                query.<GovernanceNoteChangePO>toFixedOrderMpPage(OrderItem.desc("occurred_at"), OrderItem.desc("id"));
+        noteChanges.selectPage(
+                page,
+                Wrappers.<GovernanceNoteChangePO>lambdaQuery()
+                        .eq(GovernanceNoteChangePO::getSourceId, source)
+                        .eq(note == null, GovernanceNoteChangePO::getMappingState, "NEEDS_MAPPING")
+                        .eq(note != null, GovernanceNoteChangePO::getNoteId, note));
         return PageVO.from(page, this::note);
     }
 
@@ -256,17 +286,23 @@ public class GovernanceQueries implements GovernanceQueryService {
      */
     public GovernanceNoteChangeVO note(GovernanceNoteChangePO note) {
         var related = impacts.byNote(note.getId());
-        return new GovernanceNoteChangeVO(Long.toString(note.getId()), Long.toString(note.getSourceId()),
-                note.getVersion(), Times.instant(note.getOccurredAt()), note.getMappingState(),
+        return new GovernanceNoteChangeVO(
+                Long.toString(note.getId()),
+                Long.toString(note.getSourceId()),
+                note.getVersion(),
+                Times.instant(note.getOccurredAt()),
+                note.getMappingState(),
                 impacts.stage(related, "NEEDS_MAPPING".equals(note.getMappingState())),
-                noteOrigin(note), related.stream().map(this::impact).toList());
+                noteOrigin(note),
+                related.stream().map(this::impact).toList());
     }
 
     /**
      * 当前审批和人工核对人员可阅读其职责所需的治理草稿。
      */
     public boolean canReadDraft() {
-        return permissions.has("governance.edit") || permissions.has("governance.confirm")
+        return permissions.has("governance.edit")
+                || permissions.has("governance.confirm")
                 || permissions.has("governance.supplement");
     }
 
@@ -278,9 +314,14 @@ public class GovernanceQueries implements GovernanceQueryService {
             // 空白初始定义没有业务修订。
             return null;
         }
-        return new GovernanceRevisionVO(Long.toString(row.getId()), row.getRevision(), json.mapper().readTree(row.getContent()),
-                row.getOrigin(), entries.basis(row.getSnapshotId(), row.getObjectRevisionId(), row.getColumnRevisionId()),
-                evidence.list(row.getId()).stream().map(evidence::view).toList(), Long.toString(row.getChangedBy()),
+        return new GovernanceRevisionVO(
+                Long.toString(row.getId()),
+                row.getRevision(),
+                json.mapper().readTree(row.getContent()),
+                row.getOrigin(),
+                entries.basis(row.getSnapshotId(), row.getObjectRevisionId(), row.getColumnRevisionId()),
+                evidence.list(row.getId()).stream().map(evidence::view).toList(),
+                Long.toString(row.getChangedBy()),
                 Times.instant(row.getCreatedAt()));
     }
 
@@ -295,7 +336,9 @@ public class GovernanceQueries implements GovernanceQueryService {
      * 构造当前结构依据，兼容确认移除使用最后成功观察。
      */
     public GovernanceBasisVO basis(Context context) {
-        return entries.basis(context.entry().observation().snapshotId(), context.entry().observation().revisionId(),
+        return entries.basis(
+                context.entry().observation().snapshotId(),
+                context.entry().observation().revisionId(),
                 context.columnRevision());
     }
 
@@ -308,8 +351,8 @@ public class GovernanceQueries implements GovernanceQueryService {
         GovernanceOriginVO origin = null;
         if (impact.getStructureChangeId() != null && permissions.has("collections.view")) {
             // 只有确证事实进入业务复核。
-            origin = new GovernanceOriginVO(Long.toString(impact.getStructureChangeId()), "CONFIRMED", null,
-                    null, null, null);
+            origin = new GovernanceOriginVO(
+                    Long.toString(impact.getStructureChangeId()), "CONFIRMED", null, null, null, null, null);
         } else if (impact.getNoteChangeId() != null) {
             // 原资料状态及确切历史仍按资料权限披露。
             origin = noteOrigin(noteChanges.selectById(impact.getNoteChangeId()));
@@ -320,9 +363,17 @@ public class GovernanceQueries implements GovernanceQueryService {
             Entry former = catalog.historical(target.source(), target.object(), target.target());
             name = former == null ? "字段" : former.column(target.target()).name();
         }
-        return new GovernanceImpactVO(Long.toString(impact.getId()), impact.getImpactKind(), impact.getState(),
-                target.view(), name, Times.instant(impact.getStartedAt()), Times.instant(impact.getResolvedAt()),
-                string(impact.getConfirmationId()), impact.getKnowledgeRequired(), origin);
+        return new GovernanceImpactVO(
+                Long.toString(impact.getId()),
+                impact.getImpactKind(),
+                impact.getState(),
+                target.view(),
+                name,
+                Times.instant(impact.getStartedAt()),
+                Times.instant(impact.getResolvedAt()),
+                string(impact.getConfirmationId()),
+                impact.getKnowledgeRequired(),
+                origin);
     }
 
     /**
@@ -333,11 +384,18 @@ public class GovernanceQueries implements GovernanceQueryService {
             // 不披露资料编号、有效性及其任何原文元数据。
             return null;
         }
-        int before = notes.revision(note.getSourceId(), note.getNoteId(), note.getBeforeRevisionId()).revision();
-        Integer after = note.getAfterRevisionId() == null ? null
-                : notes.revision(note.getSourceId(), note.getNoteId(), note.getAfterRevisionId()).revision();
-        return new GovernanceOriginVO(null, null, Long.toString(note.getId()), Long.toString(note.getNoteId()),
-                before, after);
+        var before = notes.revision(note.getSourceId(), note.getNoteId(), note.getBeforeRevisionId());
+        var after = note.getAfterRevisionId() == null
+                ? null
+                : notes.revision(note.getSourceId(), note.getNoteId(), note.getAfterRevisionId());
+        return new GovernanceOriginVO(
+                null,
+                null,
+                Long.toString(note.getId()),
+                Long.toString(note.getNoteId()),
+                before.revision(),
+                after == null ? null : after.revision(),
+                after == null ? before.title() : after.title());
     }
 
     /**
@@ -352,12 +410,26 @@ public class GovernanceQueries implements GovernanceQueryService {
             pending.add("COLUMN");
         }
         var related = row.hasPendingImpact()
-                ? impacts.pending(source.id(), row.objectId()).stream().map(this::impact).toList() : List.<GovernanceImpactVO>of();
-        return new GovernanceTableRowVO(Long.toString(source.id()), string(row.objectId()),
-                Long.toString(row.observationId()), row.generation(), path(row.namespace(), row.name()), row.objectType(),
-                row.sourceComment(), row.businessName(), row.purpose(),
+                ? impacts.pending(source.id(), row.objectId()).stream()
+                        .map(this::impact)
+                        .toList()
+                : List.<GovernanceImpactVO>of();
+        return new GovernanceTableRowVO(
+                Long.toString(source.id()),
+                string(row.objectId()),
+                Long.toString(row.observationId()),
+                row.generation(),
+                path(row.namespace(), row.name()),
+                row.objectType(),
+                row.sourceComment(),
+                row.businessName(),
+                row.purpose(),
                 entries.availability(source, false, row.sourcePending() || row.objectId() == null, true),
-                row.progress(), row.confirmedCount(), row.totalCount(), pending, related);
+                row.progress(),
+                row.confirmedCount(),
+                row.totalCount(),
+                pending,
+                related);
     }
 
     /**
@@ -369,11 +441,19 @@ public class GovernanceQueries implements GovernanceQueryService {
         page.setOptimizeCountSql(false);
         long revision = context.entry().observation().revisionId();
         reads.columns(page, source.id(), context.target().object(), revision, keyword(query.getKeyword()), state);
-        return PageVO.from(page, column -> new GovernanceColumnRowVO(
-                GovernanceTarget.column(source.id(), context.target().object(), column.columnId()).view(),
-                column.name(), column.nativeType(), column.nullable(), column.sourceComment(),
-                entries.basis(context.entry().observation().snapshotId(), revision, column.revisionId()),
-                column.state(), column.pendingReview(), column.blocked()));
+        return PageVO.from(
+                page,
+                column -> new GovernanceColumnRowVO(
+                        GovernanceTarget.column(source.id(), context.target().object(), column.columnId())
+                                .view(),
+                        column.name(),
+                        column.nativeType(),
+                        column.nullable(),
+                        column.sourceComment(),
+                        entries.basis(context.entry().observation().snapshotId(), revision, column.revisionId()),
+                        column.state(),
+                        column.pendingReview(),
+                        column.blocked()));
     }
 
     /**
@@ -386,31 +466,66 @@ public class GovernanceQueries implements GovernanceQueryService {
         boolean blocked = blocked(context.target());
         String name = context.field() == null ? "表说明" : context.field().name();
         String type = context.field() == null ? null : context.field().nativeType();
-        String comment = context.field() == null ? context.entry().observation().structure().object().comment()
+        String comment = context.field() == null
+                ? context.entry().observation().structure().object().comment()
                 : context.field().sourceComment();
         if (item == null) {
             // 读取虚拟条目时保留业务空白。
-            return new GovernanceItemVO(context.target().view(), null, null, basis(context), "UNSTARTED", false,
-                    null, null, List.of(), List.of(), blocked, context.availability(), name, type, comment, action);
+            return new GovernanceItemVO(
+                    context.target().view(),
+                    null,
+                    null,
+                    basis(context),
+                    "UNSTARTED",
+                    false,
+                    null,
+                    null,
+                    List.of(),
+                    List.of(),
+                    blocked,
+                    context.availability(),
+                    name,
+                    type,
+                    comment,
+                    action);
         }
         var affected = impacts.forItem(item.getId());
         var issues = gaps.selectList(Wrappers.<GovernanceGapPO>lambdaQuery()
-                .eq(GovernanceGapPO::getItemId, item.getId()).orderByAsc(GovernanceGapPO::getId));
+                .eq(GovernanceGapPO::getItemId, item.getId())
+                .orderByAsc(GovernanceGapPO::getId));
         boolean pending = affected.stream().anyMatch(impact -> !"REVIEWED".equals(impact.getState()));
         boolean open = issues.stream().anyMatch(gap -> "OPEN".equals(gap.getState()));
-        String state = item.getHeadRevisionId() == null ? "UNSTARTED"
+        String state = item.getHeadRevisionId() == null
+                ? "UNSTARTED"
                 : !pending && !open && Objects.equals(item.getHeadRevisionId(), item.getLastConfirmedRevisionId())
-                      ? "CONFIRMED" : "DRAFT";
+                        ? "CONFIRMED"
+                        : "DRAFT";
         Long readable = readDraft ? item.getHeadRevisionId() : item.getLastConfirmedRevisionId();
         var definitions = readable == null ? null : revision(revisions.selectById(readable));
-        var latest = confirmations.selectList(Wrappers.<GovernanceConfirmationPO>lambdaQuery()
+        var latest = confirmations
+                .selectList(Wrappers.<GovernanceConfirmationPO>lambdaQuery()
                         .eq(GovernanceConfirmationPO::getItemId, item.getId())
-                        .orderByDesc(GovernanceConfirmationPO::getId).last("LIMIT 1"))
-                .stream().findFirst().orElse(null);
-        return new GovernanceItemVO(context.target().view(), Long.toString(item.getId()), item.getVersion(),
-                basis(context), state, pending, definitions, confirmed(latest),
+                        .orderByDesc(GovernanceConfirmationPO::getId)
+                        .last("LIMIT 1"))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        return new GovernanceItemVO(
+                context.target().view(),
+                Long.toString(item.getId()),
+                item.getVersion(),
+                basis(context),
+                state,
+                pending,
+                definitions,
+                confirmed(latest),
                 readDraft ? issues.stream().map(this::gap).toList() : List.of(),
-                affected.stream().map(this::impact).toList(), blocked, context.availability(), name, type, comment,
+                affected.stream().map(this::impact).toList(),
+                blocked,
+                context.availability(),
+                name,
+                type,
+                comment,
                 action);
     }
 
@@ -419,9 +534,11 @@ public class GovernanceQueries implements GovernanceQueryService {
      */
     private GovernanceActionsVO actions(Context context) {
         boolean available = "AVAILABLE".equals(context.availability());
-        boolean removal = "REMOVED".equals(context.availability()) && context.item() != null
+        boolean removal = "REMOVED".equals(context.availability())
+                && context.item() != null
                 && impacts.open(context.item().getId());
-        return new GovernanceActionsVO(available && permissions.has("governance.edit"),
+        return new GovernanceActionsVO(
+                available && permissions.has("governance.edit"),
                 available && permissions.has("governance.suggest"),
                 available && permissions.has("governance.confirm"),
                 available && permissions.has("governance.supplement"),
@@ -433,17 +550,29 @@ public class GovernanceQueries implements GovernanceQueryService {
      * 返回已核清和未核清的问题记录。
      */
     private GovernanceGapVO gap(GovernanceGapPO gap) {
-        return new GovernanceGapVO(Long.toString(gap.getId()), gap.getContentPath(), gap.getQuestion(), gap.getState(),
-                gap.getResolution(), string(gap.getResolvedBy()), Times.instant(gap.getResolvedAt()));
+        return new GovernanceGapVO(
+                Long.toString(gap.getId()),
+                gap.getContentPath(),
+                gap.getQuestion(),
+                gap.getState(),
+                gap.getResolution(),
+                string(gap.getResolvedBy()),
+                Times.instant(gap.getResolvedAt()));
     }
 
     /**
      * 读取实际确认人和发生时间。
      */
     private GovernanceConfirmationVO confirmed(GovernanceConfirmationPO row) {
-        return row == null ? null : new GovernanceConfirmationVO(Long.toString(row.getId()), row.getAction(),
-                string(row.getItemRevisionId()), Long.toString(row.getConfirmedBy()), Times.instant(row.getConfirmedAt()),
-                entries.basis(row.getSnapshotId(), row.getObjectRevisionId(), row.getColumnRevisionId()));
+        return row == null
+                ? null
+                : new GovernanceConfirmationVO(
+                        Long.toString(row.getId()),
+                        row.getAction(),
+                        string(row.getItemRevisionId()),
+                        Long.toString(row.getConfirmedBy()),
+                        Times.instant(row.getConfirmedAt()),
+                        entries.basis(row.getSnapshotId(), row.getObjectRevisionId(), row.getColumnRevisionId()));
     }
 
     /**
@@ -455,16 +584,30 @@ public class GovernanceQueries implements GovernanceQueryService {
         if (body != null && "REVISION".equals(row.kind())) {
             // 差异只根据固定的前后业务修订计算。
             var current = json.mapper().readTree(body.getContent());
-            var previous = row.previousRevisionId() == null ? json.mapper().createObjectNode()
-                    : json.mapper().readTree(revisions.selectById(row.previousRevisionId()).getContent());
+            var previous = row.previousRevisionId() == null
+                    ? json.mapper().createObjectNode()
+                    : json.mapper()
+                            .readTree(revisions
+                                    .selectById(row.previousRevisionId())
+                                    .getContent());
             var keys = new java.util.TreeSet<>(current.propertyNames());
             keys.addAll(previous.propertyNames());
-            keys.stream().filter(key -> !current.path(key).equals(previous.path(key))).forEach(changes::add);
+            keys.stream()
+                    .filter(key -> !current.path(key).equals(previous.path(key)))
+                    .forEach(changes::add);
         }
-        return new GovernanceHistoryRowVO(row.kind(), Long.toString(row.id()), Times.instant(row.occurredAt()),
-                Long.toString(row.actor()), string(row.revisionId()), row.revision(), string(row.previousRevisionId()),
-                row.action(), entries.basis(row.snapshotId(), row.objectRevisionId(), row.columnRevisionId()),
-                details ? revision(body) : null, changes);
+        return new GovernanceHistoryRowVO(
+                row.kind(),
+                Long.toString(row.id()),
+                Times.instant(row.occurredAt()),
+                Long.toString(row.actor()),
+                string(row.revisionId()),
+                row.revision(),
+                string(row.previousRevisionId()),
+                row.action(),
+                entries.basis(row.snapshotId(), row.objectRevisionId(), row.columnRevisionId()),
+                details ? revision(body) : null,
+                changes);
     }
 
     /**

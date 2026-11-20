@@ -1,15 +1,13 @@
 package com.dataocean.module.datasource.entity.po;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 import lombok.Data;
-import lombok.ToString;
 
 /**
- * 保存不可变的已验证原文件内容。
+ * 保存已验证原件的不可变元数据和 OSS 定位。
  */
 @Data
 @TableName("ds_business_attachment")
@@ -42,9 +40,12 @@ public class NoteAttachmentPO {
     private String digest;
 
     /**
-     * 仅在经过权限校验的下载动作或写入时读取。
+     * 原件写入的私有 Bucket，供读取和清理核对环境。
      */
-    @TableField(select = false)
-    @ToString.Exclude
-    private byte[] content;
+    private String objectBucket;
+
+    /**
+     * 原件在 Bucket 内的完整对象键，每次新增分配独立值。
+     */
+    private String objectKey;
 }

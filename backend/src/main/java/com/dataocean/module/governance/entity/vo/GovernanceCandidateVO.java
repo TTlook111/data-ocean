@@ -92,5 +92,10 @@ public class GovernanceCandidateVO {
          * 计算或关联使用的实际字段。
          */
         private List<String> fields;
+
+        /**
+         * 人工确认的指标适用条件下可作为默认口径。
+         */
+        private boolean defaultMetric;
     }
 }

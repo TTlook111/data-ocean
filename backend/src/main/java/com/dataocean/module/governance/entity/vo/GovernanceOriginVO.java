@@ -39,4 +39,9 @@ public class GovernanceOriginVO {
      * 变化后资料修订。
      */
     private Integer afterRevision;
+
+    /**
+     * 有资料查看权限时返回受影响修订的标题。
+     */
+    private String noteTitle;
 }

@@ -10,7 +10,11 @@ import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
 import type { Preview } from '../iam/types';
 import { GovernanceGeneration } from './GovernanceGeneration';
-import { GovernanceNotePicker, GovernanceSourceDrawer } from './GovernanceSources';
+import {
+  attachmentLocation,
+  GovernanceNotePicker,
+  GovernanceSourceDrawer,
+} from './GovernanceSources';
 import type { SourcePeek } from './GovernanceSources';
 import type { Definition, Evidence, Impact, Item, NoteReference, Suggestion } from './types';
 
@@ -166,6 +170,8 @@ export function GovernanceEditor({
   sourceComment,
   nativeType,
   next,
+  suggestionRequest,
+  onSuggestionClose,
 }: {
   item: Item;
   source: string;
@@ -174,6 +180,8 @@ export function GovernanceEditor({
   sourceComment?: string | null;
   nativeType?: string;
   next?: () => void;
+  suggestionRequest?: string;
+  onSuggestionClose?: () => void;
 }) {
   const cache = useQueryClient();
   const { message, modal } = App.useApp();
@@ -471,6 +479,7 @@ export function GovernanceEditor({
     setSelected({ suggestionId: suggestion.suggestionId, contentPaths: paths });
     command.current = undefined;
     setGeneration(false);
+    onSuggestionClose?.();
   }
 
   /**
@@ -729,11 +738,20 @@ export function GovernanceEditor({
                 <div key={link.reference.noteId + '-' + index}>
                   <Button
                     type="link"
-                    onClick={() =>
-                      setPeek({ kind: 'note', id: link.reference.noteId, revision: link.revision })
-                    }
+                    onClick={() => {
+                      // 从固定附件依据信息打开同一资料修订。
+                      setPeek({
+                        kind: 'note',
+                        id: link.reference.noteId,
+                        revision: link.revision,
+                        attachmentId: link.reference.attachmentId,
+                        section: link.reference.location.section,
+                      });
+                    }}
                   >
                     {link.title} · 第 {link.revision} 版
+                    {attachmentLocation(link.reference.location.section) &&
+                      ' · ' + attachmentLocation(link.reference.location.section)}
                   </Button>
                   {base.actions.canEdit && (
                     <Button
@@ -782,14 +800,20 @@ export function GovernanceEditor({
           }}
         />
       )}
-      {generation && (
+      {(generation || suggestionRequest) && (
         <GovernanceGeneration
+          key={suggestionRequest}
           source={source}
           path={path}
           item={base}
           fields={fields}
           current={form.getFieldsValue(true)}
-          close={() => setGeneration(false)}
+          initialRequest={suggestionRequest}
+          close={() => {
+            // 已接收批次回看关闭后仍可从结果列表重开。
+            setGeneration(false);
+            onSuggestionClose?.();
+          }}
           apply={(suggestion, paths) => {
             void applySuggestion(suggestion, paths);
           }}

@@ -1,9 +1,12 @@
 package com.dataocean.module.governance.entity.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import lombok.Data;
@@ -16,11 +19,19 @@ import lombok.ToString;
 public class GenerateScopeDTO {
 
     /**
-     * 首段实际支持的单张表说明。
+     * 本次选中的表说明与字段，按用户选择顺序处理。
      */
     @NotNull
-    @Size(min = 1, max = 1)
-    private List<@Valid GenerateTargetDTO> targets;
+    @Size(max = 10)
+    private List<@NotNull @Valid GenerateTargetDTO> targets;
+
+    /**
+     * 可与定义起草一并执行的关联和指标发现类型。
+     */
+    @NotNull
+    @Size(max = 2)
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private List<@NotNull @Pattern(regexp = "RELATION|METRIC") String> discoveryKinds = List.of();
 
     /**
      * 正式提交使用服务端核对凭据。
