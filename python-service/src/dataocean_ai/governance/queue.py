@@ -65,7 +65,9 @@ def stream() -> str:
 
 def task_key(task: UUID | str, run: int, kind: str = "governance") -> str:
     """接收重发沿用同一任务和执行代次。"""
-    family = "task" if kind == "governance" else "knowledge-task"
+    family = {"governance": "task", "validation": "knowledge-validation"}.get(
+        kind, "knowledge-task"
+    )
     return f"{prefix()}:{family}:{task}:{run}"
 
 
@@ -79,6 +81,12 @@ def enqueue(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
 def enqueue_knowledge(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
     """以固定任务类型接收或回读知识构建。"""
     return enqueue_work(task, run, "knowledge")
+
+
+@knowledge_router.put("/validations/{task}/{run}", response_model=QueueState)
+def enqueue_validation(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
+    """以独立类型接收或回读确切逐题验证。"""
+    return enqueue_work(task, run, "validation")
 
 
 def enqueue_work(task: UUID, run: int, kind: str) -> QueueState:

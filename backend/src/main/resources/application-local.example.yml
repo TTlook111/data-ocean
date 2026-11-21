@@ -64,5 +64,7 @@ dataocean:
 #   knowledge-index:
 #     model-source-ids: '填已获准外发确认知识的来源编号'
 #     collection-prefix: dataocean_kn
+#     validation-allowed-rule-revisions:
+#       已获准的源编号: ['已核对的输出规则编号/版本']
 #   models:
 #     allowed-hosts: 'maas.qianwenaiapi.com,dashscope.aliyuncs.com,api.openai.com,api.anthropic.com'

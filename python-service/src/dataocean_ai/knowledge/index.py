@@ -95,7 +95,7 @@ class IndexContext(TypedDict):
     client: httpx.AsyncClient
 
 
-async def _authority(client: httpx.AsyncClient, endpoint: str, action: str, run: int):
+async def authority(client: httpx.AsyncClient, endpoint: str, action: str, run: int):
     """用独立工作者身份取用或复核原构建任务。"""
     try:
         reply = await client.post(
@@ -124,7 +124,7 @@ async def _vectors(_state: IndexState, runtime: Runtime[IndexContext]) -> IndexS
     vectors: list[list[float]] = []
     for offset in range(0, len(texts), BATCH_SIZE):
         # 同一配置的下一批也必须仍然具备外发资格。
-        await _authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
+        await authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
         vectors.extend(await embed(job.model, texts[offset : offset + BATCH_SIZE]))
     if any(len(row) != len(vectors[0]) for row in vectors):
         # SDK 各批成功也不能混用不同维数。
@@ -135,9 +135,9 @@ async def _vectors(_state: IndexState, runtime: Runtime[IndexContext]) -> IndexS
 async def _index(state: IndexState, runtime: Runtime[IndexContext]) -> IndexState:
     """写入隔离 Milvus 代次并读回实际片段与代表性问题命中。"""
     ctx = runtime.context
-    await _authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
+    await authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
     receipt = await asyncio.to_thread(_persist, ctx["source"], state["vectors"])
-    await _authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
+    await authority(ctx["client"], ctx["endpoint"], "recheck", ctx["run"])
     return {"receipt": receipt}
 
 
@@ -262,7 +262,7 @@ async def execute_index(task: str, run: int, base: str) -> IndexReceipt:
     async with httpx.AsyncClient(timeout=8, trust_env=False) as client:
         try:
             # 模型、修订及片段全部来自同一权威领取结果。
-            source = IndexInput.model_validate(await _authority(client, endpoint, "input", run))
+            source = IndexInput.model_validate(await authority(client, endpoint, "input", run))
         except ValidationError:
             raise ModelFailure("INPUT_STALE") from None
         try:

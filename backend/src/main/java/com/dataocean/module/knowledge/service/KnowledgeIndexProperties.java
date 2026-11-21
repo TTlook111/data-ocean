@@ -1,5 +1,9 @@
 package com.dataocean.module.knowledge.service;
 
+import com.dataocean.module.access.entity.vo.OutputRuleVO;
+
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -26,6 +30,19 @@ public class KnowledgeIndexProperties {
      * 同一 Milvus 中区分不同部署及验收的代次名称前缀。
      */
     private String collectionPrefix = "dataocean_kn";
+
+    /**
+     * 各源经核对与聚合值及确认证据相容的输出规则，使用规则编号/版本。
+     */
+    private Map<Long, Set<String>> validationAllowedRuleRevisions = Map.of();
+
+    /**
+     * 未实现的限制不由模型猜测解释。规则升版后须重新核对。
+     */
+    public boolean allowsValidationRules(long source, List<OutputRuleVO> rules) {
+        var allowed = validationAllowedRuleRevisions.getOrDefault(source, Set.of());
+        return rules.stream().allMatch(rule -> allowed.contains(rule.getId() + "/" + rule.getVersion()));
+    }
 
     /**
      * 仅由服务端分配新代次名称，请求无法指定存储位置。

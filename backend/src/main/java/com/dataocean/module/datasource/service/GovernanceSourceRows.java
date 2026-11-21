@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.service;
 
+import com.dataocean.module.datasource.entity.dto.SourceConfigurationDTO;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.source.SourceConnection;
 import com.dataocean.module.datasource.source.SourceConnection.Type;
@@ -7,6 +8,7 @@ import com.dataocean.module.datasource.source.SourceJdbc;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
 
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,19 +60,8 @@ public class GovernanceSourceRows {
         var revision = sources.revision(source.id(), source.configurationId());
         var config = revision.configuration();
         int seconds = Math.min(3, revision.limits().getQueryTimeoutSeconds());
-        var target = new SourceConnection(
-                Type.valueOf(config.getDatabaseType()),
-                config.getHost(),
-                config.getPort(),
-                config.getDatabaseName(),
-                config.getSchemas(),
-                config.getAccount(),
-                seconds);
-        var credential = sources.credential(source.id(), source.configurationId());
-        String password = cipher.decrypt(
-                credential.ciphertext(), "datasource:credential:" + source.id(), credential.keyVersion());
         var values = new ArrayList<String>();
-        try (var connection = jdbc.open(target, password, "do-sample-" + UUID.randomUUID());
+        try (var connection = open(source, config, seconds);
                 var query = connection.prepareStatement(sql)) {
             // 两层限制同时覆盖 JDBC 和实际源库执行。
             query.setMaxRows(limit);
@@ -86,6 +77,75 @@ public class GovernanceSourceRows {
             }
         }
         return values;
+    }
+
+    /**
+     * 独立执行源数据库的实际去重计数，连接字段来自治理和当前目录。
+     */
+    public Count countDistinct(
+            GovernanceCatalog.Source source,
+            ObjectRef primary,
+            String key,
+            ObjectRef detail,
+            String foreign,
+            String category,
+            String value)
+            throws SQLException {
+        var revision = sources.revision(source.id(), source.configurationId());
+        var config = revision.configuration();
+        boolean mysql = "MYSQL".equals(config.getDatabaseType());
+        int seconds = Math.min(3, revision.limits().getQueryTimeoutSeconds());
+        String sql = "SELECT " + (mysql ? "/*+ MAX_EXECUTION_TIME(3000) */ " : "")
+                + "COUNT(DISTINCT a." + identifier(key, mysql) + ") FROM "
+                + table(primary, config.getDatabaseName(), mysql) + " a JOIN "
+                + table(detail, config.getDatabaseName(), mysql) + " b ON a."
+                + identifier(key, mysql) + "=b." + identifier(foreign, mysql)
+                + " WHERE a." + identifier(category, mysql) + "=?";
+        try (var connection = open(source, config, seconds);
+                var statement = connection.prepareStatement(sql)) {
+            // 绑定分类值，实际返回限制为一个聚合值。
+            statement.setString(1, value);
+            statement.setQueryTimeout(seconds);
+            statement.setMaxRows(1);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    // 缺少实际查询结果不能视为零。
+                    throw new SQLException("MISSING_COUNT");
+                }
+                return new Count(rows.getLong(1), sql);
+            }
+        }
+    }
+
+    /**
+     * 使用所在源正确的数据库或模式分隔名。
+     */
+    private String table(ObjectRef table, String database, boolean mysql) {
+        return identifier(mysql ? database : table.schema(), mysql) + "." + identifier(table.name(), mysql);
+    }
+
+    /**
+     * 实际源返回的单值及不含参数的查询模板。
+     */
+    public record Count(long value, String statement) {}
+
+    /**
+     * 使用采集模块的固定只读连接和密钥保护。
+     */
+    private Connection open(GovernanceCatalog.Source source, SourceConfigurationDTO config, int seconds)
+            throws SQLException {
+        var target = new SourceConnection(
+                Type.valueOf(config.getDatabaseType()),
+                config.getHost(),
+                config.getPort(),
+                config.getDatabaseName(),
+                config.getSchemas(),
+                config.getAccount(),
+                seconds);
+        var credential = sources.credential(source.id(), source.configurationId());
+        String password = cipher.decrypt(
+                credential.ciphertext(), "datasource:credential:" + source.id(), credential.keyVersion());
+        return jdbc.open(target, password, "do-sample-" + UUID.randomUUID());
     }
 
     /**

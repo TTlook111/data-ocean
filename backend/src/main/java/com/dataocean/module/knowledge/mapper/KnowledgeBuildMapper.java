@@ -99,7 +99,8 @@ public interface KnowledgeBuildMapper {
             """
             UPDATE kn_release_candidate SET status='CANCELED',version=version+1
             WHERE id=#{id} AND version=#{version} AND status IN
-                ('PREPARED','BUILDING','BUILD_FAILED','READY_FOR_VALIDATION')
+                ('PREPARED','BUILDING','BUILD_FAILED','READY_FOR_VALIDATION','VALIDATING',
+                 'AWAITING_JUDGMENT','VALIDATION_FAILED','VALIDATION_ERROR','READY_TO_PUBLISH')
             """)
     int cancel(@Param("id") long candidate, @Param("version") int version);
 

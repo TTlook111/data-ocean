@@ -18,6 +18,7 @@ export function useReleaseCommand<T extends object>({
   committed,
   conflict,
   beforeWrite,
+  operationCode = 'releases.build',
 }: {
   /** 按执行者和业务对象划分的本标签页存储位置。 */
   key: string;
@@ -31,6 +32,8 @@ export function useReleaseCommand<T extends object>({
   conflict: () => void;
   /** 真正发送写入前记录页面操作上下文。 */
   beforeWrite?: () => void;
+  /** 不同权限动作只核实该动作的原回执。 */
+  operationCode?: string;
 }) {
   const [pending, setPending] = useState(() => read(key, parse));
   const request = useMutation({
@@ -40,7 +43,7 @@ export function useReleaseCommand<T extends object>({
         // 未查到记录后仍需凭原始编号由用户显式重试。
         try {
           const status = await api<{ state: string; target: { id: string } | null }>(
-            `/commands/${attempt.command}?${queryString({ operationCode: 'releases.build' })}`,
+            `/commands/${attempt.command}?${queryString({ operationCode })}`,
           );
           return status.state === 'COMMITTED' && status.target?.id
             ? { state: 'COMMITTED', targetId: status.target.id }
@@ -54,7 +57,7 @@ export function useReleaseCommand<T extends object>({
         path,
         'POST',
         attempt.body,
-        'releases.build',
+        operationCode,
         attempt.command,
       );
       return { state: 'COMMITTED', targetId: receipt.targetId };

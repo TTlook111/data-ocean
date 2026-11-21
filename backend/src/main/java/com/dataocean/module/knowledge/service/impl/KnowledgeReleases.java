@@ -53,6 +53,18 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
     private static final String PREPARE = "releases.build";
 
     /**
+     * 允许调整的静止阶段，执行中的代次不能被替换。
+     */
+    private static final Set<String> ADJUSTABLE = Set.of(
+            "PREPARED",
+            "BUILD_FAILED",
+            "READY_FOR_VALIDATION",
+            "AWAITING_JUDGMENT",
+            "VALIDATION_FAILED",
+            "VALIDATION_ERROR",
+            "READY_TO_PUBLISH");
+
+    /**
      * 与治理、目录、文档和题单写操作共用来源锁。
      */
     private final GovernanceCatalog catalog;
@@ -149,7 +161,7 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
                 // 旧窗口不能覆盖已经开始的新构建或其他调整。
                 throw BizIllegalException.conflict();
             }
-            if (!Set.of("PREPARED", "BUILD_FAILED", "READY_FOR_VALIDATION").contains(task.status())) {
+            if (!ADJUSTABLE.contains(task.status())) {
                 // 运行中和已取消的任务不可替换输入。
                 throw BizIllegalException.state("当前发布任务不能调整范围");
             }
@@ -224,8 +236,8 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
             preflight.document(source, document);
         }
         if (status != null
-                && !Set.of("PREPARED", "BUILDING", "BUILD_FAILED", "READY_FOR_VALIDATION", "CANCELED")
-                        .contains(status)) {
+                && !ADJUSTABLE.contains(status)
+                && !Set.of("BUILDING", "VALIDATING", "CANCELED").contains(status)) {
             throw BizIllegalException.invalid("请选择有效的发布阶段");
         }
         String term = keyword == null ? "" : keyword.strip();

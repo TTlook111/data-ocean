@@ -18,6 +18,7 @@ from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.governance.queue import QueueState, connection, stream, task_key
 from dataocean_ai.governance.table_description import GenerationResult, graph
 from dataocean_ai.knowledge.index import execute_index
+from dataocean_ai.knowledge.validation import execute_validation
 
 # 诊断只使用任务编号及稳定状态，不回显请求内容。
 logger = logging.getLogger(__name__)
@@ -58,6 +59,10 @@ def process(entry: dict[str, str], workflow, base: str) -> QueueState:
             return QueueState(
                 runVersion=run, state="SUCCEEDED", result=receipt.model_dump(by_alias=True)
             )
+        if entry.get("kind") == "validation":
+            # 逐题召回只回交固定索引命中，真实源数据留在 Java。
+            recall = asyncio.run(execute_validation(task, run, base))
+            return QueueState(runVersion=run, state="SUCCEEDED", result=recall.model_dump())
         # 当前工作流在单次执行内完成。
         result = asyncio.run(execute_task(workflow, task, run, base))
         return QueueState(

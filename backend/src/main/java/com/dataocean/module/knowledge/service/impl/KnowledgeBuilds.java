@@ -177,6 +177,11 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     private final Fingerprints fingerprints;
 
     /**
+     * 在成功构建事务内创建固定的逐题运行。
+     */
+    private final KnowledgeValidations validations;
+
+    /**
      * 受理状态、构建代次及其片段原子落库，随后独立派发。
      */
     @Override
@@ -265,6 +270,10 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                     if (row.currentBuildId() != null) {
                         // 仍在执行的工作者在下一步回查或交付时被阻断。
                         builds.cancelAttempt(row.currentBuildId());
+                    }
+                    if (row.candidateId() != null) {
+                        // 当前验证和构建使用同一任务取消边界。
+                        validations.cancelCurrent(source, row.candidateId());
                     }
                     audit.record(AuditWriteDTO.builder()
                             .actionCode(ACTION)
@@ -534,7 +543,10 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
             finish(current, null, "INDEX_READBACK_MISMATCH");
             return;
         }
-        finish(current, receipt, null);
+        if (finish(current, receipt, null)) {
+            // 当前成功构建与自动验证同事务保存，重启不漏派。
+            validations.afterBuild(source, current);
+        }
     }
 
     /**
@@ -562,7 +574,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     /**
      * 只推进候选和构建尝试，不写正式入口或任何发布结果。
      */
-    private void finish(Build task, Receipt receipt, String error) {
+    private boolean finish(Build task, Receipt receipt, String error) {
         if (builds.finish(
                         task.id(),
                         task.dispatchToken(),
@@ -572,8 +584,14 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                         receipt == null ? null : receipt.observed().size(),
                         receipt == null ? null : json.write(receipt.hits()))
                 == 1) {
-            builds.end(task.candidateId(), task.id(), receipt == null ? "BUILD_FAILED" : "READY_FOR_VALIDATION");
+            if (builds.end(task.candidateId(), task.id(), receipt == null ? "BUILD_FAILED" : "READY_FOR_VALIDATION")
+                    != 1) {
+                // 构建和当前候选状态须在同一事务推进。
+                throw BizIllegalException.conflict();
+            }
+            return true;
         }
+        return false;
     }
 
     /**
@@ -602,20 +620,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
      */
     private void verifyFrozen(Source source, long document, KnowledgeReleaseCandidatePO candidate) {
         verifyTransport(source);
-        var check = preflight.check(source, preflight.document(source.id(), document));
-        if (!Objects.equals(candidate.getDocumentRevisionId(), check.documentRevision())) {
-            // 新确认须明确通过调整范围选择，旧候选仍可回看。
-            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, REVISION_CHANGED);
-        }
-        var scope = candidates.scope(source.id(), document);
-        if (!check.issues().isEmpty()
-                || !Objects.equals(candidate.getEmbeddingRevisionId(), check.embeddingRevision())
-                || !Objects.equals(candidate.getBaseBindingId(), scope.activeBindingId())
-                || !builds.testRevisions(candidate.getId()).equals(check.testRevisions())) {
-            throw new BizIllegalException(
-                    ErrorCode.DEPENDENCY_STALE,
-                    check.issues().isEmpty() ? "候选依据已变化，请重新核对并创建任务" : String.join("；", check.issues()));
-        }
+        preflight.verifyFrozen(source, document, candidate, builds.testRevisions(candidate.getId()));
     }
 
     /**

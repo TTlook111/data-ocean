@@ -44,7 +44,7 @@ export function ReleaseScopeAdjustment({
   const result = inspection.data;
   const nextRevision = result?.documentReady ? result.documentRevisionId : null;
   const changed = documentId !== task.documentId || nextRevision !== task.documentRevisionId;
-  const editable = task.status !== 'BUILDING' && task.status !== 'CANCELED';
+  const editable = !['BUILDING', 'VALIDATING', 'CANCELED'].includes(task.status);
   const taskChanged = task.version !== reviewedVersion;
   const blocked =
     !editable ||

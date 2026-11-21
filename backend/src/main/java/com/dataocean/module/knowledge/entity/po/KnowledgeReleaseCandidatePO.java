@@ -79,6 +79,11 @@ public class KnowledgeReleaseCandidatePO {
     private String currentBuildId;
 
     /**
+     * 当前逐题运行，历史运行仍归属本候选。
+     */
+    private String currentValidationId;
+
+    /**
      * 发起准备的实际操作人。
      */
     private Long createdBy;

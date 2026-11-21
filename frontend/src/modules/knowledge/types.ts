@@ -43,7 +43,17 @@ export type ReleaseTask = {
   /** 聚合并发版本。 */
   version: number;
   /** 当前持久业务阶段。 */
-  status: 'PREPARED' | 'BUILDING' | 'BUILD_FAILED' | 'READY_FOR_VALIDATION' | 'CANCELED';
+  status:
+    | 'PREPARED'
+    | 'BUILDING'
+    | 'BUILD_FAILED'
+    | 'READY_FOR_VALIDATION'
+    | 'VALIDATING'
+    | 'AWAITING_JUDGMENT'
+    | 'VALIDATION_FAILED'
+    | 'VALIDATION_ERROR'
+    | 'READY_TO_PUBLISH'
+    | 'CANCELED';
   /** 任务创建成功时间。 */
   createdAt: string;
 };
@@ -54,6 +64,11 @@ export const releaseStates: Record<ReleaseTask['status'], string> = {
   BUILDING: '构建中',
   BUILD_FAILED: '构建失败',
   READY_FOR_VALIDATION: '待验证',
+  VALIDATING: '验证中',
+  AWAITING_JUDGMENT: '待裁定',
+  VALIDATION_FAILED: '验证未通过',
+  VALIDATION_ERROR: '执行异常',
+  READY_TO_PUBLISH: '待发布',
   CANCELED: '已取消',
 };
 

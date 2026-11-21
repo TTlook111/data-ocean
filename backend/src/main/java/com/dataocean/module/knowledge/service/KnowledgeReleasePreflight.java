@@ -4,10 +4,12 @@ import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
+import com.dataocean.module.knowledge.entity.po.KnowledgeReleaseCandidatePO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeDocumentVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleasePreflightVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO;
@@ -20,6 +22,7 @@ import com.dataocean.module.model.service.ModelRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -236,4 +239,25 @@ public class KnowledgeReleasePreflight {
             List<Long> testRevisions,
             long embeddingRevision,
             Long baseBindingId) {}
+
+    /**
+     * 构建及验证均核对当前采用的候选，以原不可变修订为准。
+     */
+    public void verifyFrozen(Source source, long document, KnowledgeReleaseCandidatePO candidate, List<Long> tests) {
+        var check = check(source, document(source.id(), document));
+        if (!Objects.equals(candidate.getDocumentRevisionId(), check.documentRevision())) {
+            // 修订变化后需要明确调整发布目标。
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "文档确认修订已变化，请调整发布范围");
+        }
+        var scope = candidates.scope(source.id(), document);
+        if (!check.issues().isEmpty()
+                || !Objects.equals(candidate.getEmbeddingRevisionId(), check.embeddingRevision())
+                || !Objects.equals(candidate.getBaseBindingId(), scope.activeBindingId())
+                || !tests.equals(check.testRevisions())) {
+            // 旧构建结果不能转移到不同的数据或题单依据。
+            throw new BizIllegalException(
+                    ErrorCode.DEPENDENCY_STALE,
+                    check.issues().isEmpty() ? "候选依据已变化，请重新核对并创建任务" : String.join("；", check.issues()));
+        }
+    }
 }
