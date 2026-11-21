@@ -304,7 +304,7 @@ public class PermissionServiceImpl implements PermissionService {
      */
     public void ensureRecovery() {
         if (!guard.selectById(1).isBootstrapCompleted()) {
-            // 首次受控初始化的唯一例外，完成必要改密后不再进入此分支。
+            // 仅在受控初始化完成前允许暂时没有恢复途径。
             return;
         }
         Set<String> required = Set.of("users.view", "users.recover");
@@ -331,7 +331,7 @@ public class PermissionServiceImpl implements PermissionService {
                 return;
             }
         }
-        throw new BizIllegalException(ErrorCode.IAM_LAST_RECOVERY_PATH, "至少保留一名已完成改密、具备完整实际恢复资格的人员");
+        throw new BizIllegalException(ErrorCode.IAM_LAST_RECOVERY_PATH, "至少保留一名可正常登录且具备完整恢复资格的人员");
     }
 
     /**

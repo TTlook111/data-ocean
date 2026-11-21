@@ -21,6 +21,7 @@ import com.dataocean.module.iam.mapper.RoleAssignmentMapper;
 import com.dataocean.module.iam.mapper.RoleMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PasswordPolicy;
+import com.dataocean.module.iam.service.PermissionService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -84,6 +85,11 @@ public class IdentityBootstrap implements ApplicationRunner {
     private final PermissionMapper permissions;
 
     /**
+     * 确认初始化完成后具备可用的恢复资格。
+     */
+    private final PermissionService permissionService;
+
+    /**
      * 预设角色及显式授予集合。
      */
     private final RoleMapper roles;
@@ -119,14 +125,26 @@ public class IdentityBootstrap implements ApplicationRunner {
     private final TransactionTemplate transactions;
 
     /**
-     * 只在配置齐全且库内无人时初始化，重复启动保持已有状态。
+     * 完成受控初始化，或释放旧版初始化遗留的首管理员待改密状态。
      *
      * @throws IOException 初始密码或功能目录不可读取时中止启动，不能回退为默认身份
      */
     @Override
     public void run(ApplicationArguments args) throws IOException {
-        if (properties.getBootstrapUsername() == null || users.exists(null)) {
-            // 普通启动不重新读取密码文件，也不修改现有权限。
+        if (guard.selectById(1).isBootstrapCompleted()) {
+            // 已完成初始化的实例直接启动。
+            return;
+        }
+        if (users.exists(null)) {
+            // 旧版已创建首管理员时沿用当前凭据和角色。
+            transactions.executeWithoutResult(status -> {
+                // 初始化状态的修复与登录、改密和权限写入共用配置锁。
+                completePendingBootstrap();
+            });
+            return;
+        }
+        if (properties.getBootstrapUsername() == null) {
+            // 没有明确提供初始化身份时保留空库。
             return;
         }
         String reference = properties.getBootstrapPasswordFile();
@@ -149,7 +167,7 @@ public class IdentityBootstrap implements ApplicationRunner {
             NewUserProfileDTO admin = new NewUserProfileDTO();
             admin.setUsername(properties.getBootstrapUsername());
             admin.setDisplayName(properties.getBootstrapDisplayName());
-            long userId = users.create(admin, null);
+            long userId = users.create(admin, null, false);
             credentials.create(userId, hash);
             DepartmentProfileDTO root = new DepartmentProfileDTO(
                     properties.getBootstrapDepartmentName(),
@@ -206,6 +224,8 @@ public class IdentityBootstrap implements ApplicationRunner {
                 }
             }
             roleAssignments.assign(userId, superRole, 1, userId);
+            guard.completeBootstrap();
+            permissionService.ensureRecovery();
             audits.bootstrap(AuditWriteDTO.builder()
                     .actionCode("iam.bootstrap")
                     .targetType("user")
@@ -217,6 +237,32 @@ public class IdentityBootstrap implements ApplicationRunner {
                     .securityVersion(guard.selectById(1).getSecurityVersion())
                     .build());
         });
-        log.info("空库身份初始化完成，需首次改密后建立有效恢复途径");
+        log.info("空库身份初始化检查完成");
+    }
+
+    /**
+     * 保留旧版首管理员的密码，仅解除初始化限制并注销原有受限会话。
+     */
+    private void completePendingBootstrap() {
+        if (guard.lock().isBootstrapCompleted()) {
+            // 其他启动进程或本人改密已完成初始化。
+            return;
+        }
+        var admin = users.pendingBootstrapAdmin();
+        if (admin == null) {
+            // 保留其他原因产生的待改密状态。
+            return;
+        }
+        users.invalidate(admin.getId(), false);
+        guard.completeBootstrap();
+        permissionService.ensureRecovery();
+        audits.bootstrap(AuditWriteDTO.builder()
+                .actionCode("iam.bootstrap")
+                .targetType("user")
+                .targetId(Long.toString(admin.getId()))
+                .targetName(admin.getDisplayName())
+                .changes(List.of(new ChangeVO("mustChangePassword", "登录状态", "待改密", "可正常登录")))
+                .securityVersion(guard.selectById(1).getSecurityVersion())
+                .build());
     }
 }

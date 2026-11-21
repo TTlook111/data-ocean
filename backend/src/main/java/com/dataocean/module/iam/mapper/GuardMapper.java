@@ -34,7 +34,7 @@ public interface GuardMapper extends BaseMapper<GuardPO> {
     }
 
     /**
-     * 首次必要改密成功后永久关闭空库初始化例外。
+     * 永久关闭空库初始化例外，提交前还需验证有效恢复资格。
      */
     default int completeBootstrap() {
         return update(Wrappers.<GuardPO>lambdaUpdate()

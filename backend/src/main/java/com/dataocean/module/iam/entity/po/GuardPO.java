@@ -33,7 +33,7 @@ public final class GuardPO {
     private long securityVersion;
 
     /**
-     * 是否已完成首管理员必要改密并永久关闭初始化例外。
+     * 是否已完成首管理员的受控初始化并关闭初始化例外。
      */
     private boolean bootstrapCompleted;
 

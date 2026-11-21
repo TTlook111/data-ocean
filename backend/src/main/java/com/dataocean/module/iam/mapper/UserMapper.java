@@ -70,26 +70,52 @@ public interface UserMapper extends BaseMapper<UserPO> {
     }
 
     /**
+     * 识别仍持有原始初始化凭据的首管理员，以初始化审计确认账号来源。
+     */
+    @Select(
+            """
+            SELECT u.*
+            FROM iam_user u
+            JOIN iam_user_credential c ON c.user_id=u.id
+            WHERE u.lifecycle='ENABLED' AND u.must_change_password=1
+              AND u.authentication_version=1 AND c.credential_revision=1
+              AND EXISTS (
+                SELECT 1 FROM audit_record a
+                WHERE a.actor_kind='BOOTSTRAP' AND a.action_code='iam.bootstrap'
+                  AND a.target_type='user' AND a.target_id=CAST(u.id AS CHAR)
+              )
+            """)
+    UserPO pendingBootstrapAdmin();
+
+    /**
      * 使用数据库时钟创建人员，并回填同一条插入返回的编号。
      */
     @Insert(
             """
-            INSERT INTO iam_user(username,display_name,phone,email,management_note,created_by,created_at,updated_at)
-            VALUES(#{username},#{displayName},#{phone},#{email},#{managementNote},#{createdBy},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+            INSERT INTO iam_user(username,display_name,phone,email,management_note,must_change_password,created_by,created_at,updated_at)
+            VALUES(#{username},#{displayName},#{phone},#{email},#{managementNote},#{mustChangePassword},#{createdBy},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertCreated(UserPO row);
 
     /**
-     * 只将新建资料映射为待插入记录，认证和版本列使用表默认值。
+     * 管理员创建的人员必须在首次登录时修改初始密码。
      */
     default long create(NewUserProfileDTO data, Long actor) {
+        return create(data, actor, true);
+    }
+
+    /**
+     * 保存新建资料和调用方确定的待改密状态，认证版本使用表默认值。
+     */
+    default long create(NewUserProfileDTO data, Long actor, boolean mustChangePassword) {
         var row = new UserPO();
         row.setUsername(data.getUsername());
         row.setDisplayName(data.getDisplayName());
         row.setPhone(data.getPhone());
         row.setEmail(data.getEmail());
         row.setManagementNote(data.getManagementNote());
+        row.setMustChangePassword(mustChangePassword);
         row.setCreatedBy(actor);
         insertCreated(row);
         return Objects.requireNonNull(row.getId(), "数据库未返回人员编号");

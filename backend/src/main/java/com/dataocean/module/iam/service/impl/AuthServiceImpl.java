@@ -266,7 +266,7 @@ public class AuthServiceImpl implements AuthService {
             credentials.password(id, encoded);
             users.invalidate(id, false);
             if (!guard.selectById(1).isBootstrapCompleted()) {
-                // 空库初始化的唯一例外在首次必要改密后永久关闭。
+                // 旧版遗留账号若仍通过必要改密完成初始化，在同一事务关闭例外。
                 guard.completeBootstrap();
             }
             permissions.ensureRecovery();

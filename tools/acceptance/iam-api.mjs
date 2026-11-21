@@ -154,7 +154,7 @@ async function person(id) {
 }
 
 try {
-  await test("A03/A08 匿名拒绝与登录 CSRF", async () => {
+  await test("A01/A03/A08 首管理员直接登录、匿名拒绝与登录 CSRF", async () => {
     const anonymous = new IdentityClient(admin.base);
     rejected(await anonymous.request("/iam/users"), 401001);
     rejected(
@@ -169,7 +169,7 @@ try {
     assert.equal(
       state.mustChangePassword,
       false,
-      "先完成首管理员必要改密再执行验收",
+      "首管理员应直接取得正常会话",
     );
     const oldCsrf = admin.token;
     assert.equal(oldCsrf, null);
