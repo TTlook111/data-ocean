@@ -329,7 +329,7 @@ export function UsersPage() {
           rowKey="id"
           loading={records.isFetching}
           dataSource={records.data?.items}
-          scroll={{ x: 1040, y: '100%' }}
+          scroll={{ x: 1040 }}
           pagination={{
             current: records.data?.pageNum ?? Number(params.get('pageNum') ?? 1),
             pageSize: records.data?.pageSize ?? Number(params.get('pageSize') ?? 10),

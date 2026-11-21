@@ -1,9 +1,9 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import {
   Alert,
   App,
   Button,
   Descriptions,
-  Drawer,
   Form,
   Input,
   InputNumber,
@@ -379,35 +379,33 @@ export function DatasourcePage({ header }: { header?: React.ReactNode }) {
           ]}
         />
       </section>
-      {/* 连接与定时详情保持侧栏内，与原列表条件和页码独立。 */}
-      <Drawer
-        size="min(580px, calc(100vw - 80px))"
-        className="record-details-drawer ds-source-drawer"
-        closable={{ placement: 'end' }}
-        title={
-          <span className="cell-text" title={detail.data?.source.name}>
-            {detail.data?.source.name ?? '数据源详情'}
-          </span>
-        }
-        open={Boolean(opened)}
-        onClose={() => setOpened(null)}
-        destroyOnHidden
-      >
-        <ReadState
-          error={detail.error}
-          loading={detail.isPending}
-          retry={() => void detail.refetch()}
+      {/* 连接和定时信息在紧凑弹窗中回看，保留原列表及可用操作。 */}
+      {opened && (
+        <DetailDialog
+          title={detail.data?.source.name ?? '数据源详情'}
+          width={680}
+          close={() => setOpened(null)}
+          actions={
+            !detail.error &&
+            detail.data && (
+              <SourceActions
+                detail={detail.data}
+                edit={() => setEditor(detail.data ?? null)}
+                replace={() => setReplace(detail.data ?? null)}
+                schedule={schedule}
+              />
+            )
+          }
         >
-          {detail.data && (
-            <SourceInformation
-              detail={detail.data}
-              edit={() => setEditor(detail.data ?? null)}
-              replace={() => setReplace(detail.data ?? null)}
-              schedule={schedule}
-            />
-          )}
-        </ReadState>
-      </Drawer>
+          <ReadState
+            error={detail.error}
+            loading={detail.isPending}
+            retry={() => void detail.refetch()}
+          >
+            {detail.data && <SourceInformation detail={detail.data} />}
+          </ReadState>
+        </DetailDialog>
+      )}
       {editor && (
         <SourceEditor
           source={editor === 'new' ? undefined : editor}
@@ -570,9 +568,81 @@ function SourceLifecycleDialog({
 }
 
 /**
- * 详情展示当前连接、计划和当前可用的维护入口。
+ * 在详情正文中展示当前连接与定时采集。
  */
-function SourceInformation({
+function SourceInformation({ detail }: { detail: SourceDetail }) {
+  const { configuration, schedule: plan, source } = detail;
+  return (
+    <div className="ds-source-detail">
+      <Descriptions
+        title="数据库连接"
+        className="ds-detail-facts"
+        colon={false}
+        column={2}
+        size="small"
+        items={[
+          {
+            key: 'lifecycle',
+            label: '配置状态',
+            children: <DatasourceStatus value={source.lifecycle} />,
+          },
+          { key: 'version', label: '配置修订', children: detail.configurationRevision },
+          {
+            key: 'database',
+            label: '数据库',
+            children: configuration.databaseName ?? '—',
+            span: 2,
+          },
+          {
+            key: 'address',
+            label: '连接地址',
+            children: configuration.host ? configuration.host + ':' + configuration.port : '—',
+            span: 2,
+          },
+          {
+            key: 'account',
+            label: '只读账号',
+            children: configuration.account ?? '—',
+            span: 2,
+          },
+          ...(configuration.databaseType === 'POSTGRESQL'
+            ? [
+                {
+                  key: 'schema',
+                  label: 'Schema 范围',
+                  children: configuration.schemas?.join('、') || '—',
+                  span: 2,
+                },
+              ]
+            : []),
+          ...(configuration.purpose
+            ? [{ key: 'purpose', label: '用途说明', children: configuration.purpose, span: 2 }]
+            : []),
+        ]}
+      />
+      <Descriptions
+        className="ds-detail-block ds-detail-facts"
+        colon={false}
+        title="定时采集"
+        column={2}
+        size="small"
+        items={[
+          { key: 'plan', label: '状态', children: <DatasourceStatus value={plan.state} /> },
+          { key: 'next', label: '下次采集', children: displayTime(plan.nextScheduledAt) },
+          { key: 'timezone', label: '时区', children: plan.timeZone },
+          ...(plan.staleSince
+            ? [{ key: 'stale', label: '陈旧开始时间', children: displayTime(plan.staleSince) }]
+            : []),
+        ]}
+      />
+    </div>
+  );
+}
+
+/**
+ * 依据权限提供数据源维护、目录回看及连接编辑。
+ */
+function SourceActions({
   detail,
   edit,
   replace,
@@ -588,7 +658,7 @@ function SourceInformation({
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState('');
   const [lifecycle, setLifecycle] = useState<SourceLifecycleAction>();
-  const { configuration, schedule: plan, source } = detail;
+  const { schedule: plan, source } = detail;
   const canOpenCatalog = allowed(session, 'catalog.view');
   const canEdit = allowed(session, 'sources.edit') && source.lifecycle !== 'RETIRED';
   // 只有当前启用源提供定时管理和凭据替换，按实际权限收进底栏。
@@ -632,78 +702,10 @@ function SourceInformation({
       : []),
   ];
   return (
-    <div className="ds-source-detail">
-      {lifecycle && (
-        <SourceLifecycleDialog
-          detail={detail}
-          action={lifecycle}
-          close={() => setLifecycle(undefined)}
-        />
-      )}
-      {/* 查看当前连接和调度事实，长内容单独滚动。 */}
-      <div className="ds-source-detail-body">
-        <Descriptions
-          title="数据库连接"
-          column={2}
-          size="small"
-          items={[
-            {
-              key: 'lifecycle',
-              label: '配置状态',
-              children: <DatasourceStatus value={source.lifecycle} />,
-            },
-            { key: 'version', label: '配置修订', children: detail.configurationRevision },
-            {
-              key: 'database',
-              label: '数据库',
-              children: configuration.databaseName ?? '—',
-              span: 2,
-            },
-            {
-              key: 'address',
-              label: '连接地址',
-              children: configuration.host ? configuration.host + ':' + configuration.port : '—',
-              span: 2,
-            },
-            {
-              key: 'account',
-              label: '数据库只读账号',
-              children: configuration.account ?? '—',
-              span: 2,
-            },
-            ...(configuration.databaseType === 'POSTGRESQL'
-              ? [
-                  {
-                    key: 'schema',
-                    label: 'Schema 范围',
-                    children: configuration.schemas?.join('、') || '—',
-                    span: 2,
-                  },
-                ]
-              : []),
-            ...(configuration.purpose
-              ? [{ key: 'purpose', label: '用途说明', children: configuration.purpose, span: 2 }]
-              : []),
-          ]}
-        />
-        <Descriptions
-          className="ds-detail-block"
-          title="定时采集"
-          column={2}
-          size="small"
-          items={[
-            { key: 'plan', label: '状态', children: <DatasourceStatus value={plan.state} /> },
-            { key: 'next', label: '下次采集', children: displayTime(plan.nextScheduledAt) },
-            { key: 'timezone', label: '时区', children: plan.timeZone },
-            ...(plan.staleSince
-              ? [{ key: 'stale', label: '陈旧开始时间', children: displayTime(plan.staleSince) }]
-              : []),
-          ]}
-        />
-      </div>
+    <>
       {/* 页脚左侧是低频维护入口，右侧保留当前有权执行的常用动作。 */}
       {(canOpenCatalog || canEdit || maintenance.length > 0) && (
-        <div className="detail-footer ds-source-detail-footer">
+        <div className="detail-footer ds-source-actions">
           <span>
             {maintenance.length === 1 && (
               <Button onClick={maintenance[0].onClick}>{maintenance[0].label}</Button>
@@ -750,7 +752,14 @@ function SourceInformation({
           />
         </Modal>
       )}
-    </div>
+      {lifecycle && (
+        <SourceLifecycleDialog
+          detail={detail}
+          action={lifecycle}
+          close={() => setLifecycle(undefined)}
+        />
+      )}
+    </>
   );
 }
 

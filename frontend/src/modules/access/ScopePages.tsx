@@ -1,3 +1,4 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import {
   Alert,
   Button,
@@ -8,6 +9,7 @@ import {
   Space,
   Table,
   Tabs,
+  Tag,
   Typography,
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
@@ -225,9 +227,14 @@ function GrantDirectoryDrawer({
   });
   const scope = request?.joint ? joint.data?.items : [item];
   return (
-    <AccessDetailDrawer
-      size={650}
-      title="授权详情"
+    <DetailDialog
+      width={740}
+      title={
+        <div className="access-dialog-title">
+          <span>{request?.joint ? '联合授权' : item.source.name}</span>
+          <AccessStatus value={item.state} />
+        </div>
+      }
       close={close}
       actions={
         <>
@@ -245,16 +252,14 @@ function GrantDirectoryDrawer({
         </>
       }
     >
-      <div className="access-detail-heading">
-        <h2>{request?.joint ? '联合授权' : item.source.name}</h2>
-        <AccessStatus value={item.state} />
-      </div>
       <Descriptions
+        layout="vertical"
+        colon={false}
         column={2}
         items={[
           {
             key: 'person',
-            label: request ? '申请人（被授权人）' : '被授权人',
+            label: '被授权人',
             children: personLabel(item.grantee),
           },
           { key: 'type', label: '来源类型', children: request ? '申请授权' : '部门初始访问' },
@@ -282,7 +287,16 @@ function GrantDirectoryDrawer({
             { title: '数据源', width: 180, render: (_, row) => row.source.name },
             {
               title: '输出限制规则',
-              render: (_, row) => row.rules.map((rule) => rule.name).join('、'),
+              render: (_, row) => (
+                <dl className="access-rule-list">
+                  {row.rules.map((rule) => (
+                    <div key={rule.id}>
+                      <dt>{rule.name}</dt>
+                      <dd>{rule.content}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ),
             },
           ]}
         />
@@ -317,7 +331,7 @@ function GrantDirectoryDrawer({
           />
         </>
       )}
-    </AccessDetailDrawer>
+    </DetailDialog>
   );
 }
 
@@ -721,7 +735,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
   }
 
   return (
-    <section className={userId ? undefined : 'record-page'}>
+    <section className={userId ? undefined : 'record-page personal-scope-page'}>
       {!userId && (
         <AccessToolbar
           filters={[
@@ -764,31 +778,33 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
           columns={[
             {
               title: '数据源',
-              width: userId ? 126 : 170,
+              width: userId ? 126 : 156,
               ellipsis: true,
               render: (_, row) => row.source.name,
             },
             {
               title: '当前输出限制',
-              width: userId ? 168 : 300,
+              // 多项限制规则使用最大的内容预算。
+              width: userId ? 168 : 204,
               ellipsis: true,
               render: (_, row) => row.rules.map((rule) => rule.name).join('、'),
             },
             {
               title: '有效来源',
-              width: userId ? 82 : 96,
-              align: 'right',
+              // 本人访问列表按左轴阅读，列宽为与状态之间留出间隔。
+              width: userId ? 82 : 116,
+              align: userId ? 'right' : 'left',
               render: (_, row) => `${row.origins.length} 笔`,
             },
             {
-              title: '状态',
-              width: userId ? 84 : 96,
+              title: userId ? '状态' : <span className="personal-scope-status-label">状态</span>,
+              width: userId ? 84 : 112,
               render: () => <AccessStatus value="EFFECTIVE" />,
             },
             {
               title: '操作',
               className: 'record-actions-cell',
-              width: 116,
+              width: userId ? 116 : 128,
               fixed: userId ? undefined : 'right',
               render: (_, row) => (
                 <Button type="link" onClick={() => setSelected(row)}>
@@ -800,13 +816,18 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
         />
       </div>
       {selected && !requestId && (
-        <AccessDetailDrawer title="数据访问详情" size={600} close={() => setSelected(undefined)}>
-          {/* 数据刷新失败时保留重试入口，避免把旧规则展示为已生效。 */}
-          <ReadState error={read.error} loading={read.isPending} retry={() => void read.refetch()}>
-            <div className="access-detail-heading">
-              <h2>{current?.source.name ?? selected.source.name}</h2>
+        <DetailDialog
+          title={
+            <div className="access-dialog-title">
+              <span>{current?.source.name ?? selected.source.name}</span>
               <AccessStatus value={current ? 'EFFECTIVE' : 'ENDED'} />
             </div>
+          }
+          width={680}
+          close={() => setSelected(undefined)}
+        >
+          {/* 数据刷新失败时保留重试入口，避免把旧规则展示为已生效。 */}
+          <ReadState error={read.error} loading={read.isPending} retry={() => void read.refetch()}>
             {current?.rules.length ? (
               <section aria-labelledby="access-scope-rules">
                 <h3 id="access-scope-rules" className="access-detail-section">
@@ -850,7 +871,7 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
               </section>
             ) : null}
           </ReadState>
-        </AccessDetailDrawer>
+        </DetailDialog>
       )}
       {requestId && <RequestDrawer readOnly id={requestId} close={() => setRequestId(undefined)} />}
     </section>
@@ -873,31 +894,55 @@ export function DepartmentAccessPanel({ id }: { id: string }) {
       <ReadState loading={read.isPending} error={read.error} retry={() => void read.refetch()}>
         {row && (
           <>
-            <Descriptions
-              layout="vertical"
-              column={2}
-              items={[
-                { key: 'members', label: '影响成员', children: `本部门直属 ${row.memberCount} 人` },
+            {/* 配置摘要和操作在同一工具栏，表格在空态仍保留列结构。 */}
+            <div className="department-access-toolbar">
+              <dl className="department-access-facts">
+                <div>
+                  <dt>影响成员</dt>
+                  <dd>本部门直属 {row.memberCount} 人</dd>
+                </div>
+                <div>
+                  <dt>配置状态</dt>
+                  <dd>
+                    <Tag
+                      color={
+                        row.reviewRequired ? 'orange' : row.sources.length ? 'success' : undefined
+                      }
+                    >
+                      {row.reviewRequired ? '待复核' : row.sources.length ? '已配置' : '未配置'}
+                    </Tag>
+                  </dd>
+                </div>
+              </dl>
+              {allowed(session, 'departments.access') && (
+                <Button type="primary" onClick={() => setEditing(true)}>
+                  配置初始访问
+                </Button>
+              )}
+            </div>
+            <RecordTable<DepartmentAccess['sources'][number]>
+              className="department-access-records"
+              rowKey={(entry) => entry.source.id}
+              dataSource={row.sources}
+              emptyDescription="暂无数据访问配置"
+              pagination={false}
+              flexibleColumns={[0, 1]}
+              scroll={{ x: 440 }}
+              columns={[
                 {
-                  key: 'state',
-                  label: '配置状态',
-                  children: row.reviewRequired
-                    ? '待复核'
-                    : row.sources.length
-                      ? '已配置'
-                      : '未配置',
+                  title: '数据源',
+                  width: 180,
+                  ellipsis: true,
+                  render: (_, entry) => entry.source.name,
+                },
+                {
+                  title: '输出限制规则',
+                  width: 260,
+                  ellipsis: true,
+                  render: (_, entry) => entry.rules.map((rule) => rule.name).join('、') || '—',
                 },
               ]}
             />
-            {row.sources.map((source) => (
-              <div className="access-origin" key={source.source.id}>
-                <strong>{source.source.name}</strong>
-                <span>{source.rules.map((rule) => rule.name).join('、')}</span>
-              </div>
-            ))}
-            {allowed(session, 'departments.access') && (
-              <Button onClick={() => setEditing(true)}>配置初始访问</Button>
-            )}
             {editing && (
               <DepartmentAccessEditor
                 row={row}
@@ -991,6 +1036,10 @@ function DepartmentAccessEditor({
                   <AccessSelect
                     kind="source"
                     label="选择数据源"
+                    onChange={() => {
+                      // 换源后重新核定该行规则，避免沿用另一来源的选择。
+                      form.setFieldValue(['sources', field.name, 'ruleIds'], []);
+                    }}
                     selected={sources}
                     remember={(option) =>
                       setSources((prev) => [
@@ -1002,7 +1051,7 @@ function DepartmentAccessEditor({
                 </Form.Item>
                 <Form.Item
                   name={[field.name, 'ruleIds']}
-                  label="输出限制规则"
+                  label="该数据源的输出限制规则"
                   rules={[{ required: true }]}
                 >
                   <AccessSelect

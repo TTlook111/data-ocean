@@ -1,12 +1,13 @@
-import { App, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space } from 'antd';
+import { DetailDialog } from '../../shared/DetailDialog';
+import { App, Button, Descriptions, Form, Input, Modal, Select, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
-import { DetailFooter, ReadState, displayTime } from '../../shared/Records';
+import { ReadState, displayTime } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { MoreFilters } from '../../shared/MoreFilters';
 import { QueryDateRange } from '../../shared/QueryDateRange';
@@ -61,6 +62,7 @@ export function StructureChanges({
 }) {
   const session = useSession();
   const navigate = useNavigate();
+  const { state } = useLocation();
   const [params, setParams] = useSearchParams();
   const [form] = Form.useForm();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -79,20 +81,16 @@ export function StructureChanges({
   });
   const field = detail.data && changedField(detail.data);
   const size = Number(params.get('pageSize') ?? 10);
+  const taskId = params.get('taskId');
+  const objectId = params.get('objectId');
   const from = params.get('fromDate');
   const to = params.get('toDate');
-  const hasFilters = [
-    'keyword',
-    'changeType',
-    'fromDate',
-    'toDate',
-    'stage',
-    'objectId',
-    'taskId',
-  ].some((key) => params.has(key));
+  const hasFilters = ['keyword', 'changeType', 'fromDate', 'toDate', 'stage'].some((key) =>
+    params.has(key),
+  );
 
   /**
-   * 清除用户和来源链接带入的条件，同时保留当前源、页签与分页尺寸。
+   * 重置手选条件，保留入口指定的采集任务或对象。
    */
   function reset() {
     setMoreOpen(false);
@@ -102,7 +100,9 @@ export function StructureChanges({
       dates: undefined,
       stage: undefined,
     });
-    setParams({ source, pageSize: String(size), ...(params.get('tab') ? { tab: 'changes' } : {}) });
+    setParams(queryString({ source, pageSize: size, taskId, objectId, tab: params.get('tab') }), {
+      state,
+    });
     form.focusField('keyword');
   }
   return (
@@ -131,7 +131,7 @@ export function StructureChanges({
               fromDate: values.dates?.[0]?.format('YYYY-MM-DD'),
               toDate: values.dates?.[1]?.format('YYYY-MM-DD'),
             };
-            setParams(new URLSearchParams(queryString(next)));
+            setParams(queryString(next), { state });
             form.focusField('keyword');
           }}
         >
@@ -190,6 +190,20 @@ export function StructureChanges({
       {/* 结构事实结果与分页使用后台同款结果面板。 */}
       <section className="panel records-panel" aria-label="结构变化列表">
         {navigation}
+        {(taskId || objectId) && (
+          <div className="ds-change-scope">
+            <span>{taskId ? '本次采集的结构变化' : '当前对象的结构变化'}</span>
+            <Button
+              type="link"
+              onClick={() => {
+                // 明确切换到同源全部变化，避免误以为范围内结果来自所有任务。
+                setParams(queryString({ source, pageSize: size, tab: params.get('tab') }));
+              }}
+            >
+              查看全部变化
+            </Button>
+          </div>
+        )}
         <RecordTable<StructureChange>
           rowKey="changeId"
           dataSource={list.data?.items}
@@ -204,12 +218,15 @@ export function StructureChanges({
             pageSize: size,
             total: list.data?.total ?? 0,
             onChange: (pageNum, pageSize) =>
-              setParams({
-                ...Object.fromEntries(params),
-                source,
-                pageNum: String(pageNum),
-                pageSize: String(pageSize),
-              }),
+              setParams(
+                queryString({
+                  ...Object.fromEntries(params),
+                  source,
+                  pageNum,
+                  pageSize,
+                }),
+                { state },
+              ),
           }}
           columns={[
             {
@@ -260,27 +277,29 @@ export function StructureChanges({
           ]}
         />
       </section>
-      <Drawer
-        title={
-          <div className="ds-change-title">
-            {/* 字段变化使用字段名定位，表路径仍保留在标题区。 */}
-            <span>{field ?? detail.data?.target ?? '结构变化'}</span>
-            {field && <small>{detail.data?.target}</small>}
-          </div>
-        }
-        size="min(600px, calc(100vw - 80px))"
-        className="record-details-drawer access-detail-drawer"
-        closable={{ placement: 'end' }}
-        open={Boolean(id)}
-        onClose={() => setId(null)}
-        destroyOnHidden
-        footer={
-          <DetailFooter close={() => setId(null)}>
-            {detail.data && (
+      {id && (
+        <DetailDialog
+          title={
+            <div className="ds-change-title">
+              {/* 字段名和所属表一起构成比较对象。 */}
+              <span>{field ?? detail.data?.target ?? '结构变化'}</span>
+              {field && <small>{detail.data?.target}</small>}
+            </div>
+          }
+          width={880}
+          close={() => setId(null)}
+          actions={
+            detail.data && (
               <>
                 <Button
                   onClick={() =>
-                    navigate('/collections?source=' + source + '&task=' + detail.data?.sourceTaskId)
+                    navigate(
+                      '/collections?' +
+                        queryString({
+                          source,
+                          task: detail.data?.sourceTaskId,
+                        }),
+                    )
                   }
                 >
                   查看来源采集
@@ -291,79 +310,79 @@ export function StructureChanges({
                   </Button>
                 )}
               </>
-            )}
-          </DetailFooter>
-        }
-      >
-        <ReadState
-          error={detail.error}
-          loading={detail.isPending}
-          retry={() => void detail.refetch()}
+            )
+          }
         >
-          {detail.data && (
-            <>
-              <Descriptions
-                size="small"
-                column={2}
-                items={[
-                  {
-                    key: 'type',
-                    label: '变化类型',
-                    children: datasourceLabel(detail.data.changeType),
-                  },
-                  {
-                    key: 'attribute',
-                    label: '变化项',
-                    children: datasourceLabel(detail.data.attributeKind),
-                  },
-                  {
-                    key: 'fact',
-                    label: '事实状态',
-                    children: <DatasourceStatus value={detail.data.factState} />,
-                  },
-                  {
-                    key: 'stage',
-                    label: '处理阶段',
-                    children: <DatasourceStatus value={detail.data.stage} />,
-                  },
-                  {
-                    key: 'date',
-                    label: '发现时间',
-                    children: displayTime(detail.data.discoveredAt),
-                  },
-                  ...(detail.data.latestReview
-                    ? [
-                        {
-                          key: 'evidence',
-                          label: '核实依据',
-                          children: detail.data.latestReview.evidenceText,
-                          span: 2,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-              {/* 左右使用相同的属性顺序，核对时可直接找到类型、空值与注释。 */}
-              <div className="ds-compare">
-                <section>
-                  <h3>变化前</h3>
-                  <ChangeSnapshot
-                    value={detail.data.before}
-                    absent={detail.data.changeType === 'COLUMN_ADDED' ? '字段尚不存在' : '—'}
-                  />
-                </section>
-                <section>
-                  <h3>变化后</h3>
-                  <ChangeSnapshot
-                    value={detail.data.after}
-                    absent={detail.data.changeType === 'COLUMN_REMOVED' ? '字段已移除' : '—'}
-                  />
-                </section>
-              </div>
-            </>
-          )}
-        </ReadState>
-      </Drawer>
+          <ReadState
+            error={detail.error}
+            loading={detail.isPending}
+            retry={() => void detail.refetch()}
+          >
+            {detail.data && (
+              <>
+                <Descriptions
+                  size="small"
+                  column={2}
+                  items={[
+                    {
+                      key: 'type',
+                      label: '变化类型',
+                      children: datasourceLabel(detail.data.changeType),
+                    },
+                    {
+                      key: 'attribute',
+                      label: '变化项',
+                      children: datasourceLabel(detail.data.attributeKind),
+                    },
+                    {
+                      key: 'fact',
+                      label: '事实状态',
+                      children: <DatasourceStatus value={detail.data.factState} />,
+                    },
+                    {
+                      key: 'stage',
+                      label: '处理阶段',
+                      children: <DatasourceStatus value={detail.data.stage} />,
+                    },
+                    {
+                      key: 'date',
+                      label: '发现时间',
+                      children: displayTime(detail.data.discoveredAt),
+                    },
+                    ...(detail.data.latestReview
+                      ? [
+                          {
+                            key: 'evidence',
+                            label: '核实依据',
+                            children: detail.data.latestReview.evidenceText,
+                            span: 2,
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+                {/* 左右使用相同的属性顺序，核对时可直接找到类型、空值与注释。 */}
+                <div className="ds-compare">
+                  <section>
+                    <h3>变化前</h3>
+                    <ChangeSnapshot
+                      value={detail.data.before}
+                      absent={detail.data.changeType === 'COLUMN_ADDED' ? '字段尚不存在' : '—'}
+                    />
+                  </section>
+                  <section>
+                    <h3>变化后</h3>
+                    <ChangeSnapshot
+                      value={detail.data.after}
+                      absent={detail.data.changeType === 'COLUMN_REMOVED' ? '字段已移除' : '—'}
+                    />
+                  </section>
+                </div>
+              </>
+            )}
+          </ReadState>
+        </DetailDialog>
+      )}
       {checking && (
         <ChangeDecision
           change={checking}

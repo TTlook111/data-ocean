@@ -1,8 +1,8 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import {
   App,
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Form,
   Input,
@@ -509,37 +509,33 @@ export function CollectionPage() {
         )}
       </ReadState>
       {/* 任务详情只显示本状态实际拥有的证据和操作。 */}
-      <Drawer
-        title={
-          task ? (
-            <span className="cell-text" title={task.taskNo}>
-              {task.taskNo}
-            </span>
-          ) : (
-            '采集任务'
-          )
-        }
-        size="min(600px, calc(100vw - 80px))"
-        className="record-details-drawer ds-task-drawer access-detail-drawer"
-        closable={{ placement: 'end' }}
-        open={Boolean(opened)}
-        onClose={closeTask}
-        destroyOnHidden
-        footer={
-          task && (
-            <div className="detail-footer">
-              {/* 阅读区滚动时保留返回与当前状态允许的办理入口。 */}
-              <Button onClick={closeTask}>关闭</Button>
+      {opened && (
+        <DetailDialog
+          title={task?.taskNo ?? '采集任务'}
+          close={closeTask}
+          actions={
+            task && (
               <Space wrap>
-                {task.state === 'SUCCEEDED' && (
+                {/* 仅有变化时进入该次采集的变化结果，保留原列表查询与任务。 */}
+                {task.state === 'SUCCEEDED' && (task.content?.changeCount ?? 0) > 0 && (
                   <Button
-                    onClick={() =>
+                    onClick={() => {
+                      const previous = new URLSearchParams(params);
+                      previous.set('source', task.sourceId);
+                      previous.set('task', task.taskId);
+                      const catalog = allowed(session, 'catalog.view');
                       navigate(
-                        '/collections/changes?source=' + task.sourceId + '&taskId=' + task.taskId,
-                      )
-                    }
+                        (catalog ? '/catalog?' : '/collections/changes?') +
+                          queryString({
+                            source: task.sourceId,
+                            tab: catalog ? 'changes' : undefined,
+                            taskId: task.taskId,
+                          }),
+                        { state: { collectionSearch: '?' + previous.toString() } },
+                      );
+                    }}
                   >
-                    查看结构变化
+                    查看结构变化（{task.content?.changeCount}）
                   </Button>
                 )}
                 {task.state === 'SUCCEEDED' && allowed(session, 'catalog.view') && (
@@ -571,18 +567,18 @@ export function CollectionPage() {
                     </Button>
                   )}
               </Space>
-            </div>
-          )
-        }
-      >
-        <ReadState
-          error={detail.error}
-          loading={detail.isPending}
-          retry={() => void detail.refetch()}
+            )
+          }
         >
-          {task && <TaskInformation task={task} />}
-        </ReadState>
-      </Drawer>
+          <ReadState
+            error={detail.error}
+            loading={detail.isPending}
+            retry={() => void detail.refetch()}
+          >
+            {task && <TaskInformation task={task} />}
+          </ReadState>
+        </DetailDialog>
+      )}
       {cancelling && (
         <Modal
           centered
@@ -616,6 +612,8 @@ function TaskInformation({ task }: { task: CollectionTask }) {
   return (
     <>
       <Descriptions
+        className="ds-detail-facts ds-task-facts"
+        colon={false}
         column={2}
         size="small"
         items={[

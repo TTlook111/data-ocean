@@ -487,7 +487,7 @@ function CandidateEditor({
           </div>
         </nav>
       )}
-      <div className="gov-content gov-discovery-editor">
+      <div className="gov-content gov-edit-content gov-discovery-editor">
         {/* 候选名称和当前状态定位在用来编辑的条目前。 */}
         <div className="gov-entry-title">
           <h2>{creating ? '新增' + label : definition.name || label + '候选'}</h2>
@@ -571,46 +571,6 @@ function CandidateEditor({
               />
             )}
             {error && <Alert type="error" title={error} showIcon />}
-            <div className="gov-editor-actions">
-              {creating && (
-                <Button disabled={save.isPending} onClick={reload}>
-                  取消
-                </Button>
-              )}
-              {!creating && confirm && label === '关联' && candidate.state !== 'REJECTED' && (
-                <Button
-                  disabled={save.isPending || changed}
-                  onClick={() => {
-                    // 拒绝固定候选版本，保留原定义和依据。
-                    void modal.confirm({
-                      title: '拒绝该关联候选？',
-                      okText: '拒绝关联',
-                      onOk: () => save.mutateAsync({ action: 'REJECT' }),
-                    });
-                  }}
-                >
-                  拒绝关联
-                </Button>
-              )}
-              {edit && (
-                <Button
-                  disabled={save.isPending || changed || (creating && !dirty)}
-                  onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
-                >
-                  保存草稿
-                </Button>
-              )}
-              {confirm && (
-                <Button
-                  type="primary"
-                  disabled={changed || (creating && !dirty)}
-                  loading={save.isPending}
-                  onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
-                >
-                  确认治理
-                </Button>
-              )}
-            </div>
           </div>
           {/* 候选仍复用原证据与固定资料回看入口。 */}
           {(candidate.basis.structures.length > 0 || candidate.basis.notes.length > 0) && (
@@ -637,6 +597,46 @@ function CandidateEditor({
                 </Space>
               </section>
             </aside>
+          )}
+        </div>
+        <div className="gov-editor-actions">
+          {creating && (
+            <Button disabled={save.isPending} onClick={reload}>
+              取消
+            </Button>
+          )}
+          {!creating && confirm && label === '关联' && candidate.state !== 'REJECTED' && (
+            <Button
+              disabled={save.isPending || changed}
+              onClick={() => {
+                // 拒绝固定候选版本，保留原定义和依据。
+                void modal.confirm({
+                  title: '拒绝该关联候选？',
+                  okText: '拒绝关联',
+                  onOk: () => save.mutateAsync({ action: 'REJECT' }),
+                });
+              }}
+            >
+              拒绝关联
+            </Button>
+          )}
+          {edit && (
+            <Button
+              disabled={save.isPending || changed || (creating && !dirty)}
+              onClick={() => save.mutate({ action: 'SAVE', values: form.getFieldsValue() })}
+            >
+              保存草稿
+            </Button>
+          )}
+          {confirm && (
+            <Button
+              type="primary"
+              disabled={changed || (creating && !dirty)}
+              loading={save.isPending}
+              onClick={() => save.mutate({ action: 'CONFIRM', values: form.getFieldsValue() })}
+            >
+              确认治理
+            </Button>
           )}
         </div>
       </div>

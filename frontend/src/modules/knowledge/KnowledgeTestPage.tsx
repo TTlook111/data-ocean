@@ -12,9 +12,9 @@ import {
   Tabs,
   Tag,
 } from 'antd';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { api, mutation, queryString } from '../../shared/api';
 import { ReadState, readErrorMessage } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
@@ -59,13 +59,24 @@ type TestRow = {
   state: 'DRAFT' | 'REVIEWED' | 'REVIEW';
 };
 
+/**
+ * 同一份题目详情同时用于确定题单范围和渲染编辑器。
+ */
+type TestDetail = {
+  /** 题目、审核状态与关联文档身份。 */
+  test: TestRow;
+  /** 当次修订保存的判定字段。 */
+  content: Omit<TestInput, 'documentId'>;
+};
+
 /** 题单通过实际已确认修订准备预期和依据。 */
 export function KnowledgeTestPage() {
   const { params, setParams, sources, selected } = useSourceSelection('TEST_CASES');
   const location = useLocation();
   const navigate = useNavigate();
   const open = params.get('testId') ?? undefined;
-  const returnedTo = useRef<string>(undefined);
+  const focusTest = (location.state as { focusTest?: string } | null)?.focusTest;
+  const restored = useRef<string>(undefined);
   const session = useSession();
   const taskReturn = (location.state as { releaseTestReturn?: ReleaseTestReturn } | null)
     ?.releaseTestReturn;
@@ -74,17 +85,30 @@ export function KnowledgeTestPage() {
   const path = '/knowledge/sources/' + source + '/test-cases';
   const size = Number(params.get('pageSize') ?? 10);
   const page = Number(params.get('pageNum') ?? 1);
+  const reviewingQueue = Boolean(open && open !== 'new');
+  const detail = useQuery({
+    queryKey: ['knowledge-test', source, open],
+    enabled: Boolean(source && reviewingQueue),
+    // 进入题目后保留当前待审修订，后台校验写入版本。
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryFn: () => api<TestDetail>(path + '/' + open),
+  });
+  const queueDocument = documentFilter ?? detail.data?.test.documentId;
+  const queuePage = Number(params.get('queuePageNum') ?? (documentFilter ? page : 1));
+  const listDocument = reviewingQueue ? queueDocument : documentFilter;
+  const listPage = reviewingQueue ? queuePage : page;
   const list = useQuery({
-    queryKey: ['knowledge-tests', source, page, size, documentFilter],
-    enabled: Boolean(source),
+    queryKey: ['knowledge-tests', source, listPage, size, listDocument],
+    enabled: Boolean(source && (!reviewingQueue || queueDocument)),
     queryFn: () =>
       api<Page<TestRow>>(
         path +
           '?' +
           queryString({
-            pageNum: page,
+            pageNum: listPage,
             pageSize: size,
-            documentId: documentFilter,
+            documentId: listDocument,
           }),
       ),
   });
@@ -98,24 +122,33 @@ export function KnowledgeTestPage() {
   });
   // 任务自带明确的目标修订，关联题不用在通用文档选项的第一页查找。
   const docChoices = taskReturn ? [taskReturn.document] : (documents.data?.items ?? []);
+  const queueName = docChoices.find((doc) => doc.id === queueDocument)?.title;
+  const queueRows = list.data?.items ?? [];
+  const activeQuestion = detail.data?.test;
+  // 从总单后面几页打开题目时，当前题也保留在同文档队列中。
+  const visibleQueue =
+    activeQuestion?.documentId === queueDocument &&
+    activeQuestion &&
+    !queueRows.some((row) => row.id === activeQuestion.id)
+      ? [activeQuestion, ...queueRows]
+      : queueRows;
 
   useEffect(() => {
-    if (open || !returnedTo.current || !list.isSuccess) return;
+    if (open || !focusTest || !list.isSuccess || restored.current === location.key) return;
+    restored.current = location.key;
     // 关闭办理区后恢复题单刚才使用的入口。
     (
-      document.getElementById('knowledge-test-open-' + returnedTo.current) ??
+      document.getElementById('knowledge-test-open-' + focusTest) ??
       document.getElementById('knowledge-test-open-new')
     )?.focus();
-    returnedTo.current = undefined;
-  }, [open, list.isSuccess]);
+  }, [open, focusTest, list.isSuccess, location.key]);
 
   /** 同一地址保留题目、来源和筛选，切换由当前编辑器保护。 */
-  function openTest(id?: string, replace = false) {
+  function openTest(id: string, replace = false) {
     if (id === open) {
       document.getElementById('knowledge-test-heading')?.focus();
       return;
     }
-    if (!id) returnedTo.current = open;
     setParams(
       queryString({
         source,
@@ -123,6 +156,7 @@ export function KnowledgeTestPage() {
         pageNum: page,
         pageSize: size,
         testId: id,
+        queuePageNum: reviewingQueue ? queuePage : undefined,
       }),
       { replace, state: location.state },
     );
@@ -133,7 +167,7 @@ export function KnowledgeTestPage() {
       {!open && (
         <>
           {/* 概览页使用原型的来源、主操作和独立文档筛选。 */}
-          <div className="panel ds-toolbar knowledge-source-toolbar">
+          <div className="panel ds-toolbar knowledge-source-toolbar knowledge-test-toolbar">
             <SourcePicker
               withLabel
               sources={taskReturn ? (source && selected ? [selected] : []) : sources.data}
@@ -142,6 +176,22 @@ export function KnowledgeTestPage() {
                 // 记录及筛选始终属于一个数据源。
                 setParams(queryString({ source: next, pageSize: size }));
               }}
+            />
+            <Select
+              aria-label="关联文档"
+              className="knowledge-document-select"
+              showSearch={{ optionFilterProp: 'label' }}
+              placeholder="全部文档"
+              allowClear={!taskReturn}
+              value={documentFilter}
+              options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
+              loading={documents.isPending && Boolean(source)}
+              disabled={!!taskReturn || !docChoices.length}
+              onChange={(documentId) =>
+                setParams(queryString({ source, documentId, pageSize: size }), {
+                  state: location.state,
+                })
+              }
             />
             {/* 办理相关题后直接回到原任务，本页仍沿用题单工具栏。 */}
             <Space size={8} wrap>
@@ -169,22 +219,6 @@ export function KnowledgeTestPage() {
               )}
             </Space>
           </div>
-          <div className="panel query-panel">
-            <Select
-              aria-label="关联文档"
-              className="knowledge-document-select"
-              showSearch={{ optionFilterProp: 'label' }}
-              placeholder="全部文档"
-              allowClear={!taskReturn}
-              value={documentFilter}
-              options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
-              loading={documents.isPending && Boolean(source)}
-              disabled={!!taskReturn || !docChoices.length}
-              onChange={(documentId) =>
-                setParams(queryString({ source, documentId, pageSize: size }))
-              }
-            />
-          </div>
         </>
       )}
       <ReadState
@@ -196,21 +230,28 @@ export function KnowledgeTestPage() {
           <>
             {open ? (
               <div
-                className={open === 'new' ? 'knowledge-test-editor' : 'knowledge-test-workspace'}
+                className={
+                  open === 'new' ? 'knowledge-test-editor' : 'panel knowledge-test-workspace'
+                }
               >
                 {open !== 'new' && (
-                  <aside className="panel knowledge-test-queue" aria-label="题目队列">
+                  <aside className="knowledge-test-queue" aria-label="题目队列">
                     <header>
-                      <h2>题目</h2>
-                      <span>共 {list.data?.total ?? 0} 道</span>
+                      <h2>关联题目</h2>
+                      {list.data && <span>共 {list.data.total} 道</span>}
                     </header>
+                    {queueName && (
+                      <p className="knowledge-queue-document cell-text" title={queueName}>
+                        {queueName}
+                      </p>
+                    )}
                     <ReadState
-                      loading={list.isPending}
-                      error={list.error}
-                      retry={() => void list.refetch()}
+                      loading={(detail.isPending || list.isPending) && !detail.error}
+                      error={detail.error ?? list.error}
+                      retry={() => void (detail.error ? detail.refetch() : list.refetch())}
                     >
                       <nav aria-label="切换标准题">
-                        {list.data?.items.map((row) => (
+                        {visibleQueue.map((row) => (
                           <button
                             type="button"
                             key={row.id}
@@ -227,23 +268,17 @@ export function KnowledgeTestPage() {
                       </nav>
                       {(list.data?.total ?? 0) > size && (
                         <Pagination
-                          current={page}
+                          current={queuePage}
                           pageSize={size}
                           total={list.data?.total}
                           showSizeChanger={false}
                           simple={{ readOnly: true }}
-                          onChange={(pageNum) =>
-                            setParams(
-                              queryString({
-                                source,
-                                documentId: documentFilter,
-                                pageNum,
-                                pageSize: size,
-                                testId: open,
-                              }),
-                              { state: location.state },
-                            )
-                          }
+                          onChange={(pageNum) => {
+                            // 队列分页独立，面包屑回到原题单的页码。
+                            const next = new URLSearchParams(params);
+                            next.set('queuePageNum', String(pageNum));
+                            setParams(next, { state: location.state });
+                          }}
                         />
                       )}
                     </ReadState>
@@ -261,10 +296,10 @@ export function KnowledgeTestPage() {
                       source={source}
                       sourceName={selected.name}
                       id={open}
+                      detail={detail}
                       documents={docChoices}
                       preferredDocument={documentFilter}
                       opened={(id) => openTest(id, true)}
-                      close={() => openTest(undefined)}
                     />
                   </ReadState>
                 </div>
@@ -285,10 +320,11 @@ export function KnowledgeTestPage() {
                   filtered={!taskReturn && Boolean(documentFilter)}
                   onReset={() => setParams(queryString({ source, pageSize: size }))}
                   tableLayout="fixed"
-                  flexibleColumns={[0]}
+                  flexibleColumns={[0, 1]}
                   columns={[
                     {
                       title: '题目',
+                      width: 420,
                       dataIndex: 'question',
                       render: (name, row) => (
                         <Button
@@ -316,6 +352,19 @@ export function KnowledgeTestPage() {
                         <Tag color={row.state === 'REVIEWED' ? 'success' : undefined}>
                           {testStates[row.state]}
                         </Tag>
+                      ),
+                    },
+                    {
+                      title: '操作',
+                      width: 112,
+                      fixed: 'right',
+                      className: 'record-actions-cell',
+                      render: (_, row) => (
+                        <Button type="link" onClick={() => openTest(row.id)}>
+                          {row.state !== 'REVIEWED' && allowed(session, 'test-cases.review')
+                            ? '核对'
+                            : '查看'}
+                        </Button>
                       ),
                     },
                   ]}
@@ -349,29 +398,22 @@ function TestEditor({
   source,
   sourceName,
   id,
+  detail,
   documents,
   preferredDocument,
   opened,
-  close,
 }: {
   source: string;
   /** 独立详情显示来源而不重新展示列表选择器。 */
   sourceName: string;
   id: string;
+  /** 当前题目详细读取与队列共用。 */
+  detail: UseQueryResult<TestDetail>;
   preferredDocument?: string;
   documents: { id: string; title: string; revisionId: string }[];
   opened: (id: string) => void;
-  close: () => void;
 }) {
   const path = '/knowledge/sources/' + source + '/test-cases';
-  const detail = useQuery({
-    queryKey: ['knowledge-test', source, id],
-    enabled: id !== 'new',
-    // 编辑期间不因切回窗口或网络恢复覆盖用户打开的修订，提交仍核验版本。
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    queryFn: () => api<{ test: TestRow; content: Omit<TestInput, 'documentId'> }>(path + '/' + id),
-  });
   if (id === 'new')
     return (
       <TestForm
@@ -381,7 +423,6 @@ function TestEditor({
         documents={documents}
         preferredDocument={preferredDocument}
         opened={opened}
-        close={close}
       />
     );
   return (
@@ -395,7 +436,6 @@ function TestEditor({
           current={detail.data}
           documents={documents}
           opened={opened}
-          close={close}
         />
       )}
     </ReadState>
@@ -411,7 +451,6 @@ function TestForm({
   documents,
   preferredDocument,
   opened,
-  close,
 }: {
   source: string;
   /** 本题已经固定的来源名称。 */
@@ -421,7 +460,6 @@ function TestForm({
   current?: { test: TestRow; content: Omit<TestInput, 'documentId'> };
   documents: { id: string; title: string; revisionId: string }[];
   opened: (id: string) => void;
-  close: () => void;
 }) {
   const session = useSession();
   const { message } = App.useApp();
@@ -540,9 +578,16 @@ function TestForm({
             </Tag>
           )}
         </div>
-        <Button className="knowledge-test-back" onClick={close}>
-          返回标准题单
-        </Button>
+        {current && doc && (
+          <div className="knowledge-test-context">
+            <span>关联文档</span>
+            {allowed(session, 'knowledge.view') ? (
+              <Link to={'/knowledge/' + doc.id + '?' + queryString({ source })}>{doc.title}</Link>
+            ) : (
+              <span>{doc.title}</span>
+            )}
+          </div>
+        )}
       </header>
       <Form
         form={form}
@@ -590,13 +635,7 @@ function TestForm({
               forceRender: true,
               children: (
                 <>
-                  {/* 已绑定的文档以只读信息呈现，新建题目才展示来源选择。 */}
-                  {current && (
-                    <dl className="knowledge-test-document">
-                      <dt>关联文档</dt>
-                      <dd>{doc?.title ?? '文档 ' + current.test.documentId}</dd>
-                    </dl>
-                  )}
+                  {/* 已绑定文档由页头提供，新建时才能选择。 */}
                   <Form.Item
                     name="documentId"
                     hidden={Boolean(current)}
@@ -648,41 +687,43 @@ function TestForm({
               forceRender: true,
               children: (
                 <>
-                  {mode === 'NUMERIC' ? (
-                    <>
-                      <Form.Item name="expectedCount" label="期望去重数">
-                        <InputNumber min={0} precision={0} disabled={!editing} />
-                      </Form.Item>
-                      {/* 指标与关联共同决定计数口径，筛选字段和取值并排核对。 */}
-                      <div className="knowledge-test-options">
-                        <Form.Item
-                          name={['countRule', 'metricId']}
-                          label="去重指标"
-                          extra={editing ? '选择按主键去重的计数指标' : undefined}
-                        >
-                          <Select options={options('METRIC')} disabled={!editing} />
+                  <div className="knowledge-test-judgment">
+                    <section aria-label="判定条件">
+                      {mode === 'NUMERIC' ? (
+                        <>
+                          <Form.Item name="expectedCount" label="期望去重数">
+                            <InputNumber min={0} precision={0} disabled={!editing} />
+                          </Form.Item>
+                          {/* 指标与关联共同决定计数口径，筛选字段和取值并排核对。 */}
+                          <div className="knowledge-test-options">
+                            <Form.Item name={['countRule', 'metricId']} label="去重指标">
+                              <Select options={options('METRIC')} disabled={!editing} />
+                            </Form.Item>
+                            <Form.Item name={['countRule', 'relationId']} label="使用关联">
+                              <Select options={options('RELATION')} disabled={!editing} />
+                            </Form.Item>
+                          </div>
+                          <div className="knowledge-test-options">
+                            <Form.Item name={['countRule', 'categoryId']} label="筛选字段">
+                              <Select options={options('COLUMN')} disabled={!editing} />
+                            </Form.Item>
+                            <Form.Item name={['countRule', 'categoryValue']} label="筛选值">
+                              <Input maxLength={80} disabled={!editing} />
+                            </Form.Item>
+                          </div>
+                        </>
+                      ) : (
+                        <Form.Item name="expectedExplanation" label="判定要点">
+                          <Input.TextArea rows={3} maxLength={3000} disabled={!editing} />
                         </Form.Item>
-                        <Form.Item name={['countRule', 'relationId']} label="使用关联">
-                          <Select options={options('RELATION')} disabled={!editing} />
-                        </Form.Item>
-                      </div>
-                      <div className="knowledge-test-options">
-                        <Form.Item name={['countRule', 'categoryId']} label="筛选字段">
-                          <Select options={options('COLUMN')} disabled={!editing} />
-                        </Form.Item>
-                        <Form.Item name={['countRule', 'categoryValue']} label="筛选值">
-                          <Input maxLength={80} disabled={!editing} />
-                        </Form.Item>
-                      </div>
-                    </>
-                  ) : (
-                    <Form.Item name="expectedExplanation" label="判定要点">
-                      <Input.TextArea rows={3} maxLength={3000} disabled={!editing} />
-                    </Form.Item>
-                  )}
-                  <Form.Item name="evidence" label="数据与判定依据">
-                    <Input.TextArea rows={3} maxLength={1000} disabled={!editing} />
-                  </Form.Item>
+                      )}
+                    </section>
+                    <section aria-label="判定依据" className="knowledge-test-evidence">
+                      <Form.Item name="evidence" label="数据与判定依据">
+                        <Input.TextArea rows={6} maxLength={1000} disabled={!editing} />
+                      </Form.Item>{' '}
+                    </section>
+                  </div>
                 </>
               ),
             },

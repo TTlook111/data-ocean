@@ -53,9 +53,12 @@ export function KnowledgePage() {
   }, [list.isSuccess, location.key, returned]);
 
   /** 同一源下打开正文，保留原查询地址。 */
-  function open(id: string) {
+  function open(id: string, editDocument = false) {
     navigate('/knowledge/' + id + '?' + queryString({ source }), {
-      state: { listSearch: '?' + queryString({ source, keyword, pageNum, pageSize: size }) },
+      state: {
+        listSearch: '?' + queryString({ source, keyword, pageNum, pageSize: size }),
+        editDocument,
+      },
     });
   }
 
@@ -66,6 +69,7 @@ export function KnowledgePage() {
     form.focusField('keyword');
   }
 
+  const canEditDocument = selected?.lifecycle === 'ENABLED' && allowed(session, 'knowledge.edit');
   return (
     <main className="record-page" aria-label="知识文档">
       {/* 按原型先选来源及办理入口，再在下方查询文档。 */}
@@ -90,7 +94,7 @@ export function KnowledgePage() {
           )}
         </Space>
       </div>
-      <div className="panel query-panel knowledge-list-filters">
+      <div className="panel query-panel compact-query knowledge-list-filters">
         <Form
           form={form}
           layout="inline"
@@ -129,7 +133,7 @@ export function KnowledgePage() {
             <RecordTable
               rowKey="id"
               tableLayout="fixed"
-              flexibleColumns={[0]}
+              flexibleColumns={[0, 1, 2]}
               dataSource={list.data?.items}
               loading={list.isPending}
               error={list.error}
@@ -140,6 +144,7 @@ export function KnowledgePage() {
               columns={[
                 {
                   title: '文档名称',
+                  width: 380,
                   dataIndex: 'title',
                   render: (title: string, row) => (
                     <Button
@@ -171,6 +176,17 @@ export function KnowledgePage() {
                   ),
                 },
                 { title: '最近确认', width: 160, render: (_, row) => displayTime(row.confirmedAt) },
+                {
+                  title: '操作',
+                  width: 112,
+                  className: 'record-actions-cell',
+                  fixed: 'right',
+                  render: (_, row) => (
+                    <Button type="link" onClick={() => open(row.id, canEditDocument)}>
+                      {canEditDocument ? '编辑草稿' : '查看'}
+                    </Button>
+                  ),
+                },
               ]}
               pagination={{
                 current: list.data?.pageNum ?? pageNum,

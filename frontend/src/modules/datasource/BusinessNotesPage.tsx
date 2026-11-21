@@ -1,3 +1,4 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import {
   Alert,
   App,
@@ -16,7 +17,7 @@ import type { UploadFile } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useBlocker, useNavigate } from 'react-router';
-import { AccessDetailDrawer, AccessGrid, AccessPerson } from '../access/AccessControls';
+import { AccessGrid, AccessPerson } from '../access/AccessControls';
 import type { PersonOption } from '../access/types';
 import { api, mutation } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -366,10 +367,10 @@ function NoteDrawer({ id, close }: { id: string; close: () => void }) {
   });
   const row = read.data;
   return (
-    <AccessDetailDrawer title={row?.content.title ?? '业务说明'} size={640} close={close}>
+    <DetailDialog title={row?.content.title ?? '业务说明'} width={760} close={close}>
       <ReadState loading={read.isPending} error={read.error} retry={() => void read.refetch()}>
         {row && (
-          <Space orientation="vertical" className="access-notes-detail">
+          <div className="access-notes-detail">
             <Space wrap>
               <Typography.Text type="secondary">{row.note.sourceName}</Typography.Text>
               <Select
@@ -402,10 +403,10 @@ function NoteDrawer({ id, close }: { id: string; close: () => void }) {
             {row.note.referenceCount > 0 && (
               <Typography.Text>引用 {row.note.referenceCount} 次</Typography.Text>
             )}
-          </Space>
+          </div>
         )}
       </ReadState>
-    </AccessDetailDrawer>
+    </DetailDialog>
   );
 }
 

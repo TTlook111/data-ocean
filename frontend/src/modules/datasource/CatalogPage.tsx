@@ -1,11 +1,5 @@
-import { App, Button, Collapse, Descriptions, Form, Input, Select, Space, Table, Tabs } from 'antd';
-import {
-  ArrowLeftOutlined,
-  EyeOutlined,
-  PlayCircleOutlined,
-  SearchOutlined,
-  TableOutlined,
-} from '@ant-design/icons';
+import { App, Button, Descriptions, Form, Input, Select, Space, Table, Tabs } from 'antd';
+import { EyeOutlined, PlayCircleOutlined, SearchOutlined, TableOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -23,6 +17,7 @@ import {
 } from './CollectionPage';
 import { DatasourceStatus, datasourceLabel, datasourceOptions } from './Presentation';
 import { StructureChanges } from './StructureChangePage';
+import type { Page } from '../iam/types';
 import type {
   CatalogDetail,
   CatalogField,
@@ -91,7 +86,9 @@ export function CatalogPage() {
     detailParams.set('source', selected?.id ?? '');
     detailParams.set('snapshotId', item.snapshotId);
     if (!item.objectId) detailParams.set('observation', '1');
-    navigate('/catalog/' + (item.objectId ?? item.observationId) + '?' + detailParams.toString());
+    navigate('/catalog/' + (item.objectId ?? item.observationId) + '?' + detailParams.toString(), {
+      state: { catalogRow: item.observationId },
+    });
   }
 
   /**
@@ -375,26 +372,21 @@ export function CatalogObjectPage() {
 
   const primaryFields = new Set(detail.data?.primaryKeys.map((key) => key.field));
 
-  /**
-   * 返回当前来源的原始查询和有效分页。
-   */
-  function back() {
-    const previous = new URLSearchParams(params);
-    previous.delete('snapshotId');
-    previous.delete('observation');
-    navigate('/catalog?' + previous.toString(), {
-      state: { catalogReturnTo: detail.data?.object.observationId },
-    });
-  }
+  const objectId = detail.data?.object.objectId;
+  // 用实际变化结果决定是否提供入口，次级查询失败仍允许手动重试。
+  const canReadChanges = allowed(session, 'collections.view') && Boolean(source && objectId);
+  const changes = useQuery({
+    queryKey: ['catalog-object-changes', source, objectId],
+    enabled: canReadChanges,
+    queryFn: () =>
+      api<Page<unknown>>(
+        '/datasources/' + source + '/changes?' + queryString({ objectId, pageSize: 1 }),
+      ),
+  });
+  const changeCount = changes.data?.total ?? 0;
 
   return (
     <section className="ds-object-page" aria-label="对象结构">
-      {/* 返回入口在字段读取失败或内容较长时也保持可用。 */}
-      <div className="ds-object-toolbar">
-        <Button icon={<ArrowLeftOutlined />} type="text" onClick={back}>
-          元数据目录
-        </Button>
-      </div>
       <ReadState
         error={detail.error}
         loading={detail.isPending && Boolean(source)}
@@ -423,20 +415,22 @@ export function CatalogObjectPage() {
                   </Space>
                 </div>
               </div>
-              {allowed(session, 'collections.view') && detail.data.object.objectId && (
-                <Button
-                  onClick={() =>
-                    navigate(
-                      '/catalog?source=' +
-                        source +
-                        '&tab=changes&objectId=' +
-                        detail.data?.object.objectId,
-                    )
-                  }
-                >
-                  查看变化
-                </Button>
-              )}
+              {canReadChanges &&
+                (changeCount > 0 ? (
+                  <Button
+                    onClick={() =>
+                      navigate('/catalog?' + queryString({ source, tab: 'changes', objectId }))
+                    }
+                  >
+                    查看结构变化（{changeCount}）
+                  </Button>
+                ) : changes.isSuccess ? (
+                  <span className="muted">暂无结构变化记录</span>
+                ) : (
+                  changes.isError && (
+                    <Button onClick={() => void changes.refetch()}>重新检查变化</Button>
+                  )
+                ))}
             </header>
             {/* 字段区作为主要内容，保持与工作区同宽。 */}
             <section className="panel ds-fields-panel" aria-labelledby="ds-fields-title">
@@ -529,63 +523,52 @@ export function CatalogObjectPage() {
                 />
               </section>
             )}
-            {/* 源库原文与追溯信息按需展开，保证长注释不抢占字段的首屏空间。 */}
-            <Collapse
-              className="ds-object-origin"
-              size="small"
-              items={[
-                {
-                  key: 'origin',
-                  label: '来源与采集信息',
-                  children: (
-                    <Descriptions
-                      column={2}
-                      size="small"
-                      items={[
+            {/* 短小的来源事实直接显示，视图注释允许正文换行。 */}
+            <section className="ds-object-origin">
+              <h2 className="ds-section-heading">来源与采集信息</h2>
+              <Descriptions
+                column={2}
+                size="small"
+                items={[
+                  {
+                    key: 'snapshot',
+                    label: '采集快照',
+                    children: detail.data.object.snapshotId,
+                  },
+                  {
+                    key: 'time',
+                    label: '采集时间',
+                    children: displayTime(detail.data.object.collectedAt),
+                  },
+                  ...(detail.data.objectRevision
+                    ? [
                         {
-                          key: 'snapshot',
-                          label: '采集快照',
-                          children: detail.data.object.snapshotId,
+                          key: 'revision',
+                          label: '结构修订',
+                          children: detail.data.objectRevision,
                         },
+                      ]
+                    : []),
+                  ...(detail.data.parent
+                    ? [{ key: 'parent', label: '父表', children: detail.data.parent }]
+                    : []),
+                  ...(detail.data.object.sourceComment
+                    ? [
                         {
-                          key: 'time',
-                          label: '采集时间',
-                          children: displayTime(detail.data.object.collectedAt),
+                          key: 'comment',
+                          label: detail.data.object.objectType.includes('VIEW')
+                            ? '源视图注释'
+                            : '源表注释',
+                          children: (
+                            <p className="ds-object-comment">{detail.data.object.sourceComment}</p>
+                          ),
+                          span: 2,
                         },
-                        ...(detail.data.objectRevision
-                          ? [
-                              {
-                                key: 'revision',
-                                label: '结构修订',
-                                children: detail.data.objectRevision,
-                              },
-                            ]
-                          : []),
-                        ...(detail.data.parent
-                          ? [{ key: 'parent', label: '父表', children: detail.data.parent }]
-                          : []),
-                        ...(detail.data.object.sourceComment
-                          ? [
-                              {
-                                key: 'comment',
-                                label: detail.data.object.objectType.includes('VIEW')
-                                  ? '源视图注释'
-                                  : '源表注释',
-                                children: (
-                                  <p className="ds-object-comment">
-                                    {detail.data.object.sourceComment}
-                                  </p>
-                                ),
-                                span: 2,
-                              },
-                            ]
-                          : []),
-                      ]}
-                    />
-                  ),
-                },
-              ]}
-            />
+                      ]
+                    : []),
+                ]}
+              />
+            </section>
           </article>
         )}
       </ReadState>

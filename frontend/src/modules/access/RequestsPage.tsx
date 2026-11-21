@@ -1,6 +1,6 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import {
   Button,
-  Collapse,
   Descriptions,
   Empty,
   Modal,
@@ -25,7 +25,6 @@ import {
   accessPath,
   accessList,
   AccessToolbar,
-  AccessDetailDrawer,
   useAccessList,
   AccessEditor,
   AccessGrid,
@@ -748,27 +747,52 @@ export function RequestDrawer({
   const mine = row?.applicant.id === session.userId;
   const canAct = !historyOnly && !readOnly;
   const canPlan = canAct && row?.planAvailable && !mine;
+  const showGrantOrigin =
+    historyOnly &&
+    allowed(session, 'grants.view') &&
+    row?.items.some((item) => ['EFFECTIVE', 'ENDED'].includes(item.state));
+  // 只有至少一条当前可办理的子项才保留操作列。
+  const hasItemAction =
+    canAct &&
+    row?.items.some((item) => {
+      if (mine) {
+        return (
+          (['DRAFT', 'NEEDS_SUPPLEMENT'].includes(item.state) &&
+            allowed(session, 'my-requests.apply')) ||
+          (['DRAFT', 'PENDING', 'ROUTING', 'NEEDS_SUPPLEMENT', 'APPROVED'].includes(item.state) &&
+            allowed(session, 'my-requests.withdraw'))
+        );
+      }
+      const assigned = item.state === 'PENDING' && item.assignee?.id === session.userId;
+      return (
+        ((item.state === 'ROUTING' || assigned) && allowed(session, 'access-requests.route')) ||
+        (assigned &&
+          Object.values(decisions).some(({ permission }) => allowed(session, permission)))
+      );
+    });
   const editableItem = row?.items.find(
     (item) =>
       ['DRAFT', 'NEEDS_SUPPLEMENT'].includes(item.state) &&
       (editing === true || editing === item.id),
   );
   return (
-    <AccessDetailDrawer
-      size={800}
+    <DetailDialog
+      width={840}
       title={historyOnly ? '审批结果' : (row?.purpose ?? '访问申请')}
       close={close}
       actions={
-        <>
-          {canPlan && <Button onClick={() => setAction({ action: 'PLAN' })}>拆分与联合设置</Button>}
-          {historyOnly &&
-            allowed(session, 'grants.view') &&
-            row?.items.some((item) => ['EFFECTIVE', 'ENDED'].includes(item.state)) && (
+        row && (canPlan || showGrantOrigin) ? (
+          <>
+            {canPlan && (
+              <Button onClick={() => setAction({ action: 'PLAN' })}>拆分与联合设置</Button>
+            )}
+            {showGrantOrigin && (
               <Button href={'/iam/grants?requestId=' + encodeURIComponent(row.id)}>
                 查看授权来源
               </Button>
             )}
-        </>
+          </>
+        ) : undefined
       }
     >
       <ReadState loading={read.isPending} error={read.error} retry={() => void read.refetch()}>
@@ -777,6 +801,8 @@ export function RequestDrawer({
             {/* 整体用途与申请身份在当前确切子项上方。 */}
             <Descriptions
               column={2}
+              layout="vertical"
+              colon={false}
               items={[
                 { key: 'id', label: '申请编号', children: row.id },
                 { key: 'user', label: '申请人', children: personLabel(row.applicant) },
@@ -800,7 +826,7 @@ export function RequestDrawer({
                   : []),
               ]}
             />
-            <h3>办理情况</h3>
+            <h3 className="access-detail-section">办理情况</h3>
             <Table<RequestItem>
               size="small"
               rowKey="id"
@@ -845,7 +871,7 @@ export function RequestDrawer({
                     </div>
                   ),
                 },
-                ...(canAct
+                ...(hasItemAction
                   ? [
                       {
                         title: '操作',
@@ -929,7 +955,7 @@ export function RequestDrawer({
           }}
         />
       )}
-    </AccessDetailDrawer>
+    </DetailDialog>
   );
 }
 
@@ -955,38 +981,27 @@ function RequestHistory({ id }: { id: string }) {
     ACCOUNT_DISABLED: '账号停用后结束访问',
   };
   return (
-    <Collapse
-      className="access-request-history"
-      ghost
-      items={[
-        {
-          key: 'history',
-          label: '处理记录',
-          children: (
-            <ReadState
-              loading={history.isPending}
-              error={history.error}
-              retry={() => void history.refetch()}
-            >
-              <Timeline
-                items={(history.data ?? []).map((entry) => ({
-                  key: entry.version,
-                  content: (
-                    <Space wrap>
-                      <strong>{labels[entry.action] ?? entry.action}</strong>
-                      <span>{personLabel(entry.actor)}</span>
-                      <Typography.Text type="secondary">
-                        {displayTime(entry.createdAt)}
-                      </Typography.Text>
-                    </Space>
-                  ),
-                }))}
-              />
-            </ReadState>
-          ),
-        },
-      ]}
-    />
+    <section aria-label="处理记录" className="access-request-history">
+      <h3 className="access-detail-section">处理记录</h3>
+      <ReadState
+        loading={history.isPending}
+        error={history.error}
+        retry={() => void history.refetch()}
+      >
+        <Timeline
+          items={(history.data ?? []).map((entry) => ({
+            key: entry.version,
+            content: (
+              <Space wrap>
+                <strong>{labels[entry.action] ?? entry.action}</strong>
+                <span>{personLabel(entry.actor)}</span>
+                <Typography.Text type="secondary">{displayTime(entry.createdAt)}</Typography.Text>
+              </Space>
+            ),
+          }))}
+        />
+      </ReadState>
+    </section>
   );
 }
 
@@ -1165,7 +1180,7 @@ function DecisionEditor({
       {action === 'APPROVE' && (
         <Form.Item
           name="ruleIds"
-          label="输出限制规则"
+          label="该数据源的输出限制规则"
           rules={[{ required: true, message: '请选择至少一条输出限制规则' }]}
         >
           <AccessSelect

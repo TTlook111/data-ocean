@@ -453,7 +453,7 @@ export function RolesPage() {
           rowKey="id"
           loading={records.isFetching}
           dataSource={records.data?.items}
-          scroll={{ x: 980, y: '100%' }}
+          scroll={{ x: 980 }}
           pagination={{
             current: records.data?.pageNum ?? 1,
             pageSize: records.data?.pageSize ?? 10,

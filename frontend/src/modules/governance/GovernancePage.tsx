@@ -111,99 +111,100 @@ export function GovernancePage() {
 
   return (
     <section className="record-page" aria-label="治理工作台">
-      {/* 表治理查询面板的条件依表头顺序排列。 */}
-      <div className="panel query-panel gov-query compact-query">
-        <Form
-          name="governance-list-query"
-          layout="inline"
-          form={form}
-          initialValues={Object.fromEntries(params)}
-          onFinish={(values) => {
-            // 查找留在当前源，应用条件和分页保存在 URL。
-            setMoreOpen(false);
-            setParams(
-              queryString({
-                ...values,
-                pendingKind: form.getFieldValue('pendingKind'),
-                hasPendingImpact: form.getFieldValue('hasPendingImpact'),
-                source: selected?.id,
-                pageSize: size,
-              }),
-            );
-            form.focusField('keyword');
-          }}
-        >
-          <Form.Item>
-            <div className="gov-source-navigation">
-              <SourcePicker sources={sources.data} selected={selected} choose={reset} />
-              {selected && (
-                <Space size={8} wrap>
-                  {allowed(session, 'business-notes.view') && (
-                    <Button onClick={() => navigate('/business-notes?source=' + selected.id)}>
-                      业务说明
-                    </Button>
-                  )}
-                  {allowed(session, 'knowledge.view') && (
-                    <Button onClick={() => navigate('/knowledge?source=' + selected.id)}>
-                      知识文档
-                    </Button>
-                  )}
-                </Space>
+      {/* 数据源和同源资料入口共享上下文，查询从下一行左边开始。 */}
+      <div className="panel gov-workbench-controls">
+        <div className="ds-toolbar gov-source-navigation">
+          <SourcePicker withLabel sources={sources.data} selected={selected} choose={reset} />
+          {selected && (
+            <Space size={8} wrap>
+              {allowed(session, 'business-notes.view') && (
+                <Button onClick={() => navigate('/business-notes?source=' + selected.id)}>
+                  业务说明
+                </Button>
               )}
-            </div>
-          </Form.Item>
-          <Form.Item name="keyword">
-            <Input
-              aria-label="表名、业务名称或原注释"
-              placeholder="表名或说明"
-              prefix={<SearchOutlined />}
-              allowClear
-            />
-          </Form.Item>
-          {/* 常用查询保持一行，低频字段仍可按原规则提交。 */}
-          <Form.Item name="progress" className="status-query">
-            <Select
-              allowClear
-              aria-label="治理进度"
-              placeholder="治理进度"
-              options={Object.entries(progressNames).map(([value, label]) => ({ value, label }))}
-            />
-          </Form.Item>
-          <div className="query-tail-actions">
-            <Space>
-              <MoreFilters
-                open={moreOpen}
-                setOpen={setMoreOpen}
-                count={Number(params.has('pendingKind')) + Number(params.has('hasPendingImpact'))}
-              >
-                <Form.Item name="pendingKind">
-                  <Select
-                    allowClear
-                    aria-label="待处理内容"
-                    placeholder="待处理内容"
-                    options={[
-                      { value: 'TABLE', label: '表说明' },
-                      { value: 'COLUMN', label: '字段' },
-                    ]}
-                  />
-                </Form.Item>
-                <Form.Item name="hasPendingImpact">
-                  <Select
-                    allowClear
-                    aria-label="变更后待核对项"
-                    placeholder="变更后待核对项"
-                    options={[
-                      { value: 'true', label: '有待核对项' },
-                      { value: 'false', label: '无待核对项' },
-                    ]}
-                  />
-                </Form.Item>
-              </MoreFilters>
-              <Button htmlType="submit">查询</Button>
-              <Button onClick={() => reset()}>重置</Button>
+              {allowed(session, 'knowledge.view') && (
+                <Button onClick={() => navigate('/knowledge?source=' + selected.id)}>
+                  知识文档
+                </Button>
+              )}
             </Space>
-          </div>
-        </Form>
+          )}
+        </div>
+        {/* 表治理查询面板的条件依表头顺序排列。 */}
+        <div className="query-panel gov-query compact-query">
+          <Form
+            name="governance-list-query"
+            layout="inline"
+            form={form}
+            initialValues={Object.fromEntries(params)}
+            onFinish={(values) => {
+              // 查找留在当前源，应用条件和分页保存在 URL。
+              setMoreOpen(false);
+              setParams(
+                queryString({
+                  ...values,
+                  pendingKind: form.getFieldValue('pendingKind'),
+                  hasPendingImpact: form.getFieldValue('hasPendingImpact'),
+                  source: selected?.id,
+                  pageSize: size,
+                }),
+              );
+              form.focusField('keyword');
+            }}
+          >
+            <Form.Item name="keyword">
+              <Input
+                aria-label="表名、业务名称或原注释"
+                placeholder="表名或说明"
+                prefix={<SearchOutlined />}
+                allowClear
+              />
+            </Form.Item>
+            {/* 常用查询保持一行，低频字段仍可按原规则提交。 */}
+            <Form.Item name="progress" className="status-query">
+              <Select
+                allowClear
+                aria-label="治理进度"
+                placeholder="治理进度"
+                options={Object.entries(progressNames).map(([value, label]) => ({ value, label }))}
+              />
+            </Form.Item>
+            <div className="query-tail-actions">
+              <Space>
+                <MoreFilters
+                  open={moreOpen}
+                  setOpen={setMoreOpen}
+                  count={Number(params.has('pendingKind')) + Number(params.has('hasPendingImpact'))}
+                >
+                  <Form.Item name="pendingKind">
+                    <Select
+                      allowClear
+                      aria-label="待处理内容"
+                      placeholder="待处理内容"
+                      options={[
+                        { value: 'TABLE', label: '表说明' },
+                        { value: 'COLUMN', label: '字段' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item name="hasPendingImpact">
+                    <Select
+                      allowClear
+                      aria-label="变更后待核对项"
+                      placeholder="变更后待核对项"
+                      options={[
+                        { value: 'true', label: '有待核对项' },
+                        { value: 'false', label: '无待核对项' },
+                      ]}
+                    />
+                  </Form.Item>
+                </MoreFilters>
+                <Button htmlType="submit">查询</Button>
+                <Button onClick={() => reset()}>重置</Button>
+              </Space>
+            </div>
+          </Form>
+        </div>
       </div>
       {/* 工作台结果始终保留表头、分页和真实采集状态。 */}
       <ReadState
@@ -247,15 +248,20 @@ export function GovernancePage() {
               }}
               columns={[
                 {
-                  title: '对象 / 业务名称',
+                  title: '对象',
                   width: 245,
-                  // 源名和业务名称共享表格轴，完整名称可悬停查看。
+                  // 技术名和业务名分行；无业务名时显示可辨认来源的原注释。
                   render: (_, row) => (
-                    <div className="ds-row-identity">
-                      <span title={row.qualifiedName}>{row.qualifiedName}</span>
+                    <div className="gov-object-cell">
+                      <span className="cell-text" title={row.qualifiedName}>
+                        {row.qualifiedName}
+                      </span>
                       {(row.businessName || row.sourceComment) && (
-                        <small title={row.businessName ?? row.sourceComment ?? ''}>
-                          {row.businessName ?? row.sourceComment}
+                        <small
+                          className="table-secondary"
+                          title={row.businessName || '原注释 · ' + row.sourceComment}
+                        >
+                          {row.businessName || row.sourceComment}
                         </small>
                       )}
                     </div>

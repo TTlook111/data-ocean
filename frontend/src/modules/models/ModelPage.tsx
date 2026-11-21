@@ -198,7 +198,7 @@ export function ModelPage() {
   const nodeColumns: TableProps<ModelNode>['columns'] = [
     {
       title: '节点',
-      width: '24%',
+      width: 224,
       render: (_, node) => (
         <>
           {/* 节点名称与所属模块采用统一的双行尺度。 */}
@@ -209,18 +209,18 @@ export function ModelPage() {
     },
     {
       title: '这个节点做什么',
-      width: '40%',
       render: (_, node) => modelNodeInfo[node.code]?.description ?? '—',
     },
     {
       title: '分配模型',
-      width: '36%',
+      width: 228,
+      className: 'model-node-assignment',
       render: (_, node) => (
         <Select
           aria-label={`为${modelNodeInfo[node.code]?.name ?? node.code}分配模型`}
           placeholder="未分配"
           size="middle"
-          style={{ width: '100%' }}
+          className="model-node-picker"
           allowClear
           showSearch
           optionFilterProp="label"
@@ -393,7 +393,7 @@ export function ModelPage() {
                       void options.refetch();
                     }}
                     pagination={false}
-                    scroll={{ x: 640, y: '100%' }}
+                    scroll={{ x: 640 }}
                   />
                 </section>
               </>

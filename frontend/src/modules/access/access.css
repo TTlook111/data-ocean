@@ -243,29 +243,6 @@
   min-height: 0;
 }
 
-/* 详情标题与状态并列，原型的章标题节奏保留在抽屉内。 */
-.access-detail-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.access-detail-heading h2 {
-  min-width: 0;
-  margin: 0;
-  font-size: 22px;
-  overflow-wrap: anywhere;
-}
-
-/* 资料、授权及个人来源详情先定位对象，状态和名称占同一摘要区。 */
-.access-detail-heading {
-  padding: 12px 16px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-subtle);
-}
-
 /* 原文的行宽与阅读区一致，附件及版本入口保持可达。 */
 .access-notes-detail .detail-text {
   padding: 16px;
@@ -729,4 +706,124 @@
     min-height: 310px;
     overflow: hidden;
   }
+}
+
+/* 详情标题直接识别数据源及状态，避免正文再次出现一张大标题卡。 */
+.access-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.access-rule-list,
+.access-rule-list dd {
+  margin: 0;
+}
+
+.access-rule-list > div + div {
+  margin-block-start: 12px;
+}
+
+.access-rule-list dt {
+  font-weight: 600;
+}
+
+.access-rule-list dd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--do-muted);
+}
+
+/* 资料正文、版本和引用信息各成一行，短正文不拉高弹窗。 */
+.access-notes-detail {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.access-notes-detail .detail-text {
+  margin: 0;
+}
+
+/* 补足状态标签的 7px 内距，让表头与正文文字起点对齐。 */
+.personal-scope-status-label {
+  padding-inline-start: 7px;
+}
+
+/* 个人范围的过滤与确认动作相邻，额外申请仍保持独立主操作。 */
+.personal-scope-page .access-query-tail {
+  margin-inline-start: 0;
+}
+
+.personal-scope-page .access-query-actions {
+  margin-inline-start: 0;
+}
+
+.personal-scope-page .access-toolbar form {
+  column-gap: 12px;
+}
+
+/* 审批责任只在对象条内显示数据源，姓名控件独占一行。 */
+.access-context:has(.responsibility-source) {
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 0;
+  background: transparent;
+  margin-block-end: 24px;
+}
+
+/* 对象标签和值分层，长来源名可以换行。 */
+.responsibility-source {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 数据源名与表单字段共用正文色。 */
+.responsibility-source strong {
+  color: var(--do-ink);
+  font-weight: 500;
+}
+
+/* 初始访问仅在原页签内重排，部门和组织树的工作区保持原样。 */
+.department-access-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-block-end: 16px;
+}
+
+/* 实际配置状态和人数在同一摘要行。 */
+.department-access-facts,
+.department-access-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.department-access-facts > div {
+  gap: 8px;
+}
+
+/* 指标标签与值区分层级。 */
+.department-access-facts dt {
+  color: var(--do-muted);
+}
+
+.department-access-facts dd {
+  margin: 0;
+}
+
+/* 空态保留数据源和规则的列边界。 */
+.department-access-records {
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
 }

@@ -224,7 +224,6 @@ export function KnowledgeReleaseBuildPage() {
               source={source}
               path={path}
               data={detail.data}
-              back={back}
               openRevision={revision}
               openTests={() => openTests(detail.data!)}
               focus={focus}
@@ -247,7 +246,6 @@ function BuildWorkspace({
   source,
   path,
   data,
-  back,
   openRevision,
   openTests,
   focus,
@@ -260,8 +258,6 @@ function BuildWorkspace({
   path: string;
   /** 构建详情的持久快照。 */
   data: BuildDetail;
-  /** 返回原发布任务列表。 */
-  back: () => void;
   /** 阅读任务选择的确认正文。 */
   openRevision: (documentId: string, revisionId: string, focusId: string) => void;
   /** 打开本批关联的标准题单。 */
@@ -514,7 +510,6 @@ function BuildWorkspace({
           </small>
         </div>
         <div className="knowledge-build-header-actions">
-          <Button onClick={back}>返回发布与版本</Button>
           <Tag color={failed ? 'error' : row.status === 'BUILDING' ? 'processing' : undefined}>
             {stage}
           </Tag>
@@ -1006,14 +1001,18 @@ function ReleaseProcess({
     return <>{children}</>;
   }
   return (
-    <details
+    <Collapse
       className="knowledge-release-disclosure"
-      open={expanded}
-      onToggle={(event) => setExpanded(event.currentTarget.open)}
-    >
-      <summary>发布过程与验证记录</summary>
-      <div className="knowledge-release-process-body">{children}</div>
-    </details>
+      activeKey={expanded ? ['process'] : []}
+      onChange={(keys) => setExpanded(keys.includes('process'))}
+      items={[
+        {
+          key: 'process',
+          label: '发布过程与验证记录',
+          children: <div className="knowledge-release-process-body">{children}</div>,
+        },
+      ]}
+    />
   );
 }
 

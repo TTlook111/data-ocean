@@ -129,25 +129,6 @@ export function KnowledgeReleasePage() {
 
   return (
     <main className="record-page knowledge-release-page" aria-label="发布与版本">
-      <div className="panel ds-toolbar">
-        <SourcePicker
-          withLabel
-          sources={sources.data}
-          selected={selected}
-          choose={(value) => {
-            // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
-            form.setFieldsValue({ keyword: undefined, status: undefined });
-            setParams(
-              queryString({
-                source: value,
-                pageSize,
-                tab: active ? 'active' : null,
-                versionPageSize: active ? params.get('versionPageSize') : null,
-              }),
-            );
-          }}
-        />
-      </div>
       <ReadState
         loading={sources.isPending}
         error={sources.error}
@@ -156,28 +137,49 @@ export function KnowledgeReleasePage() {
         {source ? (
           <>
             {/* 两个页签继续共用原型来源栏和当前源。 */}
-            <Tabs
-              className="release-task-tabs"
-              activeKey={active ? 'active' : 'tasks'}
-              onChange={(tab) =>
-                update({ tab: tab === 'active' ? 'active' : null, bindingId: null })
-              }
-              items={[
-                { key: 'tasks', label: '发布任务' },
-                { key: 'active', label: '当前生效' },
-              ]}
-              tabBarExtraContent={
-                !active &&
-                allowed(session, 'releases.build') && (
-                  <Button
-                    type="primary"
-                    onClick={() => update({ prepare: 1, prepareDocument: doc })}
-                  >
-                    创建发布任务
-                  </Button>
-                )
-              }
-            />
+            <div className="panel release-navigation">
+              <div className="ds-toolbar release-source-row">
+                <SourcePicker
+                  withLabel
+                  sources={sources.data}
+                  selected={selected}
+                  choose={(value) => {
+                    // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
+                    form.setFieldsValue({ keyword: undefined, status: undefined });
+                    setParams(
+                      queryString({
+                        source: value,
+                        pageSize,
+                        tab: active ? 'active' : null,
+                        versionPageSize: active ? params.get('versionPageSize') : null,
+                      }),
+                    );
+                  }}
+                />
+              </div>
+              <Tabs
+                className="release-task-tabs"
+                activeKey={active ? 'active' : 'tasks'}
+                onChange={(tab) =>
+                  update({ tab: tab === 'active' ? 'active' : null, bindingId: null })
+                }
+                items={[
+                  { key: 'tasks', label: '发布任务' },
+                  { key: 'active', label: '当前生效' },
+                ]}
+                tabBarExtraContent={
+                  !active &&
+                  allowed(session, 'releases.build') && (
+                    <Button
+                      type="primary"
+                      onClick={() => update({ prepare: 1, prepareDocument: doc })}
+                    >
+                      创建发布任务
+                    </Button>
+                  )
+                }
+              />
+            </div>
             {active ? (
               <KnowledgeEffectiveVersions
                 key={source}
@@ -251,10 +253,11 @@ export function KnowledgeReleasePage() {
                     onReset={reset}
                     emptyDescription="暂无发布任务"
                     tableLayout="fixed"
-                    flexibleColumns={[0]}
+                    flexibleColumns={[0, 1, 2, 3]}
                     columns={[
                       {
                         title: '文档 / 发布任务',
+                        width: 340,
                         render: (_, row) => (
                           <div className="knowledge-candidate-identity">
                             <Button

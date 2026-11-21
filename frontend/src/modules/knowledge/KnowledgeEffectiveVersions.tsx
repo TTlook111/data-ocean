@@ -64,7 +64,7 @@ export function KnowledgeEffectiveVersions({
     // 正式列表加载后恢复表体位置，并把键盘焦点交回原版本入口。
     if (focus && page.isSuccess && !page.isFetching && restoredFocus.current !== location.key) {
       restoredFocus.current = location.key;
-      const body = list.current?.querySelector('.ant-table-body');
+      const body = list.current?.querySelector('.ant-table-content');
       const restored = body && position;
       if (restored) body.scrollTo(restored);
       (document.getElementById(focus) ?? list.current)?.focus({ preventScroll: Boolean(restored) });
@@ -92,7 +92,7 @@ export function KnowledgeEffectiveVersions({
     const search = new URLSearchParams(params);
     search.set('source', source);
     search.set('tab', 'active');
-    const body = list.current?.querySelector('.ant-table-body');
+    const body = list.current?.querySelector('.ant-table-content');
     navigate(
       { pathname: '/releases/versions/' + bindingId, search: search.toString() },
       {
@@ -157,7 +157,7 @@ export function KnowledgeEffectiveVersions({
         <RecordTable<PublishedVersion>
           rowKey="id"
           tableLayout="fixed"
-          flexibleColumns={[0]}
+          flexibleColumns={[0, 1, 2, 3]}
           dataSource={page.data?.items}
           loading={page.isPending}
           error={page.error}
@@ -168,6 +168,7 @@ export function KnowledgeEffectiveVersions({
           columns={[
             {
               title: '文档 / 来源对象',
+              width: 340,
               render: (_, row) => (
                 <div className="knowledge-candidate-identity">
                   <span className="cell-text" title={row.title}>

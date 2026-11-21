@@ -581,15 +581,23 @@ h3 {
   flex-direction: column;
   min-height: 0;
 }
-/* 原型表体在余高中滚动，不按当前记录数缩短整个面板。 */
-.records-panel .ant-table-body {
+/* 统一表格在结果面板内滚动，浏览器仅在实际溢出时显示滚动条。 */
+.records-panel .record-table[data-scrollable='true'] .ant-table-content {
   flex: 1;
   min-height: 0;
-  max-height: none !important;
+  overflow-y: auto !important;
   scrollbar-width: thin;
   scrollbar-color: #c8ced8 transparent;
 }
-/* 表头固定在表体上方，避免长列表把末行压到分页背后。 */
+
+/* 在同一张表内固定表头，表头和数据共享列宽及横向滚动位置。 */
+.records-panel .record-table[data-scrollable='true'] .ant-table-thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+}
+
+/* 显式限制高度的嵌入表格仍使用组件库的独立表头。 */
 .records-panel .ant-table-header {
   flex: none;
 }
@@ -634,7 +642,7 @@ h3 {
   padding: 24px;
 }
 /* 可用宽度已覆盖列预算时，消除浏览器亚像素舍入造成的装饰性横滚。 */
-.records-panel .record-table[data-columns-fit='true'] .ant-table-body {
+.records-panel .record-table[data-columns-fit='true'] :is(.ant-table-content, .ant-table-body) {
   overflow-x: hidden !important;
 }
 
@@ -1298,7 +1306,7 @@ h3 {
   min-height: 0;
 }
 /* 空结果在整个表体区域居中，不缩成顶部一小块。 */
-.records-panel .ant-table-body:has(.ant-table-placeholder) > table {
+.records-panel :is(.ant-table-content, .ant-table-body):has(.ant-table-placeholder) > table {
   height: 100%;
 }
 /* 成员范围切换与查询保持原型工具栏位置。 */
@@ -2026,50 +2034,32 @@ h3 {
     min-height: 700px;
   }
   /* 矮 PC 主列表按当前页内容自然展开，由工作区承接单层纵向滚动。 */
-  .workspace .records-panel:not(.access-records, .approval-panel),
-  .workspace .record-table:not(.access-records .record-table),
+  .workspace .records-panel:not(.approval-panel),
+  .workspace .records-panel .record-table[data-scrollable='true'],
   .workspace .departments-workspace {
     flex: none;
     height: auto;
     min-height: 0;
   }
   /* 保留表格内横向滚动，解除纵向余高压缩，避免空态与恢复按钮被裁切。 */
-  .workspace .records-panel:not(.access-records) .ant-table-wrapper,
-  .workspace .records-panel:not(.access-records) .ant-table-wrapper > .ant-spin,
-  .workspace .records-panel:not(.access-records) .ant-table-wrapper > .ant-spin-nested-loading,
-  .workspace .records-panel:not(.access-records) .ant-spin-container,
-  .workspace .records-panel:not(.access-records) .ant-table,
-  .workspace .records-panel:not(.access-records) .ant-table-container,
-  .workspace .records-panel:not(.access-records) .ant-table-body {
-    flex: none;
-    width: 100%;
-    min-width: 0;
-    height: auto;
-    min-height: 0;
-  }
-  /* 空态和错误反馈随工作区滚动，避免访问列表把提示挤到滚动条后。 */
-  .workspace .access-records:has(.ant-table-placeholder),
   .workspace
-    .access-records:has(.ant-table-placeholder)
+    .records-panel
+    .record-table[data-scrollable='true']
     :is(
-      .record-table,
       .ant-table-wrapper,
       .ant-spin,
       .ant-spin-nested-loading,
       .ant-spin-container,
       .ant-table,
       .ant-table-container,
-      .ant-table-body
+      .ant-table-content
     ) {
     flex: none;
-    min-block-size: 0;
-    block-size: auto;
-  }
-
-  .workspace .access-records .ant-table-body:has(.ant-table-placeholder) > table {
+    width: 100%;
+    min-width: 0;
     height: auto;
+    min-height: 0;
   }
-
   /* 部门页签的自然高度包含查询、记录或空态及分页，详情类浮层不受此规则影响。 */
   .workspace .department-tabs,
   .workspace .department-tabs > .ant-tabs-body-holder,
@@ -2082,7 +2072,7 @@ h3 {
     min-height: 0;
   }
   /* 百分比空表高度在自然模式下不再挤压内容，横向滚动条单独占高。 */
-  .workspace .records-panel:not(.access-records) .ant-table-body > table {
+  .workspace .records-panel .record-table[data-scrollable='true'] .ant-table-content > table {
     height: auto;
   }
 }
@@ -2128,4 +2118,68 @@ h3 {
 :focus-visible {
   outline: 2px solid #2f63d5;
   outline-offset: 3px;
+}
+
+/* 居中详情统一标题、正文和办理区的阅读起点，只滚动正文。 */
+.record-detail-dialog .ant-modal-container {
+  padding: 0;
+  overflow: hidden;
+}
+
+.record-detail-dialog .ant-modal-header {
+  margin: 0;
+  padding: 20px 56px 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+  overflow-wrap: anywhere;
+}
+
+.record-detail-dialog .ant-modal-close {
+  inset-inline-end: 14px;
+  inset-block-start: 14px;
+}
+
+.record-detail-dialog .ant-modal-body {
+  padding: 24px;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+}
+
+.record-detail-dialog .ant-modal-footer {
+  margin: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-subtle);
+}
+
+/* 详情说明的列位对齐，长编号和链接留在各自列内。 */
+:is(.record-detail-dialog, .audit-detail-drawer) .ant-descriptions-view table {
+  table-layout: fixed;
+}
+
+:is(.record-detail-dialog, .audit-detail-drawer) .ant-descriptions-item-label {
+  padding-inline-end: 12px;
+}
+
+.responsibility-detail .ant-descriptions-item-label {
+  inline-size: 106px;
+}
+
+/* 审计的差异保留单独标题，字段区和前后变化不相贴。 */
+.audit-change-section {
+  margin-block-start: 24px;
+}
+
+.audit-change-section h3 {
+  margin-block: 0 12px;
+}
+
+/* 模型列表头补足下拉的边框与 11px 内距，对齐实际选中值。 */
+.records-panel .ant-table-thead > tr > th.model-node-assignment {
+  padding-inline-start: 28px;
+}
+
+/* 分配模型的列宽围绕控件内容，描述继续使用剩余空间。 */
+.model-node-picker {
+  inline-size: 100%;
+  max-inline-size: 204px;
 }

@@ -393,7 +393,7 @@ export function AuditPage() {
             // 窗口获焦会回读原查询，已有审计结果继续可操作。
             records.isPending
           }
-          scroll={{ x: 1100, y: '100%' }}
+          scroll={{ x: 1100 }}
           pagination={{
             current: records.data?.pageNum ?? 1,
             pageSize: records.data?.pageSize ?? 10,
@@ -500,7 +500,7 @@ export function AuditPage() {
           title="审计记录"
           size="min(600px, calc(100vw - 80px))"
           closable={{ placement: 'end' }}
-          className="record-details-drawer"
+          className="record-details-drawer audit-detail-drawer"
           afterOpenChange={(open) => {
             // 申请回看退出后，等审计抽屉完成打开再恢复焦点。
             if (open && returningFromRequest.current) {
@@ -570,32 +570,39 @@ export function AuditPage() {
                 },
               ]}
             />
-            <RecordTable<Change & { rowKey: string }>
-              className="full-text-table"
-              rowKey="rowKey"
-              dataSource={changes}
-              pagination={false}
-              columns={[
-                { title: '字段', dataIndex: 'label', width: 130 },
-                {
-                  title: '之前',
-                  dataIndex: 'before',
-                  render: (value, change) => displayChangeValue(value, change.field, change.label),
-                },
-                {
-                  title: '之后',
-                  dataIndex: 'after',
-                  render: (value, change) => {
-                    // 仅转换确定的办理编码，源名称和一般说明沿用历史原文。
-                    if (typeof value === 'string') {
-                      if (change.field === 'item') return accessState[value] ?? value;
-                      if (change.field === 'decision') return decisionLabels[value] ?? value;
-                    }
-                    return displayChangeValue(value, change.field, change.label);
-                  },
-                },
-              ]}
-            />
+            {/* 变更明细与审计元信息之间独立成组。 */}
+            {changes.length > 0 && (
+              <section aria-label="变更明细" className="audit-change-section">
+                <h3>变更明细</h3>
+                <RecordTable<Change & { rowKey: string }>
+                  className="full-text-table"
+                  rowKey="rowKey"
+                  dataSource={changes}
+                  pagination={false}
+                  columns={[
+                    { title: '字段', dataIndex: 'label', width: 130 },
+                    {
+                      title: '之前',
+                      dataIndex: 'before',
+                      render: (value, change) =>
+                        displayChangeValue(value, change.field, change.label),
+                    },
+                    {
+                      title: '之后',
+                      dataIndex: 'after',
+                      render: (value, change) => {
+                        // 仅转换确定的办理编码，源名称和一般说明沿用历史原文。
+                        if (typeof value === 'string') {
+                          if (change.field === 'item') return accessState[value] ?? value;
+                          if (change.field === 'decision') return decisionLabels[value] ?? value;
+                        }
+                        return displayChangeValue(value, change.field, change.label);
+                      },
+                    },
+                  ]}
+                />
+              </section>
+            )}
           </ReadState>
         </Drawer>
       )}

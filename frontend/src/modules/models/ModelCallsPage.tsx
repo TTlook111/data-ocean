@@ -1,10 +1,11 @@
+import { DetailDialog } from '../../shared/DetailDialog';
 import { useState } from 'react';
-import { Button, Descriptions, Drawer, Tabs } from 'antd';
+import { Button, Descriptions, Tabs } from 'antd';
 import type { TableProps } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
-import { DetailFooter, displayTime, Status } from '../../shared/Records';
+import { displayTime, Status } from '../../shared/Records';
 import type { Page } from '../iam/types';
 import { modelFailureLabels, modelNodeInfo, modelProtocols, type ModelConfig } from './types';
 
@@ -174,19 +175,13 @@ export function ModelCallsPage() {
         />
       </div>
       {/* 详情仅显示当次配置元数据和可披露的调用事实。 */}
-      <Drawer
-        title="调用详情"
-        size="min(600px, calc(100vw - 80px))"
-        className="record-details-drawer"
-        open={Boolean(detail)}
-        onClose={() => setDetail(null)}
-        destroyOnHidden
-        footer={<DetailFooter close={() => setDetail(null)} />}
-      >
-        {detail && (
+      {detail && (
+        <DetailDialog title="调用详情" width={720} close={() => setDetail(null)}>
           <Descriptions
             className="model-detail-values"
-            column={1}
+            column={2}
+            layout="vertical"
+            colon={false}
             items={[
               { key: 'config', label: '配置名称（当次）', children: detail.configName ?? '未知' },
               { key: 'node', label: '节点', children: displayCallNode(detail.nodeCode) },
@@ -211,7 +206,6 @@ export function ModelCallsPage() {
                 label: '当次配置修订',
                 children: detail.revision ? `r${detail.revision}` : '未知',
               },
-              { key: 'endpoint', label: '服务 URL', children: detail.endpoint ?? '未知' },
               { key: 'time', label: '发生时间', children: displayTime(detail.recordedAt) },
               {
                 key: 'elapsed',
@@ -221,16 +215,19 @@ export function ModelCallsPage() {
               {
                 key: 'usage',
                 label: '用量',
+                span: 2,
                 children:
                   detail.inputTokens === null || detail.outputTokens === null
                     ? '未知'
                     : `输入 ${detail.inputTokens} · 输出 ${detail.outputTokens} token`,
               },
+              { key: 'endpoint', label: '服务 URL', children: detail.endpoint ?? '未知', span: 2 },
               ...(detail.inputLimits
                 ? [
                     {
                       key: 'input-limits',
                       label: '输入范围',
+                      span: 2,
                       children: detail.inputLimits
                         .split(',')
                         .map((code) => inputLimitLabels[code])
@@ -244,14 +241,15 @@ export function ModelCallsPage() {
                     {
                       key: 'cause',
                       label: '原因',
+                      span: 2,
                       children: modelFailureLabels[detail.failureCode] ?? '模型调用未完成',
                     },
                   ]
                 : []),
             ]}
           />
-        )}
-      </Drawer>
+        </DetailDialog>
+      )}
     </section>
   );
 }

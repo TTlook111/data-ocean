@@ -115,13 +115,9 @@ export function KnowledgeEffectiveVersionPage() {
   /**
    * 正式正文是同一绑定下的独立阅读面，来源及返回内容不变。
    */
-  function readCurrent(open: boolean) {
+  function readCurrent() {
     const search = new URLSearchParams(params);
-    if (open) {
-      search.set('read', 'body');
-    } else {
-      search.delete('read');
-    }
+    search.set('read', 'body');
     setParams(search, { state: location.state });
   }
 
@@ -189,7 +185,10 @@ export function KnowledgeEffectiveVersionPage() {
             />
           ) : (
             current && (
-              <article className="panel knowledge-build-workspace" aria-label="生效版本详情">
+              <article
+                className="panel knowledge-build-workspace knowledge-version-workspace"
+                aria-label="生效版本详情"
+              >
                 {/* 和发布任务共用页头、阅读轴与固定底栏。 */}
                 <header className="knowledge-build-heading">
                   <div className="knowledge-build-identity">
@@ -205,9 +204,6 @@ export function KnowledgeEffectiveVersionPage() {
                     {sourceName && <small>{sourceName}</small>}
                   </div>
                   <div className="knowledge-build-header-actions">
-                    <Button onClick={() => (reading ? readCurrent(false) : back())}>
-                      {reading ? '返回生效版本' : fromTask ? '返回发布任务' : '返回当前生效'}
-                    </Button>
                     <VersionAvailability version={current} />
                   </div>
                 </header>
@@ -229,18 +225,14 @@ export function KnowledgeEffectiveVersionPage() {
                         </span>
                         {content && (
                           <div>
-                            <Button
-                              id="read-formal-version"
-                              type="primary"
-                              onClick={() => readCurrent(true)}
-                            >
+                            <Button id="read-formal-version" type="primary" onClick={readCurrent}>
                               阅读正式正文
                             </Button>
                           </div>
                         )}
                       </section>
-                      <details className="knowledge-release-disclosure">
-                        <summary>索引与治理依据</summary>
+                      <section className="knowledge-build-section" aria-label="索引与治理依据">
+                        <h2>索引与治理依据</h2>
                         <dl className="knowledge-publication-preview">
                           <div>
                             <dt>治理对象</dt>
@@ -255,7 +247,7 @@ export function KnowledgeEffectiveVersionPage() {
                             <dd>{current.embeddingRevisionId}</dd>
                           </div>
                         </dl>
-                      </details>
+                      </section>
                       {controls.data && (
                         <VersionPauseSummary title={current.title} data={controls.data} />
                       )}

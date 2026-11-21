@@ -1,3 +1,4 @@
+import { workspaceParent } from './workspaceParent';
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from 'react';
 import { App, Avatar, Breadcrumb, Button, Layout, Menu, Spin } from 'antd';
 import {
@@ -244,10 +245,12 @@ export function Application() {
   useEffect(() => {
     // 各管理列表独立保留已应用条件与页码，编辑子页不覆盖原列表上下文。
     if (navigation.some((item) => item.key === location.pathname)) {
-      if (location.pathname === '/releases') {
-        // 旧绑定链接跳转详情时不能覆盖侧栏的列表返回入口。
+      if (location.pathname === '/releases' || location.pathname === '/test-cases') {
+        // 同一路径下的旧绑定和标准题详情不覆盖侧栏的列表入口。
         const search = new URLSearchParams(location.search);
         search.delete('bindingId');
+        search.delete('testId');
+        search.delete('queuePageNum');
         pageContexts.current[location.pathname] = search.size ? '?' + search.toString() : '';
       } else {
         pageContexts.current[location.pathname] = location.search;
@@ -396,23 +399,19 @@ export function Application() {
   const pageLabel = selected?.label ?? '账号信息';
   const creatingRole = activePath === '/iam/roles/new';
   const editingRole = activePath === '/iam/roles/:id/edit';
-  const readingCollectionChanges = activePath === '/collections/changes';
+  const collectionOrigin = location.state as { collectionSearch?: string } | null;
+  const readingCollectionChanges =
+    activePath === '/collections/changes' ||
+    (activePath === '/catalog' && Boolean(collectionOrigin?.collectionSearch));
   const changeSearch = new URLSearchParams(location.search);
   // 由采集任务进入时，上级仍定位到发现变化的同一任务。
   const collectionsSearch = queryString({
     source: changeSearch.get('source'),
     task: changeSearch.get('taskId'),
   });
-  const collectionsUrl = '/collections' + (collectionsSearch ? '?' + collectionsSearch : '');
-  const readingReleaseTask = activePath === '/releases/:id';
-  const readingReleaseVersion = activePath === '/releases/versions/:id';
-  const releaseVersionSearch = new URLSearchParams(location.search);
-  releaseVersionSearch.delete('read');
-  releaseVersionSearch.delete('recovery');
-  releaseVersionSearch.set('tab', 'active');
-  const releaseSearch = readingReleaseVersion
-    ? '?' + releaseVersionSearch.toString()
-    : location.search;
+  const collectionsUrl =
+    '/collections' +
+    (collectionOrigin?.collectionSearch ?? (collectionsSearch ? '?' + collectionsSearch : ''));
   const noteMode =
     activePath === '/business-notes' ? new URLSearchParams(location.search).get('edit') : null;
   const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
@@ -421,6 +420,8 @@ export function Application() {
   const home = visible[0]?.key ?? '/account';
 
   const granted = !selected || session.permissionCodes.includes(selected.permission);
+  const detailBreadcrumb = workspaceParent(activePath, location, session.permissionCodes);
+  const breadcrumb = granted ? detailBreadcrumb : undefined;
 
   /**
    * 后续模块保留原型导航位置，只给已落地页面提供实际入口。
@@ -588,47 +589,54 @@ export function Application() {
             items={[
               { title: '后台管理' },
               {
-                title:
-                  creatingRole || editingRole ? (
-                    <a
-                      href={`/iam/roles${pageContexts.current['/iam/roles'] ?? ''}`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        openPage('/iam/roles');
-                      }}
-                    >
-                      角色与功能权限
-                    </a>
-                  ) : readingCollectionChanges ? (
-                    <a
-                      href={collectionsUrl}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        navigate(collectionsUrl);
-                      }}
-                    >
-                      采集记录
-                    </a>
-                  ) : readingReleaseTask || readingReleaseVersion ? (
-                    <a
-                      href={'/releases' + releaseSearch}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        navigate('/releases' + releaseSearch);
-                      }}
-                    >
-                      发布与版本
-                    </a>
-                  ) : (
-                    pageLabel
-                  ),
+                title: breadcrumb ? (
+                  <a
+                    href={breadcrumb.url}
+                    onClick={(event) => {
+                      // 保留原列表和触发位置，并由路由统一保护未保存表单。
+                      if (
+                        event.button !== 0 ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                      )
+                        return;
+                      event.preventDefault();
+                      navigate(breadcrumb.url, { state: breadcrumb.state });
+                    }}
+                  >
+                    {breadcrumb.label}
+                  </a>
+                ) : creatingRole || editingRole ? (
+                  <a
+                    href={`/iam/roles${pageContexts.current['/iam/roles'] ?? ''}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      openPage('/iam/roles');
+                    }}
+                  >
+                    角色与功能权限
+                  </a>
+                ) : readingCollectionChanges ? (
+                  <a
+                    href={collectionsUrl}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigate(collectionsUrl);
+                    }}
+                  >
+                    采集记录
+                  </a>
+                ) : (
+                  pageLabel
+                ),
               },
               ...(creatingRole || editingRole
                 ? [{ title: creatingRole ? '新增角色' : '编辑角色' }]
                 : []),
               ...(readingCollectionChanges ? [{ title: '结构变化' }] : []),
-              ...(readingReleaseTask ? [{ title: '发布任务' }] : []),
-              ...(readingReleaseVersion ? [{ title: '生效版本' }] : []),
+              ...(breadcrumb ? [{ title: breadcrumb.current }] : []),
               ...(noteMode
                 ? [
                     {

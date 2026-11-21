@@ -637,49 +637,6 @@ export function GovernanceEditor({
               </section>
             ))}
           </Form>
-          {/* 操作集中在编辑区底部，审核入口遵循服务端状态。 */}
-          <div className="gov-editor-actions">
-            {/* 辅助处理和危险操作靠左，常规保存和确认靠右。 */}
-            <Space wrap>
-              {base.actions.canSuggest && !base.actions.suggestUnavailableReason && (
-                <Button disabled={busy} onClick={() => setGeneration(true)}>
-                  {selected ? '重新生成 AI 建议' : '生成 AI 建议'}
-                </Button>
-              )}
-              {base.actions.canSupplement && (
-                <Button disabled={busy} onClick={() => setGapOpen(true)}>
-                  要求补充
-                </Button>
-              )}
-              {base.actions.canForbid && !base.blocked && (
-                <Button danger type="text" disabled={busy} onClick={() => setReasonOpen(true)}>
-                  禁止使用
-                </Button>
-              )}
-            </Space>
-            <Space wrap className="gov-commit-actions">
-              {base.actions.canEdit && (
-                <Button loading={busy} onClick={() => void submit('save')}>
-                  保存草稿
-                </Button>
-              )}
-              {base.actions.canConfirm && (
-                <Button type="primary" loading={busy} onClick={() => void submit('confirm')}>
-                  确认治理
-                </Button>
-              )}
-              {base.actions.canAcknowledgeRemoval && (
-                <Button type="primary" loading={busy} onClick={() => void submit('remove')}>
-                  确认移除处理
-                </Button>
-              )}
-              {next && base.state === 'CONFIRMED' && (
-                <Button type="link" onClick={next}>
-                  下一待处理项
-                </Button>
-              )}
-            </Space>
-          </div>
         </div>
         <aside ref={reference} tabIndex={-1} className="gov-reference" aria-label="来源与业务依据">
           <section className="gov-source-summary">
@@ -777,6 +734,49 @@ export function GovernanceEditor({
             </section>
           )}
         </aside>
+      </div>
+      {/* 操作集中在编辑区底部，审核入口遵循服务端状态。 */}
+      <div className="gov-editor-actions">
+        {/* 辅助处理和危险操作靠左，常规保存和确认靠右。 */}
+        <Space wrap>
+          {base.actions.canSuggest && !base.actions.suggestUnavailableReason && (
+            <Button disabled={busy} onClick={() => setGeneration(true)}>
+              {selected ? '重新生成 AI 建议' : '生成 AI 建议'}
+            </Button>
+          )}
+          {base.actions.canSupplement && (
+            <Button disabled={busy} onClick={() => setGapOpen(true)}>
+              要求补充
+            </Button>
+          )}
+          {base.actions.canForbid && !base.blocked && (
+            <Button danger type="text" disabled={busy} onClick={() => setReasonOpen(true)}>
+              禁止使用
+            </Button>
+          )}
+        </Space>
+        <Space wrap className="gov-commit-actions">
+          {base.actions.canEdit && (
+            <Button loading={busy} onClick={() => void submit('save')}>
+              保存草稿
+            </Button>
+          )}
+          {base.actions.canConfirm && (
+            <Button type="primary" loading={busy} onClick={() => void submit('confirm')}>
+              确认治理
+            </Button>
+          )}
+          {base.actions.canAcknowledgeRemoval && (
+            <Button type="primary" loading={busy} onClick={() => void submit('remove')}>
+              确认移除处理
+            </Button>
+          )}
+          {next && base.state === 'CONFIRMED' && (
+            <Button type="link" onClick={next}>
+              下一待处理项
+            </Button>
+          )}
+        </Space>
       </div>
       {peek && (
         <GovernanceSourceDrawer

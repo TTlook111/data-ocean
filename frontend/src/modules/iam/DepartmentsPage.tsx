@@ -365,7 +365,7 @@ export function DepartmentsPage() {
         rowKey="id"
         loading={members.isFetching}
         dataSource={members.data?.items}
-        scroll={{ x: 850, y: '100%' }}
+        scroll={{ x: 850 }}
         pagination={{
           current: members.data?.pageNum ?? 1,
           pageSize: members.data?.pageSize ?? 10,
@@ -458,7 +458,7 @@ export function DepartmentsPage() {
       rowKey="id"
       loading={children.isFetching}
       dataSource={children.data?.items}
-      scroll={{ x: 760, y: '100%' }}
+      scroll={{ x: 760 }}
       pagination={{
         current: children.data?.pageNum ?? 1,
         pageSize: children.data?.pageSize ?? 10,

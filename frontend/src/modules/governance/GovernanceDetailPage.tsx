@@ -1,5 +1,5 @@
 import { Alert, Button, Drawer, Input, Segmented, Space, Tabs, Tag } from 'antd';
-import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -227,9 +227,6 @@ export function GovernanceDetailPage() {
         {object.data && (
           <section className="panel gov-detail-panel">
             <header className="gov-detail-heading">
-              <Button type="text" icon={<ArrowLeftOutlined />} onClick={back}>
-                返回列表
-              </Button>
               <div className="gov-object-name">
                 <h1>{object.data.qualifiedName}</h1>
                 <small>{object.data.sourceName}</small>
@@ -308,169 +305,180 @@ export function GovernanceDetailPage() {
               ]}
             />
             {/* 字段导航并排布置，待复核的移除字段按实际来源保留独立入口。 */}
-            {discoveryKind ? (
-              <GovernanceDiscoveryPanel
-                key={base + discoveryKind + (params.get('candidate') ?? '')}
-                kind={discoveryKind}
-                source={source}
-                path={base + '/candidates'}
-                canCreate={object.data.tableEntry.actions.canEdit}
-                suggestReason={suggestReason}
-                initialCandidate={params.get('candidate') ?? undefined}
-                initialPage={Number(params.get('candidatePage')) || 1}
-              />
-            ) : (
-              <div className={tab === 'columns' ? 'gov-split' : 'gov-single'}>
-                {tab === 'basis' && (
-                  <GovernanceStatus
-                    base={base}
-                    object={object.data}
-                    choose={choose}
-                    openCandidate={openCandidate}
-                  />
-                )}
-                {tab === 'columns' && (
-                  <nav className="gov-column-nav" aria-label="字段导航">
-                    <Input
-                      aria-label="搜索字段名称或原注释"
-                      placeholder="搜索字段或注释"
-                      allowClear
-                      prefix={<SearchOutlined />}
-                      value={fieldTerm}
-                      onChange={(event) => {
-                        // 新搜索从第一页开始，保留当前打开条目。
-                        setFieldTerm(event.target.value);
-                        setFieldPage(1);
-                      }}
+            <div className="gov-detail-area">
+              {discoveryKind ? (
+                <GovernanceDiscoveryPanel
+                  key={base + discoveryKind + (params.get('candidate') ?? '')}
+                  kind={discoveryKind}
+                  source={source}
+                  path={base + '/candidates'}
+                  canCreate={object.data.tableEntry.actions.canEdit}
+                  suggestReason={suggestReason}
+                  initialCandidate={params.get('candidate') ?? undefined}
+                  initialPage={Number(params.get('candidatePage')) || 1}
+                />
+              ) : (
+                <div className={tab === 'columns' ? 'gov-split' : 'gov-single'}>
+                  {tab === 'basis' && (
+                    <GovernanceStatus
+                      base={base}
+                      object={object.data}
+                      choose={choose}
+                      openCandidate={openCandidate}
                     />
-                    {/* 分段控件等宽排列，选中样式与键盘焦点分别表达。 */}
-                    <Segmented
-                      className="gov-state-filter"
-                      aria-label="字段状态"
-                      block
-                      size="small"
-                      value={fieldState}
-                      onChange={(value) => {
-                        // 状态筛选与关键词取交集。
-                        setFieldState(value);
-                        setFieldPage(1);
-                      }}
-                      options={[
-                        { label: '全部', value: 'ALL' },
-                        { label: '待处理', value: 'PENDING' },
-                        { label: '已确认', value: 'CONFIRMED' },
-                      ]}
-                    />
-                    <ReadState
-                      loading={columns.isPending}
-                      error={columns.error}
-                      retry={() => void columns.refetch()}
-                    >
-                      <div className="gov-column-list" ref={fieldList}>
-                        {columns.data?.items.map((column) => (
-                          <button
-                            key={column.target.targetId}
-                            type="button"
-                            aria-current={choice === column.target.targetId ? 'true' : undefined}
-                            onClick={() => choose(column.target)}
-                            className="gov-column-button"
-                          >
-                            <span>{column.name}</span>
-                            <small>{column.sourceComment || column.nativeType}</small>
-                            {column.pendingReview && <Tag color="orange">待复核</Tag>}
-                          </button>
-                        ))}
-                        {object.data.pendingImpacts
-                          .filter(
-                            (impact) =>
-                              impact.kind === 'REMOVAL' && impact.target.kind === 'COLUMN',
-                          )
-                          .filter(
-                            (impact, index, all) =>
-                              all.findIndex(
-                                (candidate) => candidate.target.targetId === impact.target.targetId,
-                              ) === index,
-                          )
-                          .map((impact) => (
+                  )}
+                  {tab === 'columns' && (
+                    <nav className="gov-column-nav" aria-label="字段导航">
+                      <Input
+                        aria-label="搜索字段名称或原注释"
+                        placeholder="搜索字段或注释"
+                        allowClear
+                        prefix={<SearchOutlined />}
+                        value={fieldTerm}
+                        onChange={(event) => {
+                          // 新搜索从第一页开始，保留当前打开条目。
+                          setFieldTerm(event.target.value);
+                          setFieldPage(1);
+                        }}
+                      />
+                      {/* 分段控件等宽排列，选中样式与键盘焦点分别表达。 */}
+                      <Segmented
+                        className="gov-state-filter"
+                        aria-label="字段状态"
+                        block
+                        size="small"
+                        value={fieldState}
+                        onChange={(value) => {
+                          // 状态筛选与关键词取交集。
+                          setFieldState(value);
+                          setFieldPage(1);
+                        }}
+                        options={[
+                          { label: '全部', value: 'ALL' },
+                          { label: '待处理', value: 'PENDING' },
+                          { label: '已确认', value: 'CONFIRMED' },
+                        ]}
+                      />
+                      <ReadState
+                        loading={columns.isPending}
+                        error={columns.error}
+                        retry={() => void columns.refetch()}
+                      >
+                        <div className="gov-column-list" ref={fieldList}>
+                          {columns.data?.items.map((column) => (
                             <button
+                              key={column.target.targetId}
                               type="button"
-                              key={impact.impactId}
+                              aria-current={choice === column.target.targetId ? 'true' : undefined}
+                              onClick={() => choose(column.target)}
                               className="gov-column-button"
-                              aria-current={choice === impact.target.targetId ? 'true' : undefined}
-                              onClick={() => choose(impact.target)}
                             >
-                              <span>{impact.targetName}</span>
-                              <Tag color="red">已移除</Tag>
+                              <span>{column.name}</span>
+                              <small>{column.sourceComment || column.nativeType}</small>
+                              {column.pendingReview && <Tag color="orange">待复核</Tag>}
                             </button>
                           ))}
-                      </div>
-                      {columns.data?.items.length === 0 && (
-                        <p className="gov-empty">没有匹配的字段</p>
-                      )}
-                      {columns.data && columns.data.total > 20 && (
-                        <Space size="small" className="gov-column-pages">
-                          <Button
-                            size="small"
-                            aria-label="字段上一页"
-                            disabled={columns.data.pageNum <= 1}
-                            onClick={() => setFieldPage(columns.data!.pageNum - 1)}
-                          >
-                            上一页
-                          </Button>
-                          <Button
-                            size="small"
-                            aria-label="字段下一页"
-                            disabled={columns.data.pageNum * 20 >= columns.data.total}
-                            onClick={() => setFieldPage(columns.data!.pageNum + 1)}
-                          >
-                            下一页
-                          </Button>
-                        </Space>
-                      )}
-                    </ReadState>
-                  </nav>
-                )}
-                <div className="gov-content">
-                  <ReadState
-                    error={item.error}
-                    loading={item.isPending}
-                    retry={() => void item.refetch()}
+                          {object.data.pendingImpacts
+                            .filter(
+                              (impact) =>
+                                impact.kind === 'REMOVAL' && impact.target.kind === 'COLUMN',
+                            )
+                            .filter(
+                              (impact, index, all) =>
+                                all.findIndex(
+                                  (candidate) =>
+                                    candidate.target.targetId === impact.target.targetId,
+                                ) === index,
+                            )
+                            .map((impact) => (
+                              <button
+                                type="button"
+                                key={impact.impactId}
+                                className="gov-column-button"
+                                aria-current={
+                                  choice === impact.target.targetId ? 'true' : undefined
+                                }
+                                onClick={() => choose(impact.target)}
+                              >
+                                <span>{impact.targetName}</span>
+                                <Tag color="red">已移除</Tag>
+                              </button>
+                            ))}
+                        </div>
+                        {columns.data?.items.length === 0 && (
+                          <p className="gov-empty">没有匹配的字段</p>
+                        )}
+                        {columns.data && columns.data.total > 20 && (
+                          <Space size="small" className="gov-column-pages">
+                            <Button
+                              size="small"
+                              aria-label="字段上一页"
+                              disabled={columns.data.pageNum <= 1}
+                              onClick={() => setFieldPage(columns.data!.pageNum - 1)}
+                            >
+                              上一页
+                            </Button>
+                            <Button
+                              size="small"
+                              aria-label="字段下一页"
+                              disabled={columns.data.pageNum * 20 >= columns.data.total}
+                              onClick={() => setFieldPage(columns.data!.pageNum + 1)}
+                            >
+                              下一页
+                            </Button>
+                          </Space>
+                        )}
+                      </ReadState>
+                    </nav>
+                  )}
+                  <div
+                    className={
+                      tab === 'basis'
+                        ? 'gov-content gov-history-content'
+                        : 'gov-content gov-edit-content'
+                    }
                   >
-                    {item.data &&
-                      (tab === 'basis' ? (
-                        <GovernanceHistory
-                          source={source}
-                          path={itemPath}
-                          name={item.data.displayName}
-                          item={item.data}
-                        />
-                      ) : (
-                        <GovernanceEditor
-                          key={itemPath}
-                          item={item.data}
-                          source={source}
-                          path={itemPath}
-                          name={item.data.displayName}
-                          nativeType={item.data.nativeType ?? undefined}
-                          sourceComment={item.data.sourceComment}
-                          suggestionRequest={
-                            batchSuggestion?.target.targetId === item.data.target.targetId &&
-                            batchSuggestion.target.kind === item.data.target.kind
-                              ? batchSuggestion.requestId
-                              : undefined
-                          }
-                          onSuggestionClose={() => setBatchSuggestion(undefined)}
-                          next={
-                            initial && initial.targetId !== item.data.target.targetId
-                              ? next
-                              : undefined
-                          }
-                        />
-                      ))}
-                  </ReadState>
+                    <ReadState
+                      error={item.error}
+                      loading={item.isPending}
+                      retry={() => void item.refetch()}
+                    >
+                      {item.data &&
+                        (tab === 'basis' ? (
+                          <GovernanceHistory
+                            source={source}
+                            path={itemPath}
+                            name={item.data.displayName}
+                            item={item.data}
+                          />
+                        ) : (
+                          <GovernanceEditor
+                            key={itemPath}
+                            item={item.data}
+                            source={source}
+                            path={itemPath}
+                            name={item.data.displayName}
+                            nativeType={item.data.nativeType ?? undefined}
+                            sourceComment={item.data.sourceComment}
+                            suggestionRequest={
+                              batchSuggestion?.target.targetId === item.data.target.targetId &&
+                              batchSuggestion.target.kind === item.data.target.kind
+                                ? batchSuggestion.requestId
+                                : undefined
+                            }
+                            onSuggestionClose={() => setBatchSuggestion(undefined)}
+                            next={
+                              initial && initial.targetId !== item.data.target.targetId
+                                ? next
+                                : undefined
+                            }
+                          />
+                        ))}
+                    </ReadState>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </section>
         )}
       </ReadState>
@@ -498,18 +506,18 @@ function GovernanceHistory({
     queryKey: ['governance', source, 'history', path, page],
     queryFn: () => api<Page<History>>(path + '/history?' + queryString({ pageNum: page })),
   });
+  const resolved = item.gaps.filter((gap) => gap.state === 'RESOLVED');
+  if (history.isSuccess && history.data.total === 0 && resolved.length === 0) return null;
   return (
     <section className="gov-history" aria-label="当前条目记录">
       <h2>{name} · 办理记录</h2>
       {/* 核清记录保留实际问题和人工结论。 */}
-      {item.gaps
-        .filter((gap) => gap.state === 'RESOLVED')
-        .map((gap) => (
-          <div className="gov-history-row" key={gap.gapId}>
-            <span>{gap.question}</span>
-            <span>{gap.resolution}</span>
-          </div>
-        ))}
+      {resolved.map((gap) => (
+        <div className="gov-history-row" key={gap.gapId}>
+          <span>{gap.question}</span>
+          <span>{gap.resolution}</span>
+        </div>
+      ))}
       <ReadState
         loading={history.isPending}
         error={history.error}
@@ -532,7 +540,6 @@ function GovernanceHistory({
             )}
           </div>
         ))}
-        {history.data?.items.length === 0 && <p className="gov-empty">暂无人工修订或确认</p>}
         {history.data && history.data.total > history.data.pageSize && (
           <Space>
             <Button

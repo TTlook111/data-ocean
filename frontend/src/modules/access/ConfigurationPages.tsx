@@ -2,6 +2,7 @@ import { Button, Descriptions, Form, Input, Modal, Space, Tabs, Typography } fro
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
+import { DetailDialog } from '../../shared/DetailDialog';
 import { allowed, useSession } from '../../shared/session';
 import { displayTime } from '../../shared/Records';
 import { DatasourcePage } from '../datasource/DatasourcePage';
@@ -121,30 +122,28 @@ function ResponsibilitiesPage({ header }: { header: ReactNode }) {
         ]}
       />
       {detail && (
-        <Modal
-          centered
-          open
+        <DetailDialog
           title="数据源审批责任"
-          footer={
-            <Space>
-              <Button onClick={() => setDetail(undefined)}>关闭</Button>
-              {allowed(session, 'sources.approval-config') && (
-                <Button
-                  type="primary"
-                  onClick={() => {
-                    // 同一条记录转到责任编辑，避免叠加两个画布。
-                    setDetail(undefined);
-                    setEditing(detail);
-                  }}
-                >
-                  配置审批责任
-                </Button>
-              )}
-            </Space>
+          width={520}
+          close={() => setDetail(undefined)}
+          actions={
+            allowed(session, 'sources.approval-config') && (
+              <Button
+                type="primary"
+                onClick={() => {
+                  // 同一条记录转到责任编辑，保留一个办理界面。
+                  setDetail(undefined);
+                  setEditing(detail);
+                }}
+              >
+                配置审批责任
+              </Button>
+            )
           }
-          onCancel={() => setDetail(undefined)}
         >
           <Descriptions
+            className="responsibility-detail"
+            colon={false}
             column={1}
             items={[
               { key: 'source', label: '数据源', children: detail.source.name },
@@ -154,7 +153,7 @@ function ResponsibilitiesPage({ header }: { header: ReactNode }) {
               { key: 'updated', label: '更新时间', children: displayTime(detail.updatedAt) },
             ]}
           />
-        </Modal>
+        </DetailDialog>
       )}
       {editing && <ResponsibilityEditor row={editing} close={() => setEditing(undefined)} />}
     </>
@@ -174,7 +173,12 @@ export function ResponsibilityEditor({ row, close }: { row: Responsibility; clos
     <AccessEditor
       title="配置审批责任"
       successMessage="审批责任已更新"
-      context={row.source.name}
+      context={
+        <div className="responsibility-source">
+          <span>数据源</span>
+          <strong>{row.source.name}</strong>
+        </div>
+      }
       form={form}
       initialValues={{ primaryUserId: row.primary?.id, alternateUserId: row.alternate?.id }}
       close={close}

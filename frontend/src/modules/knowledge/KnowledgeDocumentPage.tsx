@@ -1,9 +1,10 @@
 import { Alert, App, Button, Form, Input, Select, Space, Tabs, Tag } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, PlusOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api, mutation, queryString } from '../../shared/api';
+import { RecordTable } from '../../shared/RecordTable';
 import { ReadState, displayTime, readErrorMessage } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useSourceSelection } from '../datasource/CollectionPage';
@@ -15,7 +16,6 @@ import {
   type KnowledgeDocument,
   type KnowledgeFact,
   type KnowledgeRow,
-  type ReleaseRevisionReturn,
 } from './types';
 import { useKnowledgeDraft } from './useKnowledgeDraft';
 import './knowledge.css';
@@ -59,7 +59,8 @@ export function KnowledgeDocumentPage() {
   });
   const navigation = location.state as {
     listSearch?: string;
-    releaseReturn?: ReleaseRevisionReturn;
+    /** 文档列表的行操作可以直接进入草稿编辑。 */
+    editDocument?: boolean;
   } | null;
   const listSearch = navigation?.listSearch ?? '?' + queryString({ source });
 
@@ -88,16 +89,18 @@ export function KnowledgeDocumentPage() {
           sourceName={sourceName}
           current={document.data}
           listSearch={listSearch}
-          releaseReturn={navigation?.releaseReturn}
+          startEditing={Boolean(navigation?.editDocument) && !revisionId}
           tab={tab}
           switchTab={(tab) =>
             setParams(queryString({ source, revisionId, tab }), {
               replace: true,
-              state: location.state,
+              state: { ...(location.state as object | null), editDocument: false },
             })
           }
           showRevision={(revision) =>
-            setParams(queryString({ source, revisionId: revision }), { state: location.state })
+            setParams(queryString({ source, revisionId: revision }), {
+              state: { ...(location.state as object | null), editDocument: false },
+            })
           }
         />
       )}
@@ -111,7 +114,7 @@ function DocumentEditor({
   sourceName,
   current,
   listSearch,
-  releaseReturn,
+  startEditing = false,
   tab = 'body',
   switchTab,
   showRevision,
@@ -120,8 +123,8 @@ function DocumentEditor({
   sourceName?: string;
   current?: KnowledgeDocument;
   listSearch: string;
-  /** 候选发起的查阅返回原发布范围。 */
-  releaseReturn?: ReleaseRevisionReturn;
+  /** 允许列表的有权编辑入口直达当前文档草稿。 */
+  startEditing?: boolean;
   tab?: string;
   switchTab?: (tab: string) => void;
   showRevision?: (revision?: string) => void;
@@ -131,8 +134,14 @@ function DocumentEditor({
   const navigate = useNavigate();
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<Draft>();
-  const [editing, setEditing] = useState(!current);
+  const [editing, setEditing] = useState(
+    !current || (startEditing && allowed(session, 'knowledge.edit')),
+  );
   const [chapter, setChapter] = useState(0);
+  const [draftPane, setDraftPane] = useState<'info' | 'documents' | number>('info');
+  const draftSections = Form.useWatch('sections', { form, preserve: true }) as
+    Draft['sections'] | undefined;
+  const [basisSection, setBasisSection] = useState<number>();
   const draft = useKnowledgeDraft();
   const heading = useRef<HTMLHeadingElement>(null);
   const commandRef = useRef<{ payload: string; command: string }>(undefined);
@@ -146,6 +155,12 @@ function DocumentEditor({
   const section = current?.content.sections[chapterIndex];
   const sectionReferences =
     current?.references.filter((ref) => ref.sectionIndex === chapterIndex) ?? [];
+  // 依据数量按当前章节的真实条目统计，详细内容仍沿用依据页签。
+  const referenceCounts = new Map<string, number>();
+  for (const ref of sectionReferences) {
+    const kind = ref.target.kind;
+    referenceCounts.set(kind, (referenceCounts.get(kind) ?? 0) + 1);
+  }
   const options = useInfiniteQuery({
     queryKey: ['knowledge-facts', source],
     enabled: editing && allowed(session, 'knowledge.edit'),
@@ -252,6 +267,8 @@ function DocumentEditor({
       // 已落库才清理离开保护并刷新阅读视图。
       draft.finishWrite(true);
       setError(undefined);
+      // 消耗列表的直达编辑状态，刷新新修订后回到阅读视图。
+      if (startEditing) switchTab?.(tab);
       await Promise.all([
         cache.invalidateQueries({ queryKey: ['knowledge-documents', source] }),
         cache.invalidateQueries({ queryKey: ['knowledge-document-dependencies', source] }),
@@ -278,27 +295,6 @@ function DocumentEditor({
 
   /** 返回原列表时让查询与入口按钮一并恢复。 */
   function back() {
-    if (releaseReturn && allowed(session, 'releases.view')) {
-      // 正式修订回到原绑定，候选回看恢复发布任务与入口。
-      if (releaseReturn.version) {
-        navigate('/releases/versions/' + releaseReturn.version.bindingId + releaseReturn.search, {
-          state: {
-            ...releaseReturn.version.origin,
-            effectiveVersionFocus: releaseReturn.focus,
-          },
-        });
-        return;
-      }
-      navigate(
-        '/releases' +
-          (releaseReturn.taskId ? '/' + releaseReturn.taskId : '') +
-          releaseReturn.search,
-        {
-          state: { releaseFocus: releaseReturn.focus },
-        },
-      );
-      return;
-    }
     navigate('/knowledge' + listSearch, {
       state: { focusDocument: current?.document.id ?? 'new' },
     });
@@ -312,8 +308,11 @@ function DocumentEditor({
     }
     void draft.cancel(() => {
       form.resetFields();
+      setDraftPane('info');
       setEditing(false);
       setError(undefined);
+      // 取消直达编辑后，同一文档的历史切换不再自动打开表单。
+      if (startEditing) switchTab?.(tab);
       requestAnimationFrame(() => document.getElementById('knowledge-edit-document')?.focus());
     });
   }
@@ -321,6 +320,7 @@ function DocumentEditor({
   /** 焦点定位到新添加的章节名称。 */
   function addSection(add: (value: Draft['sections'][number]) => void, index: number) {
     add({ title: '', body: '', referenceKeys: [] });
+    setDraftPane(index);
     requestAnimationFrame(() => form.scrollToField(['sections', index, 'title'], { focus: true }));
   }
 
@@ -347,14 +347,6 @@ function DocumentEditor({
       aria-label="知识文档详情"
     >
       <header className="knowledge-heading">
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined aria-hidden="true" />}
-          onClick={back}
-          disabled={save.isPending}
-        >
-          {releaseReturn && allowed(session, 'releases.view') ? '返回发布与版本' : '返回列表'}
-        </Button>
         <div className="knowledge-heading-main">
           <div className="knowledge-title">
             <h1 ref={heading} tabIndex={-1}>
@@ -377,7 +369,6 @@ function DocumentEditor({
           form={form}
           layout="vertical"
           initialValues={initial}
-          scrollToFirstError={{ focus: true }}
           disabled={save.isPending}
           onValuesChange={(_, values) => {
             // 恢复原内容后不再提示放弃修改。
@@ -385,142 +376,218 @@ function DocumentEditor({
             setError(undefined);
           }}
           onFinish={(values) => save.mutate({ action: 'save', values })}
-          className="knowledge-content knowledge-edit"
+          className="knowledge-edit knowledge-draft-form"
+          onFinishFailed={({ errorFields }) => {
+            // 必填字段可能在其他分区，先打开该分区再聚焦输入。
+            const name = errorFields[0]?.name;
+            if (!name) return;
+            setDraftPane(
+              name[0] === 'sections' && typeof name[1] === 'number'
+                ? name[1]
+                : name[0] === 'requiredDocuments'
+                  ? 'documents'
+                  : 'info',
+            );
+            requestAnimationFrame(() => form.scrollToField(name, { focus: true }));
+          }}
         >
-          {/* 编辑区保留用途、实际边界、代表性问题及各节证据。 */}
-          <Form.Item
-            name="title"
-            label="文档名称"
-            rules={[{ required: true, whitespace: true, message: '请填写文档名称' }]}
-          >
-            <Input maxLength={120} />
-          </Form.Item>
-          <Form.Item name="purpose" label="用途">
-            <Input.TextArea rows={2} maxLength={1000} />
-          </Form.Item>
-          <Form.Item name="exclusions" label="适用边界">
-            <Input.TextArea rows={2} maxLength={1000} />
-          </Form.Item>
-          <Form.Item name="questions" label="代表性问题">
-            <Input.TextArea rows={2} placeholder="每行填写一个问题" />
-          </Form.Item>
-          {/* 文档间的必要引用与每节的治理事实分开录入。 */}
-          <Form.Item name="requiredDocuments" label="必要引用文档">
-            <Select
-              mode="multiple"
-              showSearch
-              filterOption={false}
-              maxCount={24}
-              placeholder="选择必要引用的同源文档"
-              onSearch={setDependencyKeyword}
-              options={[...documents].map(([id, title]) => ({ value: id, label: title }))}
-              loading={documentOptions.isFetching}
-              onPopupScroll={(event) => {
-                // 长列表滚到底再读取后续当前源文档。
-                const node = event.currentTarget;
-                if (
-                  documentOptions.hasNextPage &&
-                  !documentOptions.isFetchingNextPage &&
-                  node.scrollTop + node.clientHeight >= node.scrollHeight - 12
-                ) {
-                  void documentOptions.fetchNextPage();
-                }
-              }}
-            />
-          </Form.Item>
-          {documentOptions.error && (
-            <Alert
-              type="warning"
-              title={readErrorMessage(documentOptions.error)}
-              action={<Button onClick={() => void documentOptions.refetch()}>重试</Button>}
-            />
-          )}
-          <Form.List name="sections">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name }) => (
-                  <section
-                    className="knowledge-section"
-                    key={key}
-                    aria-label={'第 ' + (name + 1) + ' 节'}
-                  >
-                    <Form.Item
-                      name={[name, 'title']}
-                      label="章节名称"
-                      rules={[{ required: true, whitespace: true, message: '请填写章节名称' }]}
+          <div className="knowledge-draft-workspace">
+            <Form.List name="sections">
+              {(fields, { add, remove }) => (
+                <>
+                  {/* 沿实际文档结构切换，每节字段仍注册在同一份表单。 */}
+                  <nav className="knowledge-draft-nav" aria-label="文档编辑分区">
+                    <Button
+                      type="text"
+                      aria-current={draftPane === 'info' ? 'page' : undefined}
+                      onClick={() => setDraftPane('info')}
                     >
-                      <Input maxLength={100} />
-                    </Form.Item>
-                    <Form.Item name={[name, 'body']} label="章节正文">
-                      <Input.TextArea rows={5} maxLength={6000} />
-                    </Form.Item>
-                    <Form.Item name={[name, 'referenceKeys']} label="已确认治理依据">
-                      <Select
-                        mode="multiple"
-                        showSearch
-                        optionFilterProp="label"
-                        maxCount={24}
-                        placeholder="从当前来源选择已确认的治理定义"
-                        loading={options.isPending || options.isFetchingNextPage}
-                        options={[...choices].map(([value, fact]) => ({
-                          value,
-                          label:
-                            fact.target.kind === 'TABLE'
-                              ? fact.label
-                              : fact.label + ' · ' + factKindNames[fact.target.kind],
-                        }))}
-                        onPopupScroll={(event) => {
-                          // 保留已选内容，滚动到底继续读取同源依据。
-                          const node = event.currentTarget;
-                          if (
-                            options.hasNextPage &&
-                            !options.isFetchingNextPage &&
-                            node.scrollTop + node.clientHeight >= node.scrollHeight - 12
-                          )
-                            void options.fetchNextPage();
-                        }}
-                      />
-                    </Form.Item>
-                    {fields.length > 1 && (
-                      <Button
-                        type="link"
-                        danger
-                        aria-label={'移除第 ' + (name + 1) + ' 节'}
-                        onClick={() => {
-                          const section = form.getFieldValue([
-                            'sections',
-                            name,
-                          ]) as Draft['sections'][number];
-                          // 已填写的章节先明确用户的移除决定。
-                          if (section.title || section.body || section.referenceKeys?.length) {
-                            void modal.confirm({
-                              title: '移除本节？',
-                              content: section.title || '本节已有内容，移除后不会随草稿保存。',
-                              okText: '移除',
-                              cancelText: '保留',
-                              okButtonProps: { danger: true },
-                              focusable: { autoFocusButton: 'cancel' },
-                              onOk: () => remove(name),
-                            });
-                          } else {
-                            remove(name);
-                          }
-                        }}
+                      文档职责
+                    </Button>
+                    <Button
+                      type="text"
+                      aria-current={draftPane === 'documents' ? 'page' : undefined}
+                      onClick={() => setDraftPane('documents')}
+                    >
+                      引用文档
+                    </Button>
+                    <div className="knowledge-draft-chapters">
+                      {/* 添加动作归入章节组标题，列表只承载可切换的章节。 */}
+                      <div className="knowledge-draft-chapter-header">
+                        <strong>章节</strong>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          disabled={fields.length >= 12}
+                          onClick={() => addSection(add, fields.length)}
+                        >
+                          添加章节
+                        </Button>
+                      </div>
+                      {fields.map(({ key, name }) => {
+                        // 新增或清空标题时，用章节位置定位当前录入项。
+                        const title =
+                          (draftSections?.[name]?.title ?? initial.sections[name]?.title)?.trim() ||
+                          '第 ' + (name + 1) + ' 节';
+                        return (
+                          <Button
+                            key={key}
+                            className="knowledge-chapter-link"
+                            type="text"
+                            title={title}
+                            aria-current={draftPane === name ? 'page' : undefined}
+                            onClick={() => setDraftPane(name)}
+                          >
+                            <span className="knowledge-chapter-title">{title}</span>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </nav>
+                  {fields.map(({ key, name }) => (
+                    <section
+                      className="knowledge-section knowledge-draft-pane"
+                      hidden={draftPane !== name}
+                      key={key}
+                      aria-label={'第 ' + (name + 1) + ' 节'}
+                    >
+                      <Form.Item
+                        name={[name, 'title']}
+                        label="章节名称"
+                        rules={[{ required: true, whitespace: true, message: '请填写章节名称' }]}
                       >
-                        移除本节
-                      </Button>
-                    )}
-                  </section>
-                ))}
-                <Button
-                  disabled={fields.length >= 12}
-                  onClick={() => addSection(add, fields.length)}
-                >
-                  添加章节
-                </Button>
-              </>
-            )}
-          </Form.List>
+                        <Input maxLength={100} />
+                      </Form.Item>
+                      <Form.Item name={[name, 'body']} label="章节正文">
+                        <Input.TextArea rows={5} maxLength={6000} />
+                      </Form.Item>
+                      <Form.Item name={[name, 'referenceKeys']} label="已确认治理依据">
+                        <Select
+                          mode="multiple"
+                          showSearch
+                          optionFilterProp="label"
+                          maxCount={24}
+                          placeholder="从当前来源选择已确认的治理定义"
+                          loading={options.isPending || options.isFetchingNextPage}
+                          options={[...choices].map(([value, fact]) => ({
+                            value,
+                            label:
+                              fact.target.kind === 'TABLE'
+                                ? fact.label
+                                : fact.label + ' · ' + factKindNames[fact.target.kind],
+                          }))}
+                          onPopupScroll={(event) => {
+                            // 保留已选内容，滚动到底继续读取同源依据。
+                            const node = event.currentTarget;
+                            if (
+                              options.hasNextPage &&
+                              !options.isFetchingNextPage &&
+                              node.scrollTop + node.clientHeight >= node.scrollHeight - 12
+                            )
+                              void options.fetchNextPage();
+                          }}
+                        />
+                      </Form.Item>
+                      {fields.length > 1 && (
+                        <Button
+                          type="link"
+                          danger
+                          aria-label={'移除第 ' + (name + 1) + ' 节'}
+                          onClick={() => {
+                            const section = form.getFieldValue([
+                              'sections',
+                              name,
+                            ]) as Draft['sections'][number];
+                            // 已填写的章节先明确用户的移除决定。
+                            if (section.title || section.body || section.referenceKeys?.length) {
+                              void modal.confirm({
+                                title: '移除本节？',
+                                content: section.title || '本节已有内容，移除后不会随草稿保存。',
+                                okText: '移除',
+                                cancelText: '保留',
+                                okButtonProps: { danger: true },
+                                focusable: { autoFocusButton: 'cancel' },
+                                onOk: () => {
+                                  remove(name);
+                                  setDraftPane(Math.max(0, name - 1));
+                                },
+                              });
+                            } else {
+                              remove(name);
+                              setDraftPane(Math.max(0, name - 1));
+                            }
+                          }}
+                        >
+                          移除本节
+                        </Button>
+                      )}
+                    </section>
+                  ))}
+                </>
+              )}
+            </Form.List>
+            <section
+              className="knowledge-draft-pane"
+              hidden={draftPane !== 'info'}
+              aria-label="文档职责"
+            >
+              {/* 编辑区保留用途、实际边界、代表性问题及各节证据。 */}
+              <Form.Item
+                name="title"
+                label="文档名称"
+                rules={[{ required: true, whitespace: true, message: '请填写文档名称' }]}
+              >
+                <Input maxLength={120} />
+              </Form.Item>
+              <Form.Item name="purpose" label="用途">
+                <Input.TextArea rows={2} maxLength={1000} />
+              </Form.Item>
+              <Form.Item name="exclusions" label="适用边界">
+                <Input.TextArea rows={2} maxLength={1000} />
+              </Form.Item>
+              <Form.Item name="questions" label="代表性问题">
+                <Input.TextArea rows={2} placeholder="每行填写一个问题" />
+              </Form.Item>
+            </section>
+            <section
+              className="knowledge-draft-pane"
+              hidden={draftPane !== 'documents'}
+              aria-label="引用文档"
+            >
+              {/* 文档间的必要引用与每节的治理事实分开录入。 */}
+              <Form.Item name="requiredDocuments" label="必要引用文档">
+                <Select
+                  mode="multiple"
+                  showSearch
+                  filterOption={false}
+                  maxCount={24}
+                  placeholder="选择必要引用的同源文档"
+                  onSearch={setDependencyKeyword}
+                  options={[...documents].map(([id, title]) => ({ value: id, label: title }))}
+                  loading={documentOptions.isFetching}
+                  onPopupScroll={(event) => {
+                    // 长列表滚到底再读取后续当前源文档。
+                    const node = event.currentTarget;
+                    if (
+                      documentOptions.hasNextPage &&
+                      !documentOptions.isFetchingNextPage &&
+                      node.scrollTop + node.clientHeight >= node.scrollHeight - 12
+                    ) {
+                      void documentOptions.fetchNextPage();
+                    }
+                  }}
+                />
+              </Form.Item>
+              {documentOptions.error && (
+                <Alert
+                  type="warning"
+                  title={readErrorMessage(documentOptions.error)}
+                  action={<Button onClick={() => void documentOptions.refetch()}>重试</Button>}
+                />
+              )}
+            </section>
+          </div>
           {options.error && <Alert type="error" title={readErrorMessage(options.error)} />}
           {error && <Alert type="error" title={readErrorMessage(error)} />}
           <footer className="knowledge-actions">
@@ -542,7 +609,22 @@ function DocumentEditor({
         <>
           <Tabs
             activeKey={tab}
-            onChange={switchTab}
+            onChange={(next) => {
+              // 直接打开依据页签时包含全部章节。
+              setBasisSection(undefined);
+              switchTab?.(next);
+            }}
+            tabBarExtraContent={
+              tab === 'body' &&
+              allowed(session, 'test-cases.view') && (
+                <Link
+                  className="knowledge-related-tests"
+                  to={'/test-cases?' + queryString({ source, documentId: current.document.id })}
+                >
+                  相关标准题 <ArrowRightOutlined aria-hidden="true" />
+                </Link>
+              )
+            }
             items={[
               { key: 'body', label: '正文' },
               { key: 'facts', label: '范围与依据' },
@@ -551,54 +633,68 @@ function DocumentEditor({
           />
           <article
             className={
-              tab === 'body' ? 'knowledge-content knowledge-body-read' : 'knowledge-content'
+              tab === 'body'
+                ? 'knowledge-content knowledge-body-read'
+                : 'knowledge-content knowledge-detail-tab'
             }
           >
             {tab === 'body' && section && (
               <div className="knowledge-reader">
-                <nav aria-label="文档章节及题单">
-                  {current.content.sections.map((item, index) => (
-                    <Button
-                      key={index}
-                      type="text"
-                      aria-current={chapterIndex === index ? 'true' : undefined}
-                      onClick={() => setChapter(index)}
+                {/* 多章节才需要目录定位，当前章节标题在正文内提供。 */}
+                {current.content.sections.length > 1 && (
+                  <nav aria-label="文档章节">
+                    {current.content.sections.map((item, index) => (
+                      <Button
+                        key={index}
+                        type="text"
+                        aria-current={chapterIndex === index ? 'true' : undefined}
+                        onClick={() => setChapter(index)}
+                      >
+                        {item.title}
+                      </Button>
+                    ))}
+                  </nav>
+                )}
+                <div className="knowledge-reading-pane">
+                  <div className="knowledge-reading-layout">
+                    <section
+                      className="knowledge-section knowledge-reading-section"
+                      aria-label={section.title}
                     >
-                      {item.title}
-                    </Button>
-                  ))}
-                  {allowed(session, 'test-cases.view') && (
-                    <Button
-                      type="text"
-                      onClick={() =>
-                        navigate(
-                          '/test-cases?' + queryString({ source, documentId: current.document.id }),
-                        )
-                      }
-                    >
-                      相关标准题
-                    </Button>
-                  )}
-                </nav>
-                <section
-                  className="knowledge-section knowledge-reading-section"
-                  aria-label={section.title}
-                >
-                  <h2>{section.title}</h2>
-                  <p>{section.body || '本节暂无正文'}</p>
-                  {sectionReferences.length > 0 && (
-                    <details className="knowledge-section-basis">
-                      <summary>本节治理依据 · {sectionReferences.length} 项</summary>
-                      <ul>
-                        {sectionReferences.map((ref) => (
-                          <li key={ref.target.kind + ':' + ref.target.targetId}>
-                            {ref.label} <small>修订 {ref.factRevisionId}</small>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                </section>
+                      <h2>{section.title}</h2>
+                      <p>{section.body || '本节暂无正文'}</p>
+                    </section>
+                    {/* 正文旁只展示本节实际引用，保留原有下钻范围。 */}
+                    {sectionReferences.length > 0 && (
+                      <aside className="knowledge-reading-basis" aria-label="本节治理依据">
+                        <h3>本节治理依据</h3>
+                        <dl>
+                          {[...referenceCounts].map(([kind, count]) => (
+                            <div key={kind}>
+                              <dt>{factKindNames[kind] ?? kind}</dt>
+                              <dd>{count} 项</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        <Button
+                          type="link"
+                          className="knowledge-basis-link"
+                          aria-label={
+                            '查看本节关联的治理依据（' + sectionReferences.length + ' 项）'
+                          }
+                          onClick={() => {
+                            // 从正文跳转时先展示当前章节的引用。
+                            setBasisSection(chapterIndex);
+                            switchTab?.('facts');
+                          }}
+                        >
+                          查看 {sectionReferences.length} 项依据{' '}
+                          <ArrowRightOutlined aria-hidden="true" />
+                        </Button>
+                      </aside>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             {tab === 'facts' && (
@@ -628,57 +724,133 @@ function DocumentEditor({
                   </section>
                 )}
                 <section aria-label="治理依据">
-                  <h2>治理依据</h2>
-                  {current.references.length === 0 && (
-                    <p className="knowledge-action-note">本修订暂无治理依据</p>
-                  )}
-                  {current.references.map((ref) => (
-                    <div
-                      key={ref.sectionIndex + ':' + ref.target.kind + ':' + ref.target.targetId}
-                      className="knowledge-reference knowledge-evidence-row"
-                    >
-                      <span className="knowledge-reference-title">
-                        <strong>{ref.label}</strong>
-                        <small>{current.content.sections[ref.sectionIndex]?.title}</small>
-                      </span>
-                      <Tag>{ref.selected ? '主动引用' : '必要依赖'}</Tag>
-                      <small className="knowledge-reference-revision">
-                        修订 {ref.factRevisionId}
-                      </small>
-                      {allowed(session, 'governance.view') && (
-                        <Button
-                          type="link"
-                          aria-label={'查看治理：' + ref.label}
-                          onClick={() => openFact(ref)}
-                        >
-                          查看治理
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                  <div className="knowledge-basis-heading">
+                    <h2>
+                      {basisSection === undefined
+                        ? '治理依据'
+                        : (current.content.sections[basisSection]?.title ?? '本节') + ' · 治理依据'}
+                    </h2>
+                    {basisSection !== undefined && (
+                      <Button type="link" onClick={() => setBasisSection(undefined)}>
+                        查看全部依据
+                      </Button>
+                    )}
+                  </div>
+                  {/* 四列沿整块工作区展开，长修订编号保留原值。 */}
+                  <RecordTable<KnowledgeDocument['references'][number]>
+                    className="knowledge-detail-table"
+                    rowKey={(ref) =>
+                      [ref.sectionIndex, ref.target.kind, ref.target.targetId].join(':')
+                    }
+                    dataSource={current.references.filter(
+                      (ref) => basisSection === undefined || ref.sectionIndex === basisSection,
+                    )}
+                    pagination={false}
+                    flexibleColumns={[0, 1, 2]}
+                    scroll={{ x: 620 }}
+                    emptyDescription="暂无治理依据"
+                    columns={[
+                      {
+                        title: '依据',
+                        width: 220,
+                        render: (_, ref) => (
+                          <div className="knowledge-reference-title">
+                            <span className="cell-text" title={ref.label}>
+                              {ref.label}
+                            </span>
+                            <small className="table-secondary">
+                              {current.content.sections[ref.sectionIndex]?.title}
+                            </small>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: '引用关系',
+                        width: 118,
+                        render: (_, ref) => <Tag>{ref.selected ? '主动引用' : '必要依赖'}</Tag>,
+                      },
+                      { title: '修订', dataIndex: 'factRevisionId', width: 156, ellipsis: true },
+                      ...(allowed(session, 'governance.view')
+                        ? [
+                            {
+                              title: '操作',
+                              width: 112,
+                              className: 'knowledge-table-action',
+                              render: (
+                                _: unknown,
+                                ref: KnowledgeDocument['references'][number],
+                              ) => (
+                                <Button
+                                  type="link"
+                                  aria-label={'查看治理：' + ref.label}
+                                  onClick={() => openFact(ref)}
+                                >
+                                  查看治理
+                                </Button>
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
                 </section>
               </>
             )}
-            {tab === 'history' &&
-              current.history.map((revision) => (
-                <div className="knowledge-reference" key={revision.id}>
-                  <Button
-                    type="link"
-                    disabled={revision.id === current.revisionId}
-                    onClick={() =>
-                      showRevision?.(
-                        revision.id === current.document.headRevisionId ? undefined : revision.id,
-                      )
-                    }
-                  >
-                    第 {revision.number} 版
-                  </Button>
-                  <span>{displayTime(revision.createdAt)}</span>
-                  {revision.id === current.document.confirmedRevisionId && (
-                    <Tag color="success">已确认</Tag>
-                  )}
-                </div>
-              ))}
+            {tab === 'history' && (
+              <RecordTable<KnowledgeDocument['history'][number]>
+                className="knowledge-detail-table knowledge-revision-table"
+                rowKey="id"
+                dataSource={current.history}
+                pagination={false}
+                flexibleColumns={[0, 1, 2]}
+                emptyDescription="暂无修订"
+                scroll={{ x: 520 }}
+                columns={[
+                  {
+                    title: '版本',
+                    width: 144,
+                    render: (_, revision) => `第 ${revision.number} 版`,
+                  },
+                  {
+                    title: '修订时间',
+                    width: 148,
+                    render: (_, revision) => displayTime(revision.createdAt),
+                  },
+                  {
+                    title: '状态',
+                    width: 118,
+                    render: (_, revision) =>
+                      revision.id === current.document.confirmedRevisionId ? (
+                        <Tag color="success">已确认</Tag>
+                      ) : (
+                        '—'
+                      ),
+                  },
+                  {
+                    title: '操作',
+                    width: 112,
+                    className: 'knowledge-table-action',
+                    render: (_, revision) =>
+                      revision.id === current.revisionId ? (
+                        <span className="muted">当前查看</span>
+                      ) : (
+                        <Button
+                          type="link"
+                          onClick={() =>
+                            showRevision?.(
+                              revision.id === current.document.headRevisionId
+                                ? undefined
+                                : revision.id,
+                            )
+                          }
+                        >
+                          查看修订
+                        </Button>
+                      ),
+                  },
+                ]}
+              />
+            )}
             {current.document.state === 'REVIEW' && (
               <Alert type="warning" title="治理依据需要重新核对" />
             )}
@@ -697,6 +869,7 @@ function DocumentEditor({
                       type={approve && missing.length ? 'primary' : 'default'}
                       disabled={save.isPending}
                       onClick={() => {
+                        setDraftPane('info');
                         setEditing(true);
                         setError(undefined);
                         requestAnimationFrame(() => form.focusField('title'));

@@ -79,16 +79,15 @@ export function RecordTable<T extends object>({
         // 无权状态不挂载受限表格，也不继续读取其尺寸。
         return;
       }
-      const body = element.querySelector<HTMLElement>('.ant-table-body');
-      const scrollbar = body ? body.offsetWidth - body.clientWidth : 0;
-      setAvailableWidth(element.clientWidth - scrollbar);
+      const body = element.querySelector<HTMLElement>('.ant-table-content, .ant-table-body');
+      setAvailableWidth(body?.clientWidth ?? element.clientWidth);
     }
     measure();
     const observer = new ResizeObserver(measure);
     if (container.current) {
       // 表格随工作区、弹窗和缩放改变，不依赖整页窗口的固定宽度。
       observer.observe(container.current);
-      const body = container.current.querySelector('.ant-table-body');
+      const body = container.current.querySelector('.ant-table-content, .ant-table-body');
       if (body) observer.observe(body);
     }
     return () => observer.disconnect();
@@ -113,7 +112,8 @@ export function RecordTable<T extends object>({
     minimumWidth,
     typeof props.scroll?.x === 'number' ? props.scroll.x : 0,
   );
-  const columns = config
+  const distributeWidth = Boolean(config || flexibleColumns);
+  const columns = distributeWidth
     ? props.columns?.map((column, index) =>
         stretchColumns.includes(index)
           ? {
@@ -124,11 +124,11 @@ export function RecordTable<T extends object>({
           : column,
       )
     : props.columns;
-  const scroll = config
+  // 常规列表的表头与表体共享同一张表，显式限高的嵌入表沿用组件的高度。
+  const scroll = distributeWidth
     ? {
         ...props.scroll,
         x: tableWidth,
-        y: props.scroll?.y ?? '100%',
       }
     : props.scroll;
 
@@ -162,6 +162,7 @@ export function RecordTable<T extends object>({
   return (
     <div
       className="record-table"
+      data-scrollable={scroll?.x && scroll.y === undefined ? 'true' : undefined}
       data-columns-fit={minimumWidth > 0 && tableWidth === availableWidth ? 'true' : undefined}
       ref={container}
       aria-busy={busy}

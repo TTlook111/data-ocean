@@ -315,20 +315,6 @@
   gap: 16px;
 }
 
-/* 返回目录收成一条轻量路径，节省结构详情的首屏高度。 */
-.ds-object-toolbar {
-  display: flex;
-  align-items: center;
-}
-
-/* 轻量返回按钮以内容左边界为视觉起点。 */
-.ds-object-toolbar .ant-btn-text {
-  margin-inline-start: -8px;
-  height: 32px;
-  padding-inline: 8px;
-  color: var(--do-muted);
-}
-
 /* 对象身份、字段与约束像原型一样在一张连续结构详情内阅读。 */
 .panel.ds-object-content {
   display: grid;
@@ -340,8 +326,14 @@
   border: 0;
   border-radius: 0;
 }
+/* 来源信息和键表分段，字段少时保持连续而完整的结构页。 */
 .ds-object-content > .ds-object-origin {
   margin-inline: 24px;
+  padding-block: 16px 8px;
+  border-block-start: 1px solid var(--do-line);
+}
+.ds-object-origin > h2 {
+  margin-block: 0 12px;
 }
 
 /* 对象标题和办理入口组成紧凑页头，长名称换行后按钮仍可达。 */
@@ -471,23 +463,13 @@
   overflow-wrap: anywhere;
 }
 
-/* 来源折叠入口与其他卡片共用 24px 左右边距。 */
-.ds-object-origin.ant-collapse .ant-collapse-header {
-  padding-inline: 24px;
-}
-
-/* 来源事实和注释按原样保留，折叠仅控制可见范围。 */
+/* 来源注释按原文换行，始终可以直接阅读。 */
 .ds-object-comment {
   margin: 0;
   white-space: pre-wrap;
 }
 
-/* 任务标题可缩短显示，完整编号可在悬停或读屏时获取。 */
-.ds-task-drawer .ant-drawer-title {
-  min-width: 0;
-}
-
-/* 采集结果作为事实摘要与基本信息分开，底栏交给 Drawer 自身。 */
+/* 采集结果作为事实摘要，与基本信息分区展示。 */
 .ds-task-result {
   display: flex;
   align-items: center;
@@ -515,41 +497,18 @@
   color: var(--do-muted);
 }
 
-/* 数据源抽屉的正文和底栏分别承担滚动和固定操作。 */
-.ds-source-drawer .ant-drawer-body {
-  overflow: hidden;
-  padding: 0;
-}
-
-/* 成功读取后将抽屉余高交给详情正文。 */
+/* 连接和定时信息随弹窗正文排布，操作在内容后自然衔接。 */
 .ds-source-detail {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-}
-
-/* 值与用途原文可换行，正文滚动时保持底栏可达。 */
-.ds-source-detail-body {
-  flex: 1;
-  overflow: auto;
-  padding: 24px;
-  scrollbar-width: thin;
-  scrollbar-color: #c8ced8 transparent;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-/* 数据源维护入口与共用详情使用同一个阅读轴。 */
-.ds-source-detail-footer {
-  flex: none;
-  padding: 16px 24px;
-  border-block-start: 1px solid var(--do-line);
-  background: var(--do-subtle);
+/* 维护入口和常用动作共用固定页脚，窄窗口内成组换行。 */
+.ds-source-actions {
+  flex-wrap: wrap;
 }
 
-/* 基本连接资料具备独立边界，运行策略、任务和来源证据可逐段扫描。 */
-.ds-source-detail-body > .ant-descriptions:first-child {
+/* 基本连接信息作为独立分区，定时采集在下方展示。 */
+.ds-source-detail > .ant-descriptions:first-child {
   padding: 16px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
@@ -579,8 +538,9 @@
 .ds-compare {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 16px;
+  align-items: start;
+  gap: 16px;
+  margin-top: 24px;
 }
 
 /* 变化两列各有独立边界，保留原记录和现状的阅读顺序。 */
@@ -642,4 +602,48 @@
   :is(.record-page, .ds-object-page, .ds-editor-actions) .ant-btn:not(:disabled):active {
     transform: translateY(1px);
   }
+}
+
+/* 来源所限定的变化范围贴着结果显示，完整列表入口保留在同一行。 */
+.ds-change-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--do-line);
+  color: var(--do-muted);
+}
+
+/* 新增或移除只在一侧有属性，把宽度留给有证据的一侧。 */
+.ds-compare:has(> section:first-child .ds-change-empty) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+/* 移除后的空状态采用镜像宽度，前后列顺序保持一致。 */
+.ds-compare:has(> section:last-child .ds-change-empty) {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+/* 连接和定时采集的标签同轴，值不受标签字数影响。 */
+.ds-detail-facts .ant-descriptions-item-label {
+  flex: 0 0 116px;
+  padding-inline-end: 12px;
+}
+
+/* 采集字段的标签预算更紧凑，正文仍留出 16px 行距。 */
+.ds-task-facts .ant-descriptions-item-label {
+  flex-basis: 88px;
+}
+
+/* 描述项之间使用统一的阅读间隔。 */
+.ds-detail-facts .ant-descriptions-row:not(:last-child) > .ant-descriptions-item {
+  padding-block-end: 16px;
+}
+
+/* 定时区域复用连接卡片的内容轴，边框占位保持相同。 */
+.ds-source-detail > .ds-detail-block {
+  padding-inline: 16px;
+  border-inline: 1px solid transparent;
 }
