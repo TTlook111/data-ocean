@@ -191,12 +191,6 @@
   border-bottom: 1px solid var(--do-line);
 }
 
-/* 字段名和候选名允许完整断行。 */
-.gov-entry-title h2 {
-  font-size: 24px;
-  line-height: 32px;
-}
-
 /* 按实际内容宽度安排编辑和参照，窄桌面参照区位于编辑后。 */
 .gov-editor-layout {
   display: grid;

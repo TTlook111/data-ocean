@@ -4,7 +4,6 @@ import {
   Descriptions,
   Empty,
   Modal,
-  Result,
   Tabs,
   Form,
   Input,
@@ -19,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../../shared/api';
 import type { Preview } from '../iam/types';
-import { displayTime, ReadFailure, ReadState } from '../../shared/Records';
+import { displayTime, ReadAccessDenied, ReadFailure, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { RecordPagination } from '../../shared/RecordTable';
 import {
@@ -283,7 +282,7 @@ function ApprovalInbox() {
 
   if (queues.length === 0) {
     // 没有可办队列时不展示单据或总数。
-    return <Result status="403" title="当前没有审批或核定分派权限" />;
+    return <ReadAccessDenied title="当前没有审批或核定分派权限" />;
   }
 
   return (

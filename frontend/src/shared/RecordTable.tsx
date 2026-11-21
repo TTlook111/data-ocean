@@ -1,9 +1,9 @@
-import { Button, Empty, Pagination, Result, Select, Table } from 'antd';
+import { Button, Empty, Pagination, Select, Table } from 'antd';
 import type { TableProps } from 'antd';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from './api';
-import { ReadFailure } from './Records';
+import { ReadAccessDenied, ReadFailure } from './Records';
 
 /**
  * 共用结果状态在表体内呈现，权限拒绝独立阻断受限结构与数量。
@@ -142,7 +142,7 @@ export function RecordTable<T extends object>({
 
   // 权限错误不展示受限列和数量，不冒充正常零结果。
   if (error instanceof ApiError && Math.floor(error.code / 1000) === 403)
-    return <Result status="403" title="当前无权查看这些记录" />;
+    return <ReadAccessDenied title="当前无权查看这些记录" />;
 
   // 空态与失败复用可见表体的占位，横向滚动不带走恢复入口。
   const empty = (

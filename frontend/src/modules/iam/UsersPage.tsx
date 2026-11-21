@@ -395,7 +395,7 @@ export function UsersPage() {
               width: 120,
               render: (value) => <Status value={value} />,
             },
-            { title: '更新时间', dataIndex: 'updatedAt', width: 185, render: displayTime },
+            { title: '更新时间', dataIndex: 'updatedAt', width: 160, render: displayTime },
             {
               title: '操作',
               className: 'record-actions-cell',

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from 'react';
-import { App, Avatar, Breadcrumb, Button, Layout, Menu, Result, Spin } from 'antd';
+import { App, Avatar, Breadcrumb, Button, Layout, Menu, Spin } from 'antd';
 import {
   ApartmentOutlined,
   AuditOutlined,
@@ -25,7 +25,7 @@ import {
 } from 'react-router';
 import { api, ApiError, resetCsrf } from '../shared/api';
 import { SessionContext } from '../shared/session';
-import { readErrorMessage } from '../shared/Records';
+import { ReadAccessDenied, readErrorMessage } from '../shared/Records';
 import { ActionMenuButton } from '../shared/ActionMenuButton';
 import type { Person, Session } from '../modules/iam/types';
 import { ConnectionFailure, NotFoundPage } from './StatusPage';
@@ -668,11 +668,9 @@ export function Application() {
             aria-label={creatingRole ? '新增角色' : editingRole ? '角色功能配置' : pageLabel}
           >
             {!granted ? (
-              <Result
-                status="403"
-                title="当前无权查看此页面"
-                extra={<Button onClick={() => navigate('/account')}>返回账号信息</Button>}
-              />
+              <ReadAccessDenied title="当前无权查看此页面">
+                <Button onClick={() => navigate('/account')}>返回账号信息</Button>
+              </ReadAccessDenied>
             ) : (
               <Suspense
                 fallback={

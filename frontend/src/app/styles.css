@@ -432,6 +432,17 @@ h3 {
   flex: 0 1 360px;
   min-width: min(100%, 220px);
 }
+/* 节点搜索优先承接余宽，模块枚举保留同类下拉框的宽度。 */
+.model-node-query form > .ant-form-item:first-child {
+  flex: 1 1 224px;
+  max-width: 360px;
+}
+/* 模块名和下拉箭头完整显示，超出的空间留在工具栏中。 */
+.model-node-query form > .model-node-module {
+  flex: 0 1 224px;
+  min-width: min(100%, 160px);
+  max-width: 240px;
+}
 
 /* 节点与所属模块沿用共用列表的双行排版。 */
 .model-node-name {
@@ -582,17 +593,15 @@ h3 {
 .records-panel .ant-table-header {
   flex: none;
 }
-/* 记录行维持原型的双行密度。 */
+/* 单行记录以 48px 为下限，双行内容和较高控件按实际内容撑开。 */
 .records-panel .ant-table-tbody > tr > td {
-  height: 64px;
+  height: 48px;
   padding: 12px 16px;
 }
-/* 表头与内容使用共同的阅读轴。 */
+/* 表头沿用组件主题的中性浅底，和记录共享阅读轴。 */
 .records-panel .ant-table-thead > tr > th {
   height: 48px;
   padding: 12px 16px;
-  background: #eff3f8;
-  color: #5b6575;
   font-weight: 500;
 }
 
@@ -638,6 +647,10 @@ h3 {
   width: min(100%, var(--record-state-width, 100%));
   min-height: 192px;
 }
+/* 空态文案和表头保持同档对比，空图不影响实际状态的辨识。 */
+.record-body-state .ant-empty-description {
+  color: var(--do-muted);
+}
 /* 内层状态自己负责留白，避免表格占位单元格再叠一份内距。 */
 .records-panel
   .ant-table-tbody
@@ -677,7 +690,7 @@ h3 {
   min-height: 64px;
   padding: 12px 24px;
   border-top: 1px solid #e5e7eb;
-  background: var(--do-subtle);
+  background: var(--do-panel);
 }
 /* 每页条数、翻页和跳转按原型从左到右排列。 */
 .record-pagination-controls {
@@ -742,7 +755,7 @@ h3 {
 /* 登录名、兼任等第二行信息使用统一次级文字。 */
 .table-secondary {
   display: block;
-  color: #5b6575;
+  color: var(--do-muted);
   font-size: 12px;
   line-height: 16px;
   overflow: hidden;
@@ -771,8 +784,9 @@ h3 {
   padding-inline: 8px;
   border-width: 0;
 }
-/* 操作单元格为按钮预留内距，文字起点与上方表头对齐。 */
+/* 操作单元格使用 32px 点击区和 8px 上下留白，单行记录保持紧凑。 */
 .records-panel .ant-table-tbody > tr > td.record-actions-cell {
+  padding-block: 8px;
   padding-inline-start: 16px;
 }
 /* 操作列表头优先于通用表头内距，补齐按钮的 8px，和实际文字起点重合。 */
@@ -887,8 +901,8 @@ h3 {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-/* 读取失败以紧凑的一组内容居中，标题、原因和恢复动作保持可达。 */
-.read-failure {
+/* 读取状态紧凑居中，保留页面或面板中的任务上下文。 */
+:is(.read-failure, .read-access-denied) {
   display: grid;
   justify-items: center;
   align-content: center;
@@ -898,8 +912,8 @@ h3 {
   padding: 24px;
   text-align: center;
 }
-/* 读取故障属于当前数据区域，不使用横跨面板的大红色横幅。 */
-.read-failure-icon {
+/* 权限与读取故障共用图标尺度，各自保留独立文字。 */
+.read-state-icon {
   display: grid;
   place-items: center;
   width: 40px;
@@ -915,12 +929,23 @@ h3 {
   max-width: 400px;
   overflow-wrap: anywhere;
 }
-/* 表格空态默认辅助色不应降低故障标题的可读性。 */
-.read-failure-copy h3 {
-  color: #1f2937;
+/* 状态标题在面板和表格占位内使用相同对比度。 */
+:is(.read-failure-copy, .read-access-denied) h3 {
+  color: var(--do-ink);
   font-size: 16px;
   font-weight: 600;
   line-height: 24px;
+}
+/* 页面级失权提供一个紧随状态的返回入口。 */
+.workspace > .read-access-denied {
+  min-height: 240px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
+}
+/* 返回按钮与状态说明留出一个紧凑的间隔。 */
+.read-access-denied > .ant-btn {
+  margin-block-start: 8px;
 }
 /* 原因与标题分层，但维持正文的可读尺度。 */
 .read-failure-copy p {
@@ -1788,7 +1813,8 @@ h3 {
 /* 受限身份仅展示必要登录名。 */
 .login-name {
   margin-bottom: 24px;
-  color: #5b6575;
+  color: var(--do-muted);
+  overflow-wrap: anywhere;
 }
 /* 登录名正文与标签分开。 */
 .login-name strong {

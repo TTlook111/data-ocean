@@ -422,6 +422,16 @@
   background: var(--do-subtle);
 }
 
+/* 空队列与单据区共享白色面板，保留原有分栏边界。 */
+.approval-queue:empty {
+  background: var(--do-panel);
+}
+
+/* 没有申请时保留与列表空态一致的文字对比度。 */
+.approval-document-empty .ant-empty-description {
+  color: var(--do-muted);
+}
+
 .approval-entry {
   display: grid;
   width: 100%;

@@ -12,7 +12,6 @@
   flex-wrap: wrap;
   gap: 8px 24px;
   padding: 12px 24px;
-  background: var(--do-subtle);
 }
 
 /* 源级操作始终与查询卡和分页的右边界对齐。 */

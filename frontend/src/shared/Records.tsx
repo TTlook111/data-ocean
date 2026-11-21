@@ -1,6 +1,6 @@
-import { Button, Empty, Result, Space, Spin, Tag } from 'antd';
+import { Button, Empty, Space, Spin, Tag } from 'antd';
 import type { ReactNode } from 'react';
-import { DisconnectOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DisconnectOutlined, LockOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ApiError } from './api';
 
 /**
@@ -62,7 +62,7 @@ export function ReadFailure({
 }) {
   return (
     <div className="read-failure" role="alert">
-      <span className="read-failure-icon" aria-hidden="true">
+      <span className="read-state-icon" aria-hidden="true">
         <DisconnectOutlined />
       </span>
       <div className="read-failure-copy">
@@ -75,6 +75,30 @@ export function ReadFailure({
           重新加载
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * 在当前读取位置说明无权访问，保持上下文与有权执行的返回操作。
+ */
+export function ReadAccessDenied({
+  title,
+  children,
+}: {
+  /** 就地标明被拒的页面或数据范围。 */
+  title: string;
+  /** 当前位置确实可用的返回入口。 */
+  children?: ReactNode;
+}) {
+  return (
+    <div className="read-access-denied" role="status">
+      {/* 文字说明访问结果，锁图标提供辅助识别。 */}
+      <span className="read-state-icon" aria-hidden="true">
+        <LockOutlined />
+      </span>
+      <h3>{title}</h3>
+      {children}
     </div>
   );
 }
@@ -97,7 +121,7 @@ export function ReadState({
 }) {
   // 详情失权与普通连接失败分别反馈，不渲染旧资料或正常空态。
   if (error instanceof ApiError && Math.floor(error.code / 1000) === 403) {
-    return <Result status="403" title="当前无权查看这些内容" />;
+    return <ReadAccessDenied title="当前无权查看这些内容" />;
   }
   if (error) {
     return <ReadFailure error={error} retry={retry} />;

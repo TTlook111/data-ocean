@@ -328,7 +328,7 @@ export function ModelPage() {
             children: (
               <>
                 {/* 节点查询沿用原型先编辑条件、再统一提交的交互。 */}
-                <div className="panel query-panel model-query">
+                <div className="panel query-panel model-query model-node-query">
                   <Form
                     layout="inline"
                     onFinish={() => {
@@ -345,7 +345,7 @@ export function ModelPage() {
                         onChange={(event) => setDraftNode(event.target.value)}
                       />
                     </Form.Item>
-                    <Form.Item>
+                    <Form.Item className="model-node-module">
                       <Select
                         aria-label="所属模块"
                         placeholder="所属模块"
