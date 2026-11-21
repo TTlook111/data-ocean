@@ -252,9 +252,14 @@ function DocumentEditor({
   function back() {
     if (releaseReturn && allowed(session, 'releases.view')) {
       // 候选修订属于发布办理的回看，返回时恢复其筛选和行内入口。
-      navigate('/releases' + releaseReturn.search, {
-        state: { releaseFocus: releaseReturn.focus },
-      });
+      navigate(
+        '/releases' +
+          (releaseReturn.candidateId ? '/' + releaseReturn.candidateId : '') +
+          releaseReturn.search,
+        {
+          state: { releaseFocus: releaseReturn.focus },
+        },
+      );
       return;
     }
     navigate('/knowledge' + listSearch, {
@@ -481,20 +486,30 @@ function DocumentEditor({
           >
             {tab === 'body' && section && (
               <div className="knowledge-reader">
-                {current.content.sections.length > 1 && (
-                  <nav aria-label="文档章节">
-                    {current.content.sections.map((item, index) => (
-                      <Button
-                        key={index}
-                        type="text"
-                        aria-current={chapterIndex === index ? 'true' : undefined}
-                        onClick={() => setChapter(index)}
-                      >
-                        {item.title}
-                      </Button>
-                    ))}
-                  </nav>
-                )}
+                <nav aria-label="文档章节及题单">
+                  {current.content.sections.map((item, index) => (
+                    <Button
+                      key={index}
+                      type="text"
+                      aria-current={chapterIndex === index ? 'true' : undefined}
+                      onClick={() => setChapter(index)}
+                    >
+                      {item.title}
+                    </Button>
+                  ))}
+                  {allowed(session, 'test-cases.view') && (
+                    <Button
+                      type="text"
+                      onClick={() =>
+                        navigate(
+                          '/test-cases?' + queryString({ source, documentId: current.document.id }),
+                        )
+                      }
+                    >
+                      相关标准题
+                    </Button>
+                  )}
+                </nav>
                 <section
                   className="knowledge-section knowledge-reading-section"
                   aria-label={section.title}
@@ -639,6 +654,7 @@ function DocumentEditor({
                             queryString({
                               source,
                               documentId: current.document.id,
+                              prepare: 1,
                             }),
                         )
                       }

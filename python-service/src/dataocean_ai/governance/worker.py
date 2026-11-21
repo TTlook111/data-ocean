@@ -17,6 +17,7 @@ from dataocean_ai.core.config import GovernanceSettings, Settings
 from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.governance.queue import QueueState, connection, stream, task_key
 from dataocean_ai.governance.table_description import GenerationResult, graph
+from dataocean_ai.knowledge.index import execute_index
 
 # 诊断只使用任务编号及稳定状态，不回显请求内容。
 logger = logging.getLogger(__name__)
@@ -51,6 +52,12 @@ def process(entry: dict[str, str], workflow, base: str) -> QueueState:
     task = entry["task"]
     run = int(entry["run"])
     try:
+        if entry.get("kind") == "knowledge":
+            # 当前工作者复用可靠队列与执行租约，成果使用知识构建自己的协议。
+            receipt = asyncio.run(execute_index(task, run, base))
+            return QueueState(
+                runVersion=run, state="SUCCEEDED", result=receipt.model_dump(by_alias=True)
+            )
         # 当前工作流在单次执行内完成。
         result = asyncio.run(execute_task(workflow, task, run, base))
         return QueueState(
@@ -58,11 +65,11 @@ def process(entry: dict[str, str], workflow, base: str) -> QueueState:
         )
     except ModelFailure as failure:
         # 受控诊断保留可核查状态。
-        logger.info("表说明生成未完成，task=%s，reason=%s", task, failure)
+        logger.info("AI 任务未完成，task=%s，reason=%s", task, failure)
         return QueueState(runVersion=run, state="FAILED", failureCode=str(failure))
     except Exception as error:
         # 最外层保留稳定故障和异常类别，避免任务持续重投或异常正文泄露。
-        logger.error("治理工作流异常，task=%s，type=%s", task, type(error).__name__)
+        logger.error("AI 工作流异常，task=%s，type=%s", task, type(error).__name__)
         return QueueState(runVersion=run, state="FAILED", failureCode="MODEL_FAILED")
 
 
@@ -73,7 +80,7 @@ def consume(
     持有当次执行租约时处理消息，保存结果后确认交付。
     """
     run = int(entry["run"])
-    job = task_key(entry["task"], run)
+    job = task_key(entry["task"], run, entry.get("kind", "governance"))
     token = uuid4().hex
     lease = client.lock(f"{job}:lease", timeout=LEASE_SECONDS, thread_local=False)
     if not lease.acquire(blocking=False, token=token):

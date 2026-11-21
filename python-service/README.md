@@ -1,6 +1,6 @@
 # DataOcean Python AI 工程
 
-正式包为 `src/dataocean_ai`，使用同一份 `pyproject.toml` 和 `uv.lock` 构建。版本与工具要求见[后端基线](../docs/backend/README.md#版本基线与验证边界)。内部 API 与表说明生成 Worker 共用此包，分进程运行。
+正式包为 `src/dataocean_ai`，使用同一份 `pyproject.toml` 和 `uv.lock` 构建。版本与工具要求见[后端基线](../docs/backend/README.md#版本基线与验证边界)。内部 API 与 AI Worker 共用此包，分进程运行。
 
 当前公共基线包括集中配置、UTC 日志、明确类型的普通 JSON 返回、校验后的 `X-Trace-Id` 诊断关联及可运行的 `/health`。健康接口只报告本进程可响应，不代表 Redis、Milvus、模型或执行器已经就绪；浏览器业务仍统一由 Java 提供，Python 不管理人员、角色或平台 MySQL 事实。
 
@@ -27,6 +27,8 @@
 ## 表说明和字段解释
 
 `dataocean_ai.governance` 通过 Redis Streams 接收表说明和单字段解释任务。LangGraph 编排固定目录、模型调用和建议校验，字段说明由 Agent 在当次获准证据内按需取证。API 和 Worker 分别由 `dataocean-ai-api`、`dataocean-ai-worker` 启动，模型回执经 Java 落库复核。
+
+`dataocean_ai.knowledge` 复用上述队列、租约及内部身份，按 Java 固定的确认片段构建独立索引。Worker 从 `AI_MILVUS_URI` 与 `AI_MILVUS_TOKEN` 读取获准存储连接，按 Strong 回读正文和治理修订后交付结果。模型由候选固定，真实向量配置从 Java 当次领取。
 
 在系统「模型配置」中新增模型，填写协议、服务 URL、型号和 API 凭据。保存后可在模型详情测试连接，或在「节点列表」给「表说明生成」分配模型。测试使用固定合成请求，结果绑定保存的配置修订。Java 接收任务时固定当次配置修订，并用 `dataocean.models.allowed-hosts` 核对部署允许的 HTTPS 服务。工作者外发前以当前任务和执行代次取得凭据，LangChain 适配器按当次协议调用。服务身份文件和模型凭据按[私有配置约定](../docs/architecture/认证与身份上下文.md#凭据注入与保存)维护。
 

@@ -37,7 +37,14 @@ import type { CollectionTask, SourceOption } from './types';
  * 采集记录和目录共用当前来源选择与 URL 状态。
  */
 export function useSourceSelection(
-  purpose: 'CATALOG' | 'COLLECTIONS' | 'BUSINESS_NOTES' | 'GOVERNANCE' | 'KNOWLEDGE' | 'TEST_CASES' | 'KNOWLEDGE_RELEASES',
+  purpose:
+    | 'CATALOG'
+    | 'COLLECTIONS'
+    | 'BUSINESS_NOTES'
+    | 'GOVERNANCE'
+    | 'KNOWLEDGE'
+    | 'TEST_CASES'
+    | 'KNOWLEDGE_RELEASES',
 ) {
   const [params, setParams] = useSearchParams();
   const sources = useQuery({
@@ -46,7 +53,9 @@ export function useSourceSelection(
   });
   const selected =
     sources.data?.find((source) => source.id === params.get('source')) ??
-    (['BUSINESS_NOTES', 'GOVERNANCE', 'KNOWLEDGE', 'TEST_CASES', 'KNOWLEDGE_RELEASES'].includes(purpose)
+    (['BUSINESS_NOTES', 'GOVERNANCE', 'KNOWLEDGE', 'TEST_CASES', 'KNOWLEDGE_RELEASES'].includes(
+      purpose,
+    )
       ? sources.data?.find((source) => source.lifecycle === 'ENABLED')
       : undefined) ??
     sources.data?.[0];
@@ -60,12 +69,15 @@ export function SourcePicker({
   sources,
   selected,
   choose,
+  withLabel = false,
 }: {
   sources?: SourceOption[];
   selected?: SourceOption;
   choose: (id: string) => void;
+  /** 有独立来源栏的页面沿用原型的明示来源标签。 */
+  withLabel?: boolean;
 }) {
-  return (
+  const picker = (
     <Select
       className="ds-source-picker"
       showSearch
@@ -78,6 +90,14 @@ export function SourcePicker({
       options={sources?.map((source) => ({ value: source.id, label: source.name })) ?? []}
       onChange={choose}
     />
+  );
+  return withLabel ? (
+    <div className="ds-source-context">
+      <span>当前数据源</span>
+      {picker}
+    </div>
+  ) : (
+    picker
   );
 }
 
@@ -267,6 +287,7 @@ export function CollectionPage() {
       {/* 来源、记录查询及主要操作沿用同一工作区。 */}
       <div className="panel ds-toolbar">
         <SourcePicker
+          withLabel
           sources={sources.data}
           selected={selected}
           choose={(source) => {

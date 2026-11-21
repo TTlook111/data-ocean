@@ -6,6 +6,39 @@ export type ReleaseRevisionReturn = {
   search: string;
   /** 返回后需要恢复焦点的触发按钮。 */
   focus: string;
+  /** 从任务详情打开时返回该任务。 */
+  candidateId?: string;
+};
+
+/** 候选同时作为构建的固定业务对象。 */
+export type ReleaseCandidate = {
+  /** 候选稳定身份。 */
+  id: string;
+  /** 冻结时的文档名称。 */
+  title: string;
+  /** 按候选真实归属定位冻结文档。 */
+  documentId: string;
+  /** 依据的正式绑定，首版为空。 */
+  baseBindingId: string | null;
+  /** 固定正文及治理引用。 */
+  documentRevisionId: string;
+  /** 固定输入的服务端摘要。 */
+  fingerprint: string;
+  /** 聚合并发版本。 */
+  version: number;
+  /** 当前持久业务阶段。 */
+  status: 'PREPARED' | 'BUILDING' | 'BUILD_FAILED' | 'READY_FOR_VALIDATION' | 'CANCELED';
+  /** 候选准备完成时间。 */
+  createdAt: string;
+};
+
+/** 只报告已经实现且可回读的发布阶段。 */
+export const releaseStates: Record<ReleaseCandidate['status'], string> = {
+  PREPARED: '待构建',
+  BUILDING: '构建中',
+  BUILD_FAILED: '构建失败',
+  READY_FOR_VALIDATION: '待验证',
+  CANCELED: '已取消',
 };
 
 /** 知识引用还包括具备正式审核修订的关联与指标。 */

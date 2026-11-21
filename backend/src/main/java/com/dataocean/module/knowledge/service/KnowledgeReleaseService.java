@@ -19,5 +19,5 @@ public interface KnowledgeReleaseService {
     /**
      * 以稳定排序返回同源文档已有的候选。
      */
-    PageVO<KnowledgeReleaseCandidateVO> list(long source, long document, PageQuery page);
+    PageVO<KnowledgeReleaseCandidateVO> list(long source, Long document, String keyword, String status, PageQuery page);
 }

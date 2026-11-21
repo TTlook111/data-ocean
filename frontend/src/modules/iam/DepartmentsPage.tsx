@@ -281,6 +281,13 @@ export function DepartmentsPage() {
   const canAddMember =
     department?.lifecycle === 'ENABLED' && allowed(session, 'departments.add-member');
   const canAddChild = department?.lifecycle === 'ENABLED' && allowed(session, 'departments.create');
+  // 同一操作在宽页签栏或窄内容区呈现，权限与处理入口保持一致。
+  const addMemberButton = canAddMember && (
+    <Button onClick={() => setAction({ name: 'secondary-members' })}>加入成员</Button>
+  );
+  const childAction = canAddChild && (
+    <Button onClick={() => setEditor({ department: null, parentId: selected })}>新增子部门</Button>
+  );
 
   // 页签内放置当前业务的操作，窄面板能同时显示所有页签和完整查询条件。
   const memberContent = (
@@ -296,9 +303,7 @@ export function DepartmentsPage() {
               { label: '仅直属', value: 'false' },
             ]}
           />
-          {canAddMember && (
-            <Button onClick={() => setAction({ name: 'secondary-members' })}>加入成员</Button>
-          )}
+          {canAddMember && <span className="department-compact-action">{addMemberButton}</span>}
         </div>
         <Form
           name="department-members-query"
@@ -636,6 +641,13 @@ export function DepartmentsPage() {
               className="department-tabs"
               activeKey={tab}
               onChange={(key) => updateQuery({ tab: key })}
+              tabBarExtraContent={
+                tab !== 'template' && (
+                  <span className="department-wide-action">
+                    {tab === 'members' ? addMemberButton : childAction}
+                  </span>
+                )
+              }
               items={[
                 { key: 'members', label: '成员', children: memberContent },
                 {
@@ -644,12 +656,8 @@ export function DepartmentsPage() {
                   children: (
                     <>
                       {canAddChild && (
-                        <div className="department-child-actions">
-                          <Button
-                            onClick={() => setEditor({ department: null, parentId: selected })}
-                          >
-                            新增子部门
-                          </Button>
+                        <div className="department-child-actions department-compact-action">
+                          {childAction}
                         </div>
                       )}
                       {childContent}

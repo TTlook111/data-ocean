@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Descriptions, Drawer } from 'antd';
+import { Button, Descriptions, Drawer, Tabs } from 'antd';
 import type { TableProps } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { api, queryString } from '../../shared/api';
@@ -145,6 +145,16 @@ export function ModelCallsPage() {
   ];
   return (
     <section className="record-page" aria-label="调用记录与故障">
+      {/* 已接入的调用记录独立成页签，配置变更和全局测试记录仍需业务接入。 */}
+      <Tabs
+        className="model-call-tabs"
+        activeKey="calls"
+        items={[
+          { key: 'calls', label: '调用记录' },
+          { key: 'connection', label: '连接测试', disabled: true },
+          { key: 'revisions', label: '配置变更', disabled: true },
+        ]}
+      />
       {/* 诊断列表使用共用分页和空态。 */}
       <div className="panel records-panel">
         <RecordTable

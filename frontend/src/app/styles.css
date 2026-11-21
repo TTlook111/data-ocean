@@ -403,7 +403,8 @@ h3 {
 }
 
 /* 模型列表和节点列表共用原型的紧凑页签工具条。 */
-.model-tabs > .ant-tabs-nav {
+.model-tabs > .ant-tabs-nav,
+.model-call-tabs > .ant-tabs-nav {
   flex: none;
   margin: 0 0 24px;
   padding: 0 16px;
@@ -411,20 +412,25 @@ h3 {
   border-radius: 8px;
   background: white;
 }
-
-/* 查询和新增位于同一操作区，给门类页签留出宽度。 */
-.model-tabs .ant-input-search {
-  width: clamp(132px, 22vw, 260px);
+/* 调用、测试与配置历史沿原型共享顶部导航位置。 */
+.model-call-tabs {
+  flex: none;
+}
+.model-call-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
 }
 
-/* 十八节点的查询与模块筛选并列，宽度为治理详情保留稳定的桌面尺度。 */
-.model-node-filters .ant-input-affix-wrapper {
-  width: 176px;
+/* 按原型独立显示模型条件，结果和分页共用下方卡片。 */
+.model-tabs .ant-tabs-content-active {
+  gap: 24px;
 }
-
-/* 所属模块的中文长名称可完整阅读。 */
-.model-node-filters .ant-select {
-  width: 132px;
+.model-query form > .ant-space {
+  margin-inline-start: auto;
+}
+/* 单个名称条件维持正常阅读宽度，不扩成整条空输入。 */
+.model-query form > .ant-form-item:first-child {
+  flex: 0 1 360px;
+  min-width: min(100%, 220px);
 }
 
 /* 节点与所属模块沿用共用列表的双行排版。 */
@@ -1063,12 +1069,19 @@ h3 {
 .account-section:last-child {
   border-bottom: 0;
 }
-/* 资料标签保持原型 88px 预算。 */
+/* 宽桌面按原型将标签和值放在同一行。 */
 .account-fields > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  align-items: start;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+/* 窄窗保留完整标签和值，允许上下排列。 */
+@media (max-width: 1040px) {
+  .account-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 /* 资料组各行保留清楚的阅读间隔。 */
 .account-fields dt {
@@ -1291,6 +1304,11 @@ h3 {
   padding: 16px 24px;
   border-bottom: 1px solid #e5e7eb;
 }
+
+/* 宽区沿用原型页签右侧操作；窄区把操作放到选中页签内容中。 */
+.department-compact-action {
+  display: none;
+}
 /* 工具栏内筛选不再叠加一份内距和边框。 */
 .member-tools .member-query {
   flex: 1;
@@ -1319,6 +1337,12 @@ h3 {
 }
 /* 狭窄的详情面板给搜索输入留出整行，避免操作组覆盖输入或被侧边裁切。 */
 @container department-content (max-width: 540px) {
+  .department-wide-action {
+    display: none;
+  }
+  .department-compact-action {
+    display: flex;
+  }
   .department-profile {
     padding: 16px;
   }
@@ -1389,7 +1413,7 @@ h3 {
 .role-editor-info {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 388px));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
   padding: 24px;
   border: 1px solid #e5e7eb;

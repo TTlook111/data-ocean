@@ -18,6 +18,11 @@ router = APIRouter(
     dependencies=[Depends(verify_java)],
 )
 
+# 知识构建沿用同一可靠投递机制，独立保留名空间和类型标识。
+knowledge_router = APIRouter(
+    prefix="/internal/v1/tasks/knowledge", dependencies=[Depends(verify_java)]
+)
+
 
 class QueueState(BaseModel):
     """供 Java 回读的执行状态与实际模型结果。"""
@@ -58,15 +63,27 @@ def stream() -> str:
     return prefix() + ":tasks"
 
 
-def task_key(task: UUID | str, run: int) -> str:
+def task_key(task: UUID | str, run: int, kind: str = "governance") -> str:
     """接收重发沿用同一任务和执行代次。"""
-    return f"{prefix()}:task:{task}:{run}"
+    family = "task" if kind == "governance" else "knowledge-task"
+    return f"{prefix()}:{family}:{task}:{run}"
 
 
 @router.put("/{task}/{run}", response_model=QueueState)
 def enqueue(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
     """实际接收记录与入队用同一 Redis 事务保存。"""
-    key = task_key(task, run)
+    return enqueue_work(task, run, "governance")
+
+
+@knowledge_router.put("/{task}/{run}", response_model=QueueState)
+def enqueue_knowledge(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
+    """以固定任务类型接收或回读知识构建。"""
+    return enqueue_work(task, run, "knowledge")
+
+
+def enqueue_work(task: UUID, run: int, kind: str) -> QueueState:
+    """同一编号和类型的重投只回读原有状态。"""
+    key = task_key(task, run, kind)
     try:
         # WATCH 保持同一请求代次在并发重发中只有一笔实际消息。
         client = connection()
@@ -81,7 +98,7 @@ def enqueue(task: UUID, run: Annotated[int, Path(ge=1)]) -> QueueState:
                     pending = QueueState(runVersion=run, state="QUEUED")
                     pipe.multi()
                     pipe.set(key, pending.model_dump_json(), ex=3600)
-                    pipe.xadd(stream(), {"task": str(task), "run": str(run)})
+                    pipe.xadd(stream(), {"task": str(task), "run": str(run), "kind": kind})
                     pipe.execute()
                     return pending
             except WatchError:

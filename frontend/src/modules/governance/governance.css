@@ -667,3 +667,9 @@
     position: static;
   }
 }
+/* 来源辅助入口靠在选择器下方，保持原型的工作台定位。 */
+.gov-source-navigation {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}

@@ -32,7 +32,11 @@ export function GovernanceDetailPage() {
     enabled: Boolean(source && id),
   });
   const initial = object.data?.nextPendingTarget;
-  const choice = params.get('entry') ?? (initial?.kind === 'COLUMN' ? initial.targetId : 'table');
+  // 明确选择表说明时不能被当前待办字段抢占，否则会在表说明页编辑字段。
+  const choice =
+    params.get('section') === 'table'
+      ? 'table'
+      : (params.get('entry') ?? (initial?.kind === 'COLUMN' ? initial.targetId : 'table'));
   const tab = params.get('section') ?? (choice === 'table' ? 'table' : 'columns');
   const discoveryKind = tab === 'relations' ? 'RELATION' : tab === 'metrics' ? 'METRIC' : undefined;
   const key = choice === 'table' ? 'TABLE/' + id : 'COLUMN/' + choice;
@@ -72,6 +76,14 @@ export function GovernanceDetailPage() {
    * 返回位置由工作台的原筛选和实际对象定位。
    */
   function back() {
+    const catalog = state as { catalogSearch?: string; catalogRow?: string } | null;
+    if (catalog?.catalogSearch && allowed(session, 'catalog.view')) {
+      // 从目录治理回到原来源的同一筛选和对象位置。
+      navigate('/catalog' + catalog.catalogSearch, {
+        state: { catalogReturnTo: catalog.catalogRow },
+      });
+      return;
+    }
     const previous = (state as { listSearch?: string } | null)?.listSearch;
     const fallback = new URLSearchParams(params);
     fallback.delete('entry');
@@ -207,17 +219,24 @@ export function GovernanceDetailPage() {
               {object.data.pendingFactCount > 0 && (
                 <Tag color="orange">来源事实待核实 {object.data.pendingFactCount} 项</Tag>
               )}
-              {(currentBatch || object.data.tableEntry.actions.canSuggest) && (
-                <Space wrap>
-                  {suggestReason && <small>{suggestReason}</small>}
-                  <Button
-                    disabled={Boolean(suggestReason && !currentBatch)}
-                    onClick={() => setBatchOpen(true)}
-                  >
-                    {currentBatch ? '批量生成结果' : '批量生成 AI 建议'}
+              <Space wrap>
+                {(currentBatch || object.data.tableEntry.actions.canSuggest) && (
+                  <>
+                    {suggestReason && <small>{suggestReason}</small>}
+                    <Button
+                      disabled={Boolean(suggestReason && !currentBatch)}
+                      onClick={() => setBatchOpen(true)}
+                    >
+                      {currentBatch ? '批量生成结果' : '批量生成 AI 建议'}
+                    </Button>
+                  </>
+                )}
+                {source && allowed(session, 'knowledge.view') && (
+                  <Button onClick={() => navigate('/knowledge?' + queryString({ source }))}>
+                    知识文档
                   </Button>
-                </Space>
-              )}
+                )}
+              </Space>
             </header>
             {/* 关闭弹窗后可在当前详情重新打开已接收批次。 */}
             {batchOpen && (

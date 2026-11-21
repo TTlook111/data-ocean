@@ -50,6 +50,8 @@ export function ModelPage() {
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
   const [nodeKeyword, setNodeKeyword] = useState(params.get('node') ?? '');
   const [nodeModule, setNodeModule] = useState<string>();
+  const [draftNode, setDraftNode] = useState(params.get('node') ?? '');
+  const [draftModule, setDraftModule] = useState<string>();
   const models = useQuery({
     queryKey: ['models', 'list', paging, keyword],
     queryFn: () => api<Page<ModelConfig>>(`/models?${queryString({ ...paging, keyword })}`),
@@ -241,51 +243,17 @@ export function ModelPage() {
 
   return (
     <section className="record-page" aria-label="模型配置">
-      {/* 两个工作区共享页签，模型查询和新增仅在列表提供。 */}
+      {/* 两个工作区共享顶部页签，筛选栏独立占一行。 */}
       <Tabs
         className="model-tabs"
         activeKey={tab}
         onChange={setTab}
         tabBarExtraContent={
-          tab === 'models' ? (
-            <Space>
-              <Input.Search
-                aria-label="配置名称"
-                placeholder="配置名称"
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                allowClear
-                onSearch={(value) => {
-                  // 换查询条件时保留每页量并回到第一页。
-                  setKeyword(value.trim());
-                  setPaging({ ...paging, pageNum: 1 });
-                }}
-              />
-              {allowed(session, 'models.create') && (
-                <Button type="primary" onClick={() => setEditor('new')}>
-                  新增模型
-                </Button>
-              )}
-            </Space>
-          ) : (
-            <Space className="model-node-filters">
-              {/* 节点规模有限，搜索结果直接响应输入。 */}
-              <Input
-                aria-label="节点名称或用途"
-                placeholder="节点名称或用途"
-                allowClear
-                value={nodeKeyword}
-                onChange={(event) => setNodeKeyword(event.target.value)}
-              />
-              <Select
-                aria-label="所属模块"
-                placeholder="所属模块"
-                allowClear
-                value={nodeModule}
-                onChange={setNodeModule}
-                options={nodeGroups.map((name) => ({ value: name, label: name }))}
-              />
-            </Space>
+          tab === 'models' &&
+          allowed(session, 'models.create') && (
+            <Button type="primary" onClick={() => setEditor('new')}>
+              新增模型
+            </Button>
           )
         }
         items={[
@@ -293,60 +261,141 @@ export function ModelPage() {
             key: 'models',
             label: '模型列表',
             children: (
-              <section className="panel records-panel" aria-label="模型列表">
-                {/* 模型配置结果与真实分页保持在同一面板。 */}
-                <RecordTable
-                  rowKey="id"
-                  columns={modelColumns}
-                  dataSource={models.data?.items}
-                  loading={models.isPending}
-                  error={models.error}
-                  retry={() => void models.refetch()}
-                  filtered={Boolean(keyword)}
-                  onReset={() => {
-                    // 清空在用关键词和输入框，并从第一页重查。
-                    setSearchInput('');
-                    setKeyword('');
-                    setPaging((current) => ({ ...current, pageNum: 1 }));
-                  }}
-                  emptyDescription="暂无模型配置"
-                  pagination={{
-                    current: models.data?.pageNum ?? paging.pageNum,
-                    pageSize: paging.pageSize,
-                    total: models.data?.total,
-                    onChange: (pageNum, pageSize) => setPaging({ pageNum, pageSize }),
-                  }}
-                />
-              </section>
+              <>
+                {/* 配置名称保留真实服务端查询，重置后返回首面。 */}
+                <div className="panel query-panel model-query">
+                  <Form
+                    layout="inline"
+                    onFinish={() => {
+                      setKeyword(searchInput.trim());
+                      setPaging((current) => ({ ...current, pageNum: 1 }));
+                    }}
+                  >
+                    <Form.Item>
+                      <Input
+                        aria-label="配置名称"
+                        placeholder="配置名称"
+                        allowClear
+                        value={searchInput}
+                        onChange={(event) => setSearchInput(event.target.value)}
+                      />
+                    </Form.Item>
+                    <Space>
+                      <Button htmlType="submit">查询</Button>
+                      <Button
+                        onClick={() => {
+                          setKeyword('');
+                          setSearchInput('');
+                          setPaging((current) => ({ ...current, pageNum: 1 }));
+                        }}
+                      >
+                        重置
+                      </Button>
+                    </Space>
+                  </Form>
+                </div>
+                <section className="panel records-panel" aria-label="模型列表">
+                  {/* 模型配置结果与真实分页保持在同一面板。 */}
+                  <RecordTable
+                    rowKey="id"
+                    columns={modelColumns}
+                    dataSource={models.data?.items}
+                    loading={models.isPending}
+                    error={models.error}
+                    retry={() => void models.refetch()}
+                    filtered={Boolean(keyword)}
+                    onReset={() => {
+                      // 清空在用关键词和输入框，并从第一页重查。
+                      setSearchInput('');
+                      setKeyword('');
+                      setPaging((current) => ({ ...current, pageNum: 1 }));
+                    }}
+                    emptyDescription="暂无模型配置"
+                    pagination={{
+                      current: models.data?.pageNum ?? paging.pageNum,
+                      pageSize: paging.pageSize,
+                      total: models.data?.total,
+                      onChange: (pageNum, pageSize) => setPaging({ pageNum, pageSize }),
+                    }}
+                  />
+                </section>
+              </>
             ),
           },
           {
             key: 'nodes',
             label: '节点列表',
             children: (
-              <section className="panel records-panel" aria-label="节点列表">
-                {/* 节点表直接承接独立分配，没有额外的保存步骤。 */}
-                <RecordTable
-                  rowKey="code"
-                  columns={nodeColumns}
-                  dataSource={visibleNodes}
-                  filtered={Boolean(nodeKeyword || nodeModule)}
-                  onReset={() => {
-                    // 清空客户端节点筛选，不影响已保存模型分配。
-                    setNodeKeyword('');
-                    setNodeModule(undefined);
-                  }}
-                  loading={nodes.isPending}
-                  error={nodes.error ?? options.error}
-                  retry={() => {
-                    // 节点与下拉选项从独立接口回读。
-                    void nodes.refetch();
-                    void options.refetch();
-                  }}
-                  pagination={false}
-                  scroll={{ x: 640, y: '100%' }}
-                />
-              </section>
+              <>
+                {/* 节点查询沿用原型先编辑条件、再统一提交的交互。 */}
+                <div className="panel query-panel model-query">
+                  <Form
+                    layout="inline"
+                    onFinish={() => {
+                      setNodeKeyword(draftNode);
+                      setNodeModule(draftModule);
+                    }}
+                  >
+                    <Form.Item>
+                      <Input
+                        aria-label="节点名称或用途"
+                        placeholder="节点名称或用途"
+                        allowClear
+                        value={draftNode}
+                        onChange={(event) => setDraftNode(event.target.value)}
+                      />
+                    </Form.Item>
+                    <Form.Item>
+                      <Select
+                        aria-label="所属模块"
+                        placeholder="所属模块"
+                        allowClear
+                        value={draftModule}
+                        onChange={setDraftModule}
+                        options={nodeGroups.map((name) => ({ value: name, label: name }))}
+                      />
+                    </Form.Item>
+                    <Space>
+                      <Button htmlType="submit">查询</Button>
+                      <Button
+                        onClick={() => {
+                          setDraftNode('');
+                          setDraftModule(undefined);
+                          setNodeKeyword('');
+                          setNodeModule(undefined);
+                        }}
+                      >
+                        重置
+                      </Button>
+                    </Space>
+                  </Form>
+                </div>
+                <section className="panel records-panel" aria-label="节点列表">
+                  {/* 节点表直接承接独立分配，没有额外的保存步骤。 */}
+                  <RecordTable
+                    rowKey="code"
+                    columns={nodeColumns}
+                    dataSource={visibleNodes}
+                    filtered={Boolean(nodeKeyword || nodeModule)}
+                    onReset={() => {
+                      // 清空客户端节点筛选，不影响已保存模型分配。
+                      setNodeKeyword('');
+                      setNodeModule(undefined);
+                      setDraftNode('');
+                      setDraftModule(undefined);
+                    }}
+                    loading={nodes.isPending}
+                    error={nodes.error ?? options.error}
+                    retry={() => {
+                      // 节点与下拉选项从独立接口回读。
+                      void nodes.refetch();
+                      void options.refetch();
+                    }}
+                    pagination={false}
+                    scroll={{ x: 640, y: '100%' }}
+                  />
+                </section>
+              </>
             ),
           },
         ]}

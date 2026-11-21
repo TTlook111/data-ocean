@@ -68,17 +68,37 @@ export function KnowledgePage() {
 
   return (
     <main className="record-page" aria-label="知识文档">
-      <div className="panel query-panel compact-query knowledge-toolbar knowledge-documents-toolbar">
+      {/* 按原型先选来源及办理入口，再在下方查询文档。 */}
+      <div className="panel ds-toolbar knowledge-source-toolbar">
+        <SourcePicker withLabel sources={sources.data} selected={selected} choose={reset} />
+        <Space size={8} wrap>
+          {source && allowed(session, 'governance.view') && (
+            <Button onClick={() => navigate('/governance?' + queryString({ source }))}>
+              查看治理依据
+            </Button>
+          )}
+          {source && allowed(session, 'knowledge.edit') && (
+            <Button
+              id="knowledge-open-new"
+              type="primary"
+              icon={<PlusOutlined aria-hidden="true" />}
+              disabled={selected.lifecycle !== 'ENABLED'}
+              onClick={() => open('new')}
+            >
+              新增文档
+            </Button>
+          )}
+        </Space>
+      </div>
+      <div className="panel query-panel knowledge-list-filters">
         <Form
           form={form}
-          className="knowledge-document-query"
           layout="inline"
           initialValues={{ keyword }}
           onFinish={(input) =>
             setParams(queryString({ source, keyword: input.keyword?.trim(), pageSize: size }))
           }
         >
-          <SourcePicker sources={sources.data} selected={selected} choose={reset} />
           <Form.Item name="keyword">
             <Input
               id="knowledge-search"
@@ -89,7 +109,7 @@ export function KnowledgePage() {
               disabled={!source}
             />
           </Form.Item>
-          <Space className="knowledge-list-query-actions">
+          <Space>
             <Button htmlType="submit" disabled={!source}>
               查询
             </Button>
@@ -97,19 +117,6 @@ export function KnowledgePage() {
               重置
             </Button>
           </Space>
-          {source && allowed(session, 'knowledge.edit') && (
-            <Button
-              id="knowledge-open-new"
-              className="knowledge-create-document"
-              htmlType="button"
-              type="primary"
-              icon={<PlusOutlined aria-hidden="true" />}
-              disabled={selected.lifecycle !== 'ENABLED'}
-              onClick={() => open('new')}
-            >
-              新增文档
-            </Button>
-          )}
         </Form>
       </div>
       <ReadState

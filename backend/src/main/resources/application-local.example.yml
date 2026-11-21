@@ -61,5 +61,8 @@ dataocean:
 #     java-private-key-file: ../.dataocean/java-private.pem
 #     java-public-key-file: ../.dataocean/java-public.pem
 #     python-public-key-file: ../.dataocean/python-public.pem
+#   knowledge-index:
+#     model-source-ids: '填已获准外发确认知识的来源编号'
+#     collection-prefix: dataocean_kn
 #   models:
 #     allowed-hosts: 'maas.qianwenaiapi.com,dashscope.aliyuncs.com,api.openai.com,api.anthropic.com'

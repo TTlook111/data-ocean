@@ -107,11 +107,27 @@ export function CatalogPage() {
     form.focusField('objectKeyword');
   }
 
+  // 目录与变化的页签承载结果，源级采集与切源保持在独立工具栏。
+  const navigation = selected && allowed(session, 'collections.view') && (
+    <Tabs
+      className="ds-catalog-tabs"
+      activeKey={tab}
+      onChange={(next) =>
+        setParams({ source: selected.id, ...(next === 'changes' ? { tab: next } : {}) })
+      }
+      items={[
+        { key: 'objects', label: '元数据目录' },
+        { key: 'changes', label: '结构变化' },
+      ]}
+    />
+  );
+
   return (
     <section className="record-page" aria-label="元数据目录">
       {/* 来源选择、首次采集和目录页签保持紧凑。 */}
       <div className="panel ds-toolbar ds-catalog-toolbar">
         <SourcePicker
+          withLabel
           sources={sources.data}
           selected={selected}
           choose={(source) => {
@@ -126,24 +142,8 @@ export function CatalogPage() {
             setParams({ source, ...(tab === 'changes' ? { tab } : {}) });
           }}
         />
-        <div className="ds-catalog-operations">
-          {/* 页签紧邻所属数据源，源级采集按钮统一靠右。 */}
-          {selected && allowed(session, 'collections.view') && (
-            <Tabs
-              className="ds-catalog-tabs"
-              activeKey={tab}
-              onChange={(next) =>
-                setParams({
-                  source: selected?.id ?? '',
-                  ...(next === 'changes' ? { tab: next } : {}),
-                })
-              }
-              items={[
-                { key: 'objects', label: '元数据目录' },
-                { key: 'changes', label: '结构变化' },
-              ]}
-            />
-          )}
+        <Space size={12} wrap>
+          {selected && <DatasourceStatus value={selected.lifecycle} />}
           {selected?.lifecycle === 'ENABLED' && allowed(session, 'collections.collect') && (
             <Button
               type="primary"
@@ -153,7 +153,7 @@ export function CatalogPage() {
               {catalog.data && !catalog.data.currentSnapshotId ? '发起首次采集' : '发起采集'}
             </Button>
           )}
-        </div>
+        </Space>
       </div>
       <ReadState
         error={sources.error}
@@ -162,7 +162,7 @@ export function CatalogPage() {
       >
         {!selected && <SourceUnavailable />}
         {selected && tab === 'changes' && (
-          <StructureChanges key={selected.id} source={selected.id} />
+          <StructureChanges key={selected.id} source={selected.id} navigation={navigation} />
         )}
         {selected && tab === 'objects' && (
           <>
@@ -225,6 +225,7 @@ export function CatalogPage() {
               </Form>
             </div>
             <section className="panel records-panel" aria-label="目录对象列表">
+              {navigation}
               <RecordTable<CatalogRecord>
                 dataSource={catalog.data?.page.items}
                 loading={catalog.isPending}
@@ -300,13 +301,41 @@ export function CatalogPage() {
                   },
                   {
                     title: '操作',
-                    width: 115,
+                    width: allowed(session, 'governance.view') ? 158 : 115,
                     fixed: 'right',
                     className: 'record-actions-cell',
                     render: (_, item) => (
-                      <Button type="link" onClick={() => openObject(item)}>
-                        查看结构
-                      </Button>
+                      <Space size={8}>
+                        <Button type="link" onClick={() => openObject(item)}>
+                          查看结构
+                        </Button>
+                        {item.objectId && allowed(session, 'governance.view') && (
+                          <Button
+                            type="link"
+                            onClick={() =>
+                              navigate(
+                                '/governance/' +
+                                  item.objectId +
+                                  '?' +
+                                  queryString({ source: selected.id }),
+                                {
+                                  state: {
+                                    catalogSearch:
+                                      '?' +
+                                      queryString({
+                                        ...Object.fromEntries(params),
+                                        source: selected.id,
+                                      }),
+                                    catalogRow: item.observationId,
+                                  },
+                                },
+                              )
+                            }
+                          >
+                            治理
+                          </Button>
+                        )}
+                      </Space>
                     ),
                   },
                 ]}
@@ -373,7 +402,7 @@ export function CatalogObjectPage() {
         retry={() => void detail.refetch()}
       >
         {detail.data && (
-          <>
+          <article className="panel ds-object-content">
             {/* 对象身份、状态和对象级操作共用一行，完整名称可自然换行。 */}
             <header className="ds-object-header">
               <div className="ds-object-identity">
@@ -557,7 +586,7 @@ export function CatalogObjectPage() {
                 },
               ]}
             />
-          </>
+          </article>
         )}
       </ReadState>
     </section>

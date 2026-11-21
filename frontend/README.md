@@ -61,7 +61,7 @@
 
 ### 知识文档与发布准备
 
-[modules/knowledge](src/modules/knowledge) 提供知识文档、标准题和发布准备。选择同一数据源，编辑或确认实际文档修订。核对题单和模型前置通过后，可创建并回读待构建的发布候选。当前验收见[D 批首个事项](../docs/backend/knowledge/验收.md)。
+[modules/knowledge](src/modules/knowledge) 提供知识文档、标准题、发布准备和任务详情。任务详情沿用原型的阶段轨道、本批文档与修订、处理记录和底部操作，支持开始构建、回读、重试和取消。当前验收见[D 批首个事项](../docs/backend/knowledge/验收.md)。
 
 ### 共用组件与请求
 

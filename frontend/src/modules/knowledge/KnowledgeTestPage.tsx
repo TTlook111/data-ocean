@@ -123,43 +123,49 @@ export function KnowledgeTestPage() {
 
   return (
     <main className="record-page" aria-label="标准题单">
-      <div className="panel query-panel knowledge-context-toolbar">
-        <SourcePicker
-          sources={sources.data}
-          selected={selected}
-          choose={(next) => {
-            // 记录及筛选始终属于一个数据源。
-            setParams(queryString({ source: next, pageSize: size }));
-          }}
-        />
-        <div className="knowledge-context-controls">
-          <Select
-            aria-label="关联文档"
-            className="knowledge-document-select"
-            showSearch={{ optionFilterProp: 'label' }}
-            placeholder="全部文档"
-            allowClear
-            value={documentFilter}
-            options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
-            loading={documents.isPending && Boolean(source)}
-            disabled={!docChoices.length}
-            onChange={(documentId) =>
-              setParams(queryString({ source, documentId, pageSize: size }))
-            }
-          />
-          {source && allowed(session, 'test-cases.edit') && (
-            <Button
-              id="knowledge-test-open-new"
-              type={open ? 'default' : 'primary'}
-              icon={<PlusOutlined aria-hidden="true" />}
-              onClick={() => openTest('new')}
-              disabled={!docChoices.length || selected.lifecycle !== 'ENABLED'}
-            >
-              新增标准题
-            </Button>
-          )}
-        </div>
-      </div>
+      {!open && (
+        <>
+          {/* 概览页使用原型的来源、主操作和独立文档筛选。 */}
+          <div className="panel ds-toolbar knowledge-source-toolbar">
+            <SourcePicker
+              withLabel
+              sources={sources.data}
+              selected={selected}
+              choose={(next) => {
+                // 记录及筛选始终属于一个数据源。
+                setParams(queryString({ source: next, pageSize: size }));
+              }}
+            />
+            {source && allowed(session, 'test-cases.edit') && (
+              <Button
+                id="knowledge-test-open-new"
+                type="primary"
+                icon={<PlusOutlined aria-hidden="true" />}
+                onClick={() => openTest('new')}
+                disabled={!docChoices.length || selected.lifecycle !== 'ENABLED'}
+              >
+                新增标准题
+              </Button>
+            )}
+          </div>
+          <div className="panel query-panel">
+            <Select
+              aria-label="关联文档"
+              className="knowledge-document-select"
+              showSearch={{ optionFilterProp: 'label' }}
+              placeholder="全部文档"
+              allowClear
+              value={documentFilter}
+              options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
+              loading={documents.isPending && Boolean(source)}
+              disabled={!docChoices.length}
+              onChange={(documentId) =>
+                setParams(queryString({ source, documentId, pageSize: size }))
+              }
+            />
+          </div>
+        </>
+      )}
       <ReadState
         error={sources.error}
         loading={sources.isPending}
@@ -231,6 +237,7 @@ export function KnowledgeTestPage() {
                     <TestEditor
                       key={source + ':' + open}
                       source={source}
+                      sourceName={selected.name}
                       id={open}
                       documents={docChoices}
                       preferredDocument={documentFilter}
@@ -315,6 +322,7 @@ export function KnowledgeTestPage() {
 /** 读取当前题目并以实际修订初始化编辑区。 */
 function TestEditor({
   source,
+  sourceName,
   id,
   documents,
   preferredDocument,
@@ -322,6 +330,8 @@ function TestEditor({
   close,
 }: {
   source: string;
+  /** 独立详情显示来源而不重新展示列表选择器。 */
+  sourceName: string;
   id: string;
   preferredDocument?: string;
   documents: { id: string; title: string; revisionId: string }[];
@@ -341,6 +351,7 @@ function TestEditor({
     return (
       <TestForm
         source={source}
+        sourceName={sourceName}
         path={path}
         documents={documents}
         preferredDocument={preferredDocument}
@@ -354,6 +365,7 @@ function TestEditor({
         <TestForm
           key={detail.data.test.revisionId}
           source={source}
+          sourceName={sourceName}
           path={path}
           current={detail.data}
           documents={documents}
@@ -368,6 +380,7 @@ function TestEditor({
 /** 同一表单分别执行保存和审核，期望条件始终可独立回看。 */
 function TestForm({
   source,
+  sourceName,
   path,
   current,
   documents,
@@ -376,6 +389,8 @@ function TestForm({
   close,
 }: {
   source: string;
+  /** 本题已经固定的来源名称。 */
+  sourceName: string;
   path: string;
   preferredDocument?: string;
   current?: { test: TestRow; content: Omit<TestInput, 'documentId'> };
@@ -486,12 +501,16 @@ function TestForm({
           <h2 id="knowledge-test-heading" ref={heading} tabIndex={-1}>
             {current?.test.question ?? '新增标准题'}
           </h2>
+          <small className="knowledge-source-name">{sourceName}</small>
           {current && (
             <Tag color={current.test.state === 'REVIEWED' ? 'green' : undefined}>
               {testStates[current.test.state]}
             </Tag>
           )}
         </div>
+        <Button className="knowledge-test-back" onClick={close}>
+          返回标准题单
+        </Button>
       </header>
       <Form
         form={form}
@@ -636,7 +655,6 @@ function TestForm({
             </span>
           )}
           <Space wrap>
-            <Button onClick={close}>关闭</Button>
             {editing && (
               <Button
                 htmlType="submit"

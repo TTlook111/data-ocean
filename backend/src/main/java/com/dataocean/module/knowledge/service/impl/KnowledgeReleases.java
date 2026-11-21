@@ -1,7 +1,6 @@
 package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
@@ -29,6 +28,7 @@ import com.dataocean.module.knowledge.service.KnowledgeReleaseService;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -173,31 +173,31 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
      */
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PageVO<KnowledgeReleaseCandidateVO> list(long source, long document, PageQuery page) {
-        preflight.document(source, document);
-        var scope = candidates.scope(source, document);
-        var result = page.<KnowledgeReleaseCandidatePO>toFixedOrderMpPage();
-        if (scope == null) {
-            // 从未准备过候选的文档遵循零条回到第一页的公共分页约定。
-            result.setCurrent(PageQuery.DEFAULT_PAGE_NUM);
-        } else {
-            // 查询始终限定已定位的同源单文档范围。
-            candidates.selectPage(
-                    result,
-                    Wrappers.<KnowledgeReleaseCandidatePO>lambdaQuery()
-                            .eq(KnowledgeReleaseCandidatePO::getScopeId, scope.id())
-                            .orderByDesc(KnowledgeReleaseCandidatePO::getId));
+    public PageVO<KnowledgeReleaseCandidateVO> list(
+            long source, Long document, String keyword, String status, PageQuery page) {
+        catalog.source(source, false);
+        if (document != null) {
+            // 指定文档时先核实归属，未知或跨源标识不给出空查询的假象。
+            preflight.document(source, document);
         }
-        return PageVO.from(result, this::view);
+        if (status != null
+                && !Set.of("PREPARED", "BUILDING", "BUILD_FAILED", "READY_FOR_VALIDATION", "CANCELED")
+                        .contains(status)) {
+            throw BizIllegalException.invalid("请选择有效的发布阶段");
+        }
+        String term = keyword == null ? "" : keyword.strip();
+        return PageVO.from(
+                candidates.list(page.toFixedOrderMpPage(), source, document, term, status), KnowledgeReleases::view);
     }
 
     /**
      * 回读只提供发布页面所需固定标识，不返回配置密钥或题干。
      */
-    private KnowledgeReleaseCandidateVO view(KnowledgeReleaseCandidatePO row) {
+    static KnowledgeReleaseCandidateVO view(KnowledgeReleaseCandidatePO row) {
         return new KnowledgeReleaseCandidateVO(
                 Ids.text(row.getId()),
                 Ids.text(row.getScopeId()),
+                Ids.text(row.getDocumentId()),
                 Ids.text(row.getBaseBindingId()),
                 Ids.text(row.getDocumentRevisionId()),
                 Ids.text(row.getEmbeddingRevisionId()),

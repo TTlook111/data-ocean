@@ -1,6 +1,7 @@
 package com.dataocean.module.knowledge.entity.po;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -25,6 +26,12 @@ public class KnowledgeReleaseCandidatePO {
      * 同源文档归属的稳定发布范围。
      */
     private Long scopeId;
+
+    /**
+     * 从来源范围关联读取的文档，候选表持久化范围而非重复所有者。
+     */
+    @TableField(exist = false)
+    private Long documentId;
 
     /**
      * 准备时的实际生效绑定，首次发布前为空。
@@ -60,6 +67,11 @@ public class KnowledgeReleaseCandidatePO {
      * 候选业务版本，从一开始。
      */
     private Integer version;
+
+    /**
+     * 当前构建尝试标识，旧结果不能覆盖此指针。
+     */
+    private String currentBuildId;
 
     /**
      * 发起准备的实际操作人。

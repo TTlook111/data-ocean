@@ -6,11 +6,10 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from langchain_openai import OpenAIEmbeddings
-from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel, Field
 
 from dataocean_ai.adapters.chat import ChatConfiguration, ModelConfiguration, ModelFailure, generate
+from dataocean_ai.adapters.embedding import embed
 from dataocean_ai.governance.security import verify_java
 
 # 沿用调用方服务身份，仅允许 Java 提交已经过准入核对的配置。
@@ -59,6 +58,10 @@ async def test_connection(request: Request) -> ProbeResult:
 
 async def _check_non_chat(config: ModelConfiguration) -> None:
     """以合成文本验证模型返回确实符合所选能力。"""
+    if config.protocol == "OPENAI_EMBEDDINGS":
+        # 测试与实际候选构建共享同一向量发送和校验逻辑。
+        await embed(config, ["DataOcean connection test"])
+        return
     try:
         # 复用生成调用的出站约束，避免读取开发机代理或跟随重定向。
         async with (
@@ -67,22 +70,6 @@ async def _check_non_chat(config: ModelConfiguration) -> None:
                 follow_redirects=False, trust_env=False, timeout=config.timeout
             ) as transport,
         ):
-            if config.protocol == "OPENAI_EMBEDDINGS":
-                # 兼容服务收到一个原始文本输入，无本地分词或供应商重试。
-                model = OpenAIEmbeddings(
-                    model=config.model_name,
-                    base_url=config.endpoint,
-                    api_key=config.api_key,
-                    timeout=config.timeout,
-                    max_retries=0,
-                    check_embedding_ctx_length=False,
-                    http_async_client=transport,
-                )
-                vector = await model.aembed_query("DataOcean connection test")
-                if not vector or not all(math.isfinite(value) for value in vector):
-                    raise ModelFailure("MODEL_FORMAT")
-                return
-
             # Cohere v2 在配置基址下接收固定查询和两个合成文本。
             response = await transport.post(
                 config.endpoint.rstrip("/") + "/rerank",
@@ -105,13 +92,9 @@ async def _check_non_chat(config: ModelConfiguration) -> None:
     except (ValueError, TypeError, KeyError, IndexError):
         # 无效结构只暴露稳定分类，不返回正文。
         raise ModelFailure("MODEL_FORMAT") from None
-    except (httpx.HTTPStatusError, OpenAIAPIError) as error:
+    except httpx.HTTPStatusError as error:
         # HTTP 与 SDK 连接测试使用一致的安全故障编码。
-        status = (
-            error.response.status_code
-            if isinstance(error, httpx.HTTPStatusError)
-            else getattr(error, "status_code", None)
-        )
+        status = error.response.status_code
         codes = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
         raise ModelFailure(codes.get(status, "MODEL_RESULT_UNKNOWN")) from None
     except (httpx.RequestError, TimeoutError):

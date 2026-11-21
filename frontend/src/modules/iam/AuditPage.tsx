@@ -76,6 +76,11 @@ const actionLabels: Record<string, string> = {
   'access-requests.supplement': '要求补充申请',
   'access-requests.reject': '驳回访问申请',
   'grants.revoke': '撤销授权来源',
+  'knowledge.edit': '编辑知识文档',
+  'knowledge.confirm': '确认知识修订',
+  'test-cases.edit': '维护标准题',
+  'test-cases.review': '审核标准题',
+  'releases.build': '办理发布候选',
 };
 
 /**

@@ -3,6 +3,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { DetailFooter, ReadState, displayTime } from '../../shared/Records';
@@ -26,6 +27,7 @@ export function StandaloneStructureChangePage() {
     <section className="record-page" aria-label="结构变化">
       <div className="panel ds-toolbar">
         <SourcePicker
+          withLabel
           sources={sources.data}
           selected={selected}
           choose={(source) => setParams({ source })}
@@ -49,7 +51,14 @@ export function StandaloneStructureChangePage() {
 /**
  * 从原任务或目录查看真实结构变化，可直接核实待办。
  */
-export function StructureChanges({ source }: { source: string }) {
+export function StructureChanges({
+  source,
+  navigation,
+}: {
+  source: string;
+  /** 嵌入目录时将原型页签放入结果面板。 */
+  navigation?: ReactNode;
+}) {
   const session = useSession();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -179,6 +188,7 @@ export function StructureChanges({ source }: { source: string }) {
       </div>
       {/* 结构事实结果与分页使用后台同款结果面板。 */}
       <section className="panel records-panel" aria-label="结构变化列表">
+        {navigation}
         <RecordTable<StructureChange>
           rowKey="changeId"
           dataSource={list.data?.items}

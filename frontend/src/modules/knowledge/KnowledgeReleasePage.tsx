@@ -1,5 +1,4 @@
-import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Empty, Select, Tag } from 'antd';
+import { Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag } from 'antd';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
@@ -10,129 +9,168 @@ import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import { ReleasePreparation } from './ReleasePreparation';
-import type { ReleaseRevisionReturn } from './types';
+import { releaseStates, type ReleaseCandidate, type ReleaseRevisionReturn } from './types';
 import './knowledge.css';
 
-/** 构建前确认的文档、题单和模型查验结果。 */
+/** 核对一次候选的文档修订、审核题与就绪信息。 */
 type ReleaseCheck = {
-  /** 当前选择的确认正文名称。 */
+  /** 被核对文档的实际归属。 */
+  documentId: string;
+  /** 确切确认正文名称。 */
   documentTitle: string;
-  /** 当前核对的具体文档确认。 */
+  /** 仍有效的确认修订。 */
   documentRevisionId: string | null;
-  /** 针对同一文档修订的当前审核结果数。 */
+  /** 已审核并适用的题目数量。 */
   reviewedTests: number;
-  /** 系统选择的向量配置修订。 */
+  /** 当前有效的向量配置。 */
   embeddingRevisionId: string | null;
-  /** 核对通过的完整发布依据。 */
+  /** 本次预检固定的整个候选输入。 */
   inputFingerprint: string | null;
-  /** 真实前置条件不满足的原因。 */
+  /** 真实前置阻断。 */
   issues: string[];
 };
 
-/** 列表只回读已经保存的冻结记录。 */
-type ReleaseCandidate = {
-  /** 候选标识。 */
-  id: string;
-  /** 准备时使用的文档名称。 */
-  title: string;
-  /** 冻结的文档确认编号。 */
-  documentRevisionId: string;
-  /** 当前阶段由服务端返回。 */
-  status: 'PREPARED';
-  /** 实际创建时间。 */
-  createdAt: string;
-};
-
-/** 发布与版本入口按实际核对结果定位可办理的阻断事项。 */
+/** 来源栏、页签、筛选和任务结果沿用发布原型，准备在独立确认区办理。 */
 export function KnowledgeReleasePage() {
   const { params, setParams, sources, selected } = useSourceSelection('KNOWLEDGE_RELEASES');
   const navigate = useNavigate();
   const location = useLocation();
   const session = useSession();
+  const [form] = Form.useForm();
   const rememberedFocus = useRef<string>(undefined);
-  const [keyword, setKeyword] = useState('');
+  const [search, setSearch] = useState('');
   const source = selected?.id;
-  // 地址中的来源已不可用时，先恢复来源选择，不能拿原文档套到另一来源上。
-  const requestedSource = params.get('source');
-  const doc = requestedSource && requestedSource !== source ? null : params.get('documentId');
+  const sameSource = !params.get('source') || params.get('source') === source;
+  const doc = sameSource ? params.get('documentId') : null;
+  const preparing = Boolean(
+    source && sameSource && params.has('prepare') && allowed(session, 'releases.build'),
+  );
+  const target = preparing ? (params.get('prepareDocument') ?? doc) : doc;
   const root = '/knowledge/sources/' + source;
-  const path = root + '/release-preflight';
   const pageNum = Number(params.get('pageNum')) || 1;
   const pageSize = Number(params.get('pageSize')) || 10;
+  const keyword = sameSource ? params.get('keyword') : null;
+  const status = sameSource ? params.get('status') : null;
   const documents = useInfiniteQuery({
-    queryKey: ['knowledge-release-options', source, keyword],
+    queryKey: ['knowledge-release-options', source, search],
     enabled: Boolean(source),
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
       api<Page<{ id: string; title: string }>>(
-        path + '/document-options?' + queryString({ keyword, pageNum: pageParam, pageSize: 20 }),
+        root +
+          '/release-preflight/document-options?' +
+          queryString({ keyword: search, pageNum: pageParam, pageSize: 20 }),
       ),
     getNextPageParam: ({ pageNum, pageSize, total }) =>
       pageNum * pageSize < total ? pageNum + 1 : undefined,
   });
   const inspection = useQuery({
-    queryKey: ['knowledge-release-preflight', source, doc],
-    enabled: Boolean(source && doc),
-    queryFn: () => api<ReleaseCheck>(path + '?' + queryString({ documentId: doc })),
+    queryKey: ['knowledge-release-preflight', source, target],
+    enabled: Boolean(source && target),
+    queryFn: () =>
+      api<ReleaseCheck>(root + '/release-preflight?' + queryString({ documentId: target })),
   });
   const result = inspection.data;
-  const confirmedRevision = result?.documentRevisionId;
   const options = documents.data?.pages.flatMap((page) => page.items) ?? [];
-  const selectedTitle = result?.documentTitle ?? options.find((option) => option.id === doc)?.title;
   const candidates = useQuery({
-    queryKey: ['release-candidates', source, doc, pageNum, pageSize],
-    enabled: Boolean(source && doc),
+    queryKey: ['release-candidates', source, doc, keyword, status, pageNum, pageSize],
+    enabled: Boolean(source),
     queryFn: () =>
       api<Page<ReleaseCandidate>>(
-        root + '/releases?' + queryString({ documentId: doc, pageNum, pageSize }),
+        root + '/releases?' + queryString({ documentId: doc, keyword, status, pageNum, pageSize }),
       ),
   });
   const focus = (location.state as { releaseFocus?: string } | null)?.releaseFocus;
   useEffect(() => {
-    // 列表和预检回读后恢复原入口；候选已移出本页时退回核对区域。
-    if (!focus || rememberedFocus.current === location.key || !candidates.isSuccess || !result)
-      return;
-    rememberedFocus.current = location.key;
-    (
-      document.getElementById(focus) ?? document.getElementById('release-preflight-revision')
-    )?.focus();
-  }, [candidates.isSuccess, focus, location.key, result]);
+    // 资料或任务返回后聚焦原入口，列表刷新保持键盘位置。
+    if (focus && candidates.isSuccess && rememberedFocus.current !== location.key) {
+      rememberedFocus.current = location.key;
+      document.getElementById(focus)?.focus();
+    }
+  }, [candidates.isSuccess, focus, location.key]);
 
-  /** 核对和候选记录都打开实际确认的历史修订。 */
-  function openRevision(revisionId: string, focus: string) {
+  /** 更新部分地址条件，保持同一来源和列表上下文。 */
+  function update(values: Record<string, string | number | null>) {
+    setParams(queryString({ ...Object.fromEntries(params), source, ...values }));
+  }
+
+  /** 任务详情接收原筛选和页码，从原型规定的独立页办理构建。 */
+  function openBuild(id: string) {
+    navigate(
+      '/releases/' +
+        id +
+        '?' +
+        queryString({ source, documentId: doc, keyword, status, pageNum, pageSize }),
+    );
+  }
+
+  /** 回看确切的确认修订，关闭详情时返回原入口。 */
+  function revision(documentId: string, revisionId: string, focus: string) {
     const releaseReturn: ReleaseRevisionReturn = { search: location.search, focus };
-    navigate('/knowledge/' + doc + '?' + queryString({ source, revisionId }), {
+    navigate('/knowledge/' + documentId + '?' + queryString({ source, revisionId }), {
       state: { releaseReturn },
     });
   }
 
-  /** 页面只提供对应现行权限、实际已接通的处理入口。 */
+  /** 文档选择器通过已确认标题远程搜索，滚动时继续加载。 */
+  function documentPicker(id: string | null, name: string, choose: (value: string | null) => void) {
+    const title =
+      result?.documentId === id
+        ? result.documentTitle
+        : options.find((row) => row.id === id)?.title;
+    return (
+      <Select
+        className="release-document-select"
+        aria-label={name}
+        placeholder={name}
+        allowClear={name === '发布文档'}
+        labelInValue
+        value={id && title ? { value: id, label: title } : undefined}
+        showSearch={{ filterOption: false, onSearch: setSearch }}
+        loading={documents.isFetching}
+        options={options.map((item) => ({ value: item.id, label: item.title }))}
+        onOpenChange={(open) => {
+          if (!open) setSearch('');
+        }}
+        onChange={(value) => {
+          setSearch('');
+          choose(value?.value ?? null);
+        }}
+        onPopupScroll={(event) => {
+          // 读取下一页而不替换已经加载的选择。
+          const list = event.currentTarget;
+          if (
+            documents.hasNextPage &&
+            !documents.isFetching &&
+            list.scrollHeight - list.scrollTop - list.clientHeight < 32
+          )
+            void documents.fetchNextPage();
+        }}
+      />
+    );
+  }
+
+  /** 实际前置问题只链接到有权限的现有操作页。 */
   function follow(issue: string) {
-    if (issue === '知识检索向量化节点未分配可用模型' && allowed(session, 'models.view')) {
-      return {
-        label: '打开模型配置',
-        path: '/models?' + queryString({ tab: 'nodes', node: 'rag-embedding' }),
-      };
-    }
-    if (issue.startsWith('缺少已审核') && allowed(session, 'test-cases.view')) {
+    if (issue === '知识检索向量化节点未分配可用模型' && allowed(session, 'models.view'))
+      return { label: '打开模型配置', path: '/models?tab=nodes&node=rag-embedding' };
+    if (issue.startsWith('缺少已审核') && allowed(session, 'test-cases.view'))
       return {
         label: '打开相关题单',
-        path: '/test-cases?' + queryString({ source, documentId: doc }),
+        path: '/test-cases?' + queryString({ source, documentId: target }),
       };
-    }
     if (
       (issue.includes('文档修订') || issue.includes('治理依据')) &&
       allowed(session, 'knowledge.view')
-    ) {
+    )
       return {
         label: '查看文档',
-        path: '/knowledge/' + doc + '?' + queryString({ source, tab: 'facts' }),
+        path: '/knowledge/' + target + '?' + queryString({ source, tab: 'facts' }),
       };
-    }
     return null;
   }
 
-  // 同一个处理入口对应多个缺项时，保留全部原因并只显示一个按钮。
+  // 同一办理入口对应的缺项归在一组，避免重复按钮。
   const groups = new Map<string, { issues: string[]; action: ReturnType<typeof follow> }>();
   for (const issue of result?.issues ?? []) {
     const action = follow(issue);
@@ -142,66 +180,27 @@ export function KnowledgeReleasePage() {
     groups.set(key, group);
   }
 
+  /** 列表清空时返回同源首面。 */
+  function reset() {
+    form.resetFields();
+    form.setFieldsValue({ keyword: undefined, status: undefined });
+    update({ documentId: null, keyword: null, status: null, pageNum: 1 });
+  }
+
   return (
     <main className="record-page knowledge-release-page" aria-label="发布与版本">
-      <div className="panel query-panel knowledge-context-toolbar">
+      <div className="panel ds-toolbar">
         <SourcePicker
+          withLabel
           sources={sources.data}
           selected={selected}
           choose={(value) => {
-            // 切换源后重新选择确认文档，不复用上一源的查询。
-            setKeyword('');
-            setParams(queryString({ source: value }));
+            // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
+            setSearch('');
+            form.setFieldsValue({ keyword: undefined, status: undefined });
+            setParams(queryString({ source: value, pageSize }));
           }}
         />
-        <div className="knowledge-context-controls">
-          <Select
-            aria-label="核对文档"
-            className="knowledge-document-select"
-            placeholder={doc && inspection.isPending ? '正在读取文档' : '选择已确认文档'}
-            labelInValue
-            value={doc && selectedTitle ? { value: doc, label: selectedTitle } : undefined}
-            loading={documents.isFetching}
-            disabled={!source}
-            options={options.map((item) => ({ value: item.id, label: item.title }))}
-            showSearch={{ filterOption: false, onSearch: setKeyword }}
-            notFoundContent={
-              documents.isFetching
-                ? '正在查找文档'
-                : documents.error
-                  ? '文档选项暂不可用'
-                  : '没有匹配的确认文档'
-            }
-            onChange={({ value }) => {
-              // 按实际选中的确认文档查验，查询词只用于选择器。
-              setKeyword('');
-              setParams(queryString({ source, documentId: value }));
-            }}
-            onOpenChange={(open) => {
-              // 从完整目录开始下次选择，回读不受上次搜索影响。
-              if (!open) setKeyword('');
-            }}
-            onPopupScroll={(event) => {
-              // 向下浏览会读取下一批已确认文档。
-              const list = event.currentTarget;
-              if (
-                documents.hasNextPage &&
-                !documents.isFetching &&
-                list.scrollHeight - list.scrollTop - list.clientHeight < 32
-              ) {
-                void documents.fetchNextPage();
-              }
-            }}
-          />
-          <Button
-            icon={<ReloadOutlined aria-hidden="true" />}
-            disabled={!doc || !source}
-            loading={inspection.isFetching}
-            onClick={() => void inspection.refetch()}
-          >
-            重新核对
-          </Button>
-        </div>
       </div>
       <ReadState
         loading={sources.isPending}
@@ -210,164 +209,132 @@ export function KnowledgeReleasePage() {
       >
         {source ? (
           <>
-            {/* 准备核对归属当前文档，候选创建仍由服务端再次核验。 */}
-            <section
-              className="panel knowledge-preflight"
-              aria-label="发布准备核对"
-              aria-busy={inspection.isFetching}
-            >
-              {/* 原命令核实独立于预检读取，预检失败时仍然能找回已完成的提交。 */}
-              {doc && (
-                <ReleasePreparation
-                  key={`${session.userId}:${source}:${doc}`}
-                  userId={session.userId}
-                  source={source}
-                  documentId={doc}
-                  documentRevisionId={result?.documentRevisionId ?? null}
-                  inputFingerprint={inspection.error ? null : (result?.inputFingerprint ?? null)}
-                  showStatus={Boolean(result && !inspection.error)}
-                  canPrepare={allowed(session, 'releases.build')}
-                  checking={inspection.isFetching}
-                  beforeSubmit={() =>
-                    setParams(queryString({ source, documentId: doc, pageSize }), { replace: true })
-                  }
-                  onConflict={() => void inspection.refetch()}
-                />
-              )}
-              <ReadState
-                loading={doc ? inspection.isPending : documents.isPending}
-                error={doc ? inspection.error : documents.error}
-                retry={() => {
-                  // 文档已选时单独核实发布依据，避免下拉查询干扰候选阅读。
-                  if (doc) void inspection.refetch();
-                  else void documents.refetch();
-                }}
-              >
-                {result ? (
-                  <>
-                    <dl className="knowledge-preflight-summary">
-                      <div>
-                        <dt>文档确认修订</dt>
-                        <dd>
-                          {confirmedRevision ? (
-                            allowed(session, 'knowledge.view') ? (
-                              <Button
-                                id="release-preflight-revision"
-                                type="link"
-                                className="knowledge-record-link"
-                                title={'修订编号 ' + confirmedRevision}
-                                onClick={() =>
-                                  openRevision(confirmedRevision, 'release-preflight-revision')
-                                }
-                              >
-                                查看确认修订
-                              </Button>
-                            ) : (
-                              <span title={confirmedRevision}>已确认</span>
-                            )
-                          ) : (
-                            '待确认'
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>相关已审核题目</dt>
-                        <dd>{result.reviewedTests} 道</dd>
-                      </div>
-                      <div>
-                        <dt>知识检索向量化</dt>
-                        <dd>{result.embeddingRevisionId ? '已分配' : '未就绪'}</dd>
-                      </div>
-                    </dl>
-                    {result.issues.length > 0 && (
-                      <section aria-label="待处理事项">
-                        <ul className="knowledge-issue-list">
-                          {[...groups].map(([key, { issues, action }]) => (
-                            <li key={key} className="knowledge-issue">
-                              <div>
-                                <strong>
-                                  {issues.length === 1 ? issues[0] : '相关标准题待补齐'}
-                                </strong>
-                                {issues.length > 1 && (
-                                  <ul>
-                                    {issues.map((issue) => (
-                                      <li key={issue}>{issue}</li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                              {action && (
-                                <Button onClick={() => navigate(action.path)}>
-                                  {action.label}
-                                </Button>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    )}
-                  </>
-                ) : (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={
-                      !keyword && documents.data?.pages[0]?.total === 0
-                        ? '暂无已确认文档'
-                        : '选择文档查看发布准备'
-                    }
+            {/* 正式生效由后续切换接入，此处只提供真实的发布任务。 */}
+            <Tabs
+              className="release-task-tabs"
+              activeKey="tasks"
+              items={[
+                { key: 'tasks', label: '发布任务' },
+                { key: 'active', label: '当前生效', disabled: true },
+              ]}
+              tabBarExtraContent={
+                allowed(session, 'releases.build') && (
+                  <Button
+                    type="primary"
+                    onClick={() => update({ prepare: 1, prepareDocument: doc })}
                   >
-                    {!keyword &&
-                      documents.data?.pages[0]?.total === 0 &&
-                      allowed(session, 'knowledge.view') && (
-                        <Button onClick={() => navigate('/knowledge?' + queryString({ source }))}>
-                          前往知识文档
+                    创建发布任务
+                  </Button>
+                )
+              }
+            />
+            <div className="panel query-panel release-task-filters">
+              <Form
+                layout="inline"
+                form={form}
+                initialValues={{ keyword: keyword ?? undefined, status: status ?? undefined }}
+                onFinish={(values) =>
+                  update({
+                    keyword: values.keyword ?? null,
+                    status: values.status ?? null,
+                    pageNum: 1,
+                  })
+                }
+              >
+                <Form.Item name="keyword">
+                  <Input aria-label="发布编号" placeholder="发布编号" allowClear />
+                </Form.Item>
+                <Form.Item>
+                  {documentPicker(doc, '发布文档', (value) =>
+                    update({ documentId: value, pageNum: 1 }),
+                  )}
+                </Form.Item>
+                <Form.Item name="status">
+                  <Select
+                    aria-label="发布阶段"
+                    placeholder="全部状态"
+                    allowClear
+                    options={Object.entries(releaseStates).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                  />
+                </Form.Item>
+                <Space>
+                  <Button htmlType="submit">查询</Button>
+                  <Button onClick={reset}>重置</Button>
+                </Space>
+              </Form>
+            </div>
+            {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
+            <section className="panel records-panel knowledge-records" aria-label="发布任务列表">
+              <RecordTable<ReleaseCandidate>
+                rowKey="id"
+                dataSource={candidates.data?.items}
+                loading={candidates.isPending}
+                error={candidates.error}
+                retry={() => void candidates.refetch()}
+                filtered={Boolean(doc || keyword || status)}
+                onReset={reset}
+                emptyDescription="暂无发布任务"
+                tableLayout="fixed"
+                flexibleColumns={[0]}
+                columns={[
+                  {
+                    title: '文档 / 发布任务',
+                    render: (_, row) => (
+                      <div className="knowledge-candidate-identity">
+                        <Button
+                          id={'release-build-' + row.id}
+                          type="link"
+                          className="knowledge-record-link"
+                          title={row.title}
+                          onClick={() => openBuild(row.id)}
+                        >
+                          {row.title}
                         </Button>
-                      )}
-                  </Empty>
-                )}
-              </ReadState>
-            </section>
-            {/* 只展示本源和所选文档持久化的候选，保留服务端分页。 */}
-            {doc && (
-              <section className="panel records-panel knowledge-records" aria-label="发布候选">
-                <header className="knowledge-candidates-heading">
-                  <h2>发布候选</h2>
-                </header>
-                <RecordTable<ReleaseCandidate>
-                  rowKey="id"
-                  dataSource={candidates.data?.items}
-                  loading={candidates.isPending}
-                  error={candidates.error}
-                  retry={() => void candidates.refetch()}
-                  emptyDescription="暂无发布候选"
-                  tableLayout="fixed"
-                  flexibleColumns={[0]}
-                  columns={[
-                    {
-                      title: '文档名称',
-                      render: (_, row) => (
-                        <div className="knowledge-candidate-identity">
-                          <span className="cell-text" title={row.title}>
-                            {row.title}
-                          </span>
-                          <small className="cell-text muted" title={'候选编号 ' + row.id}>
-                            {row.id}
-                          </small>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: '确认修订',
-                      width: 112,
-                      render: (_, row) =>
-                        allowed(session, 'knowledge.view') ? (
+                        <small className="cell-text muted" title={'发布编号 ' + row.id}>
+                          {row.id}
+                        </small>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '阶段',
+                    width: 96,
+                    render: (_, row) => (
+                      <Tag
+                        color={
+                          row.status === 'BUILD_FAILED'
+                            ? 'error'
+                            : row.status === 'BUILDING'
+                              ? 'processing'
+                              : undefined
+                        }
+                      >
+                        {releaseStates[row.status]}
+                      </Tag>
+                    ),
+                  },
+                  { title: '创建时间', width: 152, render: (_, row) => displayTime(row.createdAt) },
+                  {
+                    title: '操作',
+                    width: 176,
+                    render: (_, row) => (
+                      <Space size={8}>
+                        <Button type="link" onClick={() => openBuild(row.id)}>
+                          {row.status === 'PREPARED' || row.status === 'BUILD_FAILED'
+                            ? '继续构建'
+                            : '查看任务'}
+                        </Button>
+                        {allowed(session, 'knowledge.view') && (
                           <Button
                             id={'release-candidate-revision-' + row.id}
                             type="link"
-                            className="knowledge-record-link"
                             title={'修订编号 ' + row.documentRevisionId}
                             onClick={() =>
-                              openRevision(
+                              revision(
+                                row.documentId,
                                 row.documentRevisionId,
                                 'release-candidate-revision-' + row.id,
                               )
@@ -375,38 +342,100 @@ export function KnowledgeReleasePage() {
                           >
                             查看修订
                           </Button>
-                        ) : (
-                          '已确认'
-                        ),
-                    },
-                    {
-                      title: '状态',
-                      width: 96,
-                      render: (_, row) => (
-                        <Tag>{row.status === 'PREPARED' ? '待构建' : row.status}</Tag>
-                      ),
-                    },
-                    {
-                      title: '准备时间',
-                      width: 160,
-                      render: (_, row) => displayTime(row.createdAt),
-                    },
-                  ]}
-                  pagination={{
-                    current: candidates.data?.pageNum ?? pageNum,
-                    pageSize,
-                    total: candidates.data?.total,
-                    onChange: (pageNum, pageSize) =>
-                      setParams(queryString({ source, documentId: doc, pageNum, pageSize })),
-                  }}
-                />
-              </section>
-            )}
+                        )}
+                      </Space>
+                    ),
+                  },
+                ]}
+                pagination={{
+                  current: candidates.data?.pageNum ?? pageNum,
+                  pageSize,
+                  total: candidates.data?.total,
+                  onChange: (pageNum, pageSize) => update({ pageNum, pageSize }),
+                }}
+              />
+            </section>
           </>
         ) : (
           <SourceUnavailable />
         )}
       </ReadState>
+      <Modal
+        open={preparing}
+        destroyOnHidden
+        centered
+        width={720}
+        title="创建发布任务"
+        footer={null}
+        onCancel={() => update({ prepare: null, prepareDocument: null })}
+      >
+        {/* 只有用户主动创建任务时，核对独立的目标文档与门槛。 */}
+        <div className="release-modal-source">
+          {documentPicker(target, '选择已确认文档', (value) =>
+            update({ prepareDocument: value ?? '' }),
+          )}
+          <Button
+            disabled={!target}
+            loading={inspection.isFetching}
+            onClick={() => void inspection.refetch()}
+          >
+            重新核对
+          </Button>
+        </div>
+        {source && target && (
+          <ReleasePreparation
+            key={`${session.userId}:${source}:${target}`}
+            userId={session.userId}
+            source={source}
+            documentId={target}
+            documentRevisionId={result?.documentRevisionId ?? null}
+            inputFingerprint={inspection.error ? null : (result?.inputFingerprint ?? null)}
+            showStatus={Boolean(result && !inspection.error)}
+            canPrepare
+            checking={inspection.isFetching}
+            onConflict={() => void inspection.refetch()}
+            onCreated={openBuild}
+          />
+        )}
+        <ReadState
+          loading={Boolean(target && inspection.isPending)}
+          error={inspection.error}
+          retry={() => void inspection.refetch()}
+        >
+          {source && target && result ? (
+            <section className="release-modal-preflight" aria-label="发布准备核对">
+              <dl className="knowledge-preflight-summary">
+                <div>
+                  <dt>文档确认修订</dt>
+                  <dd>{result.documentRevisionId ? '已确认' : '待确认'}</dd>
+                </div>
+                <div>
+                  <dt>相关已审核题目</dt>
+                  <dd>{result.reviewedTests} 道</dd>
+                </div>
+                <div>
+                  <dt>知识检索向量化</dt>
+                  <dd>{result.embeddingRevisionId ? '已分配' : '未就绪'}</dd>
+                </div>
+              </dl>
+              {groups.size > 0 && (
+                <ul className="knowledge-issue-list" aria-label="待处理事项">
+                  {[...groups].map(([key, { issues, action }]) => (
+                    <li key={key} className="knowledge-issue">
+                      <strong>{issues.join('；')}</strong>
+                      {action && (
+                        <Button onClick={() => navigate(action.path)}>{action.label}</Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文档查看发布准备" />
+          )}
+        </ReadState>
+      </Modal>
     </main>
   );
 }

@@ -146,6 +146,10 @@ const KnowledgeTestPage = lazyPage(() =>
 const KnowledgeReleasePage = lazyPage(() =>
   import('../modules/knowledge/KnowledgeReleasePage').then((m) => m.KnowledgeReleasePage),
 );
+// 发布任务有独立详情，保持原型的列表与办理页分工。
+const KnowledgeReleaseBuildPage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeReleaseBuildPage').then((m) => m.KnowledgeReleaseBuildPage),
+);
 // 模型配置与调用记录独立授权，使用各自的后台入口。
 const ModelPage = lazyPage(() => import('../modules/models/ModelPage').then((m) => m.ModelPage));
 const ModelCallsPage = lazyPage(() =>
@@ -178,6 +182,7 @@ const workspaceRoutes = [
   { path: '/knowledge/:id', element: <KnowledgeDocumentPage /> },
   { path: '/test-cases', element: <KnowledgeTestPage /> },
   { path: '/releases', element: <KnowledgeReleasePage /> },
+  { path: '/releases/:id', element: <KnowledgeReleaseBuildPage /> },
   // 系统配置的真实模型与诊断入口。
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },
@@ -377,6 +382,7 @@ export function Application() {
   const pageLabel = selected?.label ?? '账号信息';
   const creatingRole = activePath === '/iam/roles/new';
   const editingRole = activePath === '/iam/roles/:id/edit';
+  const readingReleaseTask = activePath === '/releases/:id';
   const noteMode =
     activePath === '/business-notes' ? new URLSearchParams(location.search).get('edit') : null;
   const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
@@ -563,6 +569,16 @@ export function Application() {
                     >
                       角色与功能权限
                     </a>
+                  ) : readingReleaseTask ? (
+                    <a
+                      href={'/releases' + location.search}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        navigate('/releases' + location.search);
+                      }}
+                    >
+                      发布与版本
+                    </a>
                   ) : (
                     pageLabel
                   ),
@@ -570,6 +586,7 @@ export function Application() {
               ...(creatingRole || editingRole
                 ? [{ title: creatingRole ? '新增角色' : '编辑角色' }]
                 : []),
+              ...(readingReleaseTask ? [{ title: '发布任务' }] : []),
               ...(noteMode
                 ? [
                     {

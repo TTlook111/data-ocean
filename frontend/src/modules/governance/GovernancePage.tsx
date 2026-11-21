@@ -7,6 +7,7 @@ import { api, queryString } from '../../shared/api';
 import { ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { MoreFilters } from '../../shared/MoreFilters';
+import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import type { GovernanceRow, Target } from './types';
@@ -45,6 +46,7 @@ const progressNames: Record<string, string> = {
  */
 export function GovernancePage() {
   const navigate = useNavigate();
+  const session = useSession();
   const location = useLocation();
   const returnId = (location.state as { returnObject?: string } | null)?.returnObject;
   const focusRestored = useRef(false);
@@ -132,7 +134,23 @@ export function GovernancePage() {
           }}
         >
           <Form.Item>
-            <SourcePicker sources={sources.data} selected={selected} choose={reset} />
+            <div className="gov-source-navigation">
+              <SourcePicker sources={sources.data} selected={selected} choose={reset} />
+              {selected && (
+                <Space size={8} wrap>
+                  {allowed(session, 'business-notes.view') && (
+                    <Button onClick={() => navigate('/business-notes?source=' + selected.id)}>
+                      业务说明
+                    </Button>
+                  )}
+                  {allowed(session, 'knowledge.view') && (
+                    <Button onClick={() => navigate('/knowledge?source=' + selected.id)}>
+                      知识文档
+                    </Button>
+                  )}
+                </Space>
+              )}
+            </div>
           </Form.Item>
           <Form.Item name="keyword">
             <Input

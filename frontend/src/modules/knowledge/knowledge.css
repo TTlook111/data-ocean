@@ -1,17 +1,3 @@
-/* 各页沿用后台查询轴，新增和重新核对靠查询区右侧。 */
-.knowledge-toolbar {
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.knowledge-toolbar > .ant-space {
-  min-inline-size: 0;
-}
-
-.knowledge-toolbar > .ant-form {
-  align-items: center;
-}
-
 /* 表格内主名称与文档列左边对齐，长名称保留完整提示和键盘入口。 */
 .knowledge-record-link.ant-btn {
   display: inline-block;
@@ -205,7 +191,7 @@
     gap: 16px;
   }
 
-  .knowledge-release-page > .knowledge-context-toolbar,
+  .knowledge-release-page > .ds-toolbar,
   .knowledge-release-page > .knowledge-preflight {
     padding-block: 16px;
   }
@@ -220,6 +206,156 @@
   display: grid;
   min-inline-size: 0;
   gap: 4px;
+}
+
+/* 任务名称与次级编号沿同一阅读轴。 */
+.knowledge-candidate-identity > .knowledge-record-link {
+  justify-self: start;
+  max-width: 100%;
+  height: 24px;
+  line-height: 22px;
+}
+
+/* 发布和知识模块按原型保留来源栏、操作和下方查询。 */
+.knowledge-source-toolbar > .ant-space,
+.knowledge-list-filters form > .ant-space,
+.release-task-filters form > .ant-space {
+  margin-inline-start: auto;
+}
+
+/* 发布任务页签与记录筛选为独立面板。 */
+.release-task-tabs {
+  flex: none;
+}
+.release-task-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding-inline: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
+}
+
+/* 新建任务的条件核对与原型一样留在短任务浮层。 */
+.release-modal-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block: 16px;
+}
+.release-modal-source > .release-document-select {
+  flex: 1;
+  min-width: 0;
+}
+.release-modal-preflight {
+  margin-block-end: 8px;
+}
+
+/* 发布详情沿用阅读分区，固定底部按钮不会挡住长正文。 */
+.knowledge-build-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 任务编号和所属源在左，返回和阶段在右，与原型一致。 */
+.knowledge-build-heading,
+.knowledge-build-identity,
+.knowledge-build-header-actions,
+.knowledge-build-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 页头与任务阅读内容的分隔沿用后台详情。 */
+.knowledge-build-heading {
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 任务编号使用区域标题档位，不和页面面包屑争抢层级。 */
+.knowledge-build-identity > h1 {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* 阶段、范围与记录沿相同阅读轴排列。 */
+.knowledge-build-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  align-content: start;
+  gap: 24px;
+  padding: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 步骤使用原型的浅色轨道；服务状态更新不会更换步骤序列。 */
+.knowledge-build-stages {
+  padding: 12px 16px;
+  border-radius: 4px;
+  background: var(--do-subtle);
+}
+
+/* 保持窄桌面阶段名称整词显示。 */
+@media (max-width: 1040px) {
+  .knowledge-build-stages {
+    padding-inline: 8px;
+  }
+  .knowledge-build-stages .ant-steps-item-title {
+    white-space: nowrap;
+  }
+  .knowledge-build-stages .ant-steps-item-icon {
+    margin-inline-end: 4px;
+  }
+}
+
+/* 范围前置用简短摘要显示实际固定的审核题。 */
+.knowledge-build-readiness {
+  justify-content: space-between;
+  padding: 16px 24px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 表格和失败提示保持在构建记录的标题下。 */
+.knowledge-build-section {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+/* 创建时间归属处理记录而不是独立提示。 */
+.knowledge-build-created {
+  margin: 0;
+}
+
+/* 任务页底栏保留右侧主操作与桌面留白。 */
+.knowledge-build-workspace .knowledge-build-actions {
+  position: static;
+  flex: none;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+/* 取消原因与影响提示分开阅读。 */
+.knowledge-cancel-reason {
+  margin-block-start: 16px;
+}
+
+/* 矮窗口把底栏放在记录之后，避免滚动时遮住最后一条。 */
+@media (max-height: 640px) {
+  .knowledge-build-workspace {
+    flex: none;
+  }
 }
 
 .knowledge-preflight-summary {
@@ -484,37 +620,6 @@
   max-inline-size: 800px;
 }
 
-/* 标准题和发布共用来源、文档和操作的排布，给两个选择框分配独立宽度。 */
-.knowledge-context-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 248px) minmax(0, 320px) minmax(max-content, 1fr);
-}
-
-.knowledge-context-controls {
-  display: contents;
-}
-
-.knowledge-context-toolbar > .ds-source-picker,
-.knowledge-context-controls > .knowledge-document-select {
-  inline-size: 100%;
-  min-inline-size: 0;
-}
-
-.knowledge-context-controls > .ant-btn {
-  justify-self: end;
-}
-
-/* 紧凑宽度先保证两个选择框可读，较长的操作按钮独立靠右。 */
-@media (max-width: 780px) {
-  .knowledge-context-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .knowledge-context-controls > .ant-btn {
-    grid-column: 2;
-  }
-}
-
 /* 标题下方保留文档真实来源，长名称可自然换行。 */
 .knowledge-title {
   min-inline-size: 0;
@@ -546,43 +651,10 @@
   scroll-margin-block-end: 88px;
 }
 
-/* 知识文档查询在宽屏保持一排，窄屏先排两个筛选条件，再共用一条操作基线。 */
-.knowledge-documents-toolbar {
-  container: knowledge-documents-toolbar / inline-size;
+/* 题单筛选保持清晰宽度，详情的返回操作在页头右侧。 */
+.knowledge-document-select {
+  width: min(320px, 100%);
 }
-
-.query-panel > .knowledge-document-query {
-  display: grid;
-  grid-template-columns:
-    minmax(180px, 248px) minmax(180px, 320px) max-content minmax(0, 1fr)
-    max-content;
-  grid-template-areas: 'source keyword query . create';
-}
-
-.knowledge-document-query > .ds-source-picker {
-  grid-area: source;
-  inline-size: 100%;
-  min-inline-size: 0;
-}
-
-.query-panel.compact-query > .knowledge-document-query > .ant-form-item {
-  grid-area: keyword;
-  min-inline-size: 0;
-  max-inline-size: none;
-}
-
-.knowledge-document-query > .knowledge-list-query-actions {
-  grid-area: query;
-}
-
-.knowledge-document-query > .knowledge-create-document {
-  grid-area: create;
-  justify-self: end;
-}
-
-@container knowledge-documents-toolbar (max-width: 700px) {
-  .query-panel > .knowledge-document-query {
-    grid-template-columns: minmax(180px, 45%) minmax(0, 1fr);
-    grid-template-areas: 'source keyword' 'query create';
-  }
+.knowledge-test-back {
+  margin-inline-start: auto;
 }
