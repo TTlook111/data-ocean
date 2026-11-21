@@ -9,10 +9,10 @@ import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import { ReleasePreparation } from './ReleasePreparation';
-import { releaseStates, type ReleaseCandidate, type ReleaseRevisionReturn } from './types';
+import { releaseStates, type ReleaseRevisionReturn, type ReleaseTask } from './types';
 import './knowledge.css';
 
-/** 核对一次候选的文档修订、审核题与就绪信息。 */
+/** 核对文档修订、审核题与构建就绪信息。 */
 type ReleaseCheck = {
   /** 被核对文档的实际归属。 */
   documentId: string;
@@ -20,12 +20,16 @@ type ReleaseCheck = {
   documentTitle: string;
   /** 仍有效的确认修订。 */
   documentRevisionId: string | null;
+  /** 确认正文的可读修订号。 */
+  documentRevisionNumber: number | null;
+  /** 当前生效绑定，首版为空。 */
+  baseBindingId: string | null;
+  /** 确认文档的治理依据是否满足创建条件。 */
+  documentReady: boolean;
   /** 已审核并适用的题目数量。 */
   reviewedTests: number;
   /** 当前有效的向量配置。 */
   embeddingRevisionId: string | null;
-  /** 本次预检固定的整个候选输入。 */
-  inputFingerprint: string | null;
   /** 真实前置阻断。 */
   issues: string[];
 };
@@ -72,22 +76,22 @@ export function KnowledgeReleasePage() {
   });
   const result = inspection.data;
   const options = documents.data?.pages.flatMap((page) => page.items) ?? [];
-  const candidates = useQuery({
-    queryKey: ['release-candidates', source, doc, keyword, status, pageNum, pageSize],
+  const tasks = useQuery({
+    queryKey: ['release-tasks', source, doc, keyword, status, pageNum, pageSize],
     enabled: Boolean(source),
     queryFn: () =>
-      api<Page<ReleaseCandidate>>(
+      api<Page<ReleaseTask>>(
         root + '/releases?' + queryString({ documentId: doc, keyword, status, pageNum, pageSize }),
       ),
   });
   const focus = (location.state as { releaseFocus?: string } | null)?.releaseFocus;
   useEffect(() => {
     // 资料或任务返回后聚焦原入口，列表刷新保持键盘位置。
-    if (focus && candidates.isSuccess && rememberedFocus.current !== location.key) {
+    if (focus && tasks.isSuccess && rememberedFocus.current !== location.key) {
       rememberedFocus.current = location.key;
       document.getElementById(focus)?.focus();
     }
-  }, [candidates.isSuccess, focus, location.key]);
+  }, [tasks.isSuccess, focus, location.key]);
 
   /** 更新部分地址条件，保持同一来源和列表上下文。 */
   function update(values: Record<string, string | number | null>) {
@@ -154,11 +158,6 @@ export function KnowledgeReleasePage() {
   function follow(issue: string) {
     if (issue === '知识检索向量化节点未分配可用模型' && allowed(session, 'models.view'))
       return { label: '打开模型配置', path: '/models?tab=nodes&node=rag-embedding' };
-    if (issue.startsWith('缺少已审核') && allowed(session, 'test-cases.view'))
-      return {
-        label: '打开相关题单',
-        path: '/test-cases?' + queryString({ source, documentId: target }),
-      };
     if (
       (issue.includes('文档修订') || issue.includes('治理依据')) &&
       allowed(session, 'knowledge.view')
@@ -174,7 +173,7 @@ export function KnowledgeReleasePage() {
   const groups = new Map<string, { issues: string[]; action: ReturnType<typeof follow> }>();
   for (const issue of result?.issues ?? []) {
     const action = follow(issue);
-    const key = action?.path ?? issue;
+    const key = issue.startsWith('缺少已审核') ? 'tests' : (action?.path ?? issue);
     const group = groups.get(key) ?? { issues: [], action };
     group.issues.push(issue);
     groups.set(key, group);
@@ -268,12 +267,12 @@ export function KnowledgeReleasePage() {
             </div>
             {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
             <section className="panel records-panel knowledge-records" aria-label="发布任务列表">
-              <RecordTable<ReleaseCandidate>
+              <RecordTable<ReleaseTask>
                 rowKey="id"
-                dataSource={candidates.data?.items}
-                loading={candidates.isPending}
-                error={candidates.error}
-                retry={() => void candidates.refetch()}
+                dataSource={tasks.data?.items}
+                loading={tasks.isPending}
+                error={tasks.error}
+                retry={() => void tasks.refetch()}
                 filtered={Boolean(doc || keyword || status)}
                 onReset={reset}
                 emptyDescription="暂无发布任务"
@@ -298,6 +297,12 @@ export function KnowledgeReleasePage() {
                         </small>
                       </div>
                     ),
+                  },
+                  {
+                    title: '固定候选',
+                    width: 124,
+                    ellipsis: true,
+                    render: (_, row) => row.candidateId ?? '尚未构建',
                   },
                   {
                     title: '阶段',
@@ -348,9 +353,9 @@ export function KnowledgeReleasePage() {
                   },
                 ]}
                 pagination={{
-                  current: candidates.data?.pageNum ?? pageNum,
+                  current: tasks.data?.pageNum ?? pageNum,
                   pageSize,
-                  total: candidates.data?.total,
+                  total: tasks.data?.total,
                   onChange: (pageNum, pageSize) => update({ pageNum, pageSize }),
                 }}
               />
@@ -382,21 +387,6 @@ export function KnowledgeReleasePage() {
             重新核对
           </Button>
         </div>
-        {source && target && (
-          <ReleasePreparation
-            key={`${session.userId}:${source}:${target}`}
-            userId={session.userId}
-            source={source}
-            documentId={target}
-            documentRevisionId={result?.documentRevisionId ?? null}
-            inputFingerprint={inspection.error ? null : (result?.inputFingerprint ?? null)}
-            showStatus={Boolean(result && !inspection.error)}
-            canPrepare
-            checking={inspection.isFetching}
-            onConflict={() => void inspection.refetch()}
-            onCreated={openBuild}
-          />
-        )}
         <ReadState
           loading={Boolean(target && inspection.isPending)}
           error={inspection.error}
@@ -406,8 +396,11 @@ export function KnowledgeReleasePage() {
             <section className="release-modal-preflight" aria-label="发布准备核对">
               <dl className="knowledge-preflight-summary">
                 <div>
-                  <dt>文档确认修订</dt>
-                  <dd>{result.documentRevisionId ? '已确认' : '待确认'}</dd>
+                  <dt>发布前 → 目标修订</dt>
+                  <dd>
+                    {result.baseBindingId ?? '首次发布'} →{' '}
+                    {result.documentRevisionNumber ? 'r' + result.documentRevisionNumber : '待确认'}
+                  </dd>
                 </div>
                 <div>
                   <dt>相关已审核题目</dt>
@@ -435,6 +428,21 @@ export function KnowledgeReleasePage() {
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文档查看发布准备" />
           )}
         </ReadState>
+        {/* 先核对目标范围，再保存任务。准备相关题单从保存后的任务办理。 */}
+        {source && target && (
+          <ReleasePreparation
+            key={`${session.userId}:${source}:${target}`}
+            userId={session.userId}
+            source={source}
+            documentId={target}
+            documentRevisionId={
+              !inspection.error && result?.documentReady ? result.documentRevisionId : null
+            }
+            checking={inspection.isFetching}
+            onConflict={() => void inspection.refetch()}
+            onCreated={openBuild}
+          />
+        )}
       </Modal>
     </main>
   );

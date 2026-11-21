@@ -98,16 +98,22 @@ public class KnowledgeReleasePreflight {
         var document = document(source, id);
         var result = check(origin, document);
         String title = document.title();
+        Integer revisionNumber = null;
         if (result.documentRevision() != null) {
             // 直达选项即使不在下拉当前页，也显示其确认名称。
             var revision = documents.revision(id, result.documentRevision());
+            revisionNumber = revision.revision();
             title = json.read(revision.content(), KnowledgeDocumentVO.Content.class)
                     .getTitle();
         }
+        var scope = candidates.scope(source, id);
         return new KnowledgeReleasePreflightVO(
                 Long.toString(id),
                 title,
                 Ids.text(result.documentRevision()),
+                revisionNumber,
+                scope == null ? null : Ids.text(scope.activeBindingId()),
+                result.documentReady(),
                 result.testRevisions().size(),
                 Ids.text(result.embeddingRevision()),
                 result.inputFingerprint(),
@@ -127,32 +133,41 @@ public class KnowledgeReleasePreflight {
     }
 
     /**
-     * 在读快照或来源事务锁内收集同一确认对应的全部构建输入。
+     * 检查文档本身能否作为发布范围，题单与模型另在构建前核对。
      */
-    public Inspection check(Source origin, Document doc) {
+    public List<String> documentIssues(Source origin, Document doc) {
         var issues = new ArrayList<String>();
         boolean sourceReady =
                 "ENABLED".equals(origin.lifecycle()) && !origin.scopePending() && origin.snapshotId() != null;
-        boolean stale = !sourceReady;
         if (!sourceReady) {
-            // 来源已停用或目录尚未核对时，仍展示历史题单，但不能进入候选准备。
+            // 停用或待核对的来源无法提供当前文档依据。
             issues.add("当前数据源未启用或没有适用的成功目录");
         }
-        List<ReviewedTest> reviewed = List.of();
         if (doc.confirmedRevisionId() == null) {
-            // 待确认草稿不能为题单和发布提供正式依据。
+            // 只接受已确认的正文版本。
             issues.add("请先确认可用于发布的文档修订");
-        } else {
-            if (sourceReady) {
-                try {
-                    // 同一读快照内复查已确认文档的固定治理依据。
-                    references.verify(origin, documents.references(doc.confirmedRevisionId()));
-                } catch (BizIllegalException rejected) {
-                    // 仅说明需要复核，治理详情继续依照各自权限读取。
-                    stale = true;
-                    issues.add("当前治理依据需要重新核对");
-                }
+        } else if (sourceReady) {
+            try {
+                // 依据来自当前目录和文档的固定治理引用。
+                references.verify(origin, documents.references(doc.confirmedRevisionId()));
+            } catch (BizIllegalException rejected) {
+                // 治理细节由具备相应权限的页面提供。
+                issues.add("当前治理依据需要重新核对");
             }
+        }
+        return issues;
+    }
+
+    /**
+     * 在读快照或来源事务锁内收集同一确认对应的全部构建输入。
+     */
+    public Inspection check(Source origin, Document doc) {
+        // 文档依据与题单问题分别展示，保存任务只看前者。
+        var issues = documentIssues(origin, doc);
+        boolean documentReady = issues.isEmpty();
+        List<ReviewedTest> reviewed = List.of();
+        if (doc.confirmedRevisionId() != null) {
+            // 只统计适用于同一确认修订的标准题。
             reviewed = tests.reviewed(origin.id(), doc.id(), doc.confirmedRevisionId());
             var content = reviewed.stream()
                     .map(test -> json.read(test.content(), KnowledgeTestVO.Content.class))
@@ -173,14 +188,14 @@ public class KnowledgeReleasePreflight {
             models.verifyActive(revision);
             embedding = revision;
         } catch (BizIllegalException rejected) {
-            // 预检可回读阻断，创建候选时据此拒绝写入。
+            // 模型问题留在构建预检中，准备任务仍可保存。
             issues.add("知识检索向量化节点未分配可用模型");
         }
         var testRevisions =
                 reviewed.stream().map(ReviewedTest::revisionId).sorted().toList();
         String inputFingerprint = null;
         if (issues.isEmpty()) {
-            // 对确认、题单、模型和基础绑定生成确定摘要，准备事务会重算并核对。
+            // 对确认、题单、模型和基础绑定生成摘要，构建事务会重算并核对。
             var scope = candidates.scope(origin.id(), doc.id());
             var basis = new Basis(
                     origin.id(),
@@ -192,7 +207,12 @@ public class KnowledgeReleasePreflight {
             inputFingerprint = DigestUtil.sha256Hex(fingerprints.canonical(basis, false));
         }
         return new Inspection(
-                doc.confirmedRevisionId(), testRevisions, embedding, List.copyOf(issues), stale, inputFingerprint);
+                doc.confirmedRevisionId(),
+                testRevisions,
+                embedding,
+                List.copyOf(issues),
+                documentReady,
+                inputFingerprint);
     }
 
     /**
@@ -203,7 +223,7 @@ public class KnowledgeReleasePreflight {
             List<Long> testRevisions,
             Long embeddingRevision,
             List<String> issues,
-            boolean stale,
+            boolean documentReady,
             String inputFingerprint) {}
 
     /**

@@ -2,39 +2,55 @@ import type { Target } from '../governance/types';
 
 /** 候选页查看修订时保留原查询和触发入口。 */
 export type ReleaseRevisionReturn = {
-  /** 原来候选页的来源、文档和分页查询。 */
+  /** 原来发布页的来源、文档和分页查询。 */
   search: string;
   /** 返回后需要恢复焦点的触发按钮。 */
   focus: string;
   /** 从任务详情打开时返回该任务。 */
-  candidateId?: string;
+  taskId?: string;
 };
 
-/** 候选同时作为构建的固定业务对象。 */
-export type ReleaseCandidate = {
-  /** 候选稳定身份。 */
+/**
+ * 补题后返回原发布任务，并保留进入任务前的发布列表查询。
+ */
+export type ReleaseTestReturn = {
+  /** 原发布任务编号。 */
+  taskId: string;
+  /** 任务原有的来源、查询和分页参数。 */
+  search: string;
+  /** 该任务当前要补题的文档与确认修订。 */
+  document: { id: string; title: string; revisionId: string };
+};
+
+/**
+ * 发布任务在构建受理前没有固定候选。
+ */
+export type ReleaseTask = {
+  /** 准备任务的稳定身份。 */
   id: string;
-  /** 冻结时的文档名称。 */
+  /** 第一次构建受理后关联的候选编号。 */
+  candidateId: string | null;
+  /** 选择确认修订时的文档名称。 */
   title: string;
-  /** 按候选真实归属定位冻结文档。 */
+  /** 按任务真实归属定位文档。 */
   documentId: string;
   /** 依据的正式绑定，首版为空。 */
   baseBindingId: string | null;
   /** 固定正文及治理引用。 */
   documentRevisionId: string;
-  /** 固定输入的服务端摘要。 */
-  fingerprint: string;
+  /** 固定输入的服务端摘要，候选冻结前为空。 */
+  fingerprint: string | null;
   /** 聚合并发版本。 */
   version: number;
   /** 当前持久业务阶段。 */
   status: 'PREPARED' | 'BUILDING' | 'BUILD_FAILED' | 'READY_FOR_VALIDATION' | 'CANCELED';
-  /** 候选准备完成时间。 */
+  /** 任务创建成功时间。 */
   createdAt: string;
 };
 
 /** 只报告已经实现且可回读的发布阶段。 */
-export const releaseStates: Record<ReleaseCandidate['status'], string> = {
-  PREPARED: '待构建',
+export const releaseStates: Record<ReleaseTask['status'], string> = {
+  PREPARED: '准备中',
   BUILDING: '构建中',
   BUILD_FAILED: '构建失败',
   READY_FOR_VALIDATION: '待验证',

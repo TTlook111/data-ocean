@@ -28,6 +28,21 @@ public class KnowledgeReleasePreflightVO {
     private String documentRevisionId;
 
     /**
+     * 范围预览显示的确认修订序号，自一开始。
+     */
+    private Integer documentRevisionNumber;
+
+    /**
+     * 当前生效绑定，尚未发布时为空。
+     */
+    private String baseBindingId;
+
+    /**
+     * 文档与来源依据是否满足保存准备任务的条件。
+     */
+    private boolean documentReady;
+
+    /**
      * 当前已审核且归属同一确认的标准题数量。
      */
     private int reviewedTests;

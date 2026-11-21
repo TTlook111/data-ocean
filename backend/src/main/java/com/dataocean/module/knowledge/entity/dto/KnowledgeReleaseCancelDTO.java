@@ -7,7 +7,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 取消仅作用于已核对的候选版本，并留存实际原因。
+ * 取消仅作用于已核对的任务版本，并留存实际原因。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)

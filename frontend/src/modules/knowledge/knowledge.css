@@ -169,13 +169,14 @@
   flex: 1 1 180px;
 }
 
-/* 发布预检将客观结果和处理入口并列摆放，避免藏在提示框深处。 */
-.knowledge-preflight-title {
-  flex-wrap: wrap;
-  margin-block-end: 16px;
+/* 创建按钮接在范围预览后，与当前弹窗内容一同滚动。 */
+.knowledge-release-create-actions {
+  position: static;
+  margin-block-start: 16px;
+  padding-block-end: 0;
 }
 
-/* 提交失败就近提示，与下方仍可核对的摘要留出间隔。 */
+/* 提交反馈与范围预览、操作按钮各占一行。 */
 .knowledge-prepare-feedback {
   flex-basis: 100%;
 }

@@ -14,12 +14,14 @@ import {
 } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { api, mutation, queryString } from '../../shared/api';
 import { ReadState, readErrorMessage } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
+import type { ReleaseTestReturn } from './types';
 import { useKnowledgeDraft } from './useKnowledgeDraft';
 import './knowledge.css';
 
@@ -60,11 +62,15 @@ type TestRow = {
 /** 题单通过实际已确认修订准备预期和依据。 */
 export function KnowledgeTestPage() {
   const { params, setParams, sources, selected } = useSourceSelection('TEST_CASES');
+  const location = useLocation();
+  const navigate = useNavigate();
   const open = params.get('testId') ?? undefined;
   const returnedTo = useRef<string>(undefined);
-  const documentFilter = params.get('documentId') ?? undefined;
   const session = useSession();
-  const source = selected?.id;
+  const taskReturn = (location.state as { releaseTestReturn?: ReleaseTestReturn } | null)
+    ?.releaseTestReturn;
+  const documentFilter = taskReturn?.document.id ?? params.get('documentId') ?? undefined;
+  const source = !taskReturn || selected?.id === params.get('source') ? selected?.id : undefined;
   const path = '/knowledge/sources/' + source + '/test-cases';
   const size = Number(params.get('pageSize') ?? 10);
   const page = Number(params.get('pageNum') ?? 1);
@@ -84,13 +90,14 @@ export function KnowledgeTestPage() {
   });
   const documents = useQuery({
     queryKey: ['knowledge-test-documents', source],
-    enabled: Boolean(source),
+    enabled: Boolean(source) && !taskReturn,
     queryFn: () =>
       api<Page<{ id: string; title: string; revisionId: string }>>(
         path + '/document-options?pageSize=100',
       ),
   });
-  const docChoices = documents.data?.items ?? [];
+  // 任务自带明确的目标修订，关联题不用在通用文档选项的第一页查找。
+  const docChoices = taskReturn ? [taskReturn.document] : (documents.data?.items ?? []);
 
   useEffect(() => {
     if (open || !returnedTo.current || !list.isSuccess) return;
@@ -117,7 +124,7 @@ export function KnowledgeTestPage() {
         pageSize: size,
         testId: id,
       }),
-      { replace },
+      { replace, state: location.state },
     );
   }
 
@@ -129,24 +136,38 @@ export function KnowledgeTestPage() {
           <div className="panel ds-toolbar knowledge-source-toolbar">
             <SourcePicker
               withLabel
-              sources={sources.data}
-              selected={selected}
+              sources={taskReturn ? (source && selected ? [selected] : []) : sources.data}
+              selected={source ? selected : undefined}
               choose={(next) => {
                 // 记录及筛选始终属于一个数据源。
                 setParams(queryString({ source: next, pageSize: size }));
               }}
             />
-            {source && allowed(session, 'test-cases.edit') && (
-              <Button
-                id="knowledge-test-open-new"
-                type="primary"
-                icon={<PlusOutlined aria-hidden="true" />}
-                onClick={() => openTest('new')}
-                disabled={!docChoices.length || selected.lifecycle !== 'ENABLED'}
-              >
-                新增标准题
-              </Button>
-            )}
+            {/* 办理相关题后直接回到原任务，本页仍沿用题单工具栏。 */}
+            <Space size={8} wrap>
+              {taskReturn && allowed(session, 'releases.view') && (
+                <Button
+                  onClick={() =>
+                    navigate('/releases/' + taskReturn.taskId + taskReturn.search, {
+                      state: { releaseFocus: 'release-prepare-tests' },
+                    })
+                  }
+                >
+                  返回发布任务
+                </Button>
+              )}
+              {source && allowed(session, 'test-cases.edit') && (
+                <Button
+                  id="knowledge-test-open-new"
+                  type="primary"
+                  icon={<PlusOutlined aria-hidden="true" />}
+                  onClick={() => openTest('new')}
+                  disabled={!docChoices.length || selected?.lifecycle !== 'ENABLED'}
+                >
+                  新增标准题
+                </Button>
+              )}
+            </Space>
           </div>
           <div className="panel query-panel">
             <Select
@@ -154,11 +175,11 @@ export function KnowledgeTestPage() {
               className="knowledge-document-select"
               showSearch={{ optionFilterProp: 'label' }}
               placeholder="全部文档"
-              allowClear
+              allowClear={!taskReturn}
               value={documentFilter}
               options={docChoices.map((doc) => ({ value: doc.id, label: doc.title }))}
               loading={documents.isPending && Boolean(source)}
-              disabled={!docChoices.length}
+              disabled={!!taskReturn || !docChoices.length}
               onChange={(documentId) =>
                 setParams(queryString({ source, documentId, pageSize: size }))
               }
@@ -171,7 +192,7 @@ export function KnowledgeTestPage() {
         loading={sources.isPending}
         retry={() => void sources.refetch()}
       >
-        {source ? (
+        {source && selected ? (
           <>
             {open ? (
               <div
@@ -220,6 +241,7 @@ export function KnowledgeTestPage() {
                                 pageSize: size,
                                 testId: open,
                               }),
+                              { state: location.state },
                             )
                           }
                         />
@@ -230,8 +252,8 @@ export function KnowledgeTestPage() {
                 <div className="knowledge-test-editor">
                   {/* 文档选项到齐后再挂载题目表单，读取期间不显示内部编号。 */}
                   <ReadState
-                    loading={documents.isPending}
-                    error={documents.error}
+                    loading={!taskReturn && documents.isPending}
+                    error={taskReturn ? null : documents.error}
                     retry={() => void documents.refetch()}
                   >
                     <TestEditor
@@ -260,7 +282,7 @@ export function KnowledgeTestPage() {
                       ? '确认关联文档后可新增标准题'
                       : '暂无标准题'
                   }
-                  filtered={Boolean(documentFilter)}
+                  filtered={!taskReturn && Boolean(documentFilter)}
                   onReset={() => setParams(queryString({ source, pageSize: size }))}
                   tableLayout="fixed"
                   flexibleColumns={[0]}
@@ -304,12 +326,15 @@ export function KnowledgeTestPage() {
                     onChange: (pageNum, pageSize) =>
                       setParams(
                         queryString({ source, documentId: documentFilter, pageNum, pageSize }),
+                        { state: location.state },
                       ),
                   }}
                 />
               </section>
             )}
-            {documents.error && <Alert type="error" title={readErrorMessage(documents.error)} />}
+            {!taskReturn && documents.error && (
+              <Alert type="error" title={readErrorMessage(documents.error)} />
+            )}
           </>
         ) : (
           <SourceUnavailable />

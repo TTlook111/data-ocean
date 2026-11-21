@@ -13,16 +13,15 @@ import lombok.Data;
 public class KnowledgeReleaseBuildDTO {
 
     /**
-     * 打开详情时看到的候选并发版本。
+     * 打开详情时看到的任务并发版本。
      */
     @NotNull
     @Positive
     private Integer expectedVersion;
 
     /**
-     * 候选创建时记录的不可变输入摘要。
+     * 首次构建传就绪预检摘要，重试传已冻结摘要。取消准备任务时可省略。
      */
-    @NotNull
     @Pattern(regexp = "[0-9a-f]{64}")
     private String fingerprint;
 }

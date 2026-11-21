@@ -254,7 +254,7 @@ function DocumentEditor({
       // 候选修订属于发布办理的回看，返回时恢复其筛选和行内入口。
       navigate(
         '/releases' +
-          (releaseReturn.candidateId ? '/' + releaseReturn.candidateId : '') +
+          (releaseReturn.taskId ? '/' + releaseReturn.taskId : '') +
           releaseReturn.search,
         {
           state: { releaseFocus: releaseReturn.focus },

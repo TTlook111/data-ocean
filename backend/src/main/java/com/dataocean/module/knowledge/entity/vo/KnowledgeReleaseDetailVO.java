@@ -6,7 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 
 /**
- * 发布任务详情首屏的固定范围与历次构建。
+ * 任务详情的准备范围、当前构建条件及历次记录。
  */
 @Data
 @AllArgsConstructor
@@ -18,24 +18,29 @@ public class KnowledgeReleaseDetailVO {
     private String sourceName;
 
     /**
-     * 任务绑定的文档编号。
-     */
-    private String documentId;
-
-    /**
      * 固定文档修订的可读编号，自一开始。
      */
     private int documentRevisionNumber;
 
     /**
-     * 本次候选身份、基础绑定及阶段。
+     * 任务身份、目标修订及其当前候选。
      */
-    private KnowledgeReleaseCandidateVO candidate;
+    private KnowledgeReleaseTaskVO task;
 
     /**
-     * 本次候选固定的审核题版本数，作为范围核对事实。
+     * 当前满足范围的审核题数，冻结后显示固定题数。
      */
     private int reviewedTests;
+
+    /**
+     * 准备任务可以开始构建时的预检摘要，冻结后为空。
+     */
+    private String inputFingerprint;
+
+    /**
+     * 首次构建需要处理的实际问题。
+     */
+    private List<String> issues;
 
     /**
      * 从最新到最早的实际构建记录。

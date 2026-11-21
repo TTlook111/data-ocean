@@ -1,11 +1,16 @@
 import { Alert, Button, Form, Grid, Input, Modal, Steps, Table, Tag } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
-import { releaseStates, type ReleaseCandidate, type ReleaseRevisionReturn } from './types';
+import {
+  releaseStates,
+  type ReleaseRevisionReturn,
+  type ReleaseTask,
+  type ReleaseTestReturn,
+} from './types';
 import { useReleaseCommand } from './useReleaseCommand';
 import './knowledge.css';
 
@@ -25,18 +30,20 @@ type Build = {
   createdAt: string;
 };
 
-/** 任务详情从真实候选和已保存构建历史共同读取。 */
+/** 任务详情提供准备状态、可选候选和已保存构建历史。 */
 type BuildDetail = {
   /** 构建所属数据源。 */
   sourceName: string;
-  /** 固定文档标识。 */
-  documentId: string;
   /** 可读确认修订，从一开始。 */
   documentRevisionNumber: number;
-  /** 当前候选和业务阶段。 */
-  candidate: ReleaseCandidate;
-  /** 本候选固定的审核题数量。 */
+  /** 稳定任务编号、可选候选和业务阶段。 */
+  task: ReleaseTask;
+  /** 准备阶段的实时题数，冻结后显示候选固定的题数。 */
   reviewedTests: number;
+  /** 首次构建使用的最新预检摘要。 */
+  inputFingerprint: string | null;
+  /** 首次构建前需要处理的问题。 */
+  issues: string[];
   /** 从最近一轮开始的构建状态。 */
   builds: Build[];
 };
@@ -76,10 +83,11 @@ export function KnowledgeReleaseBuildPage() {
     queryKey: ['release-build', source, id],
     enabled: Boolean(source && id),
     queryFn: () => api<BuildDetail>(path),
+    refetchOnMount: 'always',
     refetchInterval: (query) =>
-      query.state.data?.candidate.status === 'BUILDING' && connected !== path ? 2500 : false,
+      query.state.data?.task.status === 'BUILDING' && connected !== path ? 2500 : false,
   });
-  const active = detail.data?.candidate.status === 'BUILDING' && !detail.error;
+  const active = detail.data?.task.status === 'BUILDING' && !detail.error;
   const refetch = detail.refetch;
   useEffect(() => {
     // 进度事件只触发授权详情回读。断线不重新提交原任务。
@@ -98,11 +106,14 @@ export function KnowledgeReleaseBuildPage() {
     return () => stream.close();
   }, [active, path, refetch]);
   const focus = (location.state as { releaseFocus?: string } | null)?.releaseFocus;
+  const restoredFocus = useRef<string>(undefined);
   useEffect(() => {
-    // 从修订阅读返回时回到当前任务的正文链接。
-    if (detail.isSuccess && focus === 'build-document-revision')
-      document.getElementById(focus)?.focus();
-  }, [detail.isSuccess, focus]);
+    // 等待回到任务后的新状态，再恢复到原链接或下一步。
+    if (detail.isSuccess && !detail.isFetching && focus && restoredFocus.current !== location.key) {
+      restoredFocus.current = location.key;
+      (document.getElementById(focus) ?? document.getElementById('release-task-heading'))?.focus();
+    }
+  }, [detail.isSuccess, detail.isFetching, focus, location.key]);
 
   /** 返回后恢复原列表范围、页码和触发位置。 */
   function back() {
@@ -120,20 +131,35 @@ export function KnowledgeReleaseBuildPage() {
     );
   }
 
-  /** 使用实际固定修订，返回目标仍然是当前任务。 */
+  /** 阅读原确认修订，返回目标仍然是当前任务。 */
   function revision(row: BuildDetail) {
     const releaseReturn: ReleaseRevisionReturn = {
       search: location.search,
       focus: 'build-document-revision',
-      candidateId: id,
+      taskId: id,
     };
     navigate(
       '/knowledge/' +
-        row.documentId +
+        row.task.documentId +
         '?' +
-        queryString({ source, revisionId: row.candidate.documentRevisionId }),
+        queryString({ source, revisionId: row.task.documentRevisionId }),
       { state: { releaseReturn } },
     );
+  }
+
+  /**
+   * 将补题限制在该任务的文档，完成后恢复原任务和列表查询。
+   */
+  function openTests(row: BuildDetail) {
+    const { id, documentId, documentRevisionId, title } = row.task;
+    const releaseTestReturn: ReleaseTestReturn = {
+      taskId: id,
+      search: location.search,
+      document: { id: documentId, title, revisionId: documentRevisionId },
+    };
+    navigate('/test-cases?' + queryString({ source, documentId }), {
+      state: { releaseTestReturn },
+    });
   }
 
   return (
@@ -158,6 +184,8 @@ export function KnowledgeReleaseBuildPage() {
               data={detail.data}
               back={back}
               openRevision={() => revision(detail.data!)}
+              openTests={() => openTests(detail.data!)}
+              checking={detail.isFetching}
               refresh={() => void detail.refetch()}
             />
           )}
@@ -174,29 +202,38 @@ function BuildWorkspace({
   data,
   back,
   openRevision,
+  openTests,
+  checking,
   refresh,
 }: {
   /** 当前任务已经核对的来源。 */
   source: string;
-  /** 原候选的实际 API 路径。 */
+  /** 原任务的实际 API 路径。 */
   path: string;
   /** 构建详情的持久快照。 */
   data: BuildDetail;
-  /** 返回原候选列表。 */
+  /** 返回原发布任务列表。 */
   back: () => void;
-  /** 阅读已固定的历史正文。 */
+  /** 阅读任务选择的确认正文。 */
   openRevision: () => void;
+  /** 打开本批关联的标准题单。 */
+  openTests: () => void;
+  /** 正在重新检查首建输入，避免从缓存直接提交。 */
+  checking: boolean;
   /** 候选变化后回读，避免用旧版本继续写入。 */
   refresh: () => void;
 }) {
   const session = useSession();
   const viewport = Grid.useBreakpoint();
   const cache = useQueryClient();
-  const row = data.candidate;
+  const row = data.task;
   const latest = data.builds[0];
   const [cancelOpen, setCancelOpen] = useState(false);
   const canBuild = allowed(session, 'releases.build');
   const needsBuild = row.status === 'PREPARED' || row.status === 'BUILD_FAILED';
+  const fingerprint = row.fingerprint ?? data.inputFingerprint;
+  const needsTests = data.issues.some((issue) => issue.startsWith('缺少已审核'));
+  const canPrepareTests = needsTests && allowed(session, 'test-cases.view');
   const failed = row.status === 'BUILD_FAILED';
   const stage =
     row.status === 'BUILDING' ? buildStates[latest?.state ?? 'QUEUED'] : releaseStates[row.status];
@@ -213,7 +250,7 @@ function BuildWorkspace({
     committed: async () => {
       await Promise.all([
         cache.invalidateQueries({ queryKey: ['release-build', source, row.id] }),
-        cache.invalidateQueries({ queryKey: ['release-candidates', source] }),
+        cache.invalidateQueries({ queryKey: ['release-tasks', source] }),
       ]);
     },
     conflict: refresh,
@@ -225,11 +262,13 @@ function BuildWorkspace({
     : null;
 
   return (
-    <article className="panel knowledge-build-workspace" aria-label="候选构建">
-      {/* 页头与原型一样显示所属源、固定候选和当前阶段。 */}
+    <article className="panel knowledge-build-workspace" aria-label="发布任务">
+      {/* 页头显示稳定任务编号、所属源和当前阶段。 */}
       <header className="knowledge-build-heading">
         <div className="knowledge-build-identity">
-          <h1 title={row.title}>{row.id}</h1>
+          <h1 id="release-task-heading" tabIndex={-1} title={row.title}>
+            {row.id}
+          </h1>
           <span>{data.sourceName}</span>
         </div>
         <div className="knowledge-build-header-actions">
@@ -245,7 +284,13 @@ function BuildWorkspace({
           className="knowledge-build-stages"
           titlePlacement={viewport.lg ? 'horizontal' : 'vertical'}
           size="small"
-          current={row.status === 'READY_FOR_VALIDATION' ? 2 : row.status === 'PREPARED' ? 0 : 1}
+          current={
+            row.status === 'READY_FOR_VALIDATION'
+              ? 2
+              : !row.candidateId || row.status === 'PREPARED'
+                ? 0
+                : 1
+          }
           status={failed ? 'error' : undefined}
           items={['范围核对', '候选构建', '相关验证', '发布检查', '切换完成'].map((title) => ({
             title,
@@ -254,13 +299,23 @@ function BuildWorkspace({
         <section className="knowledge-build-readiness" aria-label="发布准备">
           <div>
             <h2>发布准备</h2>
-            <span className="muted">已审核 {data.reviewedTests} 道</span>
+            {row.status !== 'CANCELED' || row.candidateId ? (
+              <span className="muted">相关标准题已审核 {data.reviewedTests} 道</span>
+            ) : null}
           </div>
-          <Tag color="success">审核题单已固定</Tag>
+          {row.candidateId ? (
+            <Tag color="success">审核题单已固定</Tag>
+          ) : row.status === 'PREPARED' ? (
+            <Tag color={fingerprint ? 'success' : 'warning'}>
+              {checking ? '核对中' : fingerprint ? '可构建' : '待处理'}
+            </Tag>
+          ) : null}
         </section>
+        {/* 阻断贴近范围核对，补题主操作在固定底栏。 */}
+        {data.issues.length > 0 && <Alert type="warning" showIcon title={data.issues.join('；')} />}
         <section className="knowledge-build-section" aria-label="本批文档与修订">
           <h2>本批文档与修订</h2>
-          <Table<ReleaseCandidate>
+          <Table<ReleaseTask>
             size="middle"
             rowKey="id"
             pagination={false}
@@ -290,6 +345,7 @@ function BuildWorkspace({
               },
             ]}
           />
+          {row.candidateId && <p className="muted">固定候选 {row.candidateId}</p>}
         </section>
         {/* 只展示真实构建结果，后续验证保持待办阶段。 */}
         <section className="knowledge-build-section" aria-label="处理记录">
@@ -327,16 +383,18 @@ function BuildWorkspace({
         )}
       </div>
       {/* 原型把本阶段唯一主操作固定在办理区域底部。 */}
-      {canBuild && row.status !== 'CANCELED' && (
+      {(canBuild || canPrepareTests) && row.status !== 'CANCELED' && (
         <footer className="knowledge-actions knowledge-build-actions">
-          <Button
-            danger
-            type="text"
-            disabled={Boolean(recovering) || command.busy}
-            onClick={() => setCancelOpen(true)}
-          >
-            取消任务
-          </Button>
+          {canBuild && (
+            <Button
+              danger
+              type="text"
+              disabled={Boolean(recovering) || command.busy}
+              onClick={() => setCancelOpen(true)}
+            >
+              取消任务
+            </Button>
+          )}
           {recovering ? (
             <Button
               type="primary"
@@ -346,13 +404,19 @@ function BuildWorkspace({
             >
               {command.action}
             </Button>
+          ) : canPrepareTests ? (
+            <Button id="release-prepare-tests" type="primary" onClick={openTests}>
+              准备相关题单
+            </Button>
           ) : (
+            canBuild &&
             needsBuild && (
               <Button
                 type="primary"
                 loading={command.busy}
+                disabled={!fingerprint || checking}
                 onClick={() =>
-                  command.submit({ expectedVersion: row.version, fingerprint: row.fingerprint })
+                  fingerprint && command.submit({ expectedVersion: row.version, fingerprint })
                 }
               >
                 {buildLabel}
@@ -384,10 +448,10 @@ function CancelTask({
 }: {
   /** 当前任务所属源。 */
   source: string;
-  /** 候选 API 路径。 */
+  /** 发布任务 API 路径。 */
   path: string;
-  /** 取消时必须符合打开弹窗的当前候选版本。 */
-  row: ReleaseCandidate;
+  /** 取消时必须符合打开弹窗的当前任务版本。 */
+  row: ReleaseTask;
   /** 返回原任务。 */
   onClose: () => void;
   /** 关闭后按实际后台状态回读。 */
@@ -405,7 +469,7 @@ function CancelTask({
       const value = body as Record<string, unknown>;
       return typeof value.reason === 'string' &&
         typeof value.expectedVersion === 'number' &&
-        typeof value.fingerprint === 'string'
+        (value.fingerprint === null || typeof value.fingerprint === 'string')
         ? {
             reason: value.reason,
             expectedVersion: value.expectedVersion,
@@ -416,7 +480,7 @@ function CancelTask({
     committed: async () => {
       await Promise.all([
         cache.invalidateQueries({ queryKey: ['release-build', source, baseline.id] }),
-        cache.invalidateQueries({ queryKey: ['release-candidates', source] }),
+        cache.invalidateQueries({ queryKey: ['release-tasks', source] }),
       ]);
       onClose();
     },
@@ -440,7 +504,7 @@ function CancelTask({
       }}
     >
       {/* 取消的后果和原因只在实际操作时出现。 */}
-      <Alert type="warning" showIcon title="候选将停止发布办理，当前生效版本保持使用。" />
+      <Alert type="warning" showIcon title="此任务将停止办理，当前生效版本保持使用。" />
       {command.note && (
         <Alert type={command.pending ? 'warning' : 'error'} title={command.note} showIcon />
       )}

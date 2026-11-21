@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.service.impl;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.dataocean.common.Ids;
 import com.dataocean.common.Times;
 import com.dataocean.common.exception.BizIllegalException;
@@ -27,6 +28,8 @@ import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Build;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Chunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper.Task;
 import com.dataocean.module.knowledge.service.KnowledgeBuildService;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Evidence;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Fragment;
@@ -68,6 +71,16 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     private static final String ACTION = "releases.build";
 
     /**
+     * 提醒用户重新核对范围，防止新确认自动替换原任务内容。
+     */
+    private static final String REVISION_CHANGED = "文档确认修订已变化，请按最新确认创建任务";
+
+    /**
+     * 详情与实际构建共用模型传输范围的阻断原因。
+     */
+    private static final String TRANSPORT_UNAVAILABLE = "当前数据源未配置知识模型传输范围";
+
+    /**
      * 排队与构建共享的单次活动时限，失败后由用户开启另一代次。
      */
     private static final int SECONDS = 180;
@@ -100,6 +113,11 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
      * 权威的业务范围和当前基础入口。
      */
     private final KnowledgeReleaseCandidateMapper candidates;
+
+    /**
+     * 准备任务先于构建存在，首次受理时关联固定候选。
+     */
+    private final KnowledgeReleaseTaskMapper tasks;
 
     /**
      * 稳定来源锁和当前适用目录。
@@ -171,37 +189,46 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                 false,
                 false,
                 () -> {
-                    // 只有有权限且仍有效的当前候选可进入下一次执行。
+                    // 来源锁内同时核对任务版本和本次实际构建输入。
                     permissions.require("releases.view");
                     var origin = catalog.source(source, true);
-                    var candidate = candidate(source, id);
-                    verifyVersion(candidate, input);
-                    if (!Set.of("PREPARED", "BUILD_FAILED").contains(candidate.getStatus())) {
+                    var row = releaseTask(source, id);
+                    verifyVersion(row, input);
+                    if (!Set.of("PREPARED", "BUILD_FAILED").contains(row.status())) {
+                        // 运行中和终态任务不得开启另一代次。
                         throw BizIllegalException.state("当前发布任务不能开始构建");
                     }
-                    long documentId = builds.document(candidate.getScopeId());
-                    verifyFrozen(origin, documentId, candidate);
+                    long candidateId;
+                    if (row.candidateId() == null) {
+                        // 固定输入、关联候选与受理构建共用本次事务。
+                        candidateId = freeze(origin, row, input.getFingerprint());
+                    } else {
+                        // 历史候选及构建重试继续使用原冻结输入。
+                        candidateId = row.candidateId();
+                        verifyFrozen(origin, row.documentId(), candidate(source, candidateId));
+                    }
 
                     String build = UUID.randomUUID().toString();
                     builds.insert(
                             build,
-                            id,
+                            candidateId,
                             index.collection(build),
                             UserContext.getUser(),
                             UserContext.current().authenticationVersion());
-                    if (builds.begin(id, build, candidate.getVersion()) != 1) {
+                    if (builds.begin(candidateId, build, row.version()) != 1) {
+                        // 竞争失败时回滚本次候选、构建与片段。
                         throw BizIllegalException.conflict();
                     }
-                    saveChunks(build, documentId, candidate.getDocumentRevisionId());
+                    saveChunks(build, row.documentId(), row.documentRevisionId());
                     audit.record(AuditWriteDTO.builder()
                             .actionCode(ACTION)
                             .targetType("knowledge_index_build")
                             .targetId(build)
-                            .targetName(candidate.getTitle())
+                            .targetName(row.title())
                             .commandId(command)
                             .securityVersion(commands.auditSecurityVersion(false))
                             .build());
-                    return new MutationVO(command, "knowledge_index_build", build, candidate.getVersion() + 1);
+                    return new MutationVO(command, "knowledge_index_build", build, row.version() + 1);
                 });
     }
 
@@ -223,37 +250,101 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                     // 取消与开始构建、回执应用使用同一来源事务锁。
                     permissions.require("releases.view");
                     catalog.source(source, true);
-                    var row = candidate(source, id);
+                    var row = releaseTask(source, id);
                     verifyVersion(row, input);
-                    if (builds.cancel(id, row.getVersion()) != 1) {
+                    int changed = row.candidateId() == null
+                            ? tasks.cancel(id)
+                            : builds.cancel(row.candidateId(), row.version());
+                    if (changed != 1) {
+                        // 已取消或不再适用的阶段不能再次受理。
                         throw BizIllegalException.state("当前发布任务不能取消");
                     }
-                    if (row.getCurrentBuildId() != null) {
+                    if (row.currentBuildId() != null) {
                         // 仍在执行的工作者在下一步回查或交付时被阻断。
-                        builds.cancelAttempt(row.getCurrentBuildId());
+                        builds.cancelAttempt(row.currentBuildId());
                     }
                     audit.record(AuditWriteDTO.builder()
                             .actionCode(ACTION)
                             .targetType("knowledge_release")
                             .targetId(Ids.text(id))
-                            .targetName(row.getTitle())
+                            .targetName(row.title())
                             .reason(input.getReason().strip())
                             .commandId(command)
                             .securityVersion(commands.auditSecurityVersion(false))
                             .build());
-                    return new MutationVO(command, "knowledge_release", Ids.text(id), row.getVersion() + 1);
+                    return new MutationVO(command, "knowledge_release", Ids.text(id), row.version() + 1);
                 });
     }
 
     /**
      * 版本冲突由前端回读后重新办理。
      */
-    private void verifyVersion(KnowledgeReleaseCandidatePO candidate, KnowledgeReleaseBuildDTO input) {
-        if (!candidate.getVersion().equals(input.getExpectedVersion())
-                || !candidate.getFingerprint().equals(input.getFingerprint())) {
+    private void verifyVersion(Task row, KnowledgeReleaseBuildDTO input) {
+        if (row.version() != input.getExpectedVersion()
+                || row.candidateId() != null && !Objects.equals(row.fingerprint(), input.getFingerprint())) {
+            // 避免旧详情操作新的阶段或候选。
             throw BizIllegalException.conflict();
         }
     }
+
+    /**
+     * 从来源锁保护的当前输入生成候选并关联任务，重试直接使用关联记录。
+     */
+    private long freeze(Source origin, Task task, String fingerprint) {
+        var document = preflight.document(origin.id(), task.documentId());
+        if (!Objects.equals(document.confirmedRevisionId(), task.documentRevisionId())) {
+            // 操作者须明确选择新的确认修订。
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, REVISION_CHANGED);
+        }
+        var checked = preflight.check(origin, document);
+        if (!checked.issues().isEmpty()) {
+            // 缺题或缺模型时保留准备任务并返回实际阻断。
+            var code = checked.documentReady() ? ErrorCode.KNOWLEDGE_NOT_READY : ErrorCode.DEPENDENCY_STALE;
+            throw new BizIllegalException(code, String.join("；", checked.issues()));
+        }
+        if (!Objects.equals(checked.inputFingerprint(), fingerprint)) {
+            // 防止预览后变化的题单、向量配置或基础绑定被悄悄使用。
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "发布依据已变化，请重新核对后构建");
+        }
+        verifyTransport(origin);
+
+        var scope = candidates.scope(origin.id(), task.documentId());
+        var frozen = new Frozen(
+                scope.id(),
+                scope.activeBindingId(),
+                task.documentRevisionId(),
+                checked.embeddingRevision(),
+                checked.testRevisions());
+        var row = new KnowledgeReleaseCandidatePO();
+        row.setId(IdWorker.getId());
+        row.setScopeId(scope.id());
+        row.setBaseBindingId(scope.activeBindingId());
+        row.setDocumentRevisionId(task.documentRevisionId());
+        row.setEmbeddingRevisionId(checked.embeddingRevision());
+        row.setTitle(task.title());
+        row.setFingerprint(DigestUtil.sha256Hex(fingerprints.canonical(frozen, false)));
+        row.setCreatedBy(UserContext.getUser());
+        candidates.insert(row);
+        for (long testRevision : checked.testRevisions()) {
+            // 保存审核修订身份，后续编辑不得替换候选依赖。
+            candidates.attachTest(row.getId(), testRevision);
+        }
+        if (tasks.attach(task.id(), row.getId()) != 1) {
+            // 一个任务只接受一次初始冻结。
+            throw BizIllegalException.conflict();
+        }
+        return row.getId();
+    }
+
+    /**
+     * 候选的固定输入摘要独立于命令密钥。
+     */
+    private record Frozen(
+            long scopeId,
+            Long baseBindingId,
+            long documentRevisionId,
+            long embeddingRevisionId,
+            List<Long> reviewedTestRevisions) {}
 
     /**
      * 当前源、固定确认及历次记录使用同一个读取快照。
@@ -261,24 +352,52 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public KnowledgeReleaseDetailVO detail(long source, long id) {
-        var row = candidate(source, id);
-        long document = builds.document(row.getScopeId());
-        var revision = documents.revision(document, row.getDocumentRevisionId());
-        var history = builds.history(id).stream()
-                .map(task -> new KnowledgeReleaseBuildVO(
-                        task.id(),
-                        task.state(),
-                        task.failureCode(),
-                        task.verifiedChunks(),
-                        task.vectorDimension(),
-                        Times.instant(task.createdAt())))
-                .toList();
+        var origin = catalog.source(source, false);
+        var row = releaseTask(source, id);
+        var revision = documents.revision(row.documentId(), row.documentRevisionId());
+        int reviewedTests = 0;
+        String inputFingerprint = null;
+        List<String> issues = List.of();
+        if (row.candidateId() != null) {
+            // 冻结之后回读历史审核题，避免把后来更新的题数写到已有候选上。
+            reviewedTests = builds.testRevisions(row.candidateId()).size();
+        } else if ("PREPARED".equals(row.status())) {
+            // 从补题页回来时，实时核对原确认修订的题和其他依赖。
+            var document = preflight.document(source, row.documentId());
+            if (Objects.equals(document.confirmedRevisionId(), row.documentRevisionId())) {
+                // 只统计原任务采用的确认正文对应的审核题。
+                var checked = preflight.check(origin, document);
+                reviewedTests = checked.testRevisions().size();
+                inputFingerprint = checked.inputFingerprint();
+                issues = checked.issues();
+                if (inputFingerprint != null && !hasModelTransport(origin)) {
+                    // 题单和模型齐全时，仍需确认来源已获准传输。
+                    inputFingerprint = null;
+                    issues = List.of(TRANSPORT_UNAVAILABLE);
+                }
+            } else {
+                // 范围变化须交给用户重新选择。
+                issues = List.of(REVISION_CHANGED);
+            }
+        }
+        var history = row.candidateId() == null
+                ? List.<KnowledgeReleaseBuildVO>of()
+                : builds.history(row.candidateId()).stream()
+                        .map(task -> new KnowledgeReleaseBuildVO(
+                                task.id(),
+                                task.state(),
+                                task.failureCode(),
+                                task.verifiedChunks(),
+                                task.vectorDimension(),
+                                Times.instant(task.createdAt())))
+                        .toList();
         return new KnowledgeReleaseDetailVO(
-                catalog.source(source, false).name(),
-                Ids.text(document),
+                origin.name(),
                 revision.revision(),
                 KnowledgeReleases.view(row),
-                builds.testRevisions(id).size(),
+                reviewedTests,
+                inputFingerprint,
+                issues,
                 history);
     }
 
@@ -288,10 +407,9 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Progress progress(long source, long id) {
-        var row = candidate(source, id);
-        var build = row.getCurrentBuildId() == null ? null : builds.get(row.getCurrentBuildId());
-        return new Progress(
-                row.getCurrentBuildId(), row.getVersion(), row.getStatus(), build == null ? null : build.state());
+        var row = releaseTask(source, id);
+        var build = row.currentBuildId() == null ? null : builds.get(row.currentBuildId());
+        return new Progress(row.currentBuildId(), row.version(), row.status(), build == null ? null : build.state());
     }
 
     /**
@@ -462,9 +580,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
      * 当前治理、题单、模型或基础绑定变化时要求重新准备候选。
      */
     private void verifyFrozen(Source source, long document, KnowledgeReleaseCandidatePO candidate) {
-        if (!transport.isEnabled() || !index.getModelSourceIds().contains(source.id())) {
-            throw BizIllegalException.state("当前数据源未配置知识模型传输范围");
-        }
+        verifyTransport(source);
         var check = preflight.check(source, preflight.document(source.id(), document));
         var scope = candidates.scope(source.id(), document);
         if (!check.issues().isEmpty()
@@ -474,8 +590,25 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                 || !builds.testRevisions(candidate.getId()).equals(check.testRevisions())) {
             throw new BizIllegalException(
                     ErrorCode.DEPENDENCY_STALE,
-                    check.issues().isEmpty() ? "候选依据已变化，请重新核对并创建候选" : String.join("；", check.issues()));
+                    check.issues().isEmpty() ? "候选依据已变化，请重新核对并创建任务" : String.join("；", check.issues()));
         }
+    }
+
+    /**
+     * 仅在已许可的数据源发起和执行真实构建。
+     */
+    private void verifyTransport(Source source) {
+        if (!hasModelTransport(source)) {
+            // 保留准备任务，等待管理员配置传输范围。
+            throw BizIllegalException.state(TRANSPORT_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * 核对构建服务已启用且来源已列入模型传输范围。
+     */
+    private boolean hasModelTransport(Source source) {
+        return transport.isEnabled() && index.getModelSourceIds().contains(source.id());
     }
 
     /**
@@ -527,6 +660,18 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     private KnowledgeReleaseCandidatePO candidate(long source, long id) {
         var row = builds.candidate(source, id);
         if (row == null) {
+            throw BizIllegalException.missing();
+        }
+        return row;
+    }
+
+    /**
+     * 页面与用户命令始终以原发布任务编号访问。
+     */
+    private Task releaseTask(long source, long id) {
+        var row = tasks.get(source, id);
+        if (row == null) {
+            // 不区分任务不存在和不属于当前数据源。
             throw BizIllegalException.missing();
         }
         return row;

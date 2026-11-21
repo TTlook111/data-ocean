@@ -50,12 +50,6 @@ public interface KnowledgeBuildMapper {
     KnowledgeReleaseCandidatePO candidate(@Param("source") long source, @Param("candidate") long candidate);
 
     /**
-     * 回读范围内的文档身份及当前基础指针。
-     */
-    @Select("SELECT document_id FROM kn_release_scope WHERE id=#{scope}")
-    long document(@Param("scope") long scope);
-
-    /**
      * 读取本候选固定的已审核题版本。
      */
     @Select(

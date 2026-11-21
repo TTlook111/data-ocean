@@ -9,8 +9,8 @@ import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleaseBuildDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleaseCancelDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleasePrepareDTO;
-import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseCandidateVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseDetailVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseTaskVO;
 import com.dataocean.module.knowledge.service.KnowledgeBuildService;
 import com.dataocean.module.knowledge.service.KnowledgeReleaseService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeBuildStream;
@@ -34,7 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 发布候选准备及来源范围内的读取入口。
+ * 发布任务创建、读取及构建入口。
  */
 @RestController
 @RequiredArgsConstructor
@@ -42,7 +42,7 @@ import lombok.RequiredArgsConstructor;
 public class KnowledgeReleaseController {
 
     /**
-     * 候选固定与回读业务。
+     * 任务创建与列表业务。
      */
     private final KnowledgeReleaseService releases;
 
@@ -57,11 +57,11 @@ public class KnowledgeReleaseController {
     private final KnowledgeBuildStream streams;
 
     /**
-     * 按当前源和选择的文档分页返回候选。
+     * 按当前源和选择的文档分页返回任务。
      */
     @GetMapping
     @RequirePermission("releases.view")
-    public Result<PageVO<KnowledgeReleaseCandidateVO>> list(
+    public Result<PageVO<KnowledgeReleaseTaskVO>> list(
             @PathVariable String source,
             @RequestParam(required = false) String documentId,
             @RequestParam(required = false) String keyword,
@@ -72,7 +72,7 @@ public class KnowledgeReleaseController {
     }
 
     /**
-     * 从已核对的确认修订创建可供后续构建使用的候选。
+     * 从已核对的确认修订保存准备任务。
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -85,7 +85,7 @@ public class KnowledgeReleaseController {
     }
 
     /**
-     * 以当前源和候选回读页面快照。
+     * 以当前源和任务回读页面快照。
      */
     @GetMapping("/{id}")
     @RequirePermission("releases.view")
@@ -94,7 +94,7 @@ public class KnowledgeReleaseController {
     }
 
     /**
-     * 构建进度推送与刷新回读共用候选和来源边界。
+     * 构建进度推送与刷新回读共用任务和来源边界。
      */
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @RequirePermission("releases.view")

@@ -1,12 +1,11 @@
 package com.dataocean.module.knowledge.entity.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 
 import lombok.Data;
 
 /**
- * 固定当前页面确认的单文档发布范围。
+ * 创建任务时记录当前页面核对的单文档修订。
  */
 @Data
 public class KnowledgeReleasePrepareDTO {
@@ -22,11 +21,4 @@ public class KnowledgeReleasePrepareDTO {
      */
     @NotBlank
     private String documentRevisionId;
-
-    /**
-     * 本次预检确认的完整候选依据，使用 SHA-256 十六进制表示。
-     */
-    @NotBlank
-    @Pattern(regexp = "[0-9a-f]{64}")
-    private String inputFingerprint;
 }
