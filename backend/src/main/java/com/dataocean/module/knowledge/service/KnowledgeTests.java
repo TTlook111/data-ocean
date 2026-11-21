@@ -63,6 +63,11 @@ public class KnowledgeTests {
     private final KnowledgeReferences references;
 
     /**
+     * 审核复用实际执行的去重计数条件检查。
+     */
+    private final KnowledgeValidationQuery countQueries;
+
+    /**
      * 共用权限、命令和审计入口。
      */
     private final PermissionService permissions;
@@ -184,7 +189,7 @@ public class KnowledgeTests {
             var facts = documents.references(current.documentRevisionId());
             references.verify(origin, facts);
             var body = json.read(current.content(), Content.class);
-            ensureReady(body, facts);
+            ensureReady(origin, body, facts);
             if (Objects.equals(current.reviewedRevisionId(), revision)) {
                 return result(command, id, expected);
             }
@@ -199,7 +204,7 @@ public class KnowledgeTests {
     /**
      * 首轮只接受确有预期的数值题或可按依据裁定的说明题。
      */
-    private void ensureReady(Content body, List<Reference> facts) {
+    private void ensureReady(GovernanceCatalog.Source source, Content body, List<Reference> facts) {
         if (body.getEvidence().isBlank()) {
             throw BizIllegalException.invalid("请填写预期和判定的数据依据");
         }
@@ -218,19 +223,7 @@ public class KnowledgeTests {
                 || value(rule.getCategoryValue()).isBlank()) {
             throw BizIllegalException.invalid("请填写期望计数以及指标、关联和分类条件");
         }
-        if (!contains(facts, "METRIC", rule.getMetricId())
-                || !contains(facts, "RELATION", rule.getRelationId())
-                || !contains(facts, "COLUMN", rule.getCategoryId())) {
-            throw BizIllegalException.invalid("数值题条件必须引用本次文档已经确认采用的定义");
-        }
-    }
-
-    /**
-     * 只允许从候选文档的真实引用中选取执行依据。
-     */
-    private boolean contains(List<Reference> facts, String kind, String id) {
-        long target = Ids.parse(id);
-        return facts.stream().anyMatch(value -> value.kind().equals(kind) && value.targetId() == target);
+        countQueries.verify(source, facts, rule);
     }
 
     /**

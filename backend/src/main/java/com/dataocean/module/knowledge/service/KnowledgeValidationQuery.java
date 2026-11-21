@@ -8,6 +8,7 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceSourceRows;
 import com.dataocean.module.datasource.service.GovernanceSourceRows.Count;
+import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
 import com.dataocean.module.governance.service.GovernanceKnowledgeService;
 import com.dataocean.module.governance.service.GovernanceTarget;
@@ -50,9 +51,31 @@ public class KnowledgeValidationQuery {
     private final JsonCodec json;
 
     /**
-     * 仅支持当前设计中分类过滤加双表单键去重计数。
+     * 审核时检查文档依据能否组成当前支持的执行条件，无需连接业务源。
+     */
+    public void verify(Source source, List<Reference> evidence, CountRule rule) {
+        resolve(source, evidence, rule);
+    }
+
+    /**
+     * 运行时使用实际召回的依据解析同一条件，再用只读账号执行。
      */
     public Count execute(Source source, List<Reference> evidence, CountRule rule) throws SQLException {
+        var plan = resolve(source, evidence, rule);
+        return rows.countDistinct(
+                source,
+                plan.primary(),
+                plan.key(),
+                plan.detail(),
+                plan.foreign(),
+                plan.filter(),
+                rule.getCategoryValue());
+    }
+
+    /**
+     * 只接受双表单键关联、主键去重计数和主表字段等值过滤。
+     */
+    private CountPlan resolve(Source source, List<Reference> evidence, CountRule rule) {
         var filter = reference(evidence, "COLUMN", rule.getCategoryId());
         var metric = definition(source, reference(evidence, "METRIC", rule.getMetricId()));
         var relation = definition(source, reference(evidence, "RELATION", rule.getRelationId()));
@@ -92,18 +115,11 @@ public class KnowledgeValidationQuery {
             // 指标只作已审核语义的白名单检查，原公式不发送给 JDBC。
             throw unsupported();
         }
-        return rows.countDistinct(
-                source,
-                object,
-                keyName,
-                detail.observation().structure().object(),
-                foreignName,
-                filterName,
-                rule.getCategoryValue());
+        return new CountPlan(object, keyName, detail.observation().structure().object(), foreignName, filterName);
     }
 
     /**
-     * 必须从该题实际召回的同版片段中找到真实依据。
+     * 从本次文档或实际召回片段的同版引用中找到真实依据。
      */
     private Reference reference(List<Reference> evidence, String kind, String id) {
         long target = Ids.parse(id);
@@ -142,6 +158,11 @@ public class KnowledgeValidationQuery {
      * 向验证编排提供可控的条件错误。
      */
     private BizIllegalException unsupported() {
-        return BizIllegalException.state("数值题的召回证据或指标定义不支持当前去重计数");
+        return BizIllegalException.invalid("请选用文档中已确认的主键去重指标、单键关联及主表筛选字段");
     }
+
+    /**
+     * 已核实的查询对象与列名。执行时由只读源适配器绑定筛选值。
+     */
+    private record CountPlan(ObjectRef primary, String key, ObjectRef detail, String foreign, String filter) {}
 }

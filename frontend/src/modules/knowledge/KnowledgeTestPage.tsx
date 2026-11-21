@@ -488,8 +488,10 @@ function TestForm({
       opened(response.targetId);
       void message.success(input.action === 'review' ? '题目已审核' : '题目草稿已保存');
     },
-    onError: (failure) => {
+    onError: (failure, input) => {
       draft.finishWrite(false);
+      // 审核拒绝时把计算条件和库内依据留在同一页签。
+      if (input.action === 'review' && current?.content.mode === 'NUMERIC') setStep('expected');
       setError(failure);
     },
   });
@@ -498,6 +500,11 @@ function TestForm({
     // 行内表单打开后定位标题，键盘用户可直接进入当前题。
     heading.current?.focus();
   }, []);
+
+  useEffect(() => {
+    // 固定底栏提交后回到可见的错误，窄窗口也能直接读到原因。
+    if (error) document.getElementById('knowledge-test-error')?.focus();
+  }, [error]);
 
   /** 只允许选取文档实际采用的类型与确切治理身份。 */
   function options(kind: string) {
@@ -566,6 +573,11 @@ function TestForm({
             action={editing && <Button onClick={useCurrentRevision}>重新绑定依据</Button>}
           />
         )}
+        {error && (
+          <div id="knowledge-test-error" tabIndex={-1}>
+            <Alert type="error" title={readErrorMessage(error)} />
+          </div>
+        )}
         {/* 两个页签都保留已注册表单，切换时不清除任何输入。 */}
         <Tabs
           className="knowledge-test-tabs"
@@ -621,7 +633,7 @@ function TestForm({
                       <Select
                         disabled={!editing}
                         options={[
-                          { value: 'NUMERIC', label: '数值自动比较' },
+                          { value: 'NUMERIC', label: '去重计数（自动）' },
                           { value: 'EXPLANATION', label: '按依据人工裁定' },
                         ]}
                       />
@@ -638,21 +650,30 @@ function TestForm({
                 <>
                   {mode === 'NUMERIC' ? (
                     <>
-                      <Form.Item name="expectedCount" label="期望计数">
+                      <Form.Item name="expectedCount" label="期望去重数">
                         <InputNumber min={0} precision={0} disabled={!editing} />
                       </Form.Item>
-                      <Form.Item name={['countRule', 'metricId']} label="去重指标">
-                        <Select options={options('METRIC')} disabled={!editing} />
-                      </Form.Item>
-                      <Form.Item name={['countRule', 'relationId']} label="使用关联">
-                        <Select options={options('RELATION')} disabled={!editing} />
-                      </Form.Item>
-                      <Form.Item name={['countRule', 'categoryId']} label="筛选字段">
-                        <Select options={options('COLUMN')} disabled={!editing} />
-                      </Form.Item>
-                      <Form.Item name={['countRule', 'categoryValue']} label="分类取值">
-                        <Input maxLength={80} disabled={!editing} />
-                      </Form.Item>
+                      {/* 指标与关联共同决定计数口径，筛选字段和取值并排核对。 */}
+                      <div className="knowledge-test-options">
+                        <Form.Item
+                          name={['countRule', 'metricId']}
+                          label="去重指标"
+                          extra={editing ? '选择按主键去重的计数指标' : undefined}
+                        >
+                          <Select options={options('METRIC')} disabled={!editing} />
+                        </Form.Item>
+                        <Form.Item name={['countRule', 'relationId']} label="使用关联">
+                          <Select options={options('RELATION')} disabled={!editing} />
+                        </Form.Item>
+                      </div>
+                      <div className="knowledge-test-options">
+                        <Form.Item name={['countRule', 'categoryId']} label="筛选字段">
+                          <Select options={options('COLUMN')} disabled={!editing} />
+                        </Form.Item>
+                        <Form.Item name={['countRule', 'categoryValue']} label="筛选值">
+                          <Input maxLength={80} disabled={!editing} />
+                        </Form.Item>
+                      </div>
                     </>
                   ) : (
                     <Form.Item name="expectedExplanation" label="判定要点">
@@ -667,7 +688,6 @@ function TestForm({
             },
           ]}
         />
-        {error && <Alert type="error" title={readErrorMessage(error)} />}
         {basis.error && <Alert type="warning" title={readErrorMessage(basis.error)} />}
         <footer className="knowledge-actions">
           {needsReview && (draft.changed || missing.length > 0 || outdated) && (
@@ -726,10 +746,10 @@ function reviewNeeds(content: Omit<TestInput, 'documentId'>) {
   if (content.mode === 'EXPLANATION') {
     if (!content.expectedExplanation?.trim()) missing.push('判定要点');
   } else {
-    if (content.expectedCount == null) missing.push('期望计数');
+    if (content.expectedCount == null) missing.push('期望去重数');
     const rule = content.countRule;
     if (!rule?.metricId || !rule.relationId || !rule.categoryId || !rule.categoryValue?.trim())
-      missing.push('去重指标、关联及分类条件');
+      missing.push('去重指标、关联及筛选条件');
   }
   return missing;
 }
