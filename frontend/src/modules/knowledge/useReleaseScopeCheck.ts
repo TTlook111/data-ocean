@@ -15,6 +15,8 @@ export type ReleaseCheck = {
   documentRevisionNumber: number | null;
   /** 当前生效绑定，首版为空。 */
   baseBindingId: string | null;
+  /** 当前生效的正文修订号。 */
+  baseRevisionNumber: number | null;
   /** 确认文档的治理依据是否满足保存范围的条件。 */
   documentReady: boolean;
   /** 已审核并适用的题目数量。 */

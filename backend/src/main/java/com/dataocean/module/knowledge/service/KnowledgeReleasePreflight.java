@@ -110,12 +110,14 @@ public class KnowledgeReleasePreflight {
                     .getTitle();
         }
         var scope = candidates.scope(source, id);
+        Long baseBinding = scope == null ? null : scope.activeBindingId();
         return new KnowledgeReleasePreflightVO(
                 Long.toString(id),
                 title,
                 Ids.text(result.documentRevision()),
                 revisionNumber,
-                scope == null ? null : Ids.text(scope.activeBindingId()),
+                Ids.text(baseBinding),
+                baseBinding == null ? null : candidates.bindingRevision(source, baseBinding),
                 result.documentReady(),
                 result.testRevisions().size(),
                 Ids.text(result.embeddingRevision()),

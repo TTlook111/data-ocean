@@ -21,6 +21,7 @@ import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.iam.service.ServiceActorPermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Judgment;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Start;
+import com.dataocean.module.knowledge.entity.po.KnowledgeReleaseCandidatePO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO.Content;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeValidationVO;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
@@ -605,6 +606,31 @@ public class KnowledgeValidations {
                             Ids.text(questionId),
                             task(sourceId, taskId).version());
                 });
+    }
+
+    /**
+     * 临切换重新核对当前运行及各题可信执行条件，历史或未知结果不能提供发布依据。
+     */
+    public void requirePublishable(Source source, Build build, KnowledgeReleaseCandidatePO candidate) {
+        verifyBasis(source, build, candidate.getId());
+        String id = candidate.getCurrentValidationId();
+        var run = id == null ? null : runs.get(id);
+        if (run == null
+                || !run.buildId().equals(build.id())
+                || run.candidateId() != candidate.getId()
+                || !"READY_TO_PUBLISH".equals(run.state())) {
+            // 当前可用的同代次运行才可作为发布依据。
+            throw new BizIllegalException(ErrorCode.KNOWLEDGE_NOT_READY, "本次索引的逐题验证尚未全部通过");
+        }
+        var questions = runs.questions(id);
+        if (!Objects.equals(source.configurationId(), run.connectionRevisionId())
+                || questions.isEmpty()
+                || questions.stream()
+                        .anyMatch(row -> !"PASSED".equals(row.decision() == null ? row.state() : row.decision())
+                                || !authorizedQuestion(source, row))) {
+            // 测试身份及源配置发生变化时旧成绩不继续有效。
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "验证条件或执行身份已变化，请重新运行验证");
+        }
     }
 
     /**

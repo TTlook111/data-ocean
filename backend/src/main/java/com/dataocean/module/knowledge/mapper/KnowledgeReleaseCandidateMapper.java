@@ -47,6 +47,17 @@ public interface KnowledgeReleaseCandidateMapper extends BaseMapper<KnowledgeRel
     Scope scope(@Param("source") long source, @Param("document") long document);
 
     /**
+     * 回读某个实际绑定的可读修订，仅限同源范围。
+     */
+    @Select(
+            """
+            SELECT d.revision FROM kn_release_binding v JOIN kn_release_scope s ON s.id=v.scope_id
+            JOIN kn_document_revision d ON d.id=v.document_revision_id
+            WHERE s.source_id=#{source} AND v.id=#{binding}
+            """)
+    Integer bindingRevision(@Param("source") long source, @Param("binding") long binding);
+
+    /**
      * 在持有源锁的业务事务内登记首次使用的范围。
      */
     @Insert("INSERT INTO kn_release_scope (id,source_id,document_id) VALUES (#{id},#{source},#{document})")

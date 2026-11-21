@@ -53,6 +53,8 @@ export type ReleaseTask = {
     | 'VALIDATION_FAILED'
     | 'VALIDATION_ERROR'
     | 'READY_TO_PUBLISH'
+    | 'PUBLISH_RECONCILE'
+    | 'PUBLISHED'
     | 'CANCELED';
   /** 任务创建成功时间。 */
   createdAt: string;
@@ -69,6 +71,8 @@ export const releaseStates: Record<ReleaseTask['status'], string> = {
   VALIDATION_FAILED: '验证未通过',
   VALIDATION_ERROR: '执行异常',
   READY_TO_PUBLISH: '待发布',
+  PUBLISH_RECONCILE: '结果待核实',
+  PUBLISHED: '已发布',
   CANCELED: '已取消',
 };
 

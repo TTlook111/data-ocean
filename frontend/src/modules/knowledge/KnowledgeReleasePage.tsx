@@ -9,6 +9,7 @@ import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import { ReleasePreparation } from './ReleasePreparation';
+import { KnowledgeEffectiveVersions } from './KnowledgeEffectiveVersions';
 import { ReleaseDocumentPicker, ReleaseScopeSummary } from './ReleaseScopeFields';
 import { releaseStates, type ReleaseRevisionReturn, type ReleaseTask } from './types';
 import { useReleaseScopeCheck } from './useReleaseScopeCheck';
@@ -24,11 +25,12 @@ export function KnowledgeReleasePage() {
   const rememberedFocus = useRef<string>(undefined);
   const source = selected?.id;
   const sameSource = !params.get('source') || params.get('source') === source;
+  const active = params.get('tab') === 'active';
   const doc = sameSource ? params.get('documentId') : null;
   const preparing = Boolean(
-    source && sameSource && params.has('prepare') && allowed(session, 'releases.build'),
+    source && sameSource && !active && params.has('prepare') && allowed(session, 'releases.build'),
   );
-  const target = preparing ? (params.get('prepareDocument') ?? doc) : doc;
+  const target = active ? null : preparing ? (params.get('prepareDocument') ?? doc) : doc;
   const root = '/knowledge/sources/' + source;
   const pageNum = Number(params.get('pageNum')) || 1;
   const pageSize = Number(params.get('pageSize')) || 10;
@@ -38,7 +40,7 @@ export function KnowledgeReleasePage() {
   const result = inspection.data;
   const tasks = useQuery({
     queryKey: ['release-tasks', source, doc, keyword, status, pageNum, pageSize],
-    enabled: Boolean(source),
+    enabled: Boolean(source) && !active,
     queryFn: () =>
       api<Page<ReleaseTask>>(
         root + '/releases?' + queryString({ documentId: doc, keyword, status, pageNum, pageSize }),
@@ -118,7 +120,7 @@ export function KnowledgeReleasePage() {
           choose={(value) => {
             // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
             form.setFieldsValue({ keyword: undefined, status: undefined });
-            setParams(queryString({ source: value, pageSize }));
+            setParams(queryString({ source: value, pageSize, tab: active ? 'active' : null }));
           }}
         />
       </div>
@@ -129,15 +131,19 @@ export function KnowledgeReleasePage() {
       >
         {source ? (
           <>
-            {/* 正式生效由后续切换接入，此处只提供真实的发布任务。 */}
+            {/* 两个页签继续共用原型来源栏和当前源。 */}
             <Tabs
               className="release-task-tabs"
-              activeKey="tasks"
+              activeKey={active ? 'active' : 'tasks'}
+              onChange={(tab) =>
+                update({ tab: tab === 'active' ? 'active' : null, bindingId: null })
+              }
               items={[
                 { key: 'tasks', label: '发布任务' },
-                { key: 'active', label: '当前生效', disabled: true },
+                { key: 'active', label: '当前生效' },
               ]}
               tabBarExtraContent={
+                !active &&
                 allowed(session, 'releases.build') && (
                   <Button
                     type="primary"
@@ -148,150 +154,165 @@ export function KnowledgeReleasePage() {
                 )
               }
             />
-            <div className="panel query-panel release-task-filters">
-              <Form
-                layout="inline"
-                form={form}
-                initialValues={{ keyword: keyword ?? undefined, status: status ?? undefined }}
-                onFinish={(values) =>
-                  update({
-                    keyword: values.keyword ?? null,
-                    status: values.status ?? null,
-                    pageNum: 1,
-                  })
-                }
-              >
-                <Form.Item name="keyword">
-                  <Input aria-label="发布编号" placeholder="发布编号" allowClear />
-                </Form.Item>
-                <Form.Item>
-                  <ReleaseDocumentPicker
-                    key={source}
-                    source={source}
-                    documentId={doc}
-                    title={result?.documentId === doc ? result.documentTitle : undefined}
-                    label="发布文档"
-                    clearable
-                    choose={(value) => update({ documentId: value, pageNum: 1 })}
-                  />
-                </Form.Item>
-                <Form.Item name="status">
-                  <Select
-                    aria-label="发布阶段"
-                    placeholder="全部状态"
-                    allowClear
-                    options={Object.entries(releaseStates).map(([value, label]) => ({
-                      value,
-                      label,
-                    }))}
-                  />
-                </Form.Item>
-                <Space>
-                  <Button htmlType="submit">查询</Button>
-                  <Button onClick={reset}>重置</Button>
-                </Space>
-              </Form>
-            </div>
-            {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
-            <section
-              id="release-task-list"
-              tabIndex={-1}
-              className="panel records-panel knowledge-records"
-              aria-label="发布任务列表"
-            >
-              <RecordTable<ReleaseTask>
-                rowKey="id"
-                dataSource={tasks.data?.items}
-                loading={tasks.isPending}
-                error={tasks.error}
-                retry={() => void tasks.refetch()}
-                filtered={Boolean(doc || keyword || status)}
-                onReset={reset}
-                emptyDescription="暂无发布任务"
-                tableLayout="fixed"
-                flexibleColumns={[0]}
-                columns={[
-                  {
-                    title: '文档 / 发布任务',
-                    render: (_, row) => (
-                      <div className="knowledge-candidate-identity">
-                        <Button
-                          id={'release-build-' + row.id}
-                          type="link"
-                          className="knowledge-record-link"
-                          title={row.title}
-                          onClick={() => openBuild(row.id)}
-                        >
-                          {row.title}
-                        </Button>
-                        <small className="cell-text muted" title={'发布编号 ' + row.id}>
-                          {row.id}
-                        </small>
-                      </div>
-                    ),
-                  },
-                  {
-                    title: '固定候选',
-                    width: 124,
-                    ellipsis: true,
-                    render: (_, row) => row.candidateId ?? '尚未构建',
-                  },
-                  {
-                    title: '阶段',
-                    width: 96,
-                    render: (_, row) => (
-                      <Tag
-                        color={
-                          row.status === 'BUILD_FAILED'
-                            ? 'error'
-                            : row.status === 'BUILDING'
-                              ? 'processing'
-                              : undefined
-                        }
-                      >
-                        {releaseStates[row.status]}
-                      </Tag>
-                    ),
-                  },
-                  { title: '创建时间', width: 152, render: (_, row) => displayTime(row.createdAt) },
-                  {
-                    title: '操作',
-                    width: 176,
-                    render: (_, row) => (
-                      <Space size={8}>
-                        <Button type="link" onClick={() => openBuild(row.id)}>
-                          {row.status === 'PREPARED' || row.status === 'BUILD_FAILED'
-                            ? '继续构建'
-                            : '查看任务'}
-                        </Button>
-                        {allowed(session, 'knowledge.view') && (
-                          <Button
-                            id={'release-candidate-revision-' + row.id}
-                            type="link"
-                            title={'修订编号 ' + row.documentRevisionId}
-                            onClick={() =>
-                              revision(
-                                row.documentId,
-                                row.documentRevisionId,
-                                'release-candidate-revision-' + row.id,
-                              )
+            {active ? (
+              <KnowledgeEffectiveVersions
+                key={source}
+                source={source}
+                params={params}
+                update={update}
+              />
+            ) : (
+              <>
+                <div className="panel query-panel release-task-filters">
+                  <Form
+                    layout="inline"
+                    form={form}
+                    initialValues={{ keyword: keyword ?? undefined, status: status ?? undefined }}
+                    onFinish={(values) =>
+                      update({
+                        keyword: values.keyword ?? null,
+                        status: values.status ?? null,
+                        pageNum: 1,
+                      })
+                    }
+                  >
+                    <Form.Item name="keyword">
+                      <Input aria-label="发布编号" placeholder="发布编号" allowClear />
+                    </Form.Item>
+                    <Form.Item>
+                      <ReleaseDocumentPicker
+                        key={source}
+                        source={source}
+                        documentId={doc}
+                        title={result?.documentId === doc ? result.documentTitle : undefined}
+                        label="发布文档"
+                        clearable
+                        choose={(value) => update({ documentId: value, pageNum: 1 })}
+                      />
+                    </Form.Item>
+                    <Form.Item name="status">
+                      <Select
+                        aria-label="发布阶段"
+                        placeholder="全部状态"
+                        allowClear
+                        options={Object.entries(releaseStates).map(([value, label]) => ({
+                          value,
+                          label,
+                        }))}
+                      />
+                    </Form.Item>
+                    <Space>
+                      <Button htmlType="submit">查询</Button>
+                      <Button onClick={reset}>重置</Button>
+                    </Space>
+                  </Form>
+                </div>
+                {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
+                <section
+                  id="release-task-list"
+                  tabIndex={-1}
+                  className="panel records-panel knowledge-records"
+                  aria-label="发布任务列表"
+                >
+                  <RecordTable<ReleaseTask>
+                    rowKey="id"
+                    dataSource={tasks.data?.items}
+                    loading={tasks.isPending}
+                    error={tasks.error}
+                    retry={() => void tasks.refetch()}
+                    filtered={Boolean(doc || keyword || status)}
+                    onReset={reset}
+                    emptyDescription="暂无发布任务"
+                    tableLayout="fixed"
+                    flexibleColumns={[0]}
+                    columns={[
+                      {
+                        title: '文档 / 发布任务',
+                        render: (_, row) => (
+                          <div className="knowledge-candidate-identity">
+                            <Button
+                              id={'release-build-' + row.id}
+                              type="link"
+                              className="knowledge-record-link"
+                              title={row.title}
+                              onClick={() => openBuild(row.id)}
+                            >
+                              {row.title}
+                            </Button>
+                            <small className="cell-text muted" title={'发布编号 ' + row.id}>
+                              {row.id}
+                            </small>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: '固定候选',
+                        width: 124,
+                        ellipsis: true,
+                        render: (_, row) => row.candidateId ?? '尚未构建',
+                      },
+                      {
+                        title: '阶段',
+                        width: 96,
+                        render: (_, row) => (
+                          <Tag
+                            color={
+                              row.status === 'BUILD_FAILED'
+                                ? 'error'
+                                : row.status === 'BUILDING'
+                                  ? 'processing'
+                                  : undefined
                             }
                           >
-                            查看修订
-                          </Button>
-                        )}
-                      </Space>
-                    ),
-                  },
-                ]}
-                pagination={{
-                  current: tasks.data?.pageNum ?? pageNum,
-                  pageSize,
-                  total: tasks.data?.total,
-                  onChange: (pageNum, pageSize) => update({ pageNum, pageSize }),
-                }}
-              />
-            </section>
+                            {releaseStates[row.status]}
+                          </Tag>
+                        ),
+                      },
+                      {
+                        title: '创建时间',
+                        width: 152,
+                        render: (_, row) => displayTime(row.createdAt),
+                      },
+                      {
+                        title: '操作',
+                        width: 176,
+                        render: (_, row) => (
+                          <Space size={8}>
+                            <Button type="link" onClick={() => openBuild(row.id)}>
+                              {row.status === 'PREPARED' || row.status === 'BUILD_FAILED'
+                                ? '继续构建'
+                                : '查看任务'}
+                            </Button>
+                            {allowed(session, 'knowledge.view') && (
+                              <Button
+                                id={'release-candidate-revision-' + row.id}
+                                type="link"
+                                title={'修订编号 ' + row.documentRevisionId}
+                                onClick={() =>
+                                  revision(
+                                    row.documentId,
+                                    row.documentRevisionId,
+                                    'release-candidate-revision-' + row.id,
+                                  )
+                                }
+                              >
+                                查看修订
+                              </Button>
+                            )}
+                          </Space>
+                        ),
+                      },
+                    ]}
+                    pagination={{
+                      current: tasks.data?.pageNum ?? pageNum,
+                      pageSize,
+                      total: tasks.data?.total,
+                      onChange: (pageNum, pageSize) => update({ pageNum, pageSize }),
+                    }}
+                  />
+                </section>
+              </>
+            )}
           </>
         ) : (
           <SourceUnavailable />

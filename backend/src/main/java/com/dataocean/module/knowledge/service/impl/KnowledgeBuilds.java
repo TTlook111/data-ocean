@@ -410,6 +410,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
         return new KnowledgeReleaseDetailVO(
                 origin.name(),
                 revision.revision(),
+                row.baseBindingId() == null ? null : candidates.bindingRevision(source, row.baseBindingId()),
                 KnowledgeReleases.view(row),
                 reviewedTests,
                 inputFingerprint,

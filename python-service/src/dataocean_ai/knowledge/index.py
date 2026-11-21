@@ -141,6 +141,35 @@ async def _index(state: IndexState, runtime: Runtime[IndexContext]) -> IndexStat
     return {"receipt": receipt}
 
 
+def index_identity(
+    candidate: str, revision: str, fingerprint: str, embedding: str, generation: str
+) -> dict[str, str]:
+    """构建与发布核验沿用相同的代次归属字段。"""
+    return {
+        "candidate": candidate,
+        "revision": revision,
+        "fingerprint": fingerprint,
+        "embedding": embedding,
+        "generation": generation,
+    }
+
+
+def indexed_rows(identity: dict[str, str], fragments: list[Fragment]) -> dict[int, dict]:
+    """形成同版正文及治理引用的确切存储快照。"""
+    return {
+        fragment.ordinal: {
+            **identity,
+            "id": fragment.ordinal,
+            "body": fragment.body,
+            "evidence": json.dumps(
+                [ref.model_dump() for ref in fragment.evidence], ensure_ascii=False
+            ),
+            "digest": fragment.digest,
+        }
+        for fragment in fragments
+    }
+
+
 def _persist(job: IndexInput, vectors: list[list[float]]) -> IndexReceipt:
     """在不可变候选代次内回读每个片段和实际向量搜索结果。"""
     # PyMilvus 导入时会尝试加载 .env；正式工作者只使用启动时注入的配置。
@@ -154,25 +183,10 @@ def _persist(job: IndexInput, vectors: list[list[float]]) -> IndexReceipt:
         raise ModelFailure("INDEX_UNAVAILABLE")
     name = job.collection
     # 每条记录都包含独立归属，不依赖会变化的 Milvus 别名。
-    identity = {
-        "candidate": job.candidateId,
-        "revision": job.documentRevisionId,
-        "fingerprint": job.fingerprint,
-        "embedding": job.model.revision_id,
-        "generation": name,
-    }
-    payload = {
-        fragment.ordinal: {
-            **identity,
-            "id": fragment.ordinal,
-            "body": fragment.body,
-            "evidence": json.dumps(
-                [ref.model_dump() for ref in fragment.evidence], ensure_ascii=False
-            ),
-            "digest": fragment.digest,
-        }
-        for fragment in job.fragments
-    }
+    identity = index_identity(
+        job.candidateId, job.documentRevisionId, job.fingerprint, job.model.revision_id, name
+    )
+    payload = indexed_rows(identity, job.fragments)
     if len(payload) != len(job.fragments):
         # 重复编号是输入错误，不能覆盖其他必要章节。
         raise ModelFailure("INPUT_STALE")

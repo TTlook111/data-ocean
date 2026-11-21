@@ -387,6 +387,44 @@
   margin-block-start: 16px;
 }
 
+/* 发布确认沿用原型的范围与两栏结果，内容从实际预检取得。 */
+.knowledge-publication-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-publication-preview > div:first-child {
+  grid-column: 1 / -1;
+}
+.knowledge-publication-preview dd {
+  margin: 4px 0 0;
+}
+
+/* 当前版与直接上一版采用同一阅读轴。 */
+.knowledge-effective-detail {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  padding: 24px;
+}
+.knowledge-effective-detail h2,
+.knowledge-effective-detail h3 {
+  margin: 0;
+}
+.knowledge-effective-detail > section + section {
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+/* 绑定正文保持可读，长章节保留自然换行。 */
+.knowledge-published-copy {
+  max-width: 760px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 创建时间归属处理记录而不是独立提示。 */
 .knowledge-build-created {
   margin: 0;

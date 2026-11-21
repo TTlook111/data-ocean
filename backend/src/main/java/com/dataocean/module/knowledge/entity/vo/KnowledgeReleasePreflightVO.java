@@ -38,6 +38,11 @@ public class KnowledgeReleasePreflightVO {
     private String baseBindingId;
 
     /**
+     * 当前生效绑定对应的正文修订号，首版为空。
+     */
+    private Integer baseRevisionNumber;
+
+    /**
      * 文档与来源依据是否满足保存准备任务的条件。
      */
     private boolean documentReady;

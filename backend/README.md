@@ -78,7 +78,7 @@
 
 ## 知识文档与发布验证
 
-[module/knowledge](src/main/java/com/dataocean/module/knowledge) 维护已确认治理引用上的知识文档、标准题和发布任务。V24 建立文档修订、引用与确认，V25 建立题目修订和审核，V26 持久化候选，V27 追加索引构建和固定片段，V28 持久化准备任务，V29 保存范围调整和候选历史归属，V30 持久化逐题运行、实际证据和人工裁定。构建与验证复用内部 AI 服务身份，`dataocean.knowledge-index.model-source-ids` 限定已准入的确认知识来源，`collection-prefix` 区分 Milvus 部署，`validation-allowed-rule-revisions` 指定可兼容验证结果的规则修订。治理交接走 [GovernanceKnowledgeService](src/main/java/com/dataocean/module/governance/service/GovernanceKnowledgeService.java)。接口和当前覆盖见[首个事项](../docs/backend/knowledge/接口.md)。
+[module/knowledge](src/main/java/com/dataocean/module/knowledge) 维护已确认治理引用上的知识文档、标准题和发布任务。V24 建立文档修订、引用与确认，V25 建立题目修订和审核，V26 持久化候选，V27 追加索引构建和固定片段，V28 持久化准备任务，V29 保存范围调整和候选历史归属，V30 持久化逐题运行、实际证据和人工裁定，V31 建立权威生效绑定和直接上一版。构建、验证和发布读回复用内部 AI 服务身份，`dataocean.knowledge-index.model-source-ids` 限定已准入的确认知识来源，`collection-prefix` 区分 Milvus 部署，`validation-allowed-rule-revisions` 指定可兼容验证结果的规则修订。治理交接走 [GovernanceKnowledgeService](src/main/java/com/dataocean/module/governance/service/GovernanceKnowledgeService.java)。接口和当前覆盖见[首个事项](../docs/backend/knowledge/接口.md)。
 
 ## 配置、迁移与测试
 

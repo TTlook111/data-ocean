@@ -237,7 +237,8 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
         }
         if (status != null
                 && !ADJUSTABLE.contains(status)
-                && !Set.of("BUILDING", "VALIDATING", "CANCELED").contains(status)) {
+                && !Set.of("BUILDING", "VALIDATING", "CANCELED", "PUBLISH_RECONCILE", "PUBLISHED")
+                        .contains(status)) {
             throw BizIllegalException.invalid("请选择有效的发布阶段");
         }
         String term = keyword == null ? "" : keyword.strip();

@@ -23,6 +23,11 @@ public class KnowledgeReleaseDetailVO {
     private int documentRevisionNumber;
 
     /**
+     * 所采用发布基础的可读修订，首版为空。
+     */
+    private Integer baseRevisionNumber;
+
+    /**
      * 任务身份、目标修订及其当前候选。
      */
     private KnowledgeReleaseTaskVO task;

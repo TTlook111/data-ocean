@@ -101,8 +101,12 @@ export function ReleaseScopeSummary({ result }: { result: ReleaseCheck }) {
       <div>
         <dt>发布前 → 目标修订</dt>
         <dd>
-          {result.baseBindingId ?? '首次发布'} →{' '}
-          {result.documentRevisionNumber ? 'r' + result.documentRevisionNumber : '待确认'}
+          {result.baseRevisionNumber
+            ? 'r' + result.baseRevisionNumber
+            : result.baseBindingId
+              ? '待核对'
+              : '首次发布'}{' '}
+          → {result.documentRevisionNumber ? 'r' + result.documentRevisionNumber : '待确认'}
         </dd>
       </div>
       <div>

@@ -7,6 +7,11 @@ import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { ReleaseScopeAdjustment } from './ReleaseScopeAdjustment';
 import {
+  PublicationResult,
+  PublishReleaseDialog,
+  type PublicationOutcome,
+} from './ReleasePublicationPanel';
+import {
   ValidationQuestionDialog,
   ValidationReport,
   ValidationSummary,
@@ -45,6 +50,8 @@ type BuildDetail = {
   sourceName: string;
   /** 可读确认修订，从一开始。 */
   documentRevisionNumber: number;
+  /** 原基础生效绑定对应的可读修订。 */
+  baseRevisionNumber: number | null;
   /** 稳定任务编号、可选候选和业务阶段。 */
   task: ReleaseTask;
   /** 准备阶段的实时题数，冻结后显示候选固定的题数。 */
@@ -258,10 +265,12 @@ function BuildWorkspace({
   const session = useSession();
   const viewport = Grid.useBreakpoint();
   const cache = useQueryClient();
+  const navigate = useNavigate();
   const row = data.task;
   const latest = data.builds[0];
   const [cancelOpen, setCancelOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [selectedRun, selectRun] = useState<string>();
   const [questionDialog, openQuestion] = useState<{
     row: ValidationQuestion;
@@ -270,6 +279,13 @@ function BuildWorkspace({
     trigger?: string;
   }>();
   const canBuild = allowed(session, 'releases.build');
+  const publishRole = allowed(session, 'releases.publish');
+  const awaitingResult = row.status === 'PUBLISH_RECONCILE';
+  const released = row.status === 'PUBLISHED';
+  const publicationPhase = awaitingResult || released;
+  const canPublish =
+    publishRole && row.status === 'READY_TO_PUBLISH' && allowed(session, 'knowledge.view');
+  const canBuildWork = canBuild && !publicationPhase;
   const canTest = allowed(session, 'releases.test');
   const canReadKnowledge = allowed(session, 'knowledge.view');
   const canJudge = allowed(session, 'test-cases.judge') && canReadKnowledge;
@@ -280,6 +296,13 @@ function BuildWorkspace({
   const failed = row.status === 'BUILD_FAILED';
   const stage =
     row.status === 'BUILDING' ? buildStates[latest?.state ?? 'QUEUED'] : releaseStates[row.status];
+  const publication = useQuery({
+    queryKey: ['release-publication', source, row.id, row.version],
+    enabled: publicationPhase,
+    queryFn: () => api<PublicationOutcome>(path + '/publication'),
+  });
+  const activeVersion = publication.data?.active;
+  const canReconcile = awaitingResult && publishRole && publication.data?.canReconcile;
 
   const validationPath = path + '/validations';
   const hasValidationArea =
@@ -329,6 +352,46 @@ function BuildWorkspace({
       cache.invalidateQueries({ queryKey: ['release-tasks', source] }),
     ]);
   }
+
+  /**
+   * 发布写入只回读实际结果及当前生效列表，不能由回包猜测阶段。
+   */
+  async function refreshPublication() {
+    await Promise.all([
+      refreshValidation(),
+      cache.invalidateQueries({ queryKey: ['release-publication', source, row.id] }),
+      cache.invalidateQueries({ queryKey: ['release-bindings', source] }),
+      cache.invalidateQueries({ queryKey: ['release-binding-detail'] }),
+    ]);
+  }
+
+  /**
+   * 确认弹窗关闭后归还操作焦点。
+   */
+  function closePublish() {
+    setPublishOpen(false);
+    requestAnimationFrame(() => {
+      (
+        document.getElementById('release-publish-action') ??
+        document.getElementById('release-task-heading')
+      )?.focus();
+    });
+  }
+
+  const reconcile = useReleaseCommand({
+    key: 'dataocean:reconcile-publish:' + session.userId + ':' + source + ':' + row.id,
+    path: path + '/reconciliations',
+    operationCode: 'releases.publish',
+    parse: (payload) => {
+      // 核实结果也只恢复原版本请求。
+      const value = payload as Record<string, unknown>;
+      return typeof value.expectedVersion === 'number'
+        ? { expectedVersion: value.expectedVersion }
+        : undefined;
+    },
+    committed: refreshPublication,
+    conflict: () => void refreshPublication(),
+  });
 
   /**
    * 锁定实际浏览的运行和题目，历史选择不允许写入。
@@ -431,19 +494,23 @@ function BuildWorkspace({
           titlePlacement={viewport.lg ? 'horizontal' : 'vertical'}
           size="small"
           current={
-            row.status === 'READY_TO_PUBLISH'
-              ? 3
-              : [
-                    'READY_FOR_VALIDATION',
-                    'VALIDATING',
-                    'AWAITING_JUDGMENT',
-                    'VALIDATION_FAILED',
-                    'VALIDATION_ERROR',
-                  ].includes(row.status)
-                ? 2
-                : !row.candidateId || row.status === 'PREPARED'
-                  ? 0
-                  : 1
+            released
+              ? 5
+              : awaitingResult
+                ? 4
+                : row.status === 'READY_TO_PUBLISH'
+                  ? 3
+                  : [
+                        'READY_FOR_VALIDATION',
+                        'VALIDATING',
+                        'AWAITING_JUDGMENT',
+                        'VALIDATION_FAILED',
+                        'VALIDATION_ERROR',
+                      ].includes(row.status)
+                    ? 2
+                    : !row.candidateId || row.status === 'PREPARED'
+                      ? 0
+                      : 1
           }
           status={
             failed || ['VALIDATION_FAILED', 'VALIDATION_ERROR'].includes(row.status)
@@ -454,8 +521,17 @@ function BuildWorkspace({
             title,
           }))}
         />
-        {report && actingOnCurrent && <ValidationSummary data={report} />}
-        {!currentRun && (
+        {publicationPhase && (
+          <ReadState
+            loading={publication.isPending}
+            error={publication.error}
+            retry={() => void publication.refetch()}
+          >
+            {publication.data && <PublicationResult outcome={publication.data} />}
+          </ReadState>
+        )}
+        {!publicationPhase && report && actingOnCurrent && <ValidationSummary data={report} />}
+        {!currentRun && !publicationPhase && (
           <section className="knowledge-build-readiness" aria-label="发布准备">
             <div>
               <h2>发布准备</h2>
@@ -484,7 +560,16 @@ function BuildWorkspace({
             dataSource={[row]}
             columns={[
               { title: '文档', dataIndex: 'title', ellipsis: true },
-              { title: '发布前', width: 94, render: () => row.baseBindingId ?? '未发布' },
+              {
+                title: '发布前',
+                width: 94,
+                render: () =>
+                  data.baseRevisionNumber
+                    ? 'r' + data.baseRevisionNumber
+                    : row.baseBindingId
+                      ? '待核对'
+                      : '未发布',
+              },
               { title: '目标修订', width: 100, render: () => 'r' + data.documentRevisionNumber },
               { title: '纳入依据', width: 102, render: () => '本次选择' },
               {
@@ -612,16 +697,22 @@ function BuildWorkspace({
             showIcon
           />
         )}
+        {awaitingResult && reconcile.note && (
+          <Alert type={reconcile.pending ? 'warning' : 'error'} title={reconcile.note} showIcon />
+        )}
       </div>
       {/* 原型把本阶段唯一主操作固定在办理区域底部。 */}
-      {(canBuild ||
+      {(canBuildWork ||
+        canPublish ||
+        canReconcile ||
+        (released && !!activeVersion) ||
         canPrepareTests ||
         (canTest && (testCommand.pending || canRestart)) ||
         (canJudge && pendingAnswers.length > 0) ||
         !!failedAnswer) &&
         row.status !== 'CANCELED' && (
           <footer className="knowledge-actions knowledge-build-actions">
-            {canBuild && (
+            {canBuildWork && (
               <Button
                 danger
                 type="text"
@@ -631,13 +722,53 @@ function BuildWorkspace({
                 取消任务
               </Button>
             )}
-            {canBuild && row.status !== 'BUILDING' && !testing && (
+            {canBuildWork && row.status !== 'BUILDING' && !testing && (
               <Button
                 id="release-adjust-scope"
                 disabled={Boolean(recovering) || command.busy}
                 onClick={() => setAdjustOpen(true)}
               >
                 调整范围
+              </Button>
+            )}
+            {canPublish && (
+              <Button
+                id="release-publish-action"
+                type="primary"
+                disabled={checking}
+                onClick={() => setPublishOpen(true)}
+              >
+                确认发布
+              </Button>
+            )}
+            {canReconcile && (
+              <Button
+                type="primary"
+                loading={reconcile.busy}
+                disabled={checking && !reconcile.pending}
+                onClick={() => {
+                  if (reconcile.pending) reconcile.resolve();
+                  else reconcile.submit({ expectedVersion: row.version });
+                }}
+              >
+                {reconcile.pending ? reconcile.action : '核实实际生效入口'}
+              </Button>
+            )}
+            {released && activeVersion && (
+              <Button
+                type="primary"
+                onClick={() =>
+                  navigate(
+                    '/releases?' +
+                      queryString({
+                        source,
+                        tab: 'active',
+                        bindingId: activeVersion.id,
+                      }),
+                  )
+                }
+              >
+                查看当前生效
               </Button>
             )}
             {canTest && (testCommand.pending || canRestart) && (
@@ -730,6 +861,17 @@ function BuildWorkspace({
           checking={checking}
           onClose={closeAdjustment}
           refresh={refresh}
+        />
+      )}
+      {publishOpen && (
+        <PublishReleaseDialog
+          source={source}
+          id={row.id}
+          path={path}
+          version={row.version}
+          ready={canPublish}
+          close={closePublish}
+          refresh={refreshPublication}
         />
       )}
       {questionDialog && report?.canReadResults && (

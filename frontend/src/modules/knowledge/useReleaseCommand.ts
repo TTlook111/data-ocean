@@ -75,7 +75,7 @@ export function useReleaseCommand<T extends object>({
         return;
       save(key);
       setPending(undefined);
-      if ([409001, 409301, 409302].includes(error.code)) conflict();
+      if ([409001, 409002, 409301, 409302].includes(error.code)) conflict();
     },
   });
 

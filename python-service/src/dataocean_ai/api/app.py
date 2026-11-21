@@ -18,6 +18,7 @@ from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.core.result import Result
 from dataocean_ai.governance.queue import knowledge_router
 from dataocean_ai.governance.queue import router as governance_router
+from dataocean_ai.knowledge.readback import router as readback_router
 
 # 仅输出进程运行事实，不把日志替代业务审计。
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     # 工作流接收入口使用独立服务身份，不处理浏览器会话。
     app.include_router(governance_router)
     app.include_router(knowledge_router)
+    app.include_router(readback_router)
     # 连接测试与任务接收复用机器身份。
     app.include_router(model_router)
 

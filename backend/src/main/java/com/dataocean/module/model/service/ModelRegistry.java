@@ -5,6 +5,7 @@ import com.dataocean.common.ErrorVO.FieldErrorVO;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.exception.FieldValidationException;
 import com.dataocean.infrastructure.CredentialProtection;
 import com.dataocean.module.iam.service.PermissionService;
@@ -24,6 +25,7 @@ import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
@@ -233,6 +235,25 @@ public class ModelRegistry {
             throw BizIllegalException.state("当前节点未分配可用模型");
         }
         return revision;
+    }
+
+    /**
+     * 在最终切换事务内保持确切节点及模型版本，不让停用、改绑或编辑穿过切换窗口。
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockCurrentBinding(String node, long revision) {
+        var pinned = models.revision(revision);
+        var current = pinned == null ? null : models.lockModel(pinned.id());
+        // 沿用模型修改的模型行在先、分配行在后的锁顺序。
+        var assignment = models.lockAssignment(node);
+        if (current == null
+                || !current.enabled()
+                || current.revisionId() != revision
+                || assignment == null
+                || !Objects.equals(assignment.modelId(), current.id())) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "向量模型配置已变化，请重新核对发布候选");
+        }
+        checkedEndpoint(current.endpoint());
     }
 
     /**
