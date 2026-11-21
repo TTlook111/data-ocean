@@ -1,6 +1,7 @@
 package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
@@ -41,8 +42,10 @@ import com.dataocean.module.knowledge.service.KnowledgeIndexProperties;
 import com.dataocean.module.knowledge.service.KnowledgeReferences;
 import com.dataocean.module.model.service.ModelRegistry;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -67,6 +70,12 @@ public class KnowledgePublications {
      * 命令已写入，需独立回读才能确认本次实际结果。
      */
     private static final String PENDING = "PUBLISH_RECONCILE";
+
+    /**
+     * 当前列表只提供生效绑定实际可得的使用状态。
+     */
+    private static final Set<String> ACTIVE_STATES =
+            Set.of("AVAILABLE", "SOURCE_UNAVAILABLE", "MODEL_UNAVAILABLE", "REVIEW_REQUIRED", "UNVERIFIED");
 
     /**
      * 按源读取并锁定治理、构建和发布共同依赖的当前事实。
@@ -394,13 +403,58 @@ public class KnowledgePublications {
      * 在指定来源回读当前生效版本的稳定分页。
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PageVO<Version> list(long sourceId, Long scope, String keyword, String object, PageQuery page) {
+    public PageVO<Version> list(
+            long sourceId, Long scope, String keyword, String object, String availability, PageQuery page) {
         var source = catalog.source(sourceId, false);
         String term = keyword == null ? "" : keyword.strip();
         String objectTerm = object == null ? "" : object.strip();
+        if (availability != null && !availability.isBlank()) {
+            // 可用性使用当场治理与模型检查，不能只筛当前页。
+            if (!ACTIVE_STATES.contains(availability)) {
+                throw BizIllegalException.invalid("请选择有效的版本可用性");
+            }
+            return listByAvailability(source, scope, term, objectTerm, availability, page);
+        }
         return PageVO.from(
-                bindings.current(page.toFixedOrderMpPage(), sourceId, scope, term, objectTerm),
+                bindings.current(page.toFixedOrderMpPage(), sourceId, scope, term, objectTerm, null),
                 row -> view(source, row));
+    }
+
+    /**
+     * 分批核对实时可用性，保留匹配总数和有效页，避免提前分页或一次装载全部版本。
+     */
+    private PageVO<Version> listByAvailability(
+            Source source, Long scope, String term, String object, String availability, PageQuery page) {
+        var items = new ArrayList<Version>();
+        long count = 0;
+        long shown = 1;
+        Long before = null;
+        for (; ; ) {
+            // 版本编号稳定递减，后续批次沿同一读快照继续。
+            var scan = new Page<Binding>(1, PageQuery.MAX_PAGE_SIZE, false);
+            var rows = bindings.current(scan, source.id(), scope, term, object, before)
+                    .getRecords();
+            for (var row : rows) {
+                // 状态与列表展示共用权威判断。
+                var version = view(source, row);
+                if (!availability.equals(version.availability())) {
+                    continue;
+                }
+                long matchedPage = count++ / page.getPageSize() + 1;
+                if (matchedPage <= page.getPageNum()) {
+                    // 请求越界时最终保留最后一个实际匹配页。
+                    if (matchedPage != shown) {
+                        shown = matchedPage;
+                        items.clear();
+                    }
+                    items.add(version);
+                }
+            }
+            if (rows.size() < PageQuery.MAX_PAGE_SIZE) {
+                return new PageVO<>(items, count, shown, page.getPageSize());
+            }
+            before = rows.get(rows.size() - 1).id();
+        }
     }
 
     /**

@@ -128,6 +128,7 @@ public interface KnowledgePublicationMapper {
             BINDING
                     + """
             WHERE s.source_id=#{source} AND s.active_binding_id=v.id
+              AND (#{before} IS NULL OR v.id<#{before})
               AND (#{scope} IS NULL OR s.id=#{scope})
               AND (#{keyword}='' OR LOCATE(#{keyword},c.title)>0)
               AND (#{object}='' OR EXISTS (
@@ -140,5 +141,6 @@ public interface KnowledgePublicationMapper {
             @Param("source") long source,
             @Param("scope") Long scope,
             @Param("keyword") String keyword,
-            @Param("object") String object);
+            @Param("object") String object,
+            @Param("before") Long before);
 }

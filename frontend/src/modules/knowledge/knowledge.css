@@ -224,6 +224,15 @@
   margin-inline-start: auto;
 }
 
+/* 当前生效的两个检索框和状态操作组在 1024px 桌面仍能共用一行。 */
+.effective-version-filters .status-tail {
+  flex-basis: 300px;
+  min-inline-size: min(100%, 300px);
+}
+.effective-version-filters .status-query {
+  min-inline-size: 144px;
+}
+
 /* 发布任务页签与记录筛选为独立面板。 */
 .release-task-tabs {
   flex: none;
@@ -402,25 +411,35 @@
   margin: 4px 0 0;
 }
 
-/* 当前版与直接上一版采用同一阅读轴。 */
-.knowledge-effective-detail {
-  display: grid;
-  gap: 24px;
-  min-width: 0;
-  padding: 24px;
-}
-.knowledge-effective-detail h2,
-.knowledge-effective-detail h3 {
-  margin: 0;
-}
-.knowledge-effective-detail > section + section {
-  padding-block-start: 20px;
+/* 完成态只展示结果，原过程和治理依据按原型各用一层折叠。 */
+.knowledge-release-disclosure {
+  min-inline-size: 0;
   border-block-start: 1px solid var(--do-line);
+}
+.knowledge-release-disclosure > summary {
+  padding-block: 14px;
+  cursor: pointer;
+}
+.knowledge-release-disclosure > summary:focus-visible {
+  outline-offset: 2px;
+}
+.knowledge-release-process-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  padding-block-start: 8px;
+}
+.knowledge-version-content > .knowledge-release-disclosure {
+  border-block-end: 1px solid var(--do-line);
+}
+.knowledge-version-content > .knowledge-release-disclosure[open] {
+  padding-block-end: 16px;
 }
 
 /* 绑定正文保持可读，长章节保留自然换行。 */
 .knowledge-published-copy {
-  max-width: 760px;
+  max-width: 800px;
+  line-height: 24px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

@@ -1,7 +1,7 @@
 import { Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -26,6 +26,7 @@ export function KnowledgeReleasePage() {
   const source = selected?.id;
   const sameSource = !params.get('source') || params.get('source') === source;
   const active = params.get('tab') === 'active';
+  const legacyBindingId = active ? params.get('bindingId') : null;
   const doc = sameSource ? params.get('documentId') : null;
   const preparing = Boolean(
     source && sameSource && !active && params.has('prepare') && allowed(session, 'releases.build'),
@@ -110,6 +111,22 @@ export function KnowledgeReleasePage() {
     update({ documentId: null, keyword: null, status: null, pageNum: 1 });
   }
 
+  if (legacyBindingId) {
+    // 已分享的版本地址继续指向同一绑定，同时进入原型的独立详情。
+    const search = new URLSearchParams(params);
+    search.delete('bindingId');
+    return (
+      <Navigate
+        replace
+        to={{
+          pathname: '/releases/versions/' + encodeURIComponent(legacyBindingId),
+          search: search.toString(),
+        }}
+        state={location.state}
+      />
+    );
+  }
+
   return (
     <main className="record-page knowledge-release-page" aria-label="发布与版本">
       <div className="panel ds-toolbar">
@@ -120,7 +137,14 @@ export function KnowledgeReleasePage() {
           choose={(value) => {
             // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
             form.setFieldsValue({ keyword: undefined, status: undefined });
-            setParams(queryString({ source: value, pageSize, tab: active ? 'active' : null }));
+            setParams(
+              queryString({
+                source: value,
+                pageSize,
+                tab: active ? 'active' : null,
+                versionPageSize: active ? params.get('versionPageSize') : null,
+              }),
+            );
           }}
         />
       </div>

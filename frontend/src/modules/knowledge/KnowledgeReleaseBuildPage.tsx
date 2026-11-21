@@ -1,6 +1,6 @@
 import { Alert, Button, Collapse, Form, Grid, Input, Modal, Steps, Table, Tag } from 'antd';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -143,7 +143,13 @@ export function KnowledgeReleaseBuildPage() {
   const restoredFocus = useRef<string>(undefined);
   useEffect(() => {
     // 等待回到任务后的新状态，再恢复到原链接或下一步。
-    if (detail.isSuccess && !detail.isFetching && focus && restoredFocus.current !== location.key) {
+    if (
+      detail.isSuccess &&
+      !detail.isFetching &&
+      focus &&
+      focus !== 'release-current-version' &&
+      restoredFocus.current !== location.key
+    ) {
       restoredFocus.current = location.key;
       (document.getElementById(focus) ?? document.getElementById('release-task-heading'))?.focus();
     }
@@ -266,6 +272,9 @@ function BuildWorkspace({
   const viewport = Grid.useBreakpoint();
   const cache = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const workspaceContent = useRef<HTMLDivElement>(null);
+  const shownResult = useRef<ReleaseTask['status']>(undefined);
   const row = data.task;
   const latest = data.builds[0];
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -302,6 +311,22 @@ function BuildWorkspace({
     queryFn: () => api<PublicationOutcome>(path + '/publication'),
   });
   const activeVersion = publication.data?.active;
+  const resultVisible = Boolean(publication.data?.published);
+  useEffect(() => {
+    // 发布或核实完成后只定位一次结果首屏，回看历史修订时保持原链接位置。
+    if (
+      !resultVisible ||
+      shownResult.current === row.status ||
+      (focus && focus !== 'release-current-version')
+    )
+      return;
+    shownResult.current = row.status;
+    workspaceContent.current?.scrollTo({ top: 0 });
+    const selected = focus === 'release-current-version' ? document.getElementById(focus) : null;
+    (selected ?? document.getElementById('publication-result-title'))?.focus({
+      preventScroll: true,
+    });
+  }, [focus, resultVisible, row.status]);
   const canReconcile = awaitingResult && publishRole && publication.data?.canReconcile;
 
   const validationPath = path + '/validations';
@@ -487,40 +512,7 @@ function BuildWorkspace({
           </Tag>
         </div>
       </header>
-      <div className="knowledge-build-content">
-        {/* 原型的阶段顺序保持完整，索引完成后定位到相关验证。 */}
-        <Steps
-          className="knowledge-build-stages"
-          titlePlacement={viewport.lg ? 'horizontal' : 'vertical'}
-          size="small"
-          current={
-            released
-              ? 5
-              : awaitingResult
-                ? 4
-                : row.status === 'READY_TO_PUBLISH'
-                  ? 3
-                  : [
-                        'READY_FOR_VALIDATION',
-                        'VALIDATING',
-                        'AWAITING_JUDGMENT',
-                        'VALIDATION_FAILED',
-                        'VALIDATION_ERROR',
-                      ].includes(row.status)
-                    ? 2
-                    : !row.candidateId || row.status === 'PREPARED'
-                      ? 0
-                      : 1
-          }
-          status={
-            failed || ['VALIDATION_FAILED', 'VALIDATION_ERROR'].includes(row.status)
-              ? 'error'
-              : undefined
-          }
-          items={['范围核对', '候选构建', '相关验证', '发布检查', '切换完成'].map((title) => ({
-            title,
-          }))}
-        />
+      <div ref={workspaceContent} className="knowledge-build-content">
         {publicationPhase && (
           <ReadState
             loading={publication.isPending}
@@ -530,176 +522,219 @@ function BuildWorkspace({
             {publication.data && <PublicationResult outcome={publication.data} />}
           </ReadState>
         )}
-        {!publicationPhase && report && actingOnCurrent && <ValidationSummary data={report} />}
-        {!currentRun && !publicationPhase && (
-          <section className="knowledge-build-readiness" aria-label="发布准备">
-            <div>
-              <h2>发布准备</h2>
-              {row.status !== 'CANCELED' || row.candidateId ? (
-                <span className="muted">相关标准题已审核 {data.reviewedTests} 道</span>
+        <ReleaseProcess
+          folded={released}
+          initiallyOpen={
+            focus === 'build-document-revision' ||
+            Boolean(focus?.startsWith('release-history-document-'))
+          }
+        >
+          {/* 原型的阶段顺序保持完整，索引完成后定位到相关验证。 */}
+          <Steps
+            className="knowledge-build-stages"
+            titlePlacement={viewport.lg ? 'horizontal' : 'vertical'}
+            size="small"
+            current={
+              released
+                ? 5
+                : awaitingResult
+                  ? 4
+                  : row.status === 'READY_TO_PUBLISH'
+                    ? 3
+                    : [
+                          'READY_FOR_VALIDATION',
+                          'VALIDATING',
+                          'AWAITING_JUDGMENT',
+                          'VALIDATION_FAILED',
+                          'VALIDATION_ERROR',
+                        ].includes(row.status)
+                      ? 2
+                      : !row.candidateId || row.status === 'PREPARED'
+                        ? 0
+                        : 1
+            }
+            status={
+              failed || ['VALIDATION_FAILED', 'VALIDATION_ERROR'].includes(row.status)
+                ? 'error'
+                : undefined
+            }
+            items={['范围核对', '候选构建', '相关验证', '发布检查', '切换完成'].map((title) => ({
+              title,
+            }))}
+          />
+          {!publicationPhase && report && actingOnCurrent && <ValidationSummary data={report} />}
+          {!currentRun && !publicationPhase && (
+            <section className="knowledge-build-readiness" aria-label="发布准备">
+              <div>
+                <h2>发布准备</h2>
+                {row.status !== 'CANCELED' || row.candidateId ? (
+                  <span className="muted">相关标准题已审核 {data.reviewedTests} 道</span>
+                ) : null}
+              </div>
+              {row.candidateId ? (
+                <Tag color="success">审核题单已固定</Tag>
+              ) : row.status === 'PREPARED' ? (
+                <Tag color={fingerprint ? 'success' : 'warning'}>
+                  {checking ? '核对中' : fingerprint ? '可构建' : '待处理'}
+                </Tag>
               ) : null}
-            </div>
-            {row.candidateId ? (
-              <Tag color="success">审核题单已固定</Tag>
-            ) : row.status === 'PREPARED' ? (
-              <Tag color={fingerprint ? 'success' : 'warning'}>
-                {checking ? '核对中' : fingerprint ? '可构建' : '待处理'}
-              </Tag>
-            ) : null}
-          </section>
-        )}
-        {/* 阻断贴近范围核对，补题主操作在固定底栏。 */}
-        {data.issues.length > 0 && <Alert type="warning" showIcon title={data.issues.join('；')} />}
-        <section className="knowledge-build-section" aria-label="本批文档与修订">
-          <h2>本批文档与修订</h2>
-          <Table<ReleaseTask>
-            size="middle"
-            rowKey="id"
-            pagination={false}
-            scroll={{ x: 530 }}
-            dataSource={[row]}
-            columns={[
-              { title: '文档', dataIndex: 'title', ellipsis: true },
-              {
-                title: '发布前',
-                width: 94,
-                render: () =>
-                  data.baseRevisionNumber
-                    ? 'r' + data.baseRevisionNumber
-                    : row.baseBindingId
-                      ? '待核对'
-                      : '未发布',
-              },
-              { title: '目标修订', width: 100, render: () => 'r' + data.documentRevisionNumber },
-              { title: '纳入依据', width: 102, render: () => '本次选择' },
-              {
-                title: '操作',
-                width: 116,
-                render: () =>
-                  allowed(session, 'knowledge.view') ? (
-                    <Button
-                      id="build-document-revision"
-                      type="link"
-                      className="knowledge-record-link"
-                      onClick={() =>
-                        openRevision(
-                          row.documentId,
-                          row.documentRevisionId,
-                          'build-document-revision',
-                        )
-                      }
-                    >
-                      查看文档
-                    </Button>
-                  ) : (
-                    '—'
-                  ),
-              },
-            ]}
-          />
-          {row.candidateId && <p className="muted">固定候选 {row.candidateId}</p>}
-        </section>
-        {hasValidationArea && (
-          <ReadState
-            loading={validation.isPending}
-            error={validation.error}
-            retry={() => void validation.refetch()}
-          >
-            {report && (
-              <ValidationReport
-                data={report}
-                activeRun={currentRun}
-                selected={selectedRun}
-                select={selectRun}
-                open={showQuestion}
-                canJudge={
-                  canJudge &&
-                  row.status !== 'CANCELED' &&
-                  !testing &&
-                  actingOnCurrent &&
-                  !validation.isPlaceholderData
-                }
-              />
-            )}
-          </ReadState>
-        )}
-        {/* 历史固定输入独立回看，调整后立即可见。 */}
-        {data.history.length > 0 && (
-          <section className="knowledge-build-section" aria-label="历史候选">
-            <h2>历史候选</h2>
-            <Collapse
-              defaultActiveKey={
-                focus?.startsWith('release-history-document-')
-                  ? [focus.slice('release-history-document-'.length)]
-                  : undefined
-              }
-              items={data.history.map((previous) => {
-                // 展开时按旧候选身份阅读原修订及实际构建。
-                const trigger = 'release-history-document-' + previous.id;
-                return {
-                  key: previous.id,
-                  label: (
-                    <div className="knowledge-candidate-identity">
-                      <strong>
-                        {previous.title} · r{previous.documentRevisionNumber}
-                      </strong>
-                      <small className="muted">
-                        {previous.id} · {releaseStates[previous.status]}
-                      </small>
-                    </div>
-                  ),
-                  children: (
-                    <div className="knowledge-build-section">
-                      {allowed(session, 'knowledge.view') && (
-                        <div>
-                          <Button
-                            id={trigger}
-                            type="link"
-                            className="knowledge-record-link"
-                            onClick={() =>
-                              openRevision(
-                                previous.documentId,
-                                previous.documentRevisionId,
-                                trigger,
-                              )
-                            }
-                          >
-                            查看原修订
-                          </Button>
-                        </div>
-                      )}
-                      {previous.builds.length > 0 && <BuildTable builds={previous.builds} />}
-                    </div>
-                  ),
-                };
-              })}
-            />
-          </section>
-        )}
-        {/* 只展示真实构建结果，后续验证保持待办阶段。 */}
-        <section className="knowledge-build-section" aria-label="处理记录">
-          <h2>处理记录</h2>
-          <p className="knowledge-build-created">创建发布任务 · {displayTime(row.createdAt)}</p>
-          {latest && (
-            <>
-              {description && <Alert type="error" title={description} showIcon />}
-              <BuildTable builds={data.builds} />
-            </>
+            </section>
           )}
-        </section>
-        {canBuild && command.note && (
-          <Alert type={recovering ? 'warning' : 'error'} title={command.note} showIcon />
-        )}
-        {canTest && testCommand.note && (
-          <Alert
-            type={testCommand.pending ? 'warning' : 'error'}
-            title={testCommand.note}
-            showIcon
-          />
-        )}
-        {awaitingResult && reconcile.note && (
-          <Alert type={reconcile.pending ? 'warning' : 'error'} title={reconcile.note} showIcon />
-        )}
+          {/* 阻断贴近范围核对，补题主操作在固定底栏。 */}
+          {data.issues.length > 0 && (
+            <Alert type="warning" showIcon title={data.issues.join('；')} />
+          )}
+          <section className="knowledge-build-section" aria-label="本批文档与修订">
+            <h2>本批文档与修订</h2>
+            <Table<ReleaseTask>
+              size="middle"
+              rowKey="id"
+              pagination={false}
+              scroll={{ x: 530 }}
+              dataSource={[row]}
+              columns={[
+                { title: '文档', dataIndex: 'title', ellipsis: true },
+                {
+                  title: '发布前',
+                  width: 94,
+                  render: () =>
+                    data.baseRevisionNumber
+                      ? 'r' + data.baseRevisionNumber
+                      : row.baseBindingId
+                        ? '待核对'
+                        : '未发布',
+                },
+                { title: '目标修订', width: 100, render: () => 'r' + data.documentRevisionNumber },
+                { title: '纳入依据', width: 102, render: () => '本次选择' },
+                {
+                  title: '操作',
+                  width: 116,
+                  render: () =>
+                    allowed(session, 'knowledge.view') ? (
+                      <Button
+                        id="build-document-revision"
+                        type="link"
+                        className="knowledge-record-link"
+                        onClick={() =>
+                          openRevision(
+                            row.documentId,
+                            row.documentRevisionId,
+                            'build-document-revision',
+                          )
+                        }
+                      >
+                        查看文档
+                      </Button>
+                    ) : (
+                      '—'
+                    ),
+                },
+              ]}
+            />
+            {row.candidateId && <p className="muted">固定候选 {row.candidateId}</p>}
+          </section>
+          {hasValidationArea && (
+            <ReadState
+              loading={validation.isPending}
+              error={validation.error}
+              retry={() => void validation.refetch()}
+            >
+              {report && (
+                <ValidationReport
+                  data={report}
+                  activeRun={currentRun}
+                  selected={selectedRun}
+                  select={selectRun}
+                  open={showQuestion}
+                  canJudge={
+                    canJudge &&
+                    row.status !== 'CANCELED' &&
+                    !testing &&
+                    actingOnCurrent &&
+                    !validation.isPlaceholderData
+                  }
+                />
+              )}
+            </ReadState>
+          )}
+          {/* 历史固定输入独立回看，调整后立即可见。 */}
+          {data.history.length > 0 && (
+            <section className="knowledge-build-section" aria-label="历史候选">
+              <h2>历史候选</h2>
+              <Collapse
+                defaultActiveKey={
+                  focus?.startsWith('release-history-document-')
+                    ? [focus.slice('release-history-document-'.length)]
+                    : undefined
+                }
+                items={data.history.map((previous) => {
+                  // 展开时按旧候选身份阅读原修订及实际构建。
+                  const trigger = 'release-history-document-' + previous.id;
+                  return {
+                    key: previous.id,
+                    label: (
+                      <div className="knowledge-candidate-identity">
+                        <strong>
+                          {previous.title} · r{previous.documentRevisionNumber}
+                        </strong>
+                        <small className="muted">
+                          {previous.id} · {releaseStates[previous.status]}
+                        </small>
+                      </div>
+                    ),
+                    children: (
+                      <div className="knowledge-build-section">
+                        {allowed(session, 'knowledge.view') && (
+                          <div>
+                            <Button
+                              id={trigger}
+                              type="link"
+                              className="knowledge-record-link"
+                              onClick={() =>
+                                openRevision(
+                                  previous.documentId,
+                                  previous.documentRevisionId,
+                                  trigger,
+                                )
+                              }
+                            >
+                              查看原修订
+                            </Button>
+                          </div>
+                        )}
+                        {previous.builds.length > 0 && <BuildTable builds={previous.builds} />}
+                      </div>
+                    ),
+                  };
+                })}
+              />
+            </section>
+          )}
+          {/* 只展示真实构建结果，后续验证保持待办阶段。 */}
+          <section className="knowledge-build-section" aria-label="处理记录">
+            <h2>处理记录</h2>
+            <p className="knowledge-build-created">创建发布任务 · {displayTime(row.createdAt)}</p>
+            {latest && (
+              <>
+                {description && <Alert type="error" title={description} showIcon />}
+                <BuildTable builds={data.builds} />
+              </>
+            )}
+          </section>
+          {canBuild && command.note && (
+            <Alert type={recovering ? 'warning' : 'error'} title={command.note} showIcon />
+          )}
+          {canTest && testCommand.note && (
+            <Alert
+              type={testCommand.pending ? 'warning' : 'error'}
+              title={testCommand.note}
+              showIcon
+            />
+          )}
+          {awaitingResult && reconcile.note && (
+            <Alert type={reconcile.pending ? 'warning' : 'error'} title={reconcile.note} showIcon />
+          )}
+        </ReleaseProcess>
       </div>
       {/* 原型把本阶段唯一主操作固定在办理区域底部。 */}
       {(canBuildWork ||
@@ -756,15 +791,22 @@ function BuildWorkspace({
             )}
             {released && activeVersion && (
               <Button
+                id="release-current-version"
                 type="primary"
                 onClick={() =>
                   navigate(
-                    '/releases?' +
+                    '/releases/versions/' +
+                      activeVersion.id +
+                      '?' +
                       queryString({
                         source,
                         tab: 'active',
-                        bindingId: activeVersion.id,
                       }),
+                    {
+                      state: {
+                        publishedVersionReturn: { taskId: row.id, search: location.search },
+                      },
+                    },
                   )
                 }
               >
@@ -888,6 +930,34 @@ function BuildWorkspace({
         />
       )}
     </article>
+  );
+}
+
+/**
+ * 已发布任务把原过程放在一层折叠区，仍可回看完整验证和历史。
+ */
+function ReleaseProcess({
+  folded,
+  initiallyOpen,
+  children,
+}: {
+  folded: boolean;
+  initiallyOpen: boolean;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(initiallyOpen);
+  if (!folded) {
+    return <>{children}</>;
+  }
+  return (
+    <details
+      className="knowledge-release-disclosure"
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary>发布过程与验证记录</summary>
+      <div className="knowledge-release-process-body">{children}</div>
+    </details>
   );
 }
 

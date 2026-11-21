@@ -150,6 +150,11 @@ const KnowledgeReleasePage = lazyPage(() =>
 const KnowledgeReleaseBuildPage = lazyPage(() =>
   import('../modules/knowledge/KnowledgeReleaseBuildPage').then((m) => m.KnowledgeReleaseBuildPage),
 );
+const KnowledgeEffectiveVersionPage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeEffectiveVersionPage').then(
+    (m) => m.KnowledgeEffectiveVersionPage,
+  ),
+);
 // 模型配置与调用记录独立授权，使用各自的后台入口。
 const ModelPage = lazyPage(() => import('../modules/models/ModelPage').then((m) => m.ModelPage));
 const ModelCallsPage = lazyPage(() =>
@@ -183,6 +188,7 @@ const workspaceRoutes = [
   { path: '/test-cases', element: <KnowledgeTestPage /> },
   { path: '/releases', element: <KnowledgeReleasePage /> },
   { path: '/releases/:id', element: <KnowledgeReleaseBuildPage /> },
+  { path: '/releases/versions/:id', element: <KnowledgeEffectiveVersionPage /> },
   // 系统配置的真实模型与诊断入口。
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },
@@ -237,8 +243,16 @@ export function Application() {
 
   useEffect(() => {
     // 各管理列表独立保留已应用条件与页码，编辑子页不覆盖原列表上下文。
-    if (navigation.some((item) => item.key === location.pathname))
-      pageContexts.current[location.pathname] = location.search;
+    if (navigation.some((item) => item.key === location.pathname)) {
+      if (location.pathname === '/releases') {
+        // 旧绑定链接跳转详情时不能覆盖侧栏的列表返回入口。
+        const search = new URLSearchParams(location.search);
+        search.delete('bindingId');
+        pageContexts.current[location.pathname] = search.size ? '?' + search.toString() : '';
+      } else {
+        pageContexts.current[location.pathname] = location.search;
+      }
+    }
     document
       .querySelector('.admin-sidebar .ant-menu-item-selected')
       ?.scrollIntoView({ block: 'nearest' });
@@ -383,6 +397,13 @@ export function Application() {
   const creatingRole = activePath === '/iam/roles/new';
   const editingRole = activePath === '/iam/roles/:id/edit';
   const readingReleaseTask = activePath === '/releases/:id';
+  const readingReleaseVersion = activePath === '/releases/versions/:id';
+  const releaseVersionSearch = new URLSearchParams(location.search);
+  releaseVersionSearch.delete('read');
+  releaseVersionSearch.set('tab', 'active');
+  const releaseSearch = readingReleaseVersion
+    ? '?' + releaseVersionSearch.toString()
+    : location.search;
   const noteMode =
     activePath === '/business-notes' ? new URLSearchParams(location.search).get('edit') : null;
   const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
@@ -569,12 +590,12 @@ export function Application() {
                     >
                       角色与功能权限
                     </a>
-                  ) : readingReleaseTask ? (
+                  ) : readingReleaseTask || readingReleaseVersion ? (
                     <a
-                      href={'/releases' + location.search}
+                      href={'/releases' + releaseSearch}
                       onClick={(event) => {
                         event.preventDefault();
-                        navigate('/releases' + location.search);
+                        navigate('/releases' + releaseSearch);
                       }}
                     >
                       发布与版本
@@ -587,6 +608,7 @@ export function Application() {
                 ? [{ title: creatingRole ? '新增角色' : '编辑角色' }]
                 : []),
               ...(readingReleaseTask ? [{ title: '发布任务' }] : []),
+              ...(readingReleaseVersion ? [{ title: '生效版本' }] : []),
               ...(noteMode
                 ? [
                     {

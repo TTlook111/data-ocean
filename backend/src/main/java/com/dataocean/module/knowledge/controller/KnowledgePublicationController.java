@@ -101,8 +101,10 @@ public class KnowledgePublicationController {
             @RequestParam(required = false) String scopeId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String object,
+            @RequestParam(required = false) String availability,
             PageQuery page) {
-        return Result.success(publications.list(Ids.parse(source), Ids.nullable(scopeId), keyword, object, page));
+        return Result.success(
+                publications.list(Ids.parse(source), Ids.nullable(scopeId), keyword, object, availability, page));
     }
 
     /**

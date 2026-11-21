@@ -251,7 +251,16 @@ function DocumentEditor({
   /** 返回原列表时让查询与入口按钮一并恢复。 */
   function back() {
     if (releaseReturn && allowed(session, 'releases.view')) {
-      // 候选修订属于发布办理的回看，返回时恢复其筛选和行内入口。
+      // 正式修订回到原绑定，候选回看恢复发布任务与入口。
+      if (releaseReturn.version) {
+        navigate('/releases/versions/' + releaseReturn.version.bindingId + releaseReturn.search, {
+          state: {
+            ...releaseReturn.version.origin,
+            effectiveVersionFocus: releaseReturn.focus,
+          },
+        });
+        return;
+      }
       navigate(
         '/releases' +
           (releaseReturn.taskId ? '/' + releaseReturn.taskId : '') +

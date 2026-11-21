@@ -1,6 +1,6 @@
 import type { Target } from '../governance/types';
 
-/** 候选页查看修订时保留原查询和触发入口。 */
+/** 发布工作台查看修订时保留原查询和触发入口。 */
 export type ReleaseRevisionReturn = {
   /** 原来发布页的来源、文档和分页查询。 */
   search: string;
@@ -8,7 +8,49 @@ export type ReleaseRevisionReturn = {
   focus: string;
   /** 从任务详情打开时返回该任务。 */
   taskId?: string;
+  /** 从正式版本打开时返回该绑定及其上游入口。 */
+  version?: { bindingId: string; origin: EffectiveVersionOrigin | null };
 };
+
+/**
+ * 从发布结果查看生效版本时保留原任务及其列表查询。
+ */
+export type PublishedVersionReturn = {
+  /** 原任务在当前来源下的稳定编号。 */
+  taskId: string;
+  /** 原任务的完整查询上下文。 */
+  search: string;
+};
+
+/**
+ * 进入独立版本页时留存的列表表体滚动位置。
+ */
+export type EffectiveVersionListPosition = {
+  /** 表体纵向偏移。 */
+  top: number;
+  /** 表体横向偏移。 */
+  left: number;
+};
+
+/** 正式版本可由列表或发布结果进入，回看修订后沿原入口返回。 */
+export type EffectiveVersionOrigin = {
+  /** 来自发布结果时记录原任务。 */
+  publishedVersionReturn?: PublishedVersionReturn;
+  /** 来自当前生效时记录列表位置。 */
+  effectiveVersionPosition?: EffectiveVersionListPosition;
+  /** 由文档修订返回时恢复原按钮。 */
+  effectiveVersionFocus?: string;
+};
+
+/** 当前及历史正式版本的数据状态与界面标签。 */
+export const versionAvailabilityLabels = {
+  AVAILABLE: '正常',
+  SOURCE_UNAVAILABLE: '来源不可用',
+  MODEL_UNAVAILABLE: '向量模型不可用',
+  REVIEW_REQUIRED: '受限，待复核',
+  UNVERIFIED: '待核实',
+  SUPERSEDED: '历史版本',
+} as const;
 
 /**
  * 补题后返回原发布任务，并保留进入任务前的发布列表查询。

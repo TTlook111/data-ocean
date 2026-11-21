@@ -1,9 +1,10 @@
-import { Alert, Modal, Tag } from 'antd';
+import { Alert, Modal, Space, Table, Tag } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { useSession } from '../../shared/session';
+import { versionAvailabilityLabels } from './types';
 import { useReleaseCommand } from './useReleaseCommand';
 
 /**
@@ -26,13 +27,7 @@ export type PublishedVersion = {
   switchedAt: string;
   verifiedAt: string | null;
   objects: string[];
-  availability:
-    | 'AVAILABLE'
-    | 'SOURCE_UNAVAILABLE'
-    | 'MODEL_UNAVAILABLE'
-    | 'REVIEW_REQUIRED'
-    | 'UNVERIFIED'
-    | 'SUPERSEDED';
+  availability: keyof typeof versionAvailabilityLabels;
 };
 
 /**
@@ -63,18 +58,6 @@ type PublicationPreview = {
 };
 
 /**
- * 版本可用性反映权威入口及当前限制。
- */
-const availability: Record<PublishedVersion['availability'], string> = {
-  AVAILABLE: '正常',
-  SOURCE_UNAVAILABLE: '来源不可用',
-  MODEL_UNAVAILABLE: '向量模型不可用',
-  REVIEW_REQUIRED: '受限，待复核',
-  UNVERIFIED: '待核实',
-  SUPERSEDED: '历史版本',
-};
-
-/**
  * 列表、结果与版本详情沿用同一实际状态。
  */
 export function VersionAvailability({ version }: { version: PublishedVersion }) {
@@ -88,7 +71,7 @@ export function VersionAvailability({ version }: { version: PublishedVersion }) 
             : 'warning'
       }
     >
-      {availability[version.availability]}
+      {versionAvailabilityLabels[version.availability]}
     </Tag>
   );
 }
@@ -104,28 +87,39 @@ export function PublicationResult({ outcome }: { outcome: PublicationOutcome }) 
   return (
     <section className="knowledge-build-section" aria-label="本次发布结果">
       {/* 本次冻结版本与之后的实际生效状态独立显示。 */}
-      <div className="knowledge-validation-heading">
-        <h2>本次发布结果</h2>
-        {active && <VersionAvailability version={active} />}
-      </div>
-      <dl className="knowledge-preflight-summary">
-        <div>
-          <dt>文档</dt>
-          <dd>{published.title}</dd>
-        </div>
-        <div>
-          <dt>本次发布修订</dt>
-          <dd>r{published.revision}</dd>
-        </div>
-        <div>
-          <dt>当前生效修订</dt>
-          <dd>{active ? 'r' + active.revision : '—'}</dd>
-        </div>
-      </dl>
+      <h2 id="publication-result-title" tabIndex={-1}>
+        本次发布结果
+      </h2>
       <span className="muted">
         切换提交 {displayTime(published.switchedAt)}
         {published.verifiedAt ? ' · 实际入口核实 ' + displayTime(published.verifiedAt) : ''}
       </span>
+      <Table<PublishedVersion>
+        size="middle"
+        rowKey="id"
+        pagination={false}
+        scroll={{ x: 540 }}
+        dataSource={[published]}
+        columns={[
+          { title: '文档', dataIndex: 'title', ellipsis: true },
+          {
+            title: '本次发布',
+            width: 154,
+            render: (_, row) => (
+              <Space size={6} wrap>
+                <span>r{row.revision}</span>
+                {row.availability === 'SUPERSEDED' && <VersionAvailability version={row} />}
+              </Space>
+            ),
+          },
+          { title: '当前生效', width: 108, render: () => (active ? 'r' + active.revision : '—') },
+          {
+            title: '当前可用性',
+            width: 146,
+            render: () => (active ? <VersionAvailability version={active} /> : '—'),
+          },
+        ]}
+      />
       {issue && <Alert showIcon type="warning" title={issue} />}
     </section>
   );
