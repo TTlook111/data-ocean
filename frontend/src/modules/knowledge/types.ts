@@ -45,6 +45,7 @@ export type EffectiveVersionOrigin = {
 /** 当前及历史正式版本的数据状态与界面标签。 */
 export const versionAvailabilityLabels = {
   AVAILABLE: '正常',
+  PAUSED: '暂停',
   SOURCE_UNAVAILABLE: '来源不可用',
   MODEL_UNAVAILABLE: '向量模型不可用',
   REVIEW_REQUIRED: '受限，待复核',

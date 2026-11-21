@@ -66,9 +66,11 @@ export function VersionAvailability({ version }: { version: PublishedVersion }) 
       color={
         version.availability === 'AVAILABLE'
           ? 'success'
-          : version.availability === 'SUPERSEDED'
-            ? undefined
-            : 'warning'
+          : version.availability === 'PAUSED'
+            ? 'error'
+            : version.availability === 'SUPERSEDED'
+              ? undefined
+              : 'warning'
       }
     >
       {versionAvailabilityLabels[version.availability]}

@@ -75,7 +75,7 @@ public class KnowledgePublications {
      * 当前列表只提供生效绑定实际可得的使用状态。
      */
     private static final Set<String> ACTIVE_STATES =
-            Set.of("AVAILABLE", "SOURCE_UNAVAILABLE", "MODEL_UNAVAILABLE", "REVIEW_REQUIRED", "UNVERIFIED");
+            Set.of("AVAILABLE", "PAUSED", "SOURCE_UNAVAILABLE", "MODEL_UNAVAILABLE", "REVIEW_REQUIRED", "UNVERIFIED");
 
     /**
      * 按源读取并锁定治理、构建和发布共同依赖的当前事实。
@@ -101,6 +101,11 @@ public class KnowledgePublications {
      * 正式清单及直接上一版归属。
      */
     private final KnowledgePublicationMapper bindings;
+
+    /**
+     * 当前使用限制独立于正式发布记录。
+     */
+    private final KnowledgeVersionUse versionUse;
 
     /**
      * 发布前核对全部逐题证据和当前有效的执行资格。
@@ -568,6 +573,8 @@ public class KnowledgePublications {
         String availability;
         if (!Objects.equals(row.activeBindingId(), row.id())) {
             availability = "SUPERSEDED";
+        } else if (versionUse.isPaused(row.scopeId())) {
+            availability = "PAUSED";
         } else if (row.verifiedAt() == null) {
             availability = "UNVERIFIED";
         } else if (!"ENABLED".equals(source.lifecycle())) {

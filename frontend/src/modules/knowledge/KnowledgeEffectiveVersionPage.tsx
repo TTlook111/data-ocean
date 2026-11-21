@@ -6,8 +6,15 @@ import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useSourceSelection } from '../datasource/CollectionPage';
+import { KnowledgeRecoveryWorkspace } from './KnowledgeRecoveryWorkspace';
 import { VersionAvailability, type PublishedVersion } from './ReleasePublicationPanel';
 import type { EffectiveVersionOrigin, ReleaseRevisionReturn } from './types';
+import {
+  useVersionUse,
+  VersionControlActions,
+  VersionPauseSummary,
+  VersionRecoverySummary,
+} from './VersionUseControls';
 import './knowledge.css';
 
 /**
@@ -41,6 +48,7 @@ export function KnowledgeEffectiveVersionPage() {
   const navigate = useNavigate();
   const source = params.get('source');
   const reading = params.get('read') === 'body';
+  const recoveryRun = params.get('recovery');
   const origin = location.state as EffectiveVersionOrigin | null;
   const fromTask = origin?.publishedVersionReturn;
   const restoreFocus = origin?.effectiveVersionFocus;
@@ -57,12 +65,13 @@ export function KnowledgeEffectiveVersionPage() {
   const previous = detail.data?.previous;
   const content = detail.data?.content;
   const previousContent = detail.data?.previousContent;
+  const controls = useVersionUse(path, Boolean(content && !reading));
   const bindingId = current?.id;
   const returnedFromReading = useRef(false);
 
   useEffect(() => {
     // 变更阅读面时从首屏开始，版本数据刷新不会抢走已有焦点。
-    if (bindingId) {
+    if (bindingId && !recoveryRun) {
       if (contentRef.current) {
         contentRef.current.scrollTop = 0;
       }
@@ -74,7 +83,7 @@ export function KnowledgeEffectiveVersionPage() {
       document.getElementById(focus)?.focus({ preventScroll: true });
       returnedFromReading.current = reading;
     }
-  }, [bindingId, reading, restoreFocus]);
+  }, [bindingId, reading, recoveryRun, restoreFocus]);
 
   /**
    * 优先回原任务或原筛选列表，列表焦点恢复到对应版本操作。
@@ -88,6 +97,7 @@ export function KnowledgeEffectiveVersionPage() {
     }
     const search = new URLSearchParams(params);
     search.delete('read');
+    search.delete('recovery');
     search.set('tab', 'active');
     navigate(
       { pathname: '/releases', search: search.toString() },
@@ -109,6 +119,17 @@ export function KnowledgeEffectiveVersionPage() {
       search.set('read', 'body');
     } else {
       search.delete('read');
+    }
+    setParams(search, { state: location.state });
+  }
+
+  /** 恢复验证可以独立打开和刷新，返回仍沿用原版本上下文。 */
+  function readRecovery(id?: string) {
+    const search = new URLSearchParams(params);
+    if (id) {
+      search.set('recovery', id);
+    } else {
+      search.delete('recovery');
     }
     setParams(search, { state: location.state });
   }
@@ -151,133 +172,176 @@ export function KnowledgeEffectiveVersionPage() {
           error={detail.error}
           retry={() => void detail.refetch()}
         >
-          {current && (
-            <article className="panel knowledge-build-workspace" aria-label="生效版本详情">
-              {/* 和发布任务共用页头、阅读轴与固定底栏。 */}
-              <header className="knowledge-build-heading">
-                <div className="knowledge-build-identity">
-                  <h1 id="effective-version-title" tabIndex={-1}>
-                    {current.title} ·{' '}
-                    {reading
-                      ? '正式正文 '
-                      : current.availability === 'SUPERSEDED'
-                        ? '历史 '
-                        : '当前 '}
-                    r{current.revision}
-                  </h1>
-                  {sourceName && <small>{sourceName}</small>}
-                </div>
-                <div className="knowledge-build-header-actions">
-                  <Button onClick={() => (reading ? readCurrent(false) : back())}>
-                    {reading ? '返回生效版本' : fromTask ? '返回发布任务' : '返回当前生效'}
-                  </Button>
-                  <VersionAvailability version={current} />
-                </div>
-              </header>
-              <div ref={contentRef} className="knowledge-build-content knowledge-version-content">
-                {reading ? (
-                  content ? (
-                    <VersionCopy body={content} />
-                  ) : (
-                    <Alert type="warning" title="当前账号无法查看该版本正文" />
-                  )
-                ) : (
-                  <>
-                    {/* 首屏优先展示正文入口、发布批次和直接上一版。 */}
-                    <section className="knowledge-build-section" aria-label="正式版本">
-                      <h2>正式版本</h2>
-                      {content?.purpose && <p>{content.purpose}</p>}
-                      <span className="muted">
-                        来源发布 {current.taskId} · {displayTime(current.switchedAt)}
-                      </span>
-                      {content && (
-                        <div>
-                          <Button
-                            id="read-formal-version"
-                            type="primary"
-                            onClick={() => readCurrent(true)}
-                          >
-                            阅读正式正文
-                          </Button>
-                        </div>
-                      )}
-                    </section>
-                    <details className="knowledge-release-disclosure">
-                      <summary>索引与治理依据</summary>
-                      <dl className="knowledge-publication-preview">
-                        <div>
-                          <dt>治理对象</dt>
-                          <dd>{current.objects.join('、') || '—'}</dd>
-                        </div>
-                        <div>
-                          <dt>构建代次</dt>
-                          <dd>{current.buildId}</dd>
-                        </div>
-                        <div>
-                          <dt>向量配置修订</dt>
-                          <dd>{current.embeddingRevisionId}</dd>
-                        </div>
-                      </dl>
-                    </details>
-                    <section className="knowledge-build-section" aria-label="直接上一版">
-                      <h2>直接上一版</h2>
-                      {previous ? (
-                        <>
-                          <span>
-                            r{previous.revision} · 发布 {previous.taskId}
-                          </span>
-                          {previousContent && (
-                            <div>
-                              <Button
-                                id="read-previous-version"
-                                onClick={() => setPreviousOpen(true)}
-                              >
-                                查看上一版正文
-                              </Button>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <span className="muted">首次发布</span>
-                      )}
-                    </section>
-                  </>
-                )}
-              </div>
-              {!reading && (
-                <footer className="knowledge-actions knowledge-build-actions">
-                  <Button
-                    onClick={() =>
-                      navigate('/releases/' + current.taskId + '?' + queryString({ source }))
-                    }
-                  >
-                    查看发布任务
-                  </Button>
-                  {allowed(session, 'knowledge.view') && (
-                    <Button
-                      id="effective-version-revision"
-                      color="primary"
-                      variant="outlined"
-                      onClick={() => openRevision(current)}
-                    >
-                      查看文档修订
+          {current && source && recoveryRun && !reading ? (
+            <KnowledgeRecoveryWorkspace
+              key={recoveryRun}
+              source={source}
+              sourceName={sourceName}
+              path={path}
+              title={current.title}
+              revision={current.revision}
+              runId={recoveryRun}
+              data={controls.data}
+              back={() => readRecovery()}
+              openRun={readRecovery}
+            />
+          ) : (
+            current && (
+              <article className="panel knowledge-build-workspace" aria-label="生效版本详情">
+                {/* 和发布任务共用页头、阅读轴与固定底栏。 */}
+                <header className="knowledge-build-heading">
+                  <div className="knowledge-build-identity">
+                    <h1 id="effective-version-title" tabIndex={-1}>
+                      {current.title} ·{' '}
+                      {reading
+                        ? '正式正文 '
+                        : current.availability === 'SUPERSEDED'
+                          ? '历史 '
+                          : '当前 '}
+                      r{current.revision}
+                    </h1>
+                    {sourceName && <small>{sourceName}</small>}
+                  </div>
+                  <div className="knowledge-build-header-actions">
+                    <Button onClick={() => (reading ? readCurrent(false) : back())}>
+                      {reading ? '返回生效版本' : fromTask ? '返回发布任务' : '返回当前生效'}
                     </Button>
+                    <VersionAvailability version={current} />
+                  </div>
+                </header>
+                <div ref={contentRef} className="knowledge-build-content knowledge-version-content">
+                  {reading ? (
+                    content ? (
+                      <VersionCopy body={content} />
+                    ) : (
+                      <Alert type="warning" title="当前账号无法查看该版本正文" />
+                    )
+                  ) : (
+                    <>
+                      {/* 首屏优先展示正文入口、发布批次和直接上一版。 */}
+                      <section className="knowledge-build-section" aria-label="正式版本">
+                        <h2>正式版本</h2>
+                        {content?.purpose && <p>{content.purpose}</p>}
+                        <span className="muted">
+                          来源发布 {current.taskId} · {displayTime(current.switchedAt)}
+                        </span>
+                        {content && (
+                          <div>
+                            <Button
+                              id="read-formal-version"
+                              type="primary"
+                              onClick={() => readCurrent(true)}
+                            >
+                              阅读正式正文
+                            </Button>
+                          </div>
+                        )}
+                      </section>
+                      <details className="knowledge-release-disclosure">
+                        <summary>索引与治理依据</summary>
+                        <dl className="knowledge-publication-preview">
+                          <div>
+                            <dt>治理对象</dt>
+                            <dd>{current.objects.join('、') || '—'}</dd>
+                          </div>
+                          <div>
+                            <dt>构建代次</dt>
+                            <dd>{current.buildId}</dd>
+                          </div>
+                          <div>
+                            <dt>向量配置修订</dt>
+                            <dd>{current.embeddingRevisionId}</dd>
+                          </div>
+                        </dl>
+                      </details>
+                      {controls.data && (
+                        <VersionPauseSummary title={current.title} data={controls.data} />
+                      )}
+                      <section className="knowledge-build-section" aria-label="直接上一版">
+                        <h2>直接上一版</h2>
+                        {previous ? (
+                          <>
+                            <span>
+                              r{previous.revision} · 发布 {previous.taskId}
+                            </span>
+                            {previousContent && (
+                              <div>
+                                <Button
+                                  id="read-previous-version"
+                                  onClick={() => setPreviousOpen(true)}
+                                >
+                                  查看上一版正文
+                                </Button>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="muted">首次发布</span>
+                        )}
+                      </section>
+                      {controls.data && (
+                        <VersionRecoverySummary
+                          data={controls.data}
+                          bindingId={current.id}
+                          openRun={readRecovery}
+                        />
+                      )}
+                      {content && controls.error && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          title={controls.error.message}
+                          action={<Button onClick={() => void controls.refetch()}>重试</Button>}
+                        />
+                      )}
+                    </>
                   )}
-                </footer>
-              )}
-              {previousOpen && previous && previousContent && (
-                <Modal
-                  open
-                  centered
-                  width={800}
-                  title={'上一版正文 · r' + previous.revision}
-                  onCancel={closePrevious}
-                  footer={<Button onClick={closePrevious}>关闭</Button>}
-                >
-                  <VersionCopy body={previousContent} />
-                </Modal>
-              )}
-            </article>
+                </div>
+                {!reading && (
+                  <footer className="knowledge-actions knowledge-build-actions">
+                    <VersionControlActions
+                      title={current.title}
+                      path={path}
+                      data={controls.data}
+                      available={Boolean(
+                        current.verifiedAt && current.availability !== 'SUPERSEDED',
+                      )}
+                      openRun={readRecovery}
+                    >
+                      <Button
+                        onClick={() =>
+                          navigate('/releases/' + current.taskId + '?' + queryString({ source }))
+                        }
+                      >
+                        查看发布任务
+                      </Button>
+                      {allowed(session, 'knowledge.view') && (
+                        <Button
+                          id="effective-version-revision"
+                          color="primary"
+                          variant="outlined"
+                          onClick={() => openRevision(current)}
+                        >
+                          查看文档修订
+                        </Button>
+                      )}
+                    </VersionControlActions>
+                  </footer>
+                )}
+                {previousOpen && previous && previousContent && (
+                  <Modal
+                    open
+                    centered
+                    width={800}
+                    title={'上一版正文 · r' + previous.revision}
+                    onCancel={closePrevious}
+                    footer={<Button onClick={closePrevious}>关闭</Button>}
+                  >
+                    <VersionCopy body={previousContent} />
+                  </Modal>
+                )}
+              </article>
+            )
           )}
         </ReadState>
       )}

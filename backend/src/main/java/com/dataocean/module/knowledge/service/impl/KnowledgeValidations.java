@@ -21,18 +21,26 @@ import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.iam.service.ServiceActorPermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Judgment;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Start;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeVersionRestoreDTO;
 import com.dataocean.module.knowledge.entity.po.KnowledgeReleaseCandidatePO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO.Content;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeValidationVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO.Recovery;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO.RunDetail;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Build;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Chunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper.Task;
 import com.dataocean.module.knowledge.mapper.KnowledgeValidationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeValidationMapper.Question;
 import com.dataocean.module.knowledge.mapper.KnowledgeValidationMapper.Run;
+import com.dataocean.module.knowledge.mapper.KnowledgeVersionPauseMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeVersionPauseMapper.Pause;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Evidence;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Fragment;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Verified;
@@ -104,6 +112,26 @@ public class KnowledgeValidations {
      * 运行、技术结果和独立裁定。
      */
     private final KnowledgeValidationMapper runs;
+
+    /**
+     * 当前使用控制及运行归属。
+     */
+    private final KnowledgeVersionPauseMapper pauses;
+
+    /**
+     * 从真实绑定读取恢复目标和历史。
+     */
+    private final KnowledgePublicationMapper bindings;
+
+    /**
+     * 生产限制与正常依赖分别核对。
+     */
+    private final KnowledgeVersionUse versionUse;
+
+    /**
+     * 确认恢复时重新核实实际索引集合。
+     */
+    private final KnowledgeIndexReadback indexes;
 
     /**
      * 任务的来源、当前阶段和聚合版本。
@@ -243,16 +271,236 @@ public class KnowledgeValidations {
     }
 
     /**
+     * 运行当前正式绑定的隔离验证，保留原发布和原暂停状态。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MutationVO startRecovery(long sourceId, long bindingId, long pauseId, String command) {
+        return commands.execute(
+                "releases.test",
+                command,
+                recoveryTarget(sourceId, bindingId, pauseId),
+                Ids.text(pauseId),
+                null,
+                false,
+                false,
+                () -> {
+                    requireReader(sourceId);
+                    var source = catalog.source(sourceId, true);
+                    var binding = versionUse.current(sourceId, bindingId);
+                    var pause = requirePause(binding, pauseId);
+                    var build = recoveryBuild(source, binding);
+                    var tests =
+                            preflight.requireRelatedTests(sourceId, binding.documentId(), binding.documentRevisionId());
+                    if (pause.currentRunId() != null) {
+                        // 同一有效运行保留；已失效的在途运行收敛后才能登记新输入。
+                        var previous = readRun(pause.currentRunId());
+                        if (running(previous)) {
+                            if (remaining(previous) > 0 && recoveryIssue(source, previous) == null) {
+                                throw BizIllegalException.state("恢复验证正在运行");
+                            }
+                            invalidate(previous, "INPUT_STALE");
+                        }
+                    }
+                    String id = UUID.randomUUID().toString();
+                    runs.create(
+                            id,
+                            binding.candidateId(),
+                            build.id(),
+                            UserContext.getUser(),
+                            UserContext.current().authenticationVersion(),
+                            "releases.test",
+                            source.configurationId(),
+                            pauseId,
+                            bindingId);
+                    if (pauses.link(pauseId, pause.currentRunId(), id) != 1) {
+                        // 并发变更不能覆盖正在使用的暂停和验证指针。
+                        throw BizIllegalException.conflict();
+                    }
+                    addQuestions(source, id, tests);
+                    audit(command, "releases.test", "knowledge_recovery_validation", id, binding.title(), null);
+                    return new MutationVO(command, "knowledge_recovery_validation", id, 1);
+                });
+    }
+
+    /**
+     * 有权人员确认风险消除，再次核验当前版本、题单、证据和完整索引。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MutationVO restore(
+            long sourceId, long bindingId, long pauseId, String command, KnowledgeVersionRestoreDTO input) {
+        return commands.execute(
+                "governance.allow",
+                command,
+                recoveryTarget(sourceId, bindingId, pauseId),
+                input,
+                null,
+                false,
+                false,
+                () -> {
+                    requireReader(sourceId);
+                    var source = catalog.source(sourceId, true);
+                    var binding = versionUse.current(sourceId, bindingId);
+                    var pause = requirePause(binding, pauseId);
+                    if (!input.runId().toString().equals(pause.currentRunId())) {
+                        // 先以当前暂停确定证据归属，拒绝旧编号和任意其他运行。
+                        throw BizIllegalException.state("请核对当前版本已通过的恢复验证");
+                    }
+                    var run = readRun(pause.currentRunId());
+                    if (!Objects.equals(run.recoveryBindingId(), bindingId) || !"RECOVERY_PASSED".equals(run.state())) {
+                        // 提交必须采用此范围最近一轮真正通过的隔离验证。
+                        throw BizIllegalException.state("请核对当前版本已通过的恢复验证");
+                    }
+                    var build = verifyRecoveryRun(source, run);
+                    var candidate = builds.candidate(sourceId, binding.candidateId());
+                    indexes.verify(
+                            build,
+                            binding.documentRevisionId(),
+                            binding.embeddingRevisionId(),
+                            candidate.getFingerprint());
+                    // 索引回读期间模型或用户的可用性仍可能变化。
+                    verifyRecoveryRun(source, run);
+                    String reason = input.reason().strip();
+                    if (pauses.restore(pauseId, run.id(), reason, UserContext.getUser()) != 1) {
+                        throw BizIllegalException.conflict();
+                    }
+                    audit(
+                            command,
+                            "governance.allow",
+                            "knowledge_version_pause",
+                            Ids.text(pauseId),
+                            binding.title(),
+                            reason);
+                    return new MutationVO(command, "knowledge_version_pause", Ids.text(pauseId), 2);
+                });
+    }
+
+    /**
+     * 版本详情保留暂停范围与历史，旧依据不会显示成可恢复。
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public KnowledgeVersionControlVO controls(long sourceId, long id) {
+        versionUse.requireOperator(sourceId);
+        var source = catalog.source(sourceId, false);
+        var binding = readBinding(sourceId, id);
+        var pause = Objects.equals(binding.activeBindingId(), id) ? pauses.active(binding.scopeId()) : null;
+        var history =
+                pauses.history(binding.scopeId()).stream().map(this::viewPause).toList();
+        return new KnowledgeVersionControlVO(
+                pause == null ? null : viewPause(pause),
+                pause == null ? null : recoveryStatus(source, binding, pause),
+                history);
+    }
+
+    /**
+     * 验证页可重读旧轮的技术证据，但只允许办理当前有效的一轮。
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public RunDetail recoveryDetail(long sourceId, long id, String runId) {
+        versionUse.requireOperator(sourceId);
+        var source = catalog.source(sourceId, false);
+        var binding = readBinding(sourceId, id);
+        var run = forTask(sourceId, binding.taskId(), runId);
+        if (!Objects.equals(run.recoveryBindingId(), id)) {
+            throw BizIllegalException.missing();
+        }
+        boolean current = recoveryIssue(source, run) == null;
+        var history = runs.recoveryHistory(run.recoveryPauseId(), id);
+        return new RunDetail(
+                Ids.text(binding.taskId()),
+                task(sourceId, binding.taskId()).version(),
+                Ids.text(run.recoveryPauseId()),
+                current,
+                validationDetail(sourceId, run, history));
+    }
+
+    /**
+     * 前端操作权限与业务状态各自核对，状态下发需如实标明失效原因。
+     */
+    private Recovery recoveryStatus(Source source, Binding binding, Pause pause) {
+        String blocked = null;
+        try {
+            // 冻结的治理依据变化时先重新确认正文，不能用旧索引继续验证。
+            recoveryBuild(source, binding);
+            preflight.requireRelatedTests(source.id(), binding.documentId(), binding.documentRevisionId());
+        } catch (BizIllegalException unsuitable) {
+            blocked = unsuitable.getMessage();
+        }
+        var run = pause.currentRunId() == null ? null : runs.get(pause.currentRunId());
+        if (run == null || !Objects.equals(run.recoveryBindingId(), binding.id())) {
+            return new Recovery("UNVERIFIED", null, blocked, blocked == null);
+        }
+        String stale = blocked == null ? recoveryIssue(source, run) : blocked;
+        if (stale != null) {
+            return new Recovery("EXPIRED", run.id(), stale, blocked == null);
+        }
+        return new Recovery(run.state(), run.id(), null, !running(run));
+    }
+
+    /**
+     * 同一记录返回发起、解除及最近验证的可信留痕。
+     */
+    private KnowledgeVersionControlVO.Pause viewPause(Pause pause) {
+        return new KnowledgeVersionControlVO.Pause(
+                Ids.text(pause.id()),
+                Ids.text(pause.bindingId()),
+                pause.reason(),
+                Ids.text(pause.pausedBy()),
+                Times.instant(pause.pausedAt()),
+                pause.currentRunId(),
+                Ids.text(pause.runBindingId()),
+                pause.restoreReason(),
+                Ids.text(pause.restoredBy()),
+                Times.instant(pause.restoredAt()));
+    }
+
+    /**
+     * 隔离动作命中页面确切范围和同一次暂停。
+     */
+    private String recoveryTarget(long source, long binding, long pause) {
+        return "knowledge-recovery:" + source + "/" + binding + "/" + pause;
+    }
+
+    /**
+     * 恢复动作不能用于已解除或被新暂停取代的记录。
+     */
+    private Pause requirePause(Binding binding, long expected) {
+        var pause = pauses.active(binding.scopeId());
+        if (pause == null || pause.id() != expected) {
+            throw BizIllegalException.state("当前暂停已变化，请重新核对");
+        }
+        return pause;
+    }
+
+    /**
+     * 按确切来源回读绑定，不接受其他数据源的绑定编号。
+     */
+    private Binding readBinding(long source, long id) {
+        var binding = bindings.get(source, id);
+        if (binding == null) {
+            throw BizIllegalException.missing();
+        }
+        return binding;
+    }
+
+    /**
      * 为当前候选生成独立的耐久运行，不修改任何旧证据。
      */
     private String enqueue(Source source, Build build, String previous, long actor, long auth, String operation) {
         String id = UUID.randomUUID().toString();
-        runs.create(id, build.candidateId(), build.id(), actor, auth, operation, source.configurationId());
+        runs.create(id, build.candidateId(), build.id(), actor, auth, operation, source.configurationId(), null, null);
         if (runs.activate(build.candidateId(), build.id(), previous, id) != 1) {
             // 旧来源变更或重复工作回执不能覆盖新运行。
             throw BizIllegalException.conflict();
         }
-        for (long revision : builds.testRevisions(build.candidateId())) {
+        addQuestions(source, id, builds.testRevisions(build.candidateId()));
+        return id;
+    }
+
+    /**
+     * 普通候选与隔离恢复共用审核题快照和逐题执行身份。
+     */
+    private void addQuestions(Source source, String id, List<Long> tests) {
+        for (long revision : tests) {
             // 允许在详情按题显示实际授权问题，权限不足的题不进入召回。
             long executor = runs.executor(revision);
             Long authentication = null;
@@ -274,7 +522,6 @@ public class KnowledgeValidations {
             // 没有可执行题时直接阻断，不发送空工作。
             settle(run);
         }
-        return id;
     }
 
     /**
@@ -565,15 +812,20 @@ public class KnowledgeValidations {
                     var task = task(sourceId, taskId);
                     version(task, input.getExpectedVersion());
                     var run = forTask(sourceId, taskId, runId);
-                    var candidate = builds.candidate(sourceId, run.candidateId());
-                    if (candidate == null
-                            || !run.id().equals(candidate.getCurrentValidationId())
-                            || !Set.of("AWAITING_JUDGMENT", "VALIDATION_FAILED", "VALIDATION_ERROR")
-                                    .contains(task.status())) {
-                        throw BizIllegalException.state("仅可裁定当前运行中的待裁定结果");
+                    if (run.recoveryPauseId() == null) {
+                        // 普通裁定仍只能办理当前固定候选的当前运行。
+                        var candidate = builds.candidate(sourceId, run.candidateId());
+                        if (candidate == null
+                                || !run.id().equals(candidate.getCurrentValidationId())
+                                || !Set.of("AWAITING_JUDGMENT", "VALIDATION_FAILED", "VALIDATION_ERROR")
+                                        .contains(task.status())) {
+                            throw BizIllegalException.state("仅可裁定当前运行中的待裁定结果");
+                        }
+                        verifyBasis(source, builds.get(run.buildId()), run.candidateId());
+                    } else {
+                        // 恢复裁定只改变隔离证据，原发布任务始终不可被重新推进。
+                        verifyRecoveryRun(source, run);
                     }
-                    var build = builds.get(run.buildId());
-                    verifyBasis(source, build, run.candidateId());
                     if (!Objects.equals(source.configurationId(), run.connectionRevisionId())
                             || runs.questions(run.id()).stream()
                                     .filter(item -> Set.of("PASSED", "FAILED", "PENDING_JUDGMENT")
@@ -652,10 +904,10 @@ public class KnowledgeValidations {
         } else if (values.contains("PENDING_JUDGMENT")) {
             stage = "AWAITING_JUDGMENT";
         } else {
-            stage = "READY_TO_PUBLISH";
+            stage = run.recoveryPauseId() == null ? "READY_TO_PUBLISH" : "RECOVERY_PASSED";
         }
         runs.settle(run.id(), stage);
-        if (runs.advance(run.candidateId(), run.id(), stage) != 1) {
+        if (run.recoveryPauseId() == null && runs.advance(run.candidateId(), run.id(), stage) != 1) {
             // 当前指针变化时整次交付回滚。
             throw BizIllegalException.conflict();
         }
@@ -674,6 +926,17 @@ public class KnowledgeValidations {
                         ? null
                         : readRun(candidate.getCurrentValidationId()))
                 : forTask(source, taskId, requestedRun);
+        if (run != null && run.recoveryPauseId() != null) {
+            // 隔离结果只在同一绑定的恢复入口回看。
+            throw BizIllegalException.missing();
+        }
+        return validationDetail(source, run, history);
+    }
+
+    /**
+     * 普通发布和隔离恢复的逐题数据遵守同一披露权限。
+     */
+    private KnowledgeValidationVO validationDetail(long source, Run run, List<Run> history) {
         boolean visible = canRead(source);
         boolean evidenceVisible = visible && permissions.has("knowledge.view");
         var questions =
@@ -748,11 +1011,15 @@ public class KnowledgeValidations {
      * 阻断已替换、超时、撤权或已取消的运行。
      */
     private Build active(Source source, Run run, int version) {
+        if (version != 1 || !running(run) || remaining(run) <= 0) {
+            throw new BizIllegalException(ErrorCode.STALE_RUN, "当前验证运行已失效");
+        }
+        if (run.recoveryPauseId() != null) {
+            // 工作者交付前固定的恢复目的和发布绑定仍须有效。
+            return verifyRecoveryRun(source, run);
+        }
         var candidate = builds.candidate(source.id(), run.candidateId());
-        if (version != 1
-                || !running(run)
-                || remaining(run) <= 0
-                || candidate == null
+        if (candidate == null
                 || !"VALIDATING".equals(candidate.getStatus())
                 || !run.id().equals(candidate.getCurrentValidationId())
                 || !Objects.equals(source.configurationId(), run.connectionRevisionId())) {
@@ -768,6 +1035,69 @@ public class KnowledgeValidations {
                 },
                 "releases.view",
                 run.operationCode());
+    }
+
+    /**
+     * 恢复以使用中的实际绑定为依据，复用它的已核实索引。
+     */
+    private Build recoveryBuild(Source source, Binding binding) {
+        versionUse.requireBasis(source, binding);
+        var build = builds.get(binding.buildId());
+        if (!transport.isEnabled()
+                || !index.getModelSourceIds().contains(source.id())
+                || build == null
+                || !"SUCCEEDED".equals(build.state())
+                || build.candidateId() != binding.candidateId()) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "当前正式索引或来源执行资格已失效");
+        }
+        return build;
+    }
+
+    /**
+     * 普通问数始终采用当前限制。单一恢复运行沿可信内部任务入口获得本轮隔离资格。
+     */
+    private Build verifyRecoveryRun(Source source, Run run) {
+        var binding = versionUse.current(source.id(), run.recoveryBindingId());
+        var pause = requirePause(binding, run.recoveryPauseId());
+        if (!Objects.equals(pause.currentRunId(), run.id())
+                || !Objects.equals(binding.buildId(), run.buildId())
+                || binding.candidateId() != run.candidateId()
+                || !Objects.equals(source.configurationId(), run.connectionRevisionId())) {
+            throw new BizIllegalException(ErrorCode.STALE_RUN, "正式版本、暂停记录或连接已变化，请重新验证");
+        }
+        var questions = runs.questions(run.id());
+        var frozen = questions.stream().map(Question::testRevisionId).sorted().toList();
+        var current = preflight.requireRelatedTests(source.id(), binding.documentId(), binding.documentRevisionId());
+        if (!frozen.equals(current)) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "已审核题单已变化，请重新运行恢复验证");
+        }
+        if (questions.stream()
+                .filter(row -> row.authenticationVersion() != null)
+                .anyMatch(row -> !authorizedQuestion(source, row))) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "验证执行身份或数据权限已变化，请重新验证");
+        }
+        return actors.asActor(
+                run.requestedBy(),
+                run.authenticationVersion(),
+                () -> {
+                    // 发起人失去页面或数据资格后，隔离输入与旧结果都不能继续使用。
+                    requireReader(source.id());
+                    return recoveryBuild(source, binding);
+                },
+                "releases.view",
+                "releases.test");
+    }
+
+    /**
+     * 将失效原因交给可查看的版本详情，旧结果继续可追溯。
+     */
+    private String recoveryIssue(Source source, Run run) {
+        try {
+            verifyRecoveryRun(source, run);
+            return null;
+        } catch (BizIllegalException stale) {
+            return stale.getMessage();
+        }
     }
 
     /**

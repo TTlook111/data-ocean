@@ -436,6 +436,18 @@
   padding-block-end: 16px;
 }
 
+/* 验证状态和回看操作沿用原版本阅读轴。 */
+.knowledge-version-recovery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 危险确认保持影响、范围和原因的阅读顺序。 */
+.knowledge-version-control-form {
+  margin-block-start: 16px;
+}
+
 /* 绑定正文保持可读，长章节保留自然换行。 */
 .knowledge-published-copy {
   max-width: 800px;

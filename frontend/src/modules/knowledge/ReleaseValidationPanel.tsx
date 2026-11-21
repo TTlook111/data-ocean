@@ -24,7 +24,7 @@ export type ValidationRun = {
   id: string;
   candidateId: string;
   buildId: string;
-  state: ReleaseTask['status'] | 'QUEUED' | 'RUNNING';
+  state: ReleaseTask['status'] | 'QUEUED' | 'RUNNING' | 'RECOVERY_PASSED';
   createdAt: string;
 };
 
@@ -137,6 +137,7 @@ export function ValidationSummary({ data }: { data: ValidationDetail }) {
  */
 export function ValidationReport({
   data,
+  title = '候选验证',
   activeRun,
   selected,
   select,
@@ -144,6 +145,8 @@ export function ValidationReport({
   canJudge,
 }: {
   data: ValidationDetail;
+  /** 恢复验证沿用报告布局和逐题证据。 */
+  title?: string;
   activeRun?: string;
   selected?: string;
   select: (run?: string) => void;
@@ -162,10 +165,10 @@ export function ValidationReport({
   const list = [...data.questions].sort((a, b) => order[resultState(a)] - order[resultState(b)]);
   const judging = canJudge && data.run?.id === activeRun;
   return (
-    <section className="knowledge-build-section" aria-label="候选验证">
+    <section className="knowledge-build-section" aria-label={title}>
       {/* 原型的独立报告区承载运行切换及逐题结果。 */}
       <header className="knowledge-validation-heading">
-        <h2>候选验证</h2>
+        <h2>{title}</h2>
         {data.history.some((run) => run.id !== activeRun) && (
           <Select
             aria-label="验证运行"
@@ -181,7 +184,9 @@ export function ValidationReport({
                     ' · ' +
                     (run.state === 'QUEUED' || run.state === 'RUNNING'
                       ? '验证中'
-                      : releaseStates[run.state]),
+                      : run.state === 'RECOVERY_PASSED'
+                        ? '验证已完成'
+                        : releaseStates[run.state]),
                 })),
             ]}
             onChange={(run) => select(run || undefined)}
@@ -255,6 +260,7 @@ export function ValidationReport({
  */
 export function ValidationQuestionDialog({
   row,
+  recovery = false,
   run,
   path,
   version,
@@ -264,6 +270,8 @@ export function ValidationQuestionDialog({
   refresh,
 }: {
   row: ValidationQuestion;
+  /** 恢复证据来自正式版本而不是待发布候选。 */
+  recovery?: boolean;
   run: ValidationRun;
   path: string;
   version: number;
@@ -323,7 +331,7 @@ export function ValidationQuestionDialog({
       open
       centered
       width={1160}
-      title={administrable ? '裁定候选结果' : '查看逐题结果'}
+      title={administrable ? (recovery ? '裁定恢复验证' : '裁定候选结果') : '查看逐题结果'}
       onCancel={discard}
       cancelText={administrable ? '取消' : '关闭'}
       okText={command.pending ? command.action : '确认裁定'}
@@ -369,7 +377,9 @@ export function ValidationQuestionDialog({
           {canReadEvidence &&
             row.evidence.map((fragment) => (
               <div key={fragment.ordinal} className="knowledge-validation-excerpt">
-                <h4>候选片段 {fragment.ordinal + 1}</h4>
+                <h4>
+                  {recovery ? '正式片段' : '候选片段'} {fragment.ordinal + 1}
+                </h4>
                 <p>{fragment.body}</p>
                 <details>
                   <summary>同版治理引用</summary>

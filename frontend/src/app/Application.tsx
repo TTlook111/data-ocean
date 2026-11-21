@@ -400,6 +400,7 @@ export function Application() {
   const readingReleaseVersion = activePath === '/releases/versions/:id';
   const releaseVersionSearch = new URLSearchParams(location.search);
   releaseVersionSearch.delete('read');
+  releaseVersionSearch.delete('recovery');
   releaseVersionSearch.set('tab', 'active');
   const releaseSearch = readingReleaseVersion
     ? '?' + releaseVersionSearch.toString()

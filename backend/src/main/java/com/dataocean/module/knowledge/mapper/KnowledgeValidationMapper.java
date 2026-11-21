@@ -27,6 +27,8 @@ public interface KnowledgeValidationMapper {
             String state,
             String dispatchToken,
             LocalDateTime createdAt,
+            Long recoveryPauseId,
+            Long recoveryBindingId,
             long taskId,
             long sourceId) {}
 
@@ -68,8 +70,9 @@ public interface KnowledgeValidationMapper {
     @Insert(
             """
             INSERT INTO kn_release_validation
-            (id,candidate_id,build_id,requested_by,authentication_version,operation_code,connection_revision_id,state)
-            VALUES(#{id},#{candidate},#{build},#{actor},#{auth},#{operation},#{connection},'QUEUED')
+            (id,candidate_id,build_id,requested_by,authentication_version,operation_code,connection_revision_id,state,
+             recovery_pause_id,recovery_binding_id)
+            VALUES(#{id},#{candidate},#{build},#{actor},#{auth},#{operation},#{connection},'QUEUED',#{pause},#{binding})
             """)
     void create(
             @Param("id") String id,
@@ -78,7 +81,9 @@ public interface KnowledgeValidationMapper {
             @Param("actor") long actor,
             @Param("auth") long auth,
             @Param("operation") String operation,
-            @Param("connection") long connection);
+            @Param("connection") long connection,
+            @Param("pause") Long pause,
+            @Param("binding") Long binding);
 
     /**
      * 原子切换当前运行与任务并发版本。
@@ -144,8 +149,19 @@ public interface KnowledgeValidationMapper {
     /**
      * 查询同一任务的所有旧运行，供详情显示历史入口。
      */
-    @Select(RUN + " WHERE c.task_id=#{task} ORDER BY v.created_at DESC,v.id DESC")
+    @Select(RUN + " WHERE c.task_id=#{task} AND v.recovery_pause_id IS NULL ORDER BY v.created_at DESC,v.id DESC")
     List<Run> history(long task);
+
+    /**
+     * 隔离任务历史仅回读同一次暂停与正式绑定的恢复运行。
+     */
+    @Select(
+            RUN
+                    + """
+             WHERE v.recovery_pause_id=#{pause} AND v.recovery_binding_id=#{binding}
+             ORDER BY v.created_at DESC,v.id DESC
+            """)
+    List<Run> recoveryHistory(@Param("pause") long pause, @Param("binding") long binding);
 
     /**
      * 只领取具备持久派发资格的下一笔运行。

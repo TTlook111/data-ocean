@@ -170,22 +170,9 @@ public class KnowledgeReleasePreflight {
         // 文档依据与题单问题分别展示，保存任务只看前者。
         var issues = documentIssues(origin, doc);
         boolean documentReady = issues.isEmpty();
-        List<ReviewedTest> reviewed = List.of();
-        if (doc.confirmedRevisionId() != null) {
-            // 只统计适用于同一确认修订的标准题。
-            reviewed = tests.reviewed(origin.id(), doc.id(), doc.confirmedRevisionId());
-            var content = reviewed.stream()
-                    .map(test -> json.read(test.content(), KnowledgeTestVO.Content.class))
-                    .toList();
-            if (content.stream()
-                    .noneMatch(test -> "NUMERIC".equals(test.getMode()) && "CAPABILITY".equals(test.getCoverage()))) {
-                issues.add("缺少已审核的关键能力数值题");
-            }
-            if (content.stream()
-                    .noneMatch(test -> "EXPLANATION".equals(test.getMode()) && "BOUNDARY".equals(test.getCoverage()))) {
-                issues.add("缺少已审核的使用边界说明题");
-            }
-        }
+        var testRevisions = doc.confirmedRevisionId() == null
+                ? List.<Long>of()
+                : relatedTests(origin.id(), doc.id(), doc.confirmedRevisionId(), issues);
         Long embedding = null;
         try {
             // 只核对当前配置选择，模型调用和取用由后续构建任务执行。
@@ -196,8 +183,6 @@ public class KnowledgeReleasePreflight {
             // 模型问题留在构建预检中，准备任务仍可保存。
             issues.add("知识检索向量化节点未分配可用模型");
         }
-        var testRevisions =
-                reviewed.stream().map(ReviewedTest::revisionId).sorted().toList();
         String inputFingerprint = null;
         if (issues.isEmpty()) {
             // 对确认、题单、模型和基础绑定生成摘要，构建事务会重算并核对。
@@ -230,6 +215,37 @@ public class KnowledgeReleasePreflight {
             List<String> issues,
             boolean documentReady,
             String inputFingerprint) {}
+
+    /**
+     * 恢复验证沿用已审核题覆盖要求，明确针对正式绑定的确切正文。
+     */
+    public List<Long> requireRelatedTests(long source, long document, long revision) {
+        var issues = new ArrayList<String>();
+        var ids = relatedTests(source, document, revision, issues);
+        if (!issues.isEmpty()) {
+            throw new BizIllegalException(ErrorCode.KNOWLEDGE_NOT_READY, String.join("；", issues));
+        }
+        return ids;
+    }
+
+    /**
+     * 仅采纳适用于固定文档修订的当前已审核标准题。
+     */
+    private List<Long> relatedTests(long source, long document, long revision, List<String> issues) {
+        var reviewed = tests.reviewed(source, document, revision);
+        var content = reviewed.stream()
+                .map(test -> json.read(test.content(), KnowledgeTestVO.Content.class))
+                .toList();
+        if (content.stream()
+                .noneMatch(test -> "NUMERIC".equals(test.getMode()) && "CAPABILITY".equals(test.getCoverage()))) {
+            issues.add("缺少已审核的关键能力数值题");
+        }
+        if (content.stream()
+                .noneMatch(test -> "EXPLANATION".equals(test.getMode()) && "BOUNDARY".equals(test.getCoverage()))) {
+            issues.add("缺少已审核的使用边界说明题");
+        }
+        return reviewed.stream().map(ReviewedTest::revisionId).sorted().toList();
+    }
 
     /**
      * 固定可提交的全部依赖。首次登记范围不改变同一基础绑定。
