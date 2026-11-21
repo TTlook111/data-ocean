@@ -15,7 +15,7 @@ import org.apache.ibatis.annotations.Update;
 public interface KnowledgeReleaseTaskMapper {
 
     /**
-     * 已关联候选时沿用候选的阶段和并发版本。
+     * 已关联候选时沿用候选的阶段，任务版本包含该候选的后续变化。
      */
     String TASK =
             """
@@ -23,7 +23,7 @@ public interface KnowledgeReleaseTaskMapper {
                    IF(t.candidate_id IS NULL, s.active_binding_id, c.base_binding_id) AS base_binding_id,
                    t.title, c.fingerprint, c.current_build_id,
                    COALESCE(c.status, IF(t.canceled, 'CANCELED', 'PREPARED')) AS status,
-                   COALESCE(c.version, IF(t.canceled, 2, 1)) AS version, t.created_at
+                   c.version AS candidate_version, t.base_version + COALESCE(c.version - 1, 0) AS version, t.created_at
             FROM kn_release_scope s JOIN kn_release_task t ON t.scope_id=s.id
             LEFT JOIN kn_release_candidate c ON c.id=t.candidate_id
             """;
@@ -41,6 +41,7 @@ public interface KnowledgeReleaseTaskMapper {
             String fingerprint,
             String currentBuildId,
             String status,
+            Integer candidateVersion,
             int version,
             LocalDateTime createdAt) {}
 
@@ -94,8 +95,28 @@ public interface KnowledgeReleaseTaskMapper {
     int attach(@Param("id") long id, @Param("candidate") long candidate);
 
     /**
+     * 来源锁内更换目标文档与基准版本，原当前候选仍归属本任务。
+     */
+    @Update(
+            """
+            UPDATE kn_release_task SET scope_id=#{scope},document_revision_id=#{revision},title=#{title},
+                candidate_id=NULL,base_version=#{version}
+            WHERE id=#{id} AND canceled=FALSE
+            """)
+    int adjust(
+            @Param("id") long id,
+            @Param("scope") long scope,
+            @Param("revision") long revision,
+            @Param("title") String title,
+            @Param("version") int version);
+
+    /**
      * 准备中的任务可以直接取消。
      */
-    @Update("UPDATE kn_release_task SET canceled=TRUE WHERE id=#{id} AND candidate_id IS NULL AND canceled=FALSE")
+    @Update(
+            """
+            UPDATE kn_release_task SET canceled=TRUE,base_version=base_version+1
+            WHERE id=#{id} AND candidate_id IS NULL AND canceled=FALSE
+            """)
     int cancel(@Param("id") long id);
 }

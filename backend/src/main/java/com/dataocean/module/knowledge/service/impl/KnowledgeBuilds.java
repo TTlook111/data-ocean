@@ -23,6 +23,7 @@ import com.dataocean.module.knowledge.entity.po.KnowledgeReleaseCandidatePO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeDocumentVO.Content;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseBuildVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseDetailVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseHistoryVO;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Build;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Chunk;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -73,7 +75,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     /**
      * 提醒用户重新核对范围，防止新确认自动替换原任务内容。
      */
-    private static final String REVISION_CHANGED = "文档确认修订已变化，请按最新确认创建任务";
+    private static final String REVISION_CHANGED = "文档确认修订已变化，请调整发布范围";
 
     /**
      * 详情与实际构建共用模型传输范围的阻断原因。
@@ -215,7 +217,8 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                             index.collection(build),
                             UserContext.getUser(),
                             UserContext.current().authenticationVersion());
-                    if (builds.begin(candidateId, build, row.version()) != 1) {
+                    int candidateVersion = row.candidateVersion() == null ? 1 : row.candidateVersion();
+                    if (builds.begin(candidateId, build, candidateVersion) != 1) {
                         // 竞争失败时回滚本次候选、构建与片段。
                         throw BizIllegalException.conflict();
                     }
@@ -254,7 +257,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                     verifyVersion(row, input);
                     int changed = row.candidateId() == null
                             ? tasks.cancel(id)
-                            : builds.cancel(row.candidateId(), row.version());
+                            : builds.cancel(row.candidateId(), row.candidateVersion());
                     if (changed != 1) {
                         // 已取消或不再适用的阶段不能再次受理。
                         throw BizIllegalException.state("当前发布任务不能取消");
@@ -317,6 +320,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                 checked.testRevisions());
         var row = new KnowledgeReleaseCandidatePO();
         row.setId(IdWorker.getId());
+        row.setTaskId(task.id());
         row.setScopeId(scope.id());
         row.setBaseBindingId(scope.activeBindingId());
         row.setDocumentRevisionId(task.documentRevisionId());
@@ -330,7 +334,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
             candidates.attachTest(row.getId(), testRevision);
         }
         if (tasks.attach(task.id(), row.getId()) != 1) {
-            // 一个任务只接受一次初始冻结。
+            // 同一份任务范围只接受一次初始冻结。
             throw BizIllegalException.conflict();
         }
         return row.getId();
@@ -380,17 +384,20 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                 issues = List.of(REVISION_CHANGED);
             }
         }
-        var history = row.candidateId() == null
-                ? List.<KnowledgeReleaseBuildVO>of()
-                : builds.history(row.candidateId()).stream()
-                        .map(task -> new KnowledgeReleaseBuildVO(
-                                task.id(),
-                                task.state(),
-                                task.failureCode(),
-                                task.verifiedChunks(),
-                                task.vectorDimension(),
-                                Times.instant(task.createdAt())))
-                        .toList();
+        // 历次构建按候选分开，当前候选变化不覆盖原有构建证据。
+        var attempts = builds.history(id).stream()
+                .collect(Collectors.groupingBy(
+                        Build::candidateId, Collectors.mapping(KnowledgeBuilds::buildView, Collectors.toList())));
+        var history = candidates.history(id).stream()
+                .map(candidate -> new KnowledgeReleaseHistoryVO(
+                        Ids.text(candidate.id()),
+                        candidate.title(),
+                        Ids.text(candidate.documentId()),
+                        Ids.text(candidate.documentRevisionId()),
+                        candidate.revision(),
+                        candidate.status(),
+                        attempts.getOrDefault(candidate.id(), List.of())))
+                .toList();
         return new KnowledgeReleaseDetailVO(
                 origin.name(),
                 revision.revision(),
@@ -398,7 +405,21 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                 reviewedTests,
                 inputFingerprint,
                 issues,
+                row.candidateId() == null ? List.of() : attempts.getOrDefault(row.candidateId(), List.of()),
                 history);
+    }
+
+    /**
+     * 当前候选与历史候选使用同一套构建摘要。
+     */
+    private static KnowledgeReleaseBuildVO buildView(Build build) {
+        return new KnowledgeReleaseBuildVO(
+                build.id(),
+                build.state(),
+                build.failureCode(),
+                build.verifiedChunks(),
+                build.vectorDimension(),
+                Times.instant(build.createdAt()));
     }
 
     /**
@@ -582,9 +603,12 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     private void verifyFrozen(Source source, long document, KnowledgeReleaseCandidatePO candidate) {
         verifyTransport(source);
         var check = preflight.check(source, preflight.document(source.id(), document));
+        if (!Objects.equals(candidate.getDocumentRevisionId(), check.documentRevision())) {
+            // 新确认须明确通过调整范围选择，旧候选仍可回看。
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, REVISION_CHANGED);
+        }
         var scope = candidates.scope(source.id(), document);
         if (!check.issues().isEmpty()
-                || !Objects.equals(candidate.getDocumentRevisionId(), check.documentRevision())
                 || !Objects.equals(candidate.getEmbeddingRevisionId(), check.embeddingRevision())
                 || !Objects.equals(candidate.getBaseBindingId(), scope.activeBindingId())
                 || !builds.testRevisions(candidate.getId()).equals(check.testRevisions())) {

@@ -1,10 +1,11 @@
-import { Alert, Button, Form, Grid, Input, Modal, Steps, Table, Tag } from 'antd';
+import { Alert, Button, Collapse, Form, Grid, Input, Modal, Steps, Table, Tag } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
+import { ReleaseScopeAdjustment } from './ReleaseScopeAdjustment';
 import {
   releaseStates,
   type ReleaseRevisionReturn,
@@ -44,7 +45,22 @@ type BuildDetail = {
   inputFingerprint: string | null;
   /** 首次构建前需要处理的问题。 */
   issues: string[];
-  /** 从最近一轮开始的构建状态。 */
+  /** 当前候选从最近一轮开始的构建状态。 */
+  builds: Build[];
+  /** 已被替换的候选及其构建记录。 */
+  history: HistoricalCandidate[];
+};
+
+/**
+ * 已归档候选必须以原文档、修订及构建快照回看。
+ */
+type HistoricalCandidate = {
+  id: string;
+  title: string;
+  documentId: string;
+  documentRevisionId: string;
+  documentRevisionNumber: number;
+  status: ReleaseTask['status'];
   builds: Build[];
 };
 
@@ -132,17 +148,14 @@ export function KnowledgeReleaseBuildPage() {
   }
 
   /** 阅读原确认修订，返回目标仍然是当前任务。 */
-  function revision(row: BuildDetail) {
+  function revision(documentId: string, documentRevisionId: string, focus: string) {
     const releaseReturn: ReleaseRevisionReturn = {
       search: location.search,
-      focus: 'build-document-revision',
+      focus,
       taskId: id,
     };
     navigate(
-      '/knowledge/' +
-        row.task.documentId +
-        '?' +
-        queryString({ source, revisionId: row.task.documentRevisionId }),
+      '/knowledge/' + documentId + '?' + queryString({ source, revisionId: documentRevisionId }),
       { state: { releaseReturn } },
     );
   }
@@ -183,10 +196,15 @@ export function KnowledgeReleaseBuildPage() {
               path={path}
               data={detail.data}
               back={back}
-              openRevision={() => revision(detail.data!)}
+              openRevision={revision}
               openTests={() => openTests(detail.data!)}
+              focus={focus}
               checking={detail.isFetching}
-              refresh={() => void detail.refetch()}
+              refresh={async () => {
+                // 只有实际回读成功，范围核对才可以采纳新的任务版本。
+                const result = await detail.refetch();
+                return result.isSuccess ? result.data.task.version : undefined;
+              }}
             />
           )}
         </ReadState>
@@ -203,6 +221,7 @@ function BuildWorkspace({
   back,
   openRevision,
   openTests,
+  focus,
   checking,
   refresh,
 }: {
@@ -215,13 +234,15 @@ function BuildWorkspace({
   /** 返回原发布任务列表。 */
   back: () => void;
   /** 阅读任务选择的确认正文。 */
-  openRevision: () => void;
+  openRevision: (documentId: string, revisionId: string, focusId: string) => void;
   /** 打开本批关联的标准题单。 */
   openTests: () => void;
+  /** 旧修订返回时恢复展开的候选及焦点。 */
+  focus?: string;
   /** 正在重新检查首建输入，避免从缓存直接提交。 */
   checking: boolean;
-  /** 候选变化后回读，避免用旧版本继续写入。 */
-  refresh: () => void;
+  /** 回读候选并返回实际任务版本，失败时保留原版本。 */
+  refresh: () => Promise<number | undefined>;
 }) {
   const session = useSession();
   const viewport = Grid.useBreakpoint();
@@ -229,6 +250,7 @@ function BuildWorkspace({
   const row = data.task;
   const latest = data.builds[0];
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const canBuild = allowed(session, 'releases.build');
   const needsBuild = row.status === 'PREPARED' || row.status === 'BUILD_FAILED';
   const fingerprint = row.fingerprint ?? data.inputFingerprint;
@@ -260,6 +282,19 @@ function BuildWorkspace({
   const description = latest?.failureCode
     ? (failureReasons[latest.failureCode] ?? '本次构建未完成。')
     : null;
+
+  /**
+   * 对话框卸载后归还键盘焦点，已变更阶段时回到任务标题。
+   */
+  function closeAdjustment() {
+    setAdjustOpen(false);
+    requestAnimationFrame(() => {
+      (
+        document.getElementById('release-adjust-scope') ??
+        document.getElementById('release-task-heading')
+      )?.focus();
+    });
+  }
 
   return (
     <article className="panel knowledge-build-workspace" aria-label="发布任务">
@@ -335,7 +370,13 @@ function BuildWorkspace({
                       id="build-document-revision"
                       type="link"
                       className="knowledge-record-link"
-                      onClick={openRevision}
+                      onClick={() =>
+                        openRevision(
+                          row.documentId,
+                          row.documentRevisionId,
+                          'build-document-revision',
+                        )
+                      }
                     >
                       查看文档
                     </Button>
@@ -347,6 +388,59 @@ function BuildWorkspace({
           />
           {row.candidateId && <p className="muted">固定候选 {row.candidateId}</p>}
         </section>
+        {/* 历史固定输入独立回看，调整后立即可见。 */}
+        {data.history.length > 0 && (
+          <section className="knowledge-build-section" aria-label="历史候选">
+            <h2>历史候选</h2>
+            <Collapse
+              defaultActiveKey={
+                focus?.startsWith('release-history-document-')
+                  ? [focus.slice('release-history-document-'.length)]
+                  : undefined
+              }
+              items={data.history.map((previous) => {
+                // 展开时按旧候选身份阅读原修订及实际构建。
+                const trigger = 'release-history-document-' + previous.id;
+                return {
+                  key: previous.id,
+                  label: (
+                    <div className="knowledge-candidate-identity">
+                      <strong>
+                        {previous.title} · r{previous.documentRevisionNumber}
+                      </strong>
+                      <small className="muted">
+                        {previous.id} · {releaseStates[previous.status]}
+                      </small>
+                    </div>
+                  ),
+                  children: (
+                    <div className="knowledge-build-section">
+                      {allowed(session, 'knowledge.view') && (
+                        <div>
+                          <Button
+                            id={trigger}
+                            type="link"
+                            className="knowledge-record-link"
+                            onClick={() =>
+                              openRevision(
+                                previous.documentId,
+                                previous.documentRevisionId,
+                                trigger,
+                              )
+                            }
+                          >
+                            查看原修订
+                          </Button>
+                        </div>
+                      )}
+                      {previous.builds.length > 0 && <BuildTable builds={previous.builds} />}
+                    </div>
+                  ),
+                };
+              })}
+            />
+          </section>
+        )}
         {/* 只展示真实构建结果，后续验证保持待办阶段。 */}
         <section className="knowledge-build-section" aria-label="处理记录">
           <h2>处理记录</h2>
@@ -354,27 +448,7 @@ function BuildWorkspace({
           {latest && (
             <>
               {description && <Alert type="error" title={description} showIcon />}
-              <Table<Build>
-                size="middle"
-                rowKey="id"
-                pagination={false}
-                scroll={{ x: 550 }}
-                dataSource={data.builds}
-                columns={[
-                  { title: '构建代次', dataIndex: 'id', ellipsis: true },
-                  { title: '状态', width: 105, render: (_, build) => buildStates[build.state] },
-                  {
-                    title: '核验片段',
-                    width: 100,
-                    render: (_, build) => build.verifiedChunks ?? '—',
-                  },
-                  {
-                    title: '提交时间',
-                    width: 155,
-                    render: (_, build) => displayTime(build.createdAt),
-                  },
-                ]}
-              />
+              <BuildTable builds={data.builds} />
             </>
           )}
         </section>
@@ -393,6 +467,15 @@ function BuildWorkspace({
               onClick={() => setCancelOpen(true)}
             >
               取消任务
+            </Button>
+          )}
+          {canBuild && row.status !== 'BUILDING' && (
+            <Button
+              id="release-adjust-scope"
+              disabled={Boolean(recovering) || command.busy}
+              onClick={() => setAdjustOpen(true)}
+            >
+              调整范围
             </Button>
           )}
           {recovering ? (
@@ -434,7 +517,39 @@ function BuildWorkspace({
           refresh={refresh}
         />
       )}
+      {adjustOpen && (
+        <ReleaseScopeAdjustment
+          source={source}
+          path={path}
+          task={row}
+          revision={data.documentRevisionNumber}
+          checking={checking}
+          onClose={closeAdjustment}
+          refresh={refresh}
+        />
+      )}
     </article>
+  );
+}
+
+/**
+ * 当前候选与旧候选按相同列位展示实际构建代次。
+ */
+function BuildTable({ builds }: { builds: Build[] }) {
+  return (
+    <Table<Build>
+      size="middle"
+      rowKey="id"
+      pagination={false}
+      scroll={{ x: 550 }}
+      dataSource={builds}
+      columns={[
+        { title: '构建代次', dataIndex: 'id', ellipsis: true },
+        { title: '状态', width: 105, render: (_, build) => buildStates[build.state] },
+        { title: '核验片段', width: 100, render: (_, build) => build.verifiedChunks ?? '—' },
+        { title: '提交时间', width: 155, render: (_, build) => displayTime(build.createdAt) },
+      ]}
+    />
   );
 }
 

@@ -1,6 +1,6 @@
 import { Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag } from 'antd';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
@@ -9,30 +9,10 @@ import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import { ReleasePreparation } from './ReleasePreparation';
+import { ReleaseDocumentPicker, ReleaseScopeSummary } from './ReleaseScopeFields';
 import { releaseStates, type ReleaseRevisionReturn, type ReleaseTask } from './types';
+import { useReleaseScopeCheck } from './useReleaseScopeCheck';
 import './knowledge.css';
-
-/** 核对文档修订、审核题与构建就绪信息。 */
-type ReleaseCheck = {
-  /** 被核对文档的实际归属。 */
-  documentId: string;
-  /** 确切确认正文名称。 */
-  documentTitle: string;
-  /** 仍有效的确认修订。 */
-  documentRevisionId: string | null;
-  /** 确认正文的可读修订号。 */
-  documentRevisionNumber: number | null;
-  /** 当前生效绑定，首版为空。 */
-  baseBindingId: string | null;
-  /** 确认文档的治理依据是否满足创建条件。 */
-  documentReady: boolean;
-  /** 已审核并适用的题目数量。 */
-  reviewedTests: number;
-  /** 当前有效的向量配置。 */
-  embeddingRevisionId: string | null;
-  /** 真实前置阻断。 */
-  issues: string[];
-};
 
 /** 来源栏、页签、筛选和任务结果沿用发布原型，准备在独立确认区办理。 */
 export function KnowledgeReleasePage() {
@@ -42,7 +22,6 @@ export function KnowledgeReleasePage() {
   const session = useSession();
   const [form] = Form.useForm();
   const rememberedFocus = useRef<string>(undefined);
-  const [search, setSearch] = useState('');
   const source = selected?.id;
   const sameSource = !params.get('source') || params.get('source') === source;
   const doc = sameSource ? params.get('documentId') : null;
@@ -55,27 +34,8 @@ export function KnowledgeReleasePage() {
   const pageSize = Number(params.get('pageSize')) || 10;
   const keyword = sameSource ? params.get('keyword') : null;
   const status = sameSource ? params.get('status') : null;
-  const documents = useInfiniteQuery({
-    queryKey: ['knowledge-release-options', source, search],
-    enabled: Boolean(source),
-    initialPageParam: 1,
-    queryFn: ({ pageParam }) =>
-      api<Page<{ id: string; title: string }>>(
-        root +
-          '/release-preflight/document-options?' +
-          queryString({ keyword: search, pageNum: pageParam, pageSize: 20 }),
-      ),
-    getNextPageParam: ({ pageNum, pageSize, total }) =>
-      pageNum * pageSize < total ? pageNum + 1 : undefined,
-  });
-  const inspection = useQuery({
-    queryKey: ['knowledge-release-preflight', source, target],
-    enabled: Boolean(source && target),
-    queryFn: () =>
-      api<ReleaseCheck>(root + '/release-preflight?' + queryString({ documentId: target })),
-  });
+  const inspection = useReleaseScopeCheck(source, target);
   const result = inspection.data;
-  const options = documents.data?.pages.flatMap((page) => page.items) ?? [];
   const tasks = useQuery({
     queryKey: ['release-tasks', source, doc, keyword, status, pageNum, pageSize],
     enabled: Boolean(source),
@@ -89,7 +49,7 @@ export function KnowledgeReleasePage() {
     // 资料或任务返回后聚焦原入口，列表刷新保持键盘位置。
     if (focus && tasks.isSuccess && rememberedFocus.current !== location.key) {
       rememberedFocus.current = location.key;
-      document.getElementById(focus)?.focus();
+      (document.getElementById(focus) ?? document.getElementById('release-task-list'))?.focus();
     }
   }, [tasks.isSuccess, focus, location.key]);
 
@@ -114,44 +74,6 @@ export function KnowledgeReleasePage() {
     navigate('/knowledge/' + documentId + '?' + queryString({ source, revisionId }), {
       state: { releaseReturn },
     });
-  }
-
-  /** 文档选择器通过已确认标题远程搜索，滚动时继续加载。 */
-  function documentPicker(id: string | null, name: string, choose: (value: string | null) => void) {
-    const title =
-      result?.documentId === id
-        ? result.documentTitle
-        : options.find((row) => row.id === id)?.title;
-    return (
-      <Select
-        className="release-document-select"
-        aria-label={name}
-        placeholder={name}
-        allowClear={name === '发布文档'}
-        labelInValue
-        value={id && title ? { value: id, label: title } : undefined}
-        showSearch={{ filterOption: false, onSearch: setSearch }}
-        loading={documents.isFetching}
-        options={options.map((item) => ({ value: item.id, label: item.title }))}
-        onOpenChange={(open) => {
-          if (!open) setSearch('');
-        }}
-        onChange={(value) => {
-          setSearch('');
-          choose(value?.value ?? null);
-        }}
-        onPopupScroll={(event) => {
-          // 读取下一页而不替换已经加载的选择。
-          const list = event.currentTarget;
-          if (
-            documents.hasNextPage &&
-            !documents.isFetching &&
-            list.scrollHeight - list.scrollTop - list.clientHeight < 32
-          )
-            void documents.fetchNextPage();
-        }}
-      />
-    );
   }
 
   /** 实际前置问题只链接到有权限的现有操作页。 */
@@ -195,7 +117,6 @@ export function KnowledgeReleasePage() {
           selected={selected}
           choose={(value) => {
             // 保留窗口尺寸与分页设置，清除另一来源的实际查询。
-            setSearch('');
             form.setFieldsValue({ keyword: undefined, status: undefined });
             setParams(queryString({ source: value, pageSize }));
           }}
@@ -244,9 +165,15 @@ export function KnowledgeReleasePage() {
                   <Input aria-label="发布编号" placeholder="发布编号" allowClear />
                 </Form.Item>
                 <Form.Item>
-                  {documentPicker(doc, '发布文档', (value) =>
-                    update({ documentId: value, pageNum: 1 }),
-                  )}
+                  <ReleaseDocumentPicker
+                    key={source}
+                    source={source}
+                    documentId={doc}
+                    title={result?.documentId === doc ? result.documentTitle : undefined}
+                    label="发布文档"
+                    clearable
+                    choose={(value) => update({ documentId: value, pageNum: 1 })}
+                  />
                 </Form.Item>
                 <Form.Item name="status">
                   <Select
@@ -266,7 +193,12 @@ export function KnowledgeReleasePage() {
               </Form>
             </div>
             {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
-            <section className="panel records-panel knowledge-records" aria-label="发布任务列表">
+            <section
+              id="release-task-list"
+              tabIndex={-1}
+              className="panel records-panel knowledge-records"
+              aria-label="发布任务列表"
+            >
               <RecordTable<ReleaseTask>
                 rowKey="id"
                 dataSource={tasks.data?.items}
@@ -376,8 +308,14 @@ export function KnowledgeReleasePage() {
       >
         {/* 只有用户主动创建任务时，核对独立的目标文档与门槛。 */}
         <div className="release-modal-source">
-          {documentPicker(target, '选择已确认文档', (value) =>
-            update({ prepareDocument: value ?? '' }),
+          {source && (
+            <ReleaseDocumentPicker
+              source={source}
+              documentId={target}
+              title={result?.documentTitle}
+              label="选择已确认文档"
+              choose={(value) => update({ prepareDocument: value ?? '' })}
+            />
           )}
           <Button
             disabled={!target}
@@ -394,23 +332,7 @@ export function KnowledgeReleasePage() {
         >
           {source && target && result ? (
             <section className="release-modal-preflight" aria-label="发布准备核对">
-              <dl className="knowledge-preflight-summary">
-                <div>
-                  <dt>发布前 → 目标修订</dt>
-                  <dd>
-                    {result.baseBindingId ?? '首次发布'} →{' '}
-                    {result.documentRevisionNumber ? 'r' + result.documentRevisionNumber : '待确认'}
-                  </dd>
-                </div>
-                <div>
-                  <dt>相关已审核题目</dt>
-                  <dd>{result.reviewedTests} 道</dd>
-                </div>
-                <div>
-                  <dt>知识检索向量化</dt>
-                  <dd>{result.embeddingRevisionId ? '已分配' : '未就绪'}</dd>
-                </div>
-              </dl>
+              <ReleaseScopeSummary result={result} />
               {groups.size > 0 && (
                 <ul className="knowledge-issue-list" aria-label="待处理事项">
                   {[...groups].map(([key, { issues, action }]) => (

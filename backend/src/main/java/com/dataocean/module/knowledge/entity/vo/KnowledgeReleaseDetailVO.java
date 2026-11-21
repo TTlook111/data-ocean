@@ -43,7 +43,12 @@ public class KnowledgeReleaseDetailVO {
     private List<String> issues;
 
     /**
-     * 从最新到最早的实际构建记录。
+     * 当前候选从最新到最早的实际构建记录。
      */
     private List<KnowledgeReleaseBuildVO> builds;
+
+    /**
+     * 调整范围前留下的候选及其独立记录。
+     */
+    private List<KnowledgeReleaseHistoryVO> history;
 }

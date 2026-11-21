@@ -9,6 +9,7 @@ import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleaseBuildDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleaseCancelDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeReleasePrepareDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeReleaseScopeDTO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseDetailVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeReleaseTaskVO;
 import com.dataocean.module.knowledge.service.KnowledgeBuildService;
@@ -82,6 +83,19 @@ public class KnowledgeReleaseController {
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody KnowledgeReleasePrepareDTO input) {
         return Result.success(releases.prepare(Ids.parse(source), command, input));
+    }
+
+    /**
+     * 在原任务中保存重新核对过的同源范围。
+     */
+    @PostMapping("/{id}/scope-adjustments")
+    @RequirePermission("releases.build")
+    public Result<MutationVO> adjustScope(
+            @PathVariable String source,
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody KnowledgeReleaseScopeDTO input) {
+        return Result.success(releases.adjustScope(Ids.parse(source), Ids.parse(id), command, input));
     }
 
     /**

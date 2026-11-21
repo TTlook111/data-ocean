@@ -40,11 +40,12 @@ public interface KnowledgeBuildMapper {
     record Chunk(int ordinal, String body, String evidence, String digest) {}
 
     /**
-     * 用真实范围归属定位候选，不接受路径外的文档标识。
+     * 只定位当前候选，避免已归档候选被工作者继续处理。
      */
     @Select(
             """
             SELECT c.*,s.document_id FROM kn_release_candidate c JOIN kn_release_scope s ON s.id=c.scope_id
+            JOIN kn_release_task t ON t.id=c.task_id AND t.candidate_id=c.id
             WHERE s.source_id=#{source} AND c.id=#{candidate}
             """)
     KnowledgeReleaseCandidatePO candidate(@Param("source") long source, @Param("candidate") long candidate);
@@ -146,10 +147,10 @@ public interface KnowledgeBuildMapper {
     Build get(@Param("id") String id);
 
     /**
-     * 最新构建在首位，历史失败仍可回查。
+     * 一次读取同一任务下各候选的构建记录，最新在首位。
      */
-    @Select(BUILD + " WHERE b.candidate_id=#{candidate} ORDER BY b.created_at DESC,b.id DESC")
-    List<Build> history(@Param("candidate") long candidate);
+    @Select(BUILD + " WHERE c.task_id=#{task} ORDER BY b.created_at DESC,b.id DESC")
+    List<Build> history(@Param("task") long task);
 
     /**
      * 多派发进程只领取当前可用的一条持久记录。

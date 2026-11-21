@@ -23,6 +23,11 @@ public class KnowledgeReleaseCandidatePO {
     private Long id;
 
     /**
+     * 候选永久归属的发布任务，调整范围后仍可从原任务回读。
+     */
+    private Long taskId;
+
+    /**
      * 同源文档归属的稳定发布范围。
      */
     private Long scopeId;
