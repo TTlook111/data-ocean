@@ -32,6 +32,7 @@ import com.dataocean.module.knowledge.entity.vo.KnowledgePublicationVO.Version;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Build;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationBatchMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.InsertBinding;
@@ -108,6 +109,11 @@ public class KnowledgePublications {
      * 正式清单及直接上一版归属。
      */
     private final KnowledgePublicationMapper bindings;
+
+    /**
+     * 单文档和多文档共用固定发布批次及待核实入口。
+     */
+    private final KnowledgePublicationBatchMapper batches;
 
     /**
      * 当前使用限制独立于正式发布记录。
@@ -201,7 +207,7 @@ public class KnowledgePublications {
     public Preview preview(long sourceId, long id, int expected) {
         requirePublisher(sourceId);
         var source = catalog.source(sourceId, false);
-        var checked = check(source, task(sourceId, id), expected);
+        var checked = check(source, task(sourceId, id), expected, false);
         var fixed = checked.basis();
         int count = verifyIndex(checked);
         var token = reviews.preview(
@@ -238,7 +244,7 @@ public class KnowledgePublications {
             // 依赖写入和入口切换在同一来源锁内串行。
             requirePublisher(sourceId);
             var source = catalog.source(sourceId, true);
-            var checked = check(source, task(sourceId, id), expected);
+            var checked = check(source, task(sourceId, id), expected, false);
             var proof = checked.basis();
             reviews.verify(OPERATION, key(sourceId, id), expected, proof, request.getReviewToken());
             verifyIndex(checked);
@@ -247,56 +253,72 @@ public class KnowledgePublications {
 
             long bindingId = IdWorker.getId();
             String key = UUID.fromString(command).toString();
-            bindings.insert(new InsertBinding(
-                    bindingId,
-                    proof.scope(),
-                    proof.candidate(),
-                    proof.build(),
-                    proof.run(),
-                    proof.documentRevision(),
-                    proof.embeddingRevision(),
-                    proof.baseBinding(),
-                    UserContext.getUser(),
-                    key));
+            batches.create(bindingId, sourceId, UserContext.getUser(), key);
+            insertBinding(bindingId, proof, key);
+            batches.add(bindingId, bindingId);
             links.pin(bindingId, proof.requiredBindings());
-            if (bindings.switchBinding(sourceId, proof.scope(), proof.baseBinding(), bindingId) != 1) {
-                // 竞争导致的旧基础不得改写已经生效的版本。
-                throw staleBase();
-            }
-            if (bindings.advance(proof.candidate(), "READY_TO_PUBLISH", PENDING) != 1) {
-                // 正式切换与发布阶段变更必须一致提交。
-                throw BizIllegalException.conflict();
-            }
-
-            var before = checked.beforeRevision() == null ? "首次发布" : "r" + checked.beforeRevision();
-            audit(key, bindingId, checked.title(), new ChangeVO("binding", "生效修订", before, "r" + checked.revision()));
-            var event = new SwitchEvent(
-                    Ids.text(sourceId),
-                    Ids.text(proof.scope()),
-                    Ids.text(bindingId),
-                    Ids.text(proof.baseBinding()),
-                    Ids.text(proof.documentRevision()),
-                    proof.build(),
-                    Ids.text(proof.embeddingRevision()));
-            outbox.append(new OutboxPO(
-                    UUID.randomUUID().toString(),
-                    "knowledge.binding.switched",
-                    1,
-                    "knowledge_release",
-                    Ids.text(id),
-                    expected + 1,
-                    key,
-                    json.write(event),
-                    "PENDING",
-                    0,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null));
+            activateBinding(sourceId, id, expected, bindingId, checked, key);
             return new MutationVO(key, "knowledge_release_binding", Ids.text(bindingId), expected + 1);
         });
+    }
+
+    /**
+     * 单份和多份使用相同的确切内容、索引及已验证运行建立绑定。
+     */
+    void insertBinding(long binding, Basis proof, String command) {
+        bindings.insert(new InsertBinding(
+                binding,
+                proof.scope(),
+                proof.candidate(),
+                proof.build(),
+                proof.run(),
+                proof.documentRevision(),
+                proof.embeddingRevision(),
+                proof.baseBinding(),
+                UserContext.getUser(),
+                command));
+    }
+
+    /**
+     * 成员切换、待核实状态、审计与通知同一事务推进。
+     */
+    void activateBinding(long source, long taskId, int expected, long binding, Checked checked, String command) {
+        var proof = checked.basis();
+        if (bindings.switchBinding(source, proof.scope(), proof.baseBinding(), proof.baseBindingEpoch(), binding)
+                != 1) {
+            // 竞争导致的旧基础不得改写已经生效的版本。
+            throw staleBase();
+        }
+        if (bindings.advance(proof.candidate(), "READY_TO_PUBLISH", PENDING) != 1) {
+            throw BizIllegalException.conflict();
+        }
+        var before = checked.beforeRevision() == null ? "首次发布" : "r" + checked.beforeRevision();
+        audit(command, binding, checked.title(), new ChangeVO("binding", "生效修订", before, "r" + checked.revision()));
+        var event = new SwitchEvent(
+                Ids.text(source),
+                Ids.text(proof.scope()),
+                Ids.text(binding),
+                Ids.text(proof.baseBinding()),
+                Ids.text(proof.documentRevision()),
+                proof.build(),
+                Ids.text(proof.embeddingRevision()));
+        outbox.append(new OutboxPO(
+                UUID.randomUUID().toString(),
+                "knowledge.binding.switched",
+                1,
+                "knowledge_release",
+                Ids.text(taskId),
+                expected + 1,
+                command,
+                json.write(event),
+                "PENDING",
+                0,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     }
 
     /**
@@ -312,7 +334,9 @@ public class KnowledgePublications {
             return;
         }
         var original = bindings.published(sourceId, taskId);
-        if (original != null && original.id() == bindingId) {
+        if (original != null
+                && original.id() == bindingId
+                && Objects.equals(batches.forBinding(bindingId), bindingId)) {
             // 重复的原命令也只验证它对应的绑定。
             confirmActual(sourceId, task(sourceId, taskId), original);
         }
@@ -342,6 +366,9 @@ public class KnowledgePublications {
                         // 没有提交记录的任务保持原阶段，不能凭核实动作生效。
                         throw BizIllegalException.state("当前没有已提交的版本切换");
                     }
+                    if (!Objects.equals(batches.forBinding(original.id()), original.id())) {
+                        throw BizIllegalException.state("请在发布批次中核实完整切换结果");
+                    }
                     boolean verified = confirmActual(sourceId, task, original);
                     if (verified) {
                         // 核实操作只写一次独立的确认审计。
@@ -363,6 +390,21 @@ public class KnowledgePublications {
      * 用原发布、权威入口和实际存储再次比对，未核实的历史不能被另一次发布覆盖。
      */
     private boolean confirmActual(long source, Task task, Binding binding) {
+        if (!canConfirm(source, task, binding)) {
+            return false;
+        }
+        markConfirmed(binding);
+        if (batches.verify(binding.id()) != 1) {
+            throw BizIllegalException.conflict();
+        }
+        withdrawalProgress.refresh(source);
+        return true;
+    }
+
+    /**
+     * 只读核实一份绑定的实际持久组合，批量办理在逐份均通过后才写入。
+     */
+    boolean canConfirm(long source, Task task, Binding binding) {
         if (!PENDING.equals(task.status())
                 || binding.verifiedAt() != null
                 || !Objects.equals(binding.activeBindingId(), binding.id())
@@ -390,13 +432,18 @@ public class KnowledgePublications {
             // 存储不可读并不意味着此前 MySQL 没有提交。
             return false;
         }
+        return true;
+    }
+
+    /**
+     * 核实结果与成员对应的原候选状态同时保存。
+     */
+    void markConfirmed(Binding binding) {
         if (bindings.markVerified(binding.id()) != 1
                 || bindings.advance(binding.candidateId(), PENDING, "PUBLISHED") != 1) {
             // 核实状态及真实时间需要同时落库。
             throw BizIllegalException.conflict();
         }
-        withdrawalProgress.refresh(source);
-        return true;
     }
 
     /**
@@ -420,7 +467,9 @@ public class KnowledgePublications {
                 view(source, active),
                 view(source, previous),
                 issue,
-                PENDING.equals(task.status()) && canPublish(sourceId));
+                PENDING.equals(task.status())
+                        && Objects.equals(batches.forBinding(published.id()), published.id())
+                        && canPublish(sourceId));
     }
 
     /**
@@ -504,7 +553,7 @@ public class KnowledgePublications {
     /**
      * 发布前的业务校验按实际版本、源状态与各题结果执行。
      */
-    private Checked check(Source source, Task task, int expected) {
+    Checked check(Source source, Task task, int expected, boolean batch) {
         version(task, expected);
         if (!"READY_TO_PUBLISH".equals(task.status()) || task.candidateId() == null) {
             // 候选仍在造、未裁定或正在核实，都不能提交新切换。
@@ -514,11 +563,13 @@ public class KnowledgePublications {
         var candidate = builds.candidate(source.id(), task.candidateId());
         if (scope == null
                 || candidate == null
-                || !Objects.equals(scope.activeBindingId(), candidate.getBaseBindingId())) {
+                || !Objects.equals(scope.activeBindingId(), candidate.getBaseBindingId())
+                || scope.bindingEpoch() != candidate.getBaseBindingEpoch()) {
             throw staleBase();
         }
         var previous = linked(source.id(), scope.activeBindingId(), scope.id());
-        if (scope.activeBindingId() != null && (previous == null || previous.verifiedAt() == null)) {
+        if (batches.rollbackPending(scope.id())
+                || scope.activeBindingId() != null && (previous == null || previous.verifiedAt() == null)) {
             // 实际入口结果待核实时保留上一笔操作，先核实再继续切换。
             throw new BizIllegalException(ErrorCode.KNOWLEDGE_NOT_READY, "当前生效入口仍待核实");
         }
@@ -534,13 +585,14 @@ public class KnowledgePublications {
                 scope.id(),
                 candidate.getId(),
                 scope.activeBindingId(),
+                scope.bindingEpoch(),
                 source.configurationId(),
                 candidate.getDocumentRevisionId(),
                 candidate.getEmbeddingRevisionId(),
                 build.id(),
                 candidate.getCurrentValidationId(),
                 candidate.getFingerprint(),
-                links.prepare(source.id(), task.documentId(), task.documentRevisionId()));
+                batch ? List.of() : links.prepare(source.id(), task.documentId(), task.documentRevisionId()));
         int revision =
                 documents.revision(task.documentId(), task.documentRevisionId()).revision();
         return new Checked(proof, build, candidate.getTitle(), revision, previous == null ? null : previous.revision());
@@ -549,7 +601,7 @@ public class KnowledgePublications {
     /**
      * 同版索引核验复用构建保存的真实输出。
      */
-    private int verifyIndex(Checked checked) {
+    int verifyIndex(Checked checked) {
         var proof = checked.basis();
         return indexes.verify(
                 checked.build(), proof.documentRevision(), proof.embeddingRevision(), proof.fingerprint());
@@ -558,7 +610,7 @@ public class KnowledgePublications {
     /**
      * 发布人应能复核实际受控来源，权限和输出限制按当前配置。
      */
-    private void requirePublisher(long source) {
+    void requirePublisher(long source) {
         if (!canPublish(source)) {
             throw BizIllegalException.denied();
         }
@@ -567,7 +619,7 @@ public class KnowledgePublications {
     /**
      * 核实索引需读取候选正文，与确认发布采用同一当前来源和内容权限。
      */
-    private boolean canPublish(long source) {
+    boolean canPublish(long source) {
         return permissions.has(OPERATION)
                 && permissions.has("releases.view")
                 && permissions.has("knowledge.view")
@@ -603,7 +655,7 @@ public class KnowledgePublications {
             availability = "SUPERSEDED";
         } else if (versionUse.isPaused(row.scopeId())) {
             availability = "PAUSED";
-        } else if (row.verifiedAt() == null) {
+        } else if (row.verifiedAt() == null || batches.rollbackPending(row.scopeId())) {
             availability = "UNVERIFIED";
         } else if (!"ENABLED".equals(source.lifecycle())) {
             availability = "SOURCE_UNAVAILABLE";
@@ -614,6 +666,7 @@ public class KnowledgePublications {
         return new Version(
                 Ids.text(row.id()),
                 Ids.text(row.scopeId()),
+                Ids.text(batches.forBinding(row.id())),
                 Ids.text(row.taskId()),
                 Ids.text(row.documentId()),
                 Ids.text(row.documentRevisionId()),
@@ -676,7 +729,7 @@ public class KnowledgePublications {
     /**
      * 原任务编号不能跨来源读写。
      */
-    private Task task(long source, long id) {
+    Task task(long source, long id) {
         var row = tasks.get(source, id);
         if (row == null) {
             throw BizIllegalException.missing();
@@ -725,10 +778,11 @@ public class KnowledgePublications {
     /**
      * 发布核对精确绑定的当前输入，任一值变化都需重新核对。
      */
-    private record Basis(
+    record Basis(
             long scope,
             long candidate,
             Long baseBinding,
+            long baseBindingEpoch,
             long configuration,
             long documentRevision,
             long embeddingRevision,
@@ -740,7 +794,7 @@ public class KnowledgePublications {
     /**
      * 核对的可读信息及实际构建代次。
      */
-    private record Checked(Basis basis, Build build, String title, int revision, Integer beforeRevision) {}
+    record Checked(Basis basis, Build build, String title, int revision, Integer beforeRevision) {}
 
     /**
      * 原核实命令绑定页面已读取的聚合版本。

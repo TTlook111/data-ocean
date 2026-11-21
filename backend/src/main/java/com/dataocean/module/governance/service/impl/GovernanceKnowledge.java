@@ -73,6 +73,21 @@ public class GovernanceKnowledge implements GovernanceKnowledgeService {
 
     @Override
     public GovernanceFactVO require(Source source, GovernanceTarget target) {
+        return confirmed(source, target, false);
+    }
+
+    /**
+     * 只在回退核对时读取受限对象的业务依据，生产使用资格不受此调用影响。
+     */
+    @Override
+    public GovernanceFactVO requireRollbackBasis(Source source, GovernanceTarget target) {
+        return confirmed(source, target, true);
+    }
+
+    /**
+     * 同源结构和确认身份在两种核对中使用同一实际来源。
+     */
+    private GovernanceFactVO confirmed(Source source, GovernanceTarget target, boolean rollback) {
         if (source.id() != target.source() || !KINDS.contains(target.kind())) {
             throw BizIllegalException.missing();
         }
@@ -84,7 +99,7 @@ public class GovernanceKnowledge implements GovernanceKnowledgeService {
             throw BizIllegalException.missing();
         }
         var entry = entries.get(source, target);
-        var item = queries.confirmedForKnowledge(entry);
+        var item = queries.confirmedForKnowledge(entry, rollback);
         if (item == null) {
             throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "所选治理定义尚未确认、待复核或已禁止使用");
         }

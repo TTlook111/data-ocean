@@ -210,7 +210,7 @@ public class KnowledgeReleases implements KnowledgeReleaseService {
         var scope = candidates.scope(origin.id(), documentId);
         if (scope == null) {
             // 来源锁串行登记首次使用的单文档范围。
-            scope = new Scope(IdWorker.getId(), null);
+            scope = new Scope(IdWorker.getId(), null, 0);
             candidates.createScope(scope.id(), origin.id(), documentId);
         }
         var confirmed = documents.revision(documentId, revisionId);

@@ -873,11 +873,29 @@ public class KnowledgeValidations {
      */
     public void requirePublishable(Source source, Build build, KnowledgeReleaseCandidatePO candidate) {
         verifyBasis(source, build, candidate.getId());
-        String id = candidate.getCurrentValidationId();
+        requirePassed(source, build.id(), candidate.getId(), candidate.getCurrentValidationId());
+    }
+
+    /**
+     * 以直接上一版保存的真实运行重核当前适用关键题及测试身份。
+     */
+    public void requireRollbackEvidence(Source source, Binding target) {
+        var questions = requirePassed(source, target.buildId(), target.candidateId(), target.validationId());
+        var original = questions.stream().map(Question::testRevisionId).sorted().toList();
+        var current = preflight.requireRelatedTests(source.id(), target.documentId(), target.documentRevisionId());
+        if (!original.equals(current)) {
+            throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "直接上一版的相关已审核题单已变化");
+        }
+    }
+
+    /**
+     * 普通发布与直接上一版证据均需原运行可信且各题仍有实际授权。
+     */
+    private List<Question> requirePassed(Source source, String buildId, long candidateId, String id) {
         var run = id == null ? null : runs.get(id);
         if (run == null
-                || !run.buildId().equals(build.id())
-                || run.candidateId() != candidate.getId()
+                || !run.buildId().equals(buildId)
+                || run.candidateId() != candidateId
                 || !"READY_TO_PUBLISH".equals(run.state())) {
             // 当前可用的同代次运行才可作为发布依据。
             throw new BizIllegalException(ErrorCode.KNOWLEDGE_NOT_READY, "本次索引的逐题验证尚未全部通过");
@@ -891,6 +909,7 @@ public class KnowledgeValidations {
             // 测试身份及源配置发生变化时旧成绩不继续有效。
             throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, "验证条件或执行身份已变化，请重新运行验证");
         }
+        return questions;
     }
 
     /**

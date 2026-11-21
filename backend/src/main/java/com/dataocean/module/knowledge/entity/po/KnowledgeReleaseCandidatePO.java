@@ -44,6 +44,11 @@ public class KnowledgeReleaseCandidatePO {
     private Long baseBindingId;
 
     /**
+     * 构建固定的来源入口代数，生效版本回到旧编号也不会复用。
+     */
+    private long baseBindingEpoch;
+
+    /**
      * 确切确认正文以及依附其上的治理引用。
      */
     private Long documentRevisionId;

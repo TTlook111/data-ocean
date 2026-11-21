@@ -338,6 +338,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
         row.setTaskId(task.id());
         row.setScopeId(scope.id());
         row.setBaseBindingId(scope.activeBindingId());
+        row.setBaseBindingEpoch(scope.bindingEpoch());
         row.setDocumentRevisionId(task.documentRevisionId());
         row.setEmbeddingRevisionId(checked.embeddingRevision());
         row.setTitle(task.title());

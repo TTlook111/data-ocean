@@ -13,6 +13,8 @@ import { useReleaseCommand } from './useReleaseCommand';
 export type PublishedVersion = {
   id: string;
   scopeId: string;
+  /** 本次实际发布的原批次。 */
+  batchId: string;
   taskId: string;
   documentId: string;
   documentRevisionId: string;

@@ -8,6 +8,7 @@ import { allowed, useSession } from '../../shared/session';
 import { useSourceSelection } from '../datasource/CollectionPage';
 import { KnowledgeRecoveryWorkspace } from './KnowledgeRecoveryWorkspace';
 import { KnowledgeWithdrawalHistory } from './KnowledgeWithdrawal';
+import { RollbackHistory } from './KnowledgeBatchActions';
 import { VersionAvailability, type PublishedVersion } from './ReleasePublicationPanel';
 import type { EffectiveVersionOrigin, ReleaseRevisionReturn } from './types';
 import {
@@ -258,6 +259,7 @@ export function KnowledgeEffectiveVersionPage() {
                       {controls.data && (
                         <VersionPauseSummary title={current.title} data={controls.data} />
                       )}
+                      {content && source && <RollbackHistory path={path} source={source} />}
                       {content && current.availability === 'WITHDRAWN' && (
                         <KnowledgeWithdrawalHistory path={path} />
                       )}
@@ -306,6 +308,8 @@ export function KnowledgeEffectiveVersionPage() {
                     <VersionControlActions
                       title={current.title}
                       path={path}
+                      batch={current.batchId}
+                      source={source ?? undefined}
                       data={controls.data}
                       available={Boolean(
                         current.verifiedAt &&

@@ -17,7 +17,7 @@ public interface KnowledgeReleaseCandidateMapper extends BaseMapper<KnowledgeRel
     /**
      * 当前范围身份及其权威基础指针。
      */
-    record Scope(long id, Long activeBindingId) {}
+    record Scope(long id, Long activeBindingId, long bindingEpoch) {}
 
     /**
      * 旧候选的冻结文档和原处理阶段。
@@ -43,7 +43,8 @@ public interface KnowledgeReleaseCandidateMapper extends BaseMapper<KnowledgeRel
     /**
      * 仅按同一来源及文档定位发布范围。
      */
-    @Select("SELECT id,active_binding_id FROM kn_release_scope WHERE source_id=#{source} AND document_id=#{document}")
+    @Select(
+            "SELECT id,active_binding_id,binding_epoch FROM kn_release_scope WHERE source_id=#{source} AND document_id=#{document}")
     Scope scope(@Param("source") long source, @Param("document") long document);
 
     /**

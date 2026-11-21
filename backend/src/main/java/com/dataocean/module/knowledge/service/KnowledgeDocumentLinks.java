@@ -11,8 +11,11 @@ import com.dataocean.module.knowledge.mapper.KnowledgeWithdrawalMapper;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
@@ -25,6 +28,12 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class KnowledgeDocumentLinks {
+
+    /**
+     * @param document 声明引用的稳定目标文档
+     * @param existingBinding 批次外的确切已核实绑定，批次内由同一次切换分配
+     */
+    public record PlannedLink(long document, Long existingBinding) {}
 
     /**
      * 文档同源核对不以标题或事实相同猜测依赖。
@@ -88,7 +97,7 @@ public class KnowledgeDocumentLinks {
                     return target.id();
                 })
                 .toList();
-        walk(source, document, required, ignored -> {});
+        walk(source, document, required, Map.of(), ignored -> {});
         return required;
     }
 
@@ -100,16 +109,83 @@ public class KnowledgeDocumentLinks {
     }
 
     /**
+     * 范围核对只考虑当前生效引用方实际固定的正式目标。
+     */
+    public boolean pins(Binding referrer, long binding) {
+        return links.requiredBindings(referrer.id()).contains(binding);
+    }
+
+    /**
      * 逐个检查确切版本和适用于当前用途的安全条件。
      */
     public void verifyPinned(Binding owner, Consumer<Binding> check) {
-        walk(owner.sourceId(), owner.documentId(), links.requiredBindings(owner.id()), check);
+        verifyProjected(owner, Map.of(), check);
+    }
+
+    /**
+     * 回退前按整个目标组合检查原来冻结的正式引用。
+     */
+    public void verifyProjected(Binding owner, Map<Long, Long> targetByDocument, Consumer<Binding> check) {
+        walk(owner.sourceId(), owner.documentId(), links.requiredBindings(owner.id()), targetByDocument, check);
+    }
+
+    /**
+     * 批次内依赖指向本次修订，批次外仍必须是未被本批改动的可追溯组合。
+     */
+    public Map<Long, List<PlannedLink>> prepareBatch(long source, Map<Long, Long> revisions) {
+        var result = new LinkedHashMap<Long, List<PlannedLink>>();
+        revisions.forEach((document, revision) -> result.put(
+                document,
+                documents(revision).stream()
+                        .map(required -> {
+                            if (revisions.containsKey(required)) {
+                                // 同批成员的正式绑定在原子发布时统一分配。
+                                return new PlannedLink(required, null);
+                            }
+                            var current = bindings.activeForDocument(source, required);
+                            if (current == null) {
+                                throw stale();
+                            }
+                            walk(source, document, List.of(current.id()), Map.of(), target -> {
+                                if (revisions.containsKey(target.documentId())) {
+                                    // 批次外的冻结引用不能静默改指向批次内的新绑定。
+                                    throw BizIllegalException.state("批次外的必要引用仍指向将替换的版本，请重新核对范围");
+                                }
+                            });
+                            return new PlannedLink(required, current.id());
+                        })
+                        .toList()));
+        var checked = new HashSet<Long>();
+        var path = new HashSet<Long>();
+        result.keySet().forEach(document -> verifyBatchPath(document, result, checked, path));
+        return result;
+    }
+
+    /**
+     * 批次内的每份文档只能沿非循环的必要关系组装。
+     */
+    private void verifyBatchPath(
+            long document, Map<Long, List<PlannedLink>> planned, Set<Long> checked, Set<Long> path) {
+        if (checked.contains(document)) {
+            return;
+        }
+        if (!path.add(document)) {
+            throw BizIllegalException.invalid("批次内文档引用形成循环，请重新核对范围");
+        }
+        for (var dependency : planned.get(document)) {
+            if (dependency.existingBinding() == null) {
+                verifyBatchPath(dependency.document(), planned, checked, path);
+            }
+        }
+        path.remove(document);
+        checked.add(document);
     }
 
     /**
      * 迭代核对固定依赖，重叠路径只验证一次。
      */
-    private void walk(long source, long owner, List<Long> required, Consumer<Binding> check) {
+    private void walk(
+            long source, long owner, List<Long> required, Map<Long, Long> targetByDocument, Consumer<Binding> check) {
         var queue = new ArrayDeque<>(required);
         var visited = new HashSet<Long>();
         while (!queue.isEmpty()) {
@@ -120,7 +196,7 @@ public class KnowledgeDocumentLinks {
             }
             var target = bindings.get(source, id);
             if (target == null
-                    || !Objects.equals(target.activeBindingId(), id)
+                    || !Objects.equals(targetByDocument.getOrDefault(target.documentId(), target.activeBindingId()), id)
                     || target.verifiedAt() == null
                     || withdrawals.withdrawn(id)) {
                 throw stale();

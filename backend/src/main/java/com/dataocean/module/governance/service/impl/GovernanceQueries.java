@@ -8,10 +8,10 @@ import com.dataocean.common.Times;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
-import com.dataocean.module.governance.config.GovernanceAiProperties;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
+import com.dataocean.module.governance.config.GovernanceAiProperties;
 import com.dataocean.module.governance.entity.po.GovernanceConfirmationPO;
 import com.dataocean.module.governance.entity.po.GovernanceGapPO;
 import com.dataocean.module.governance.entity.po.GovernanceImpactPO;
@@ -247,11 +247,13 @@ public class GovernanceQueries implements GovernanceQueryService {
     /**
      * 只向受信任模块返回仍然有效的确切确认正文，沿用治理复核和禁止规则。
      */
-    GovernanceRevisionVO confirmedForKnowledge(Context entry) {
+    GovernanceRevisionVO confirmedForKnowledge(Context entry, boolean rollback) {
         var item = current(entry);
         return "AVAILABLE".equals(item.getAvailability())
-                && "CONFIRMED".equals(item.getState())
-                && !item.isBlocked() ? item.getCurrentRevision() : null;
+                        && "CONFIRMED".equals(item.getState())
+                        && (rollback || !item.isBlocked())
+                ? item.getCurrentRevision()
+                : null;
     }
 
     /**

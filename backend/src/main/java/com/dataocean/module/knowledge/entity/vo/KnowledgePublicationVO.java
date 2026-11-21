@@ -34,6 +34,7 @@ public final class KnowledgePublicationVO {
     public record Version(
             String id,
             String scopeId,
+            String batchId,
             String taskId,
             String documentId,
             String documentRevisionId,

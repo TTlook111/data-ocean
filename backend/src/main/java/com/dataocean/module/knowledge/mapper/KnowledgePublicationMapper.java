@@ -51,7 +51,8 @@ public interface KnowledgePublicationMapper {
             String collectionName,
             long publishedBy,
             LocalDateTime createdAt,
-            LocalDateTime verifiedAt) {}
+            LocalDateTime verifiedAt,
+            long bindingEpoch) {}
 
     /**
      * 所有正式回读由固定绑定连接到当时实际发布的修订与代次。
@@ -61,7 +62,7 @@ public interface KnowledgePublicationMapper {
             SELECT v.id,v.scope_id,s.source_id,c.task_id,v.candidate_id,s.document_id,v.document_revision_id,
                    d.revision,c.title,v.build_id,v.validation_id,v.embedding_revision_id,
                    v.previous_binding_id,s.active_binding_id,b.collection_name,v.published_by,
-                   v.created_at,v.verified_at
+                   v.created_at,v.verified_at,s.binding_epoch
             FROM kn_release_binding v JOIN kn_release_scope s ON s.id=v.scope_id
             JOIN kn_release_candidate c ON c.id=v.candidate_id
             JOIN kn_release_build b ON b.id=v.build_id
@@ -85,13 +86,15 @@ public interface KnowledgePublicationMapper {
      */
     @Update(
             """
-            UPDATE kn_release_scope SET active_binding_id=#{next}
+            UPDATE kn_release_scope SET active_binding_id=#{next},binding_epoch=binding_epoch+1
             WHERE id=#{scope} AND source_id=#{source} AND active_binding_id <=> #{previous}
+              AND binding_epoch=#{epoch}
             """)
     int switchBinding(
             @Param("source") long source,
             @Param("scope") long scope,
             @Param("previous") Long previous,
+            @Param("epoch") long epoch,
             @Param("next") long next);
 
     /**

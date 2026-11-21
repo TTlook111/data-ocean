@@ -26,6 +26,11 @@ import {
   type ReleaseTestReturn,
 } from './types';
 import { useReleaseCommand } from './useReleaseCommand';
+import {
+  BatchPublishDialog,
+  PublicationBatchResult,
+  RollbackHistory,
+} from './KnowledgeBatchActions';
 import './knowledge.css';
 
 /** 实际构建记录，即使候选之后再次构建也保留。 */
@@ -280,6 +285,7 @@ function BuildWorkspace({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [selectedRun, selectRun] = useState<string>();
   const [questionDialog, openQuestion] = useState<{
     row: ValidationQuestion;
@@ -519,7 +525,31 @@ function BuildWorkspace({
             error={publication.error}
             retry={() => void publication.refetch()}
           >
-            {publication.data && <PublicationResult outcome={publication.data} />}
+            {publication.data &&
+              (publication.data.published &&
+              publication.data.published.batchId !== publication.data.published.id ? (
+                <section className="knowledge-build-section" aria-label="本次发布结果">
+                  <h2 id="publication-result-title" tabIndex={-1}>
+                    本次发布结果
+                  </h2>
+                  <PublicationBatchResult source={source} id={publication.data.published.batchId} />
+                </section>
+              ) : (
+                <>
+                  <PublicationResult outcome={publication.data} />
+                  {publication.data.published && (
+                    <RollbackHistory
+                      source={source}
+                      path={
+                        '/knowledge/sources/' +
+                        source +
+                        '/bindings/' +
+                        publication.data.published.id
+                      }
+                    />
+                  )}
+                </>
+              ))}
           </ReadState>
         )}
         <ReleaseProcess
@@ -768,6 +798,15 @@ function BuildWorkspace({
             )}
             {canPublish && (
               <Button
+                id="release-publish-batch"
+                disabled={checking}
+                onClick={() => setBatchOpen(true)}
+              >
+                合并发布
+              </Button>
+            )}
+            {canPublish && (
+              <Button
                 id="release-publish-action"
                 type="primary"
                 disabled={checking}
@@ -914,6 +953,21 @@ function BuildWorkspace({
           ready={canPublish}
           close={closePublish}
           refresh={refreshPublication}
+        />
+      )}
+      {batchOpen && (
+        <BatchPublishDialog
+          source={source}
+          task={row}
+          close={() => {
+            setBatchOpen(false);
+            requestAnimationFrame(() =>
+              (
+                document.getElementById('release-publish-batch') ??
+                document.getElementById('release-task-heading')
+              )?.focus(),
+            );
+          }}
         />
       )}
       {questionDialog && report?.canReadResults && (

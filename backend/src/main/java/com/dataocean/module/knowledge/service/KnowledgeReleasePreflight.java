@@ -193,7 +193,8 @@ public class KnowledgeReleasePreflight {
                     doc.confirmedRevisionId(),
                     testRevisions,
                     embedding,
-                    scope == null ? null : scope.activeBindingId());
+                    scope == null ? null : scope.activeBindingId(),
+                    scope == null ? 0 : scope.bindingEpoch());
             inputFingerprint = DigestUtil.sha256Hex(fingerprints.canonical(basis, false));
         }
         return new Inspection(
@@ -256,7 +257,8 @@ public class KnowledgeReleasePreflight {
             long documentRevision,
             List<Long> testRevisions,
             long embeddingRevision,
-            Long baseBindingId) {}
+            Long baseBindingId,
+            long baseBindingEpoch) {}
 
     /**
      * 构建及验证均核对当前采用的候选，以原不可变修订为准。
@@ -271,6 +273,7 @@ public class KnowledgeReleasePreflight {
         if (!check.issues().isEmpty()
                 || !Objects.equals(candidate.getEmbeddingRevisionId(), check.embeddingRevision())
                 || !Objects.equals(candidate.getBaseBindingId(), scope.activeBindingId())
+                || candidate.getBaseBindingEpoch() != scope.bindingEpoch()
                 || !tests.equals(check.testRevisions())) {
             // 旧构建结果不能转移到不同的数据或题单依据。
             throw new BizIllegalException(

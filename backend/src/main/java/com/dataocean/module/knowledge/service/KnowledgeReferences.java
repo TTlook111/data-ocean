@@ -55,10 +55,25 @@ public class KnowledgeReferences {
      * 确认或发布时重核实际固定依据，普通快照推进不会替换业务修订。
      */
     public void verify(Source source, List<Reference> references) {
+        verify(source, references, false);
+    }
+
+    /**
+     * 在保留现行禁止的前提下核对目标版本的确切结构和确认依据。
+     */
+    public void verifyRollbackBasis(Source source, List<Reference> references) {
+        verify(source, references, true);
+    }
+
+    /**
+     * 普通使用与回退核对共用确切引用比对，区别只在回退还原不改变使用限制。
+     */
+    private void verify(Source source, List<Reference> references, boolean rollback) {
         for (Reference stored : references) {
             // 检查实际世代、治理修订和结构修订，旧内容继续保留以供追溯。
             var target = new GovernanceTarget(source.id(), stored.objectId(), stored.kind(), stored.targetId());
-            var current = governance.require(source, target);
+            var current =
+                    rollback ? governance.requireRollbackBasis(source, target) : governance.require(source, target);
             if (stored.sourceId() != source.id()
                     || stored.generation() != current.getGeneration()
                     || stored.factRevisionId() != Ids.parse(current.getRevisionId())

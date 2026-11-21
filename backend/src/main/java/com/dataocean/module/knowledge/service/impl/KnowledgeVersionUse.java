@@ -14,6 +14,7 @@ import com.dataocean.module.iam.service.MutationService;
 import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeVersionPauseDTO;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationBatchMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgeVersionPauseMapper;
@@ -45,6 +46,11 @@ public class KnowledgeVersionUse {
      * 权威绑定用于核对作用范围及当前生效。
      */
     private final KnowledgePublicationMapper bindings;
+
+    /**
+     * 回退待核实的入口继续受限。
+     */
+    private final KnowledgePublicationBatchMapper batches;
 
     /**
      * 获取并保留与绑定切换独立的使用限制。
@@ -151,7 +157,9 @@ public class KnowledgeVersionUse {
         if (binding == null) {
             throw BizIllegalException.missing();
         }
-        if (!Objects.equals(binding.activeBindingId(), binding.id()) || binding.verifiedAt() == null) {
+        if (!Objects.equals(binding.activeBindingId(), binding.id())
+                || binding.verifiedAt() == null
+                || batches.rollbackPending(binding.scopeId())) {
             // 历史绑定及结果尚未核实的版本不能参与办理。
             throw BizIllegalException.state("当前生效版本已变化或尚未完成核实");
         }
@@ -187,7 +195,8 @@ public class KnowledgeVersionUse {
      * 复核这一固定版本的模型和治理事实。
      */
     private void requireOwnBasis(Source source, Binding binding) {
-        if (!"ENABLED".equals(source.lifecycle())
+        if (batches.rollbackPending(binding.scopeId())
+                || !"ENABLED".equals(source.lifecycle())
                 || source.scopePending()
                 || source.snapshotId() == null
                 || source.configurationId() == null) {

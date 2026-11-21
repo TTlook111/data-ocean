@@ -5,6 +5,7 @@ import { api } from '../../shared/api';
 import { displayTime } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { KnowledgeWithdrawalDialog } from './KnowledgeWithdrawal';
+import { BatchRollbackDialog } from './KnowledgeBatchActions';
 import { useReleaseCommand } from './useReleaseCommand';
 
 /** 暂停和解除的持久记录。 */
@@ -205,6 +206,8 @@ export function RecoveryStartButton({
 export function VersionControlActions({
   title,
   path,
+  source,
+  batch,
   data,
   available,
   openRun,
@@ -212,6 +215,10 @@ export function VersionControlActions({
 }: {
   title: string;
   path: string;
+  /** 当前绑定所在的实际发布批次。 */
+  batch?: string;
+  /** 正式版本所属源。 */
+  source?: string;
   data?: VersionUse;
   available: boolean;
   openRun: (id: string) => void;
@@ -219,12 +226,14 @@ export function VersionControlActions({
   children: ReactNode;
 }) {
   const session = useSession();
-  const [dialog, setDialog] = useState<'pause' | 'restore' | 'withdraw'>();
+  const [dialog, setDialog] = useState<'pause' | 'restore' | 'withdraw' | 'rollback'>();
   const canPause = data && available && !data.active && allowed(session, 'versions.pause');
   const canWithdraw = data && available && allowed(session, 'releases.withdraw');
+  const canRollback = source && batch && available && allowed(session, 'versions.rollback');
   const actions = [
     ...(canPause ? [{ key: 'pause', label: '暂停知识', danger: true }] : []),
     ...(canWithdraw ? [{ key: 'withdraw', label: '撤下知识', danger: true }] : []),
+    ...(canRollback ? [{ key: 'rollback', label: '回退整批上一版', danger: true }] : []),
   ];
   const passed = data?.recovery?.state === 'RECOVERY_PASSED';
   const restoreRun =
@@ -254,7 +263,8 @@ export function VersionControlActions({
           placement="topRight"
           menu={{
             items: actions,
-            onClick: ({ key }) => setDialog(key === 'withdraw' ? 'withdraw' : 'pause'),
+            onClick: ({ key }) =>
+              setDialog(key === 'rollback' || key === 'withdraw' ? key : 'pause'),
           }}
         >
           <Button id="version-more">更多</Button>
@@ -273,6 +283,8 @@ export function VersionControlActions({
       )}
       {dialog === 'withdraw' ? (
         <KnowledgeWithdrawalDialog path={path} close={closeDialog} />
+      ) : dialog === 'rollback' ? (
+        source && batch && <BatchRollbackDialog source={source} id={batch} close={closeDialog} />
       ) : (
         dialog && (
           <VersionControlDialog
