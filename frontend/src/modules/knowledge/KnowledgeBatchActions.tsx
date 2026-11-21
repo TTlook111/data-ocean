@@ -344,6 +344,7 @@ export function BatchRollbackDialog({
       open={open}
       centered
       width={800}
+      className="app-dialog"
       title={submitted ? '整批回退结果' : '整批回退预检'}
       onCancel={cancel}
       afterClose={close}
@@ -507,6 +508,7 @@ export function BatchPublishDialog({
       open={open}
       centered
       width={800}
+      className="app-dialog"
       title={result ? '整批发布结果' : '确认多文档发布'}
       mask={{ closable: false }}
       closable={!command.busy}

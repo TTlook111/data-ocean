@@ -189,6 +189,8 @@ export function KnowledgeEffectiveVersions({
             {
               title: '操作',
               width: 116,
+              className: 'record-actions-cell',
+              fixed: 'right',
               render: (_, row) => (
                 <Button
                   id={'release-version-' + row.id}

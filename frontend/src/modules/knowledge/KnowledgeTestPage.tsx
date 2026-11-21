@@ -313,7 +313,7 @@ export function KnowledgeTestPage() {
                       title: '状态',
                       width: 104,
                       render: (_, row) => (
-                        <Tag color={row.state === 'REVIEWED' ? 'green' : undefined}>
+                        <Tag color={row.state === 'REVIEWED' ? 'success' : undefined}>
                           {testStates[row.state]}
                         </Tag>
                       ),
@@ -528,7 +528,7 @@ function TestForm({
           </h2>
           <small className="knowledge-source-name">{sourceName}</small>
           {current && (
-            <Tag color={current.test.state === 'REVIEWED' ? 'green' : undefined}>
+            <Tag color={current.test.state === 'REVIEWED' ? 'success' : undefined}>
               {testStates[current.test.state]}
             </Tag>
           )}

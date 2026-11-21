@@ -362,7 +362,9 @@ function DocumentEditor({
             {sourceName && <small className="knowledge-source-name">{sourceName}</small>}
           </div>
           {current && (
-            <Tag color={!historic && current.document.state === 'CONFIRMED' ? 'green' : undefined}>
+            <Tag
+              color={!historic && current.document.state === 'CONFIRMED' ? 'success' : undefined}
+            >
               {historic ? '历史修订' : documentStates[current.document.state]}
             </Tag>
           )}
@@ -672,7 +674,7 @@ function DocumentEditor({
                   </Button>
                   <span>{displayTime(revision.createdAt)}</span>
                   {revision.id === current.document.confirmedRevisionId && (
-                    <Tag color="green">已确认</Tag>
+                    <Tag color="success">已确认</Tag>
                   )}
                 </div>
               ))}

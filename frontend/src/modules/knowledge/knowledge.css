@@ -219,17 +219,24 @@
 
 /* 发布和知识模块按原型保留来源栏、操作和下方查询。 */
 .knowledge-source-toolbar > .ant-space,
-.knowledge-list-filters form > .ant-space,
-.release-task-filters form > .ant-space {
+.knowledge-list-filters form > .ant-space {
   margin-inline-start: auto;
 }
 
-/* 当前生效的两个检索框和状态操作组在 1024px 桌面仍能共用一行。 */
-.effective-version-filters .status-tail {
+/* 发布任务的编号和文档搜索留出状态及操作组所需的宽度。 */
+.release-task-filters form > .ant-form-item {
+  flex-basis: 156px;
+  min-inline-size: min(100%, 156px);
+}
+
+/* 发布与版本的两个检索框和状态操作组在 1024px 桌面仍能共用一行。 */
+:is(.release-task-filters, .effective-version-filters) .status-tail {
   flex-basis: 300px;
   min-inline-size: min(100%, 300px);
 }
-.effective-version-filters .status-query {
+
+/* 状态选项在窄窗口也有足够的文字和下拉空间。 */
+:is(.release-task-filters, .effective-version-filters) .status-query {
   min-inline-size: 144px;
 }
 

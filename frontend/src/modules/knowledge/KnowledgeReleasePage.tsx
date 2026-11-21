@@ -214,21 +214,24 @@ export function KnowledgeReleasePage() {
                         choose={(value) => update({ documentId: value, pageNum: 1 })}
                       />
                     </Form.Item>
-                    <Form.Item name="status">
-                      <Select
-                        aria-label="发布阶段"
-                        placeholder="全部状态"
-                        allowClear
-                        options={Object.entries(releaseStates).map(([value, label]) => ({
-                          value,
-                          label,
-                        }))}
-                      />
-                    </Form.Item>
-                    <Space>
-                      <Button htmlType="submit">查询</Button>
-                      <Button onClick={reset}>重置</Button>
-                    </Space>
+                    {/* 窄窗口成组换行，状态和查询操作保持相邻。 */}
+                    <div className="query-tail status-tail">
+                      <Form.Item name="status" className="status-query">
+                        <Select
+                          aria-label="发布阶段"
+                          placeholder="全部状态"
+                          allowClear
+                          options={Object.entries(releaseStates).map(([value, label]) => ({
+                            value,
+                            label,
+                          }))}
+                        />
+                      </Form.Item>
+                      <Space>
+                        <Button htmlType="submit">查询</Button>
+                        <Button onClick={reset}>重置</Button>
+                      </Space>
+                    </div>
                   </Form>
                 </div>
                 {/* 使用真实任务的阶段和文档归属，无文档过滤时仍是当前源全部任务。 */}
@@ -300,6 +303,8 @@ export function KnowledgeReleasePage() {
                       {
                         title: '操作',
                         width: 176,
+                        className: 'record-actions-cell',
+                        fixed: 'right',
                         render: (_, row) => (
                           <Space size={8}>
                             <Button type="link" onClick={() => openBuild(row.id)}>
