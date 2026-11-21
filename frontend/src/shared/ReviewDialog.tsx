@@ -54,6 +54,10 @@ export interface ReviewSubmission {
    */
   confirmText?: string;
   /**
+   * 异步任务已接收时说明实际结果。
+   */
+  successText?: string;
+  /**
    * 停用、归档及重置等后果明确的动作使用危险按钮样式。
    */
   danger?: boolean;
@@ -92,7 +96,7 @@ export function ReviewDialog({
     setBusy(true);
     setError(null);
     try {
-      const result = await mutation<{ targetId: string }>(
+      const result = await mutation<{ targetId: string } | { taskId: string }>(
         submission.path,
         submission.method,
         { ...submission.body, reviewToken: submission.preview.reviewToken },
@@ -100,8 +104,10 @@ export function ReviewDialog({
         command,
       );
       await cache.invalidateQueries();
-      message.success('已保存');
-      submission.done(result.targetId, command);
+      message.success(submission.successText ?? '已保存');
+      // 采集接口返回任务编号。原命令核实时仍沿用通用目标编号。
+      const targetId = 'targetId' in result ? result.targetId : result.taskId;
+      submission.done(targetId, command);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作未完成');
     } finally {

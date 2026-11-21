@@ -10,6 +10,7 @@ import { useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import {
   documentStates,
+  factKindNames,
   type FactOption,
   type KnowledgeDocument,
   type KnowledgeFact,
@@ -752,14 +753,6 @@ function DocumentEditor({
     </section>
   );
 }
-
-// 使用既有业务名称表达依据类型。
-const factKindNames: Record<string, string> = {
-  TABLE: '表说明',
-  COLUMN: '字段',
-  RELATION: '关联',
-  METRIC: '指标',
-};
 
 /** 用准确修订区分重新选择前后的同一治理目标。 */
 function factKey(fact: KnowledgeFact) {

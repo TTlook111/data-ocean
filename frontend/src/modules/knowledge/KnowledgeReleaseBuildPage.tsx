@@ -503,13 +503,15 @@ function BuildWorkspace({
 
   return (
     <article className="panel knowledge-build-workspace" aria-label="发布任务">
-      {/* 页头显示稳定任务编号、所属源和当前阶段。 */}
+      {/* 用业务文档识别发布任务，编号和来源放在标题下方供追溯。 */}
       <header className="knowledge-build-heading">
-        <div className="knowledge-build-identity">
-          <h1 id="release-task-heading" tabIndex={-1} title={row.title}>
-            {row.id}
+        <div className="knowledge-release-task-identity">
+          <h1 id="release-task-heading" tabIndex={-1}>
+            {row.title}
           </h1>
-          <span>{data.sourceName}</span>
+          <small className="knowledge-source-name">
+            发布任务 {row.id} · {data.sourceName}
+          </small>
         </div>
         <div className="knowledge-build-header-actions">
           <Button onClick={back}>返回发布与版本</Button>

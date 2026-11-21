@@ -819,62 +819,62 @@ export function GovernanceEditor({
           }}
         />
       )}
-      {gapOpen && (
-        <Modal
-          className="app-dialog"
-          open
-          centered
-          title="要求补充"
-          okText="记录问题"
-          cancelText="取消"
-          okButtonProps={{ disabled: !gapField || !gapQuestion.trim() }}
-          confirmLoading={busy}
-          onCancel={() => setGapOpen(false)}
-          onOk={() => void submit('supplement')}
-        >
-          {/* 问题需要定位到实际有缺口的业务字段。 */}
-          <Form layout="vertical">
-            <Form.Item label="业务内容">
-              <Select
-                aria-label="待补充业务内容"
-                value={gapField}
-                onChange={setGapField}
-                options={fields.map(({ key, label }) => ({ value: key, label }))}
-              />
-            </Form.Item>
-            <Form.Item label="待核对问题">
-              <Input.TextArea
-                aria-label="待核对问题"
-                value={gapQuestion}
-                maxLength={1000}
-                onChange={(event) => setGapQuestion(event.target.value)}
-              />
-            </Form.Item>
-          </Form>
-        </Modal>
-      )}
-      {reasonOpen && (
-        <Modal
-          className="app-dialog"
-          open
-          centered
-          title="禁止对象使用"
-          okText="核对影响"
-          cancelText="取消"
-          okButtonProps={{ disabled: !reason.trim() }}
-          onCancel={() => setReasonOpen(false)}
-          onOk={() => void previewForbid()}
-        >
-          {/* 危险操作记录实际限制原因。 */}
-          <Input.TextArea
-            aria-label="禁止原因"
-            placeholder="禁止原因"
-            value={reason}
-            maxLength={500}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Modal>
-      )}
+      {/* 由弹窗处理退场和焦点归还，问题内容留在本条编辑器。 */}
+      <Modal
+        className="app-dialog"
+        open={gapOpen}
+        destroyOnHidden
+        centered
+        title="要求补充"
+        okText="记录问题"
+        cancelText="取消"
+        okButtonProps={{ disabled: !gapField || !gapQuestion.trim() }}
+        confirmLoading={busy}
+        onCancel={() => setGapOpen(false)}
+        onOk={() => void submit('supplement')}
+      >
+        {/* 问题需要定位到实际有缺口的业务字段。 */}
+        <Form layout="vertical">
+          <Form.Item label="业务内容">
+            <Select
+              aria-label="待补充业务内容"
+              value={gapField}
+              onChange={setGapField}
+              options={fields.map(({ key, label }) => ({ value: key, label }))}
+            />
+          </Form.Item>
+          <Form.Item label="待核对问题">
+            <Input.TextArea
+              aria-label="待核对问题"
+              value={gapQuestion}
+              maxLength={1000}
+              onChange={(event) => setGapQuestion(event.target.value)}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+      {/* 保留操作入口，关闭核对前的原因弹窗后能继续键盘操作。 */}
+      <Modal
+        className="app-dialog"
+        open={reasonOpen}
+        destroyOnHidden
+        centered
+        title="禁止对象使用"
+        okText="核对影响"
+        cancelText="取消"
+        okButtonProps={{ disabled: !reason.trim() }}
+        onCancel={() => setReasonOpen(false)}
+        onOk={() => void previewForbid()}
+      >
+        {/* 危险操作记录实际限制原因。 */}
+        <Input.TextArea
+          aria-label="禁止原因"
+          placeholder="禁止原因"
+          value={reason}
+          maxLength={500}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </Modal>
       {review && <ReviewDialog submission={review} close={() => setReview(undefined)} />}
     </article>
   );

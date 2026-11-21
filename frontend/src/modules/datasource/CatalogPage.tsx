@@ -73,9 +73,9 @@ export function CatalogPage() {
     if (!selected) return;
     try {
       setReview(
-        await prepareCollection(selected, () => {
+        await prepareCollection(selected, (taskId) => {
           setReview(null);
-          navigate('/collections?source=' + selected.id);
+          navigate('/collections?' + queryString({ source: selected.id, task: taskId }));
         }),
       );
     } catch (error) {

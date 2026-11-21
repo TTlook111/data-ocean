@@ -626,6 +626,7 @@ export function AccessEditor<T extends object>({
   prepare?: () => void;
   preview?: (values: T) => Promise<Preview>;
 }) {
+  useReturnFocus();
   const cache = useQueryClient();
   const { message } = App.useApp();
   const [review, setReview] = useState<{ values: T; command: string; preview?: Preview } | null>(

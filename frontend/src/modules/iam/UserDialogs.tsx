@@ -269,8 +269,6 @@ export function PersonEditor({
 export function RoleAssignmentDialog({ person, close }: { person: Person; close: () => void }) {
   useReturnFocus();
 
-  useReturnFocus();
-
   const [search, setSearch] = useState('');
 
   const roles = useQuery({

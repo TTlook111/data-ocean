@@ -1,7 +1,7 @@
 import { Alert, Button, Drawer, Input, Segmented, Space, Tabs, Tag } from 'antd';
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -49,6 +49,7 @@ export function GovernanceDetailPage() {
   const [fieldTerm, setFieldTerm] = useState('');
   const [fieldState, setFieldState] = useState('ALL');
   const [fieldPage, setFieldPage] = useState(1);
+  const fieldList = useRef<HTMLDivElement>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batch, setBatch] = useState<{ base: string; run: BatchRun }>();
   const [batchSuggestion, setBatchSuggestion] = useState<GenerationTarget>();
@@ -71,6 +72,23 @@ export function GovernanceDetailPage() {
   const historyAllowed = ['governance.edit', 'governance.confirm', 'governance.supplement'].some(
     (right) => allowed(session, right),
   );
+
+  useEffect(() => {
+    // 定向进入和切换字段时，仅滚动字段列表，独立编辑区与键盘焦点保持原位。
+    const list = fieldList.current;
+    const current = list?.querySelector<HTMLButtonElement>('[aria-current="true"]');
+    if (!list || !current) return;
+
+    const viewport = list.getBoundingClientRect();
+    const row = current.getBoundingClientRect();
+    if (row.top < viewport.top) {
+      // 当前项在上方时只补齐上边缘。
+      list.scrollTop += row.top - viewport.top;
+    } else if (row.bottom > viewport.bottom) {
+      // 当前项在下方时只补齐下边缘。
+      list.scrollTop += row.bottom - viewport.bottom;
+    }
+  }, [tab, choice, columns.data, object.data?.pendingImpacts]);
 
   /**
    * 返回位置由工作台的原筛选和实际对象定位。
@@ -348,7 +366,7 @@ export function GovernanceDetailPage() {
                       error={columns.error}
                       retry={() => void columns.refetch()}
                     >
-                      <div className="gov-column-list">
+                      <div className="gov-column-list" ref={fieldList}>
                         {columns.data?.items.map((column) => (
                           <button
                             key={column.target.targetId}

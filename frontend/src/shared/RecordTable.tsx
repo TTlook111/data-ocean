@@ -69,8 +69,6 @@ export function RecordTable<T extends object>({
 
   const hasError = Boolean(error);
 
-  const compactPagination = availableWidth > 0 && availableWidth <= 760;
-
   useLayoutEffect(() => {
     /**
      * 按当前表体实际宽度分配数据列，滚动条占位不参与内容预算。
@@ -187,7 +185,6 @@ export function RecordTable<T extends object>({
           total={total}
           busy={busy}
           error={Boolean(error)}
-          compact={compactPagination}
           onChange={config.onChange}
         />
       )}
@@ -204,7 +201,6 @@ export function RecordPagination({
   total,
   busy,
   error,
-  compact,
   onChange,
 }: {
   current: number;
@@ -212,11 +208,31 @@ export function RecordPagination({
   total: number;
   busy?: boolean;
   error?: boolean;
-  compact?: boolean;
   onChange?: (page: number, size: number) => void;
 }) {
+  const footer = useRef<HTMLElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    // 分页按自己的容器决定样式，表格和独立审批队列遵循同一阈值。
+    const element = footer.current;
+    if (!element) return;
+
+    /** 更新窄容器的页码表达，宽容器继续展示常规页码。 */
+    const measure = () => {
+      const width = element.clientWidth;
+      setCompact(width > 0 && width <= 760);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <footer
+      ref={footer}
       className={`record-pagination${compact ? ' is-compact' : ''}`}
       aria-label="结果分页"
       aria-busy={busy}

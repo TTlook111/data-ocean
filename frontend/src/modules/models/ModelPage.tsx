@@ -20,6 +20,7 @@ import { RecordTable } from '../../shared/RecordTable';
 import { displayTime, readErrorMessage, Status } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useFormClose } from '../../shared/useFormClose';
+import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
 import {
   modelFailureLabels,
@@ -543,6 +544,7 @@ function ModelEditor({
   close: () => void;
   mayReplace: boolean;
 }) {
+  useReturnFocus();
   const [form] = Form.useForm<ModelInput>();
   const [capability, setCapability] = useState<keyof typeof modelCapabilities>(
     row ? protocolCapability[row.protocol] : 'GENERATION',

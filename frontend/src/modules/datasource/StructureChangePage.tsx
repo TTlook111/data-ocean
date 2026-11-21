@@ -77,6 +77,7 @@ export function StructureChanges({
     queryFn: () => api<StructureChange>(path + '/' + id),
     enabled: Boolean(id),
   });
+  const field = detail.data && changedField(detail.data);
   const size = Number(params.get('pageSize') ?? 10);
   const from = params.get('fromDate');
   const to = params.get('toDate');
@@ -214,14 +215,25 @@ export function StructureChanges({
             {
               title: '变化对象',
               width: 195,
-              render: (_, item) => (
-                <>
-                  <Button type="link" onClick={() => setId(item.changeId)}>
-                    {item.target}
-                  </Button>
-                  <small className="ds-secondary">{datasourceLabel(item.attributeKind)}</small>
-                </>
-              ),
+              render: (_, item) => {
+                // 先辨认表，再显示受影响字段，技术名称保留完整提示。
+                const name = changedField(item) ?? datasourceLabel(item.attributeKind);
+                return (
+                  <>
+                    <Button
+                      type="link"
+                      className="cell-title"
+                      title={item.target}
+                      onClick={() => setId(item.changeId)}
+                    >
+                      {item.target}
+                    </Button>
+                    <small className="ds-secondary cell-text" title={name}>
+                      {name}
+                    </small>
+                  </>
+                );
+              },
             },
             {
               title: '变化类型',
@@ -250,9 +262,11 @@ export function StructureChanges({
       </section>
       <Drawer
         title={
-          <span className="cell-text" title={detail.data?.target}>
-            {detail.data?.target ?? '结构变化'}
-          </span>
+          <div className="ds-change-title">
+            {/* 字段变化使用字段名定位，表路径仍保留在标题区。 */}
+            <span>{field ?? detail.data?.target ?? '结构变化'}</span>
+            {field && <small>{detail.data?.target}</small>}
+          </div>
         }
         size="min(600px, calc(100vw - 80px))"
         className="record-details-drawer access-detail-drawer"
@@ -329,15 +343,21 @@ export function StructureChanges({
                     : []),
                 ]}
               />
-              {/* 只有真实包含前后证据时才展示比较。 */}
+              {/* 左右使用相同的属性顺序，核对时可直接找到类型、空值与注释。 */}
               <div className="ds-compare">
                 <section>
                   <h3>变化前</h3>
-                  <pre>{displayValue(detail.data.before)}</pre>
+                  <ChangeSnapshot
+                    value={detail.data.before}
+                    absent={detail.data.changeType === 'COLUMN_ADDED' ? '字段尚不存在' : '—'}
+                  />
                 </section>
                 <section>
                   <h3>变化后</h3>
-                  <pre>{displayValue(detail.data.after)}</pre>
+                  <ChangeSnapshot
+                    value={detail.data.after}
+                    absent={detail.data.changeType === 'COLUMN_REMOVED' ? '字段已移除' : '—'}
+                  />
                 </section>
               </div>
             </>
@@ -448,9 +468,75 @@ function ChangeDecision({
 }
 
 /**
- * 保留数据类型的实际值并使用可换行的文本阅读方式。
+ * 从实际前后快照识别变化字段，普通对象保留已有表名。
  */
-function displayValue(value: unknown) {
-  if (value == null) return '—';
+function changedField(change: StructureChange) {
+  const snapshot = change.after ?? change.before;
+  // 字段存在性保存完整结构，单属性变化保存字段名与该属性的值。
+  if (
+    snapshot &&
+    typeof snapshot === 'object' &&
+    ('nullable' in snapshot || 'value' in snapshot) &&
+    'name' in snapshot &&
+    typeof snapshot.name === 'string'
+  ) {
+    return snapshot.name;
+  }
+}
+
+/** 结构事实的显示顺序与标签，用于阅读实际采集值。 */
+const snapshotLabels: Record<string, string> = {
+  name: '名称',
+  type: '类型',
+  nullable: '允许为空',
+  defaultValue: '默认值',
+  generated: '生成列',
+  ordinal: '列序号',
+  comment: '源库注释',
+  catalog: '数据库',
+  schema: 'Schema',
+  parent: '父对象',
+  identity: '源端身份',
+};
+
+/**
+ * 普通结构事实按属性展示，其他类型保留原始证据。
+ */
+function ChangeSnapshot({ value: snapshot, absent }: { value: unknown; absent: string }) {
+  // 单项变化只呈现对应属性值，字段名由抽屉页头说明。
+  const value =
+    snapshot && typeof snapshot === 'object' && 'name' in snapshot && 'value' in snapshot
+      ? snapshot.value
+      : snapshot;
+  if (value && typeof value === 'object' && 'name' in value) {
+    const properties = Object.entries(value);
+    if (properties.every(([key]) => Object.hasOwn(snapshotLabels, key))) {
+      // 只整理已知的事实形状，新增协议字段仍可原样回看。
+      const entries = Object.keys(snapshotLabels).filter((key) => Object.hasOwn(value, key));
+      const fields = Object.fromEntries(properties);
+      return (
+        <dl className="ds-change-properties">
+          {entries.map((key) => (
+            // 按名称、类型和其他属性给出可对照的顺序。
+            <div key={key}>
+              <dt>{snapshotLabels[key]}</dt>
+              <dd>{displayValue(fields[key], key === 'defaultValue' ? '未设置' : '—')}</dd>
+            </div>
+          ))}
+        </dl>
+      );
+    }
+  }
+  return (
+    <pre className={value == null ? 'ds-change-empty' : undefined}>
+      {displayValue(value, absent)}
+    </pre>
+  );
+}
+
+/** 布尔值使用可读用语，长内容允许换行并保留实际值。 */
+function displayValue(value: unknown, absent: string) {
+  if (value == null || value === '') return absent;
+  if (typeof value === 'boolean') return value ? '是' : '否';
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }

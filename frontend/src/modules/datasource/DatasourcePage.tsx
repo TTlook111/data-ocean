@@ -30,6 +30,7 @@ import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import { allowed, useSession } from '../../shared/session';
 import { useFormClose } from '../../shared/useFormClose';
+import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page, Preview } from '../iam/types';
 import { DatasourceStatus, datasourceLabel, datasourceOptions } from './Presentation';
 import { CredentialDialog } from './CredentialDialog';
@@ -767,6 +768,7 @@ function SourceEditor({
   enabled: (id: string) => void;
   saved: () => void;
 }) {
+  useReturnFocus();
   const session = useSession();
   const [form] = Form.useForm<EditorValues>();
   const [review, setReview] = useState<ReviewSubmission | null>(null);

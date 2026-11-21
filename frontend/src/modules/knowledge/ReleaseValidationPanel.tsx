@@ -2,7 +2,7 @@ import { Alert, App, Button, Form, Input, Modal, Radio, Select, Table, Tag } fro
 import { useState } from 'react';
 import { displayTime } from '../../shared/Records';
 import { useSession } from '../../shared/session';
-import { releaseStates, type ReleaseTask } from './types';
+import { factKindNames, releaseStates, type ReleaseTask } from './types';
 import { useReleaseCommand } from './useReleaseCommand';
 
 /**
@@ -58,6 +58,40 @@ export type ValidationQuestion = {
     decidedAt: string;
   } | null;
 };
+
+/** 正文之外的确认引用按已有治理分类阅读。 */
+function ValidationReferences({
+  references,
+}: {
+  references: ValidationQuestion['evidence'][number]['evidence'];
+}) {
+  const kinds = [...new Set(references.map((reference) => reference.kind))];
+  return (
+    <details className="knowledge-validation-references">
+      <summary>同版治理引用 · {references.length} 项</summary>
+      {/* 类型标题用于定位，回看时仍能核对条目和对应的确认修订。 */}
+      {kinds.map((kind) => {
+        const group = references.filter((reference) => reference.kind === kind);
+        return (
+          <section key={kind}>
+            <h5>
+              {factKindNames[kind] ?? kind} <span>{group.length}</span>
+            </h5>
+            <ul>
+              {group.map((reference) => (
+                // 修订身份属于该条来源证据，始终与条目编号同时显示。
+                <li key={reference.targetId + ':' + reference.factRevisionId}>
+                  <span>{reference.targetId}</span>
+                  <small>确认修订 {reference.factRevisionId}</small>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </details>
+  );
+}
 
 /**
  * 与原型一致的逐题状态名称。
@@ -351,16 +385,22 @@ export function ValidationQuestionDialog({
           {run.id} · 题目 r{row.revision}
         </small>
       </div>
-      <div className="knowledge-validation-comparison">
+      <div
+        className={`knowledge-validation-comparison${administrable ? '' : ' knowledge-validation-comparison-readonly'}`}
+      >
         <section tabIndex={0} aria-label="预期与判定依据">
           <h3>预期与判定依据</h3>
-          <p>{row.expected}</p>
+          <p className={row.mode === 'NUMERIC' ? 'knowledge-validation-count' : undefined}>
+            {row.expected}
+          </p>
           <h4>依据</h4>
           <p>{row.basis}</p>
         </section>
         <section tabIndex={0} aria-label="完整实际结果">
           <h3>实际结果</h3>
-          {row.actualCount !== null && <p>{row.actualCount}</p>}
+          {row.actualCount !== null && (
+            <p className="knowledge-validation-count">{row.actualCount}</p>
+          )}
           {row.failureCode && (
             <Alert
               showIcon
@@ -381,16 +421,9 @@ export function ValidationQuestionDialog({
                   {recovery ? '正式片段' : '候选片段'} {fragment.ordinal + 1}
                 </h4>
                 <p>{fragment.body}</p>
-                <details>
-                  <summary>同版治理引用</summary>
-                  <ul>
-                    {fragment.evidence.map((ref) => (
-                      <li key={ref.kind + ':' + ref.targetId}>
-                        {ref.kind} {ref.targetId} · 确认 {ref.factRevisionId}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
+                {fragment.evidence.length > 0 && (
+                  <ValidationReferences references={fragment.evidence} />
+                )}
               </div>
             ))}
           {row.judgment && (

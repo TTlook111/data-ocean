@@ -1,5 +1,13 @@
 import type { Target } from '../governance/types';
 
+/** 文档和验证证据使用统一的治理类型名称。 */
+export const factKindNames: Record<string, string> = {
+  TABLE: '表说明',
+  COLUMN: '字段',
+  RELATION: '关联',
+  METRIC: '指标',
+};
+
 /** 发布工作台查看修订时保留原查询和触发入口。 */
 export type ReleaseRevisionReturn = {
   /** 原来发布页的来源、文档和分页查询。 */

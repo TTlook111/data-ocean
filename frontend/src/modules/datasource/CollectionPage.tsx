@@ -123,7 +123,7 @@ export function SourceUnavailable() {
  */
 export async function prepareCollection(
   source: SourceOption,
-  done: () => void,
+  done: (taskId: string) => void,
   retryOfTaskId?: string,
 ): Promise<ReviewSubmission> {
   const path = '/datasources/' + source.id;
@@ -141,6 +141,7 @@ export async function prepareCollection(
     operation: retryOfTaskId ? 'collections.retry' : 'collections.collect',
     body: { expectedVersion, retryOfTaskId },
     confirmText: '开始采集',
+    successText: '采集任务已发起',
     done,
   };
 }
@@ -190,6 +191,16 @@ export function CollectionPage() {
     params.has(key),
   );
 
+  /** 关闭由采集回执打开的详情时，刷新后也停留在原列表。 */
+  function closeTask() {
+    setOpened(null);
+    if (params.has('task')) {
+      const next = new URLSearchParams(params);
+      next.delete('task');
+      setParams(next, { replace: true });
+    }
+  }
+
   /**
    * 清空任务筛选时保留当前源和每页条数。
    */
@@ -235,9 +246,14 @@ export function CollectionPage() {
       setReview(
         await prepareCollection(
           selected,
-          () => {
+          (taskId) => {
             setReview(null);
-            setOpened(null);
+            setOpened(taskId);
+            if (params.has('task')) {
+              const next = new URLSearchParams(params);
+              next.set('task', taskId);
+              setParams(next, { replace: true });
+            }
             void list.refetch();
           },
           parent,
@@ -507,13 +523,13 @@ export function CollectionPage() {
         className="record-details-drawer ds-task-drawer access-detail-drawer"
         closable={{ placement: 'end' }}
         open={Boolean(opened)}
-        onClose={() => setOpened(null)}
+        onClose={closeTask}
         destroyOnHidden
         footer={
           task && (
             <div className="detail-footer">
               {/* 阅读区滚动时保留返回与当前状态允许的办理入口。 */}
-              <Button onClick={() => setOpened(null)}>关闭</Button>
+              <Button onClick={closeTask}>关闭</Button>
               <Space wrap>
                 {task.state === 'SUCCEEDED' && (
                   <Button

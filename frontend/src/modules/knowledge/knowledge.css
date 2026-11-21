@@ -302,6 +302,19 @@
   line-height: 24px;
 }
 
+/* 发布任务优先展示文档名，长标题在窄桌面换行。 */
+.knowledge-release-task-identity {
+  flex: 1 1 280px;
+  min-inline-size: 0;
+}
+
+.knowledge-release-task-identity > h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  line-height: 28px;
+}
+
 /* 阶段、范围与记录沿相同阅读轴排列。 */
 .knowledge-build-content {
   display: grid;
@@ -386,6 +399,12 @@
   overflow: auto;
   overflow-wrap: anywhere;
 }
+
+/* 只读结果可以使用原裁定表单的空间，长片段仍独立滚动。 */
+.knowledge-validation-comparison-readonly > section {
+  max-height: clamp(160px, 54vh, 560px);
+}
+
 .knowledge-validation-comparison > section + section {
   border-inline-start: 1px solid var(--do-line);
 }
@@ -396,6 +415,59 @@
 .knowledge-validation-excerpt {
   margin-block-start: 12px;
 }
+
+/* 实际去重数和期望值共用同一档位，比较时保持视觉对称。 */
+.knowledge-validation-count {
+  margin-block: 4px 16px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 摘要保留引用总数，展开后用细线区分不同的治理类型。 */
+.knowledge-validation-references {
+  margin-block: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 原生摘要保留键盘交互，层级与同栏正文区分。 */
+.knowledge-validation-references > summary {
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* 行内编号按真实修订阅读，长编号在较窄的结果列换行。 */
+.knowledge-validation-references > section {
+  margin-block-start: 10px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+.knowledge-validation-references h5,
+.knowledge-validation-references ul {
+  margin: 0;
+}
+
+.knowledge-validation-references ul {
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-validation-references li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-block: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.knowledge-validation-references :is(h5 span, small) {
+  color: var(--do-muted);
+}
+
 .knowledge-validation-decision {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

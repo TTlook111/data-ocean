@@ -640,22 +640,27 @@ function CandidateEditor({
           )}
         </div>
       </div>
-      {structure && (
-        <Drawer open size={640} title="结构依据" onClose={() => setStructure(false)}>
-          {/* 固定字段与采集时修订只读回看。 */}
-          <Descriptions
-            column={1}
-            items={[
-              { key: 'snapshot', label: '采集快照', children: candidate.snapshotId },
-              ...candidate.basis.structures.map((ref) => ({
-                key: ref.fieldId,
-                label: ref.label,
-                children: `${ref.type} · 对象修订 ${ref.objectRevision} · 字段修订 ${ref.fieldRevision}`,
-              })),
-            ]}
-          />
-        </Drawer>
-      )}
+      {/* 抽屉关闭动画结束后由组件恢复原结构依据入口。 */}
+      <Drawer
+        open={structure}
+        destroyOnHidden
+        size={640}
+        title="结构依据"
+        onClose={() => setStructure(false)}
+      >
+        {/* 固定字段与采集时修订只读回看。 */}
+        <Descriptions
+          column={1}
+          items={[
+            { key: 'snapshot', label: '采集快照', children: candidate.snapshotId },
+            ...candidate.basis.structures.map((ref) => ({
+              key: ref.fieldId,
+              label: ref.label,
+              children: `${ref.type} · 对象修订 ${ref.objectRevision} · 字段修订 ${ref.fieldRevision}`,
+            })),
+          ]}
+        />
+      </Drawer>
       {peek && (
         <GovernanceSourceDrawer peek={peek} source={source} close={() => setPeek(undefined)} />
       )}

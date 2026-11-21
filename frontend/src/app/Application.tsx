@@ -23,7 +23,7 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router';
-import { api, ApiError, resetCsrf } from '../shared/api';
+import { api, ApiError, queryString, resetCsrf } from '../shared/api';
 import { SessionContext } from '../shared/session';
 import { ReadAccessDenied, readErrorMessage } from '../shared/Records';
 import { ActionMenuButton } from '../shared/ActionMenuButton';
@@ -396,6 +396,14 @@ export function Application() {
   const pageLabel = selected?.label ?? '账号信息';
   const creatingRole = activePath === '/iam/roles/new';
   const editingRole = activePath === '/iam/roles/:id/edit';
+  const readingCollectionChanges = activePath === '/collections/changes';
+  const changeSearch = new URLSearchParams(location.search);
+  // 由采集任务进入时，上级仍定位到发现变化的同一任务。
+  const collectionsSearch = queryString({
+    source: changeSearch.get('source'),
+    task: changeSearch.get('taskId'),
+  });
+  const collectionsUrl = '/collections' + (collectionsSearch ? '?' + collectionsSearch : '');
   const readingReleaseTask = activePath === '/releases/:id';
   const readingReleaseVersion = activePath === '/releases/versions/:id';
   const releaseVersionSearch = new URLSearchParams(location.search);
@@ -591,6 +599,16 @@ export function Application() {
                     >
                       角色与功能权限
                     </a>
+                  ) : readingCollectionChanges ? (
+                    <a
+                      href={collectionsUrl}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        navigate(collectionsUrl);
+                      }}
+                    >
+                      采集记录
+                    </a>
                   ) : readingReleaseTask || readingReleaseVersion ? (
                     <a
                       href={'/releases' + releaseSearch}
@@ -608,6 +626,7 @@ export function Application() {
               ...(creatingRole || editingRole
                 ? [{ title: creatingRole ? '新增角色' : '编辑角色' }]
                 : []),
+              ...(readingCollectionChanges ? [{ title: '结构变化' }] : []),
               ...(readingReleaseTask ? [{ title: '发布任务' }] : []),
               ...(readingReleaseVersion ? [{ title: '生效版本' }] : []),
               ...(noteMode

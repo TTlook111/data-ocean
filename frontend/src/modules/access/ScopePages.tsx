@@ -19,6 +19,7 @@ import { RecordTable } from '../../shared/RecordTable';
 import { allowed, useSession } from '../../shared/session';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
+import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Preview } from '../iam/types';
 import {
   accessPath,
@@ -605,6 +606,7 @@ function RevokeEditor({
   close: () => void;
   onSaved?: () => void;
 }) {
+  useReturnFocus();
   const [form] = Form.useForm<{ reason: string }>();
   const [submission, setSubmission] = useState<ReviewSubmission>();
   const [busy, setBusy] = useState(false);
@@ -799,29 +801,55 @@ export function AccessScopes({ userId, action }: { userId?: string; action?: Rea
       </div>
       {selected && !requestId && (
         <AccessDetailDrawer title="数据访问详情" size={600} close={() => setSelected(undefined)}>
-          <div className="access-detail-heading">
-            <h2>{selected.source.name}</h2>
-            <AccessStatus value={current ? 'EFFECTIVE' : 'ENDED'} />
-          </div>
-          <h3 className="access-detail-section">当前输出限制</h3>
-          {(current?.rules ?? []).map((rule) => (
-            <div key={rule.id}>
-              <strong>{rule.name}</strong>
-              <p className="detail-text">{rule.content}</p>
+          {/* 数据刷新失败时保留重试入口，避免把旧规则展示为已生效。 */}
+          <ReadState error={read.error} loading={read.isPending} retry={() => void read.refetch()}>
+            <div className="access-detail-heading">
+              <h2>{current?.source.name ?? selected.source.name}</h2>
+              <AccessStatus value={current ? 'EFFECTIVE' : 'ENDED'} />
             </div>
-          ))}
-          {current?.origins.length ? <h3 className="access-detail-section">访问来源</h3> : null}
-          {(current?.origins ?? []).map((origin) => (
-            <div className="access-origin" key={`${origin.kind}:${origin.id}`}>
-              <strong>{origin.originName}</strong>
-              <span>{origin.rules.map((rule) => rule.name).join('、')}</span>
-              {origin.kind === 'REQUEST' && canViewRequest && (
-                <Button type="link" onClick={() => setRequestId(origin.originId)}>
-                  查看申请
-                </Button>
-              )}
-            </div>
-          ))}
+            {current?.rules.length ? (
+              <section aria-labelledby="access-scope-rules">
+                <h3 id="access-scope-rules" className="access-detail-section">
+                  当前输出限制
+                </h3>
+                <dl className="access-scope-rules">
+                  {current.rules.map((rule) => (
+                    // 保留每条规则的权威原文，便于从来源反查。
+                    <div key={rule.id}>
+                      <dt>{rule.name}</dt>
+                      <dd className="detail-text">{rule.content}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ) : null}
+            {current?.origins.length ? (
+              <section aria-labelledby="access-scope-origins">
+                <h3 id="access-scope-origins" className="access-detail-section">
+                  访问来源
+                </h3>
+                {current.origins.map((origin) => (
+                  // 查看申请与实际授予来源同排，减少余白和来回查找。
+                  <div
+                    className="access-origin access-scope-origin"
+                    key={`${origin.kind}:${origin.id}`}
+                  >
+                    <div>
+                      <strong>{origin.originName}</strong>
+                      {origin.rules.length > 0 && (
+                        <small>{origin.rules.map((rule) => rule.name).join('、')}</small>
+                      )}
+                    </div>
+                    {origin.kind === 'REQUEST' && canViewRequest && (
+                      <Button type="link" onClick={() => setRequestId(origin.originId)}>
+                        查看申请
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </section>
+            ) : null}
+          </ReadState>
         </AccessDetailDrawer>
       )}
       {requestId && <RequestDrawer readOnly id={requestId} close={() => setRequestId(undefined)} />}
