@@ -66,7 +66,7 @@ export function VersionAvailability({ version }: { version: PublishedVersion }) 
       color={
         version.availability === 'AVAILABLE'
           ? 'success'
-          : version.availability === 'PAUSED'
+          : ['PAUSED', 'WITHDRAWN'].includes(version.availability)
             ? 'error'
             : version.availability === 'SUPERSEDED'
               ? undefined
@@ -110,7 +110,9 @@ export function PublicationResult({ outcome }: { outcome: PublicationOutcome }) 
             render: (_, row) => (
               <Space size={6} wrap>
                 <span>r{row.revision}</span>
-                {row.availability === 'SUPERSEDED' && <VersionAvailability version={row} />}
+                {['SUPERSEDED', 'WITHDRAWN'].includes(row.availability) && (
+                  <VersionAvailability version={row} />
+                )}
               </Space>
             ),
           },

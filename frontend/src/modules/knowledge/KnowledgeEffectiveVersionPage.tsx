@@ -7,6 +7,7 @@ import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { useSourceSelection } from '../datasource/CollectionPage';
 import { KnowledgeRecoveryWorkspace } from './KnowledgeRecoveryWorkspace';
+import { KnowledgeWithdrawalHistory } from './KnowledgeWithdrawal';
 import { VersionAvailability, type PublishedVersion } from './ReleasePublicationPanel';
 import type { EffectiveVersionOrigin, ReleaseRevisionReturn } from './types';
 import {
@@ -257,6 +258,9 @@ export function KnowledgeEffectiveVersionPage() {
                       {controls.data && (
                         <VersionPauseSummary title={current.title} data={controls.data} />
                       )}
+                      {content && current.availability === 'WITHDRAWN' && (
+                        <KnowledgeWithdrawalHistory path={path} />
+                      )}
                       <section className="knowledge-build-section" aria-label="直接上一版">
                         <h2>直接上一版</h2>
                         {previous ? (
@@ -304,7 +308,8 @@ export function KnowledgeEffectiveVersionPage() {
                       path={path}
                       data={controls.data}
                       available={Boolean(
-                        current.verifiedAt && current.availability !== 'SUPERSEDED',
+                        current.verifiedAt &&
+                        !['SUPERSEDED', 'WITHDRAWN'].includes(current.availability),
                       )}
                       openRun={readRecovery}
                     >

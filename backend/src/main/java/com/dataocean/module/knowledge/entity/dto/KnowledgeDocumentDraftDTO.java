@@ -45,6 +45,12 @@ public class KnowledgeDocumentDraftDTO {
     private List<@NotBlank @Size(max = 240) String> questions = List.of();
 
     /**
+     * 本修订确实依赖的同源文档。编辑时省略表示沿用之前的引用，空集合表示清除。
+     */
+    @Size(max = 24)
+    private List<@NotBlank String> requiredDocuments;
+
+    /**
      * 有序正文及实际来源。
      */
     @NotEmpty

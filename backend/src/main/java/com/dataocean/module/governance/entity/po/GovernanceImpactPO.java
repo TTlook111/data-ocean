@@ -80,4 +80,14 @@ public class GovernanceImpactPO {
      * 是否需要后续知识处理。
      */
     private Boolean knowledgeRequired;
+
+    /**
+     * 所依赖知识处理真正完成的时间。
+     */
+    private LocalDateTime knowledgeCompletedAt;
+
+    /**
+     * 形成退出事实的确切知识撤下批次。
+     */
+    private Long knowledgeWithdrawalId;
 }

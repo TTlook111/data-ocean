@@ -36,6 +36,17 @@ public class KnowledgeDocumentVO {
     private List<Reference> references;
 
     /**
+     * 同一正文修订固定的文档引用，独立于每节治理事实。
+     */
+    private List<DocumentLink> requiredDocuments;
+
+    /**
+     * @param id 被引用文档的稳定身份
+     * @param title 当前可读文档名称
+     */
+    public record DocumentLink(String id, String title) {}
+
+    /**
      * 只追加的修订清单。
      */
     private List<Revision> history;

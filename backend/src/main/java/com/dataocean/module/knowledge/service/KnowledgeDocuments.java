@@ -67,6 +67,11 @@ public class KnowledgeDocuments {
     private final KnowledgeReferences references;
 
     /**
+     * 文档间显式引用与治理依据分别保存。
+     */
+    private final KnowledgeDocumentLinks links;
+
+    /**
      * 以共用命令和审计保护重试及当前授权。
      */
     private final MutationService commands;
@@ -133,6 +138,10 @@ public class KnowledgeDocuments {
                 Long.toString(saved.id()),
                 json.read(saved.content(), Content.class),
                 chosen.stream().map(this::view).toList(),
+                links.documents(saved.id()).stream()
+                        .map(link -> new KnowledgeDocumentVO.DocumentLink(
+                                Ids.text(link), document(source, link).title()))
+                        .toList(),
                 documents.history(id).stream()
                         .map(h -> new KnowledgeDocumentVO.Revision(
                                 Long.toString(h.id()),
@@ -150,10 +159,13 @@ public class KnowledgeDocuments {
             var origin = writable(source);
             var body = content(input);
             var captured = references.capture(origin, input);
+            var required = input.getRequiredDocuments() == null
+                    ? List.<Long>of()
+                    : links.capture(source, null, input.getRequiredDocuments());
             long id = IdWorker.getId();
             long revision = IdWorker.getId();
             documents.create(id, source, body.getTitle(), revision);
-            append(id, revision, 1, body, captured);
+            append(id, revision, 1, body, captured, required);
             return recorded(command, "knowledge.edit", id, body.getTitle(), 1);
         });
     }
@@ -170,13 +182,18 @@ public class KnowledgeDocuments {
             var body = content(input);
             var captured = references.capture(origin, input);
             var prior = documents.revision(id, current.headRevisionId());
+            var oldLinks = links.documents(prior.id());
+            var required = input.getRequiredDocuments() == null
+                    ? oldLinks
+                    : links.capture(source, id, input.getRequiredDocuments());
             // MySQL 的 JSON 列会规范化格式，按类型化内容和依赖集合判断变化。
             if (body.equals(json.read(prior.content(), Content.class))
+                    && required.equals(oldLinks)
                     && ordered(captured).equals(ordered(documents.references(prior.id())))) {
                 return mutation(command, id, expected);
             }
             long revision = IdWorker.getId();
-            append(id, revision, prior.revision() + 1, body, captured);
+            append(id, revision, prior.revision() + 1, body, captured, required);
             if (documents.advance(source, id, expected, body.getTitle(), revision) != 1) {
                 throw BizIllegalException.conflict();
             }
@@ -284,9 +301,11 @@ public class KnowledgeDocuments {
     /**
      * 保存不可变正文以及同一事务中固定的每节依据。
      */
-    private void append(long id, long revision, int number, Content body, List<Reference> captured) {
+    private void append(
+            long id, long revision, int number, Content body, List<Reference> captured, List<Long> required) {
         documents.append(revision, id, number, json.write(body), UserContext.getUser());
         captured.forEach(ref -> documents.reference(revision, ref));
+        links.save(revision, required);
     }
 
     /**

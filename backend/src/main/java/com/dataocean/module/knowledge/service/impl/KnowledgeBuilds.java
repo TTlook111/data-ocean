@@ -182,6 +182,11 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
     private final KnowledgeValidations validations;
 
     /**
+     * 取消未完成候选后，原退出事项才可能结束。
+     */
+    private final KnowledgeWithdrawalProgress withdrawalProgress;
+
+    /**
      * 受理状态、构建代次及其片段原子落库，随后独立派发。
      */
     @Override
@@ -275,6 +280,7 @@ public class KnowledgeBuilds implements KnowledgeBuildService {
                         // 当前验证和构建使用同一任务取消边界。
                         validations.cancelCurrent(source, row.candidateId());
                     }
+                    withdrawalProgress.refresh(source);
                     audit.record(AuditWriteDTO.builder()
                             .actionCode(ACTION)
                             .targetType("knowledge_release")

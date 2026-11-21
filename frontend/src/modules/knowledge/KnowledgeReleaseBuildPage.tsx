@@ -810,7 +810,7 @@ function BuildWorkspace({
                   )
                 }
               >
-                查看当前生效
+                {activeVersion.availability === 'WITHDRAWN' ? '查看撤下记录' : '查看当前生效'}
               </Button>
             )}
             {canTest && (testCommand.pending || canRestart) && (

@@ -38,6 +38,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.InsertBi
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseTaskMapper.Task;
+import com.dataocean.module.knowledge.service.KnowledgeDocumentLinks;
 import com.dataocean.module.knowledge.service.KnowledgeIndexProperties;
 import com.dataocean.module.knowledge.service.KnowledgeReferences;
 import com.dataocean.module.model.service.ModelRegistry;
@@ -74,8 +75,14 @@ public class KnowledgePublications {
     /**
      * 当前列表只提供生效绑定实际可得的使用状态。
      */
-    private static final Set<String> ACTIVE_STATES =
-            Set.of("AVAILABLE", "PAUSED", "SOURCE_UNAVAILABLE", "MODEL_UNAVAILABLE", "REVIEW_REQUIRED", "UNVERIFIED");
+    private static final Set<String> ACTIVE_STATES = Set.of(
+            "AVAILABLE",
+            "PAUSED",
+            "WITHDRAWN",
+            "SOURCE_UNAVAILABLE",
+            "MODEL_UNAVAILABLE",
+            "REVIEW_REQUIRED",
+            "UNVERIFIED");
 
     /**
      * 按源读取并锁定治理、构建和发布共同依赖的当前事实。
@@ -106,6 +113,16 @@ public class KnowledgePublications {
      * 当前使用限制独立于正式发布记录。
      */
     private final KnowledgeVersionUse versionUse;
+
+    /**
+     * 显式文档引用必须随本次业务版本固定。
+     */
+    private final KnowledgeDocumentLinks links;
+
+    /**
+     * 曾有退出的来源在剩余正式切换核实后重新汇总。
+     */
+    private final KnowledgeWithdrawalProgress withdrawalProgress;
 
     /**
      * 发布前核对全部逐题证据和当前有效的执行资格。
@@ -241,6 +258,7 @@ public class KnowledgePublications {
                     proof.baseBinding(),
                     UserContext.getUser(),
                     key));
+            links.pin(bindingId, proof.requiredBindings());
             if (bindings.switchBinding(sourceId, proof.scope(), proof.baseBinding(), bindingId) != 1) {
                 // 竞争导致的旧基础不得改写已经生效的版本。
                 throw staleBase();
@@ -377,6 +395,7 @@ public class KnowledgePublications {
             // 核实状态及真实时间需要同时落库。
             throw BizIllegalException.conflict();
         }
+        withdrawalProgress.refresh(source);
         return true;
     }
 
@@ -503,6 +522,12 @@ public class KnowledgePublications {
             // 实际入口结果待核实时保留上一笔操作，先核实再继续切换。
             throw new BizIllegalException(ErrorCode.KNOWLEDGE_NOT_READY, "当前生效入口仍待核实");
         }
+        if (previous != null
+                && previous.documentRevisionId() == task.documentRevisionId()
+                && versionUse.isWithdrawn(previous.id())) {
+            // 原地重发相同修订不能使退出的业务再次生效。
+            throw BizIllegalException.state("该文档修订已撤下，请确认新的文档修订后重新发布");
+        }
         var build = candidate.getCurrentBuildId() == null ? null : builds.get(candidate.getCurrentBuildId());
         validations.requirePublishable(source, build, candidate);
         var proof = new Basis(
@@ -514,7 +539,8 @@ public class KnowledgePublications {
                 candidate.getEmbeddingRevisionId(),
                 build.id(),
                 candidate.getCurrentValidationId(),
-                candidate.getFingerprint());
+                candidate.getFingerprint(),
+                links.prepare(source.id(), task.documentId(), task.documentRevisionId()));
         int revision =
                 documents.revision(task.documentId(), task.documentRevisionId()).revision();
         return new Checked(proof, build, candidate.getTitle(), revision, previous == null ? null : previous.revision());
@@ -571,7 +597,9 @@ public class KnowledgePublications {
                 .distinct()
                 .toList();
         String availability;
-        if (!Objects.equals(row.activeBindingId(), row.id())) {
+        if (versionUse.isWithdrawn(row.id())) {
+            availability = "WITHDRAWN";
+        } else if (!Objects.equals(row.activeBindingId(), row.id())) {
             availability = "SUPERSEDED";
         } else if (versionUse.isPaused(row.scopeId())) {
             availability = "PAUSED";
@@ -581,7 +609,7 @@ public class KnowledgePublications {
             availability = "SOURCE_UNAVAILABLE";
         } else {
             // 原版本的治理限制实时复核，不能借生效状态解除暂停或禁止。
-            availability = usable(source, row.embeddingRevisionId(), refs);
+            availability = usable(source, row, refs);
         }
         return new Version(
                 Ids.text(row.id()),
@@ -606,18 +634,19 @@ public class KnowledgePublications {
     /**
      * 按权威治理服务检查当前引用可用性。
      */
-    private String usable(Source source, long embeddingRevision, List<KnowledgeDocumentMapper.Reference> refs) {
+    private String usable(Source source, Binding binding, List<KnowledgeDocumentMapper.Reference> refs) {
         if (source.scopePending() || source.snapshotId() == null) {
             return "REVIEW_REQUIRED";
         }
         try {
             // 只核对绑定固定的修订，节点选择其他配置不替代原来匹配的模型。
-            models.verifyActive(embeddingRevision);
+            models.verifyActive(binding.embeddingRevisionId());
         } catch (BizIllegalException unavailable) {
             return "MODEL_UNAVAILABLE";
         }
         try {
             references.verify(source, refs);
+            versionUse.requireDependencies(source, binding);
             return "AVAILABLE";
         } catch (BizIllegalException stale) {
             // 已禁止或结构过期时不宣称可继续使用。
@@ -705,7 +734,8 @@ public class KnowledgePublications {
             long embeddingRevision,
             String build,
             String run,
-            String fingerprint) {}
+            String fingerprint,
+            List<Long> requiredBindings) {}
 
     /**
      * 核对的可读信息及实际构建代次。

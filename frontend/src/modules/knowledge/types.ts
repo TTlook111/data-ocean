@@ -46,6 +46,7 @@ export type EffectiveVersionOrigin = {
 export const versionAvailabilityLabels = {
   AVAILABLE: '正常',
   PAUSED: '暂停',
+  WITHDRAWN: '已撤下',
   SOURCE_UNAVAILABLE: '来源不可用',
   MODEL_UNAVAILABLE: '向量模型不可用',
   REVIEW_REQUIRED: '受限，待复核',
@@ -182,6 +183,8 @@ export type KnowledgeDocument = {
   revisionId: string;
   /** 固定正文。 */
   content: KnowledgeContent;
+  /** 文档级显式引用，与章节事实依赖分开回看。 */
+  requiredDocuments: { id: string; title: string }[];
   /** 当前修订的对应依据。 */
   references: {
     sectionIndex: number;

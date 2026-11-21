@@ -13,6 +13,7 @@ import {
   type FactOption,
   type KnowledgeDocument,
   type KnowledgeFact,
+  type KnowledgeRow,
   type ReleaseRevisionReturn,
 } from './types';
 import { useKnowledgeDraft } from './useKnowledgeDraft';
@@ -28,6 +29,8 @@ type Draft = {
   exclusions: string;
   /** 每行一个代表性问题。 */
   questions: string;
+  /** 本修订明确引用的其他正式文档身份。 */
+  requiredDocuments: string[];
   /** 正文内各节与实际证据。 */
   sections: { title: string; body: string; referenceKeys: string[] }[];
 };
@@ -133,6 +136,7 @@ function DocumentEditor({
   const heading = useRef<HTMLHeadingElement>(null);
   const commandRef = useRef<{ payload: string; command: string }>(undefined);
   const [error, setError] = useState<Error>();
+  const [dependencyKeyword, setDependencyKeyword] = useState('');
   const historic = Boolean(current && current.document.headRevisionId !== current.revisionId);
   const chosen = current?.references.filter((ref) => ref.selected) ?? [];
   const approve = current?.document.state === 'DRAFT' && allowed(session, 'knowledge.confirm');
@@ -166,11 +170,33 @@ function DocumentEditor({
       if (fact) choices.set(factKey(fact), fact);
     }),
   );
+  const documentOptions = useInfiniteQuery({
+    queryKey: ['knowledge-document-dependencies', source, dependencyKeyword],
+    enabled: editing && allowed(session, 'knowledge.edit'),
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      api<Page<KnowledgeRow>>(
+        '/knowledge/sources/' +
+          source +
+          '/documents?' +
+          queryString({ keyword: dependencyKeyword, pageNum: pageParam, pageSize: 30 }),
+      ),
+    getNextPageParam: (page) =>
+      page.pageNum * page.pageSize < page.total ? page.pageNum + 1 : undefined,
+  });
+  // 已保存的引用在搜索和分页后继续显示名称。
+  const documents = new Map((current?.requiredDocuments ?? []).map(({ id, title }) => [id, title]));
+  documentOptions.data?.pages.forEach(({ items }) =>
+    items.forEach(({ id, title }) => {
+      if (id !== current?.document.id) documents.set(id, title);
+    }),
+  );
   const initial: Draft = {
     title: current?.content.title ?? '',
     purpose: current?.content.purpose ?? '',
     exclusions: current?.content.exclusions ?? '',
     questions: current?.content.questions.join('\n') ?? '',
+    requiredDocuments: current?.requiredDocuments?.map(({ id }) => id) ?? [],
     sections: current?.content.sections.map((section, index) => ({
       ...section,
       referenceKeys: chosen
@@ -227,6 +253,7 @@ function DocumentEditor({
       setError(undefined);
       await Promise.all([
         cache.invalidateQueries({ queryKey: ['knowledge-documents', source] }),
+        cache.invalidateQueries({ queryKey: ['knowledge-document-dependencies', source] }),
         cache.invalidateQueries({ queryKey: ['knowledge-document', source, result.targetId] }),
       ]);
       setEditing(false);
@@ -374,6 +401,37 @@ function DocumentEditor({
           <Form.Item name="questions" label="代表性问题">
             <Input.TextArea rows={2} placeholder="每行填写一个问题" />
           </Form.Item>
+          {/* 文档间的必要引用与每节的治理事实分开录入。 */}
+          <Form.Item name="requiredDocuments" label="必要引用文档">
+            <Select
+              mode="multiple"
+              showSearch
+              filterOption={false}
+              maxCount={24}
+              placeholder="选择必要引用的同源文档"
+              onSearch={setDependencyKeyword}
+              options={[...documents].map(([id, title]) => ({ value: id, label: title }))}
+              loading={documentOptions.isFetching}
+              onPopupScroll={(event) => {
+                // 长列表滚到底再读取后续当前源文档。
+                const node = event.currentTarget;
+                if (
+                  documentOptions.hasNextPage &&
+                  !documentOptions.isFetchingNextPage &&
+                  node.scrollTop + node.clientHeight >= node.scrollHeight - 12
+                ) {
+                  void documentOptions.fetchNextPage();
+                }
+              }}
+            />
+          </Form.Item>
+          {documentOptions.error && (
+            <Alert
+              type="warning"
+              title={readErrorMessage(documentOptions.error)}
+              action={<Button onClick={() => void documentOptions.refetch()}>重试</Button>}
+            />
+          )}
           <Form.List name="sections">
             {(fields, { add, remove }) => (
               <>
@@ -556,6 +614,16 @@ function DocumentEditor({
                     <dd>{current.content.questions.join('、') || '—'}</dd>
                   </div>
                 </dl>
+                {Boolean(current.requiredDocuments?.length) && (
+                  <section aria-label="必要引用文档">
+                    <h2>必要引用文档</h2>
+                    <ul>
+                      {current.requiredDocuments.map((link) => (
+                        <li key={link.id}>{link.title}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <section aria-label="治理依据">
                   <h2>治理依据</h2>
                   {current.references.length === 0 && (
@@ -718,6 +786,7 @@ function draftKey(values: Draft) {
     values.purpose,
     values.exclusions,
     values.questions,
+    [...(values.requiredDocuments ?? [])].sort(),
     values.sections?.map(({ title, body, referenceKeys }) => [title, body, referenceKeys ?? []]),
   ]);
 }

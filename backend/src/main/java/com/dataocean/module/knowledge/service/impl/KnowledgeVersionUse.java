@@ -17,6 +17,8 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgeVersionPauseMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeWithdrawalMapper;
+import com.dataocean.module.knowledge.service.KnowledgeDocumentLinks;
 import com.dataocean.module.knowledge.service.KnowledgeReferences;
 import com.dataocean.module.model.service.ModelRegistry;
 
@@ -48,6 +50,16 @@ public class KnowledgeVersionUse {
      * 获取并保留与绑定切换独立的使用限制。
      */
     private final KnowledgeVersionPauseMapper pauses;
+
+    /**
+     * 原绑定保留可回看，退出事实独立于暂停。
+     */
+    private final KnowledgeWithdrawalMapper withdrawals;
+
+    /**
+     * 问数须核对实际冻结的文档组合。
+     */
+    private final KnowledgeDocumentLinks links;
 
     /**
      * 复核文档固定的治理依赖。
@@ -143,6 +155,10 @@ public class KnowledgeVersionUse {
             // 历史绑定及结果尚未核实的版本不能参与办理。
             throw BizIllegalException.state("当前生效版本已变化或尚未完成核实");
         }
+        if (isWithdrawn(id)) {
+            // 行为退出后只保留历史读取，不能发起恢复验证或参与问数。
+            throw BizIllegalException.state("该正式知识已撤下");
+        }
         return binding;
     }
 
@@ -150,6 +166,27 @@ public class KnowledgeVersionUse {
      * 恢复验证可以针对手动暂停的范围，其他治理禁止和结构或模型限制依然生效。
      */
     public void requireBasis(Source source, Binding binding) {
+        requireOwnBasis(source, binding);
+        requireDependencies(source, binding);
+    }
+
+    /**
+     * 从问数和恢复验证共用的绑定核对保护所需文档。
+     */
+    public void requireDependencies(Source source, Binding binding) {
+        links.verifyPinned(binding, dependency -> {
+            // 只有同组实际在用且当前可使用的依赖才能进入运行。
+            if (isPaused(dependency.scopeId())) {
+                throw BizIllegalException.state("必要引用的正式知识已暂停");
+            }
+            requireOwnBasis(source, dependency);
+        });
+    }
+
+    /**
+     * 复核这一固定版本的模型和治理事实。
+     */
+    private void requireOwnBasis(Source source, Binding binding) {
         if (!"ENABLED".equals(source.lifecycle())
                 || source.scopePending()
                 || source.snapshotId() == null
@@ -165,6 +202,13 @@ public class KnowledgeVersionUse {
      */
     public boolean isPaused(long scope) {
         return pauses.isPaused(scope);
+    }
+
+    /**
+     * 已撤下只影响历史中确切的绑定。
+     */
+    public boolean isWithdrawn(long binding) {
+        return withdrawals.withdrawn(binding);
     }
 
     /**

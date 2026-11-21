@@ -4,6 +4,7 @@ import { type ReactNode, useState } from 'react';
 import { api } from '../../shared/api';
 import { displayTime } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
+import { KnowledgeWithdrawalDialog } from './KnowledgeWithdrawal';
 import { useReleaseCommand } from './useReleaseCommand';
 
 /** 暂停和解除的持久记录。 */
@@ -218,8 +219,13 @@ export function VersionControlActions({
   children: ReactNode;
 }) {
   const session = useSession();
-  const [dialog, setDialog] = useState<'pause' | 'restore'>();
+  const [dialog, setDialog] = useState<'pause' | 'restore' | 'withdraw'>();
   const canPause = data && available && !data.active && allowed(session, 'versions.pause');
+  const canWithdraw = data && available && allowed(session, 'releases.withdraw');
+  const actions = [
+    ...(canPause ? [{ key: 'pause', label: '暂停知识', danger: true }] : []),
+    ...(canWithdraw ? [{ key: 'withdraw', label: '撤下知识', danger: true }] : []),
+  ];
   const passed = data?.recovery?.state === 'RECOVERY_PASSED';
   const restoreRun =
     passed && allowed(session, 'test-cases.view') && allowed(session, 'governance.allow')
@@ -242,13 +248,13 @@ export function VersionControlActions({
 
   return (
     <>
-      {canPause && (
+      {actions.length > 0 && (
         <Dropdown
           trigger={['click']}
           placement="topRight"
           menu={{
-            items: [{ key: 'pause', label: '暂停知识', danger: true }],
-            onClick: () => setDialog('pause'),
+            items: actions,
+            onClick: ({ key }) => setDialog(key === 'withdraw' ? 'withdraw' : 'pause'),
           }}
         >
           <Button id="version-more">更多</Button>
@@ -265,15 +271,19 @@ export function VersionControlActions({
           <RecoveryStartButton key={data.active.id} data={data} path={path} openRun={openRun} />
         )
       )}
-      {dialog && (
-        <VersionControlDialog
-          title={title}
-          path={path}
-          pause={data?.active ?? null}
-          run={restoreRun}
-          mode={dialog}
-          close={closeDialog}
-        />
+      {dialog === 'withdraw' ? (
+        <KnowledgeWithdrawalDialog path={path} close={closeDialog} />
+      ) : (
+        dialog && (
+          <VersionControlDialog
+            title={title}
+            path={path}
+            pause={data?.active ?? null}
+            run={restoreRun}
+            mode={dialog}
+            close={closeDialog}
+          />
+        )
       )}
     </>
   );

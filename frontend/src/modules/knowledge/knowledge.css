@@ -448,6 +448,16 @@
   margin-block-start: 16px;
 }
 
+/* 影响清单保留完整文档名称，长文档也有独立的行。 */
+.knowledge-withdrawal-scope {
+  margin-block: 16px;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-withdrawal-scope > h3 {
+  margin: 0 0 8px;
+}
+
 /* 绑定正文保持可读，长章节保留自然换行。 */
 .knowledge-published-copy {
   max-width: 800px;

@@ -129,6 +129,11 @@ public class KnowledgeValidations {
     private final KnowledgeVersionUse versionUse;
 
     /**
+     * 解除最后一项限制时重新汇总曾有退出处理的来源事项。
+     */
+    private final KnowledgeWithdrawalProgress withdrawalProgress;
+
+    /**
      * 确认恢复时重新核实实际索引集合。
      */
     private final KnowledgeIndexReadback indexes;
@@ -363,6 +368,7 @@ public class KnowledgeValidations {
                     if (pauses.restore(pauseId, run.id(), reason, UserContext.getUser()) != 1) {
                         throw BizIllegalException.conflict();
                     }
+                    withdrawalProgress.refresh(sourceId);
                     audit(
                             command,
                             "governance.allow",
@@ -382,7 +388,9 @@ public class KnowledgeValidations {
         versionUse.requireOperator(sourceId);
         var source = catalog.source(sourceId, false);
         var binding = readBinding(sourceId, id);
-        var pause = Objects.equals(binding.activeBindingId(), id) ? pauses.active(binding.scopeId()) : null;
+        var pause = Objects.equals(binding.activeBindingId(), id) && !versionUse.isWithdrawn(id)
+                ? pauses.active(binding.scopeId())
+                : null;
         var history =
                 pauses.history(binding.scopeId()).stream().map(this::viewPause).toList();
         return new KnowledgeVersionControlVO(

@@ -19,6 +19,7 @@ import com.dataocean.module.governance.mapper.GovernanceImpactMapper;
 import com.dataocean.module.governance.mapper.GovernanceNoteChangeMapper;
 import com.dataocean.module.governance.mapper.GovernanceReadMapper;
 import com.dataocean.module.governance.mapper.GovernanceRevisionMapper;
+import com.dataocean.module.governance.service.GovernanceKnowledgeProgress;
 import com.dataocean.module.governance.service.GovernanceTarget;
 
 import java.util.HashSet;
@@ -44,7 +45,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Component
 @RequiredArgsConstructor
-public class GovernanceImpacts {
+public class GovernanceImpacts implements GovernanceKnowledgeProgress {
 
     /**
      * 数据类型明确收窄时采用原生类型提供的长度或精度。
@@ -270,9 +271,43 @@ public class GovernanceImpacts {
                     ? "GOVERNANCE_IN_PROGRESS"
                     : "PENDING_GOVERNANCE";
         }
-        return records.stream().anyMatch(record -> Boolean.TRUE.equals(record.getKnowledgeRequired()))
+        return records.stream()
+                        .anyMatch(record -> Boolean.TRUE.equals(record.getKnowledgeRequired())
+                                && record.getKnowledgeCompletedAt() == null)
                 ? "KNOWLEDGE_IN_PROGRESS"
                 : "COMPLETED";
+    }
+
+    /**
+     * 知识模块可按源核对实际交接事项，不承担治理状态写入。
+     */
+    @Override
+    public List<Target> pendingKnowledge(long source) {
+        return impacts.pendingKnowledge(source);
+    }
+
+    /**
+     * 仅在原来源事务内接受已核对的知识退出事实。
+     */
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void finishWithdrawal(long source, long impact, long batch) {
+        int updated = impacts.update(Wrappers.<GovernanceImpactPO>lambdaUpdate()
+                .eq(GovernanceImpactPO::getId, impact)
+                .eq(GovernanceImpactPO::getSourceId, source)
+                .eq(GovernanceImpactPO::getState, "REVIEWED")
+                .eq(GovernanceImpactPO::getKnowledgeRequired, true)
+                .isNull(GovernanceImpactPO::getKnowledgeCompletedAt)
+                .set(GovernanceImpactPO::getKnowledgeWithdrawalId, batch)
+                .setSql("knowledge_completed_at=UTC_TIMESTAMP(3)"));
+        if (updated == 1) {
+            // 同一来源有其他未完成办理时，汇总仍保持知识处理中。
+            Long change = impacts.selectById(impact).getStructureChangeId();
+            if (change != null) {
+                catalog.link(change, "KNOWLEDGE_WORK", batch);
+                refresh(source, change);
+            }
+        }
     }
 
     /**

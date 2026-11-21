@@ -3,6 +3,7 @@ package com.dataocean.module.knowledge.mapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -114,6 +115,26 @@ public interface KnowledgePublicationMapper {
      */
     @Select(BINDING + " WHERE s.source_id=#{source} AND v.id=#{id}")
     Binding get(@Param("source") long source, @Param("id") long id);
+
+    /**
+     * 显式文档引用在发布时解析成已核实的实际绑定。
+     */
+    @Select(BINDING + " WHERE s.source_id=#{source} AND s.document_id=#{document} AND s.active_binding_id=v.id")
+    Binding activeForDocument(@Param("source") long source, @Param("document") long document);
+
+    /**
+     * 从实际生效修订逆向查找引用方，共享治理引用不参与。
+     */
+    @Select(
+            BINDING
+                    + """
+            JOIN kn_document_dependency dd ON dd.revision_id=v.document_revision_id
+            WHERE s.source_id=#{source} AND s.active_binding_id=v.id
+              AND dd.required_document_id=#{document}
+              AND NOT EXISTS (SELECT 1 FROM kn_release_withdrawal_member w WHERE w.binding_id=v.id)
+            ORDER BY v.id
+            """)
+    List<Binding> referrers(@Param("source") long source, @Param("document") long document);
 
     /**
      * 从原任务取得真实发布快照，包括已被新版替代的历史。

@@ -6,10 +6,14 @@ import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeVersionPauseDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeVersionRestoreDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeWithdrawalDTO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO.RunDetail;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeWithdrawalVO.Detail;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeWithdrawalVO.Preview;
 import com.dataocean.module.knowledge.service.impl.KnowledgeValidations;
 import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.impl.KnowledgeWithdrawals;
 
 import java.util.UUID;
 
@@ -44,6 +48,42 @@ public class KnowledgeVersionControlController {
      * 共享实际验证及裁定结果。
      */
     private final KnowledgeValidations validations;
+
+    /**
+     * 知识撤下的影响核对及持久办理。
+     */
+    private final KnowledgeWithdrawals withdrawals;
+
+    /**
+     * 展示确切目标、直接和间接引用方。
+     */
+    @GetMapping("/withdrawal-preview")
+    @RequirePermission("releases.withdraw")
+    public Result<Preview> withdrawalPreview(@PathVariable String source, @PathVariable String id) {
+        return Result.success(withdrawals.preview(Ids.parse(source), Ids.parse(id)));
+    }
+
+    /**
+     * 只允许按用户看到的实际范围整批撤下。
+     */
+    @PostMapping("/withdrawals")
+    @RequirePermission("releases.withdraw")
+    public Result<MutationVO> withdraw(
+            @PathVariable String source,
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody KnowledgeWithdrawalDTO input) {
+        return Result.success(withdrawals.withdraw(Ids.parse(source), Ids.parse(id), command, input));
+    }
+
+    /**
+     * 不改写旧正文，单独回看本批撤下原因和记录。
+     */
+    @GetMapping("/withdrawals")
+    @RequirePermission("releases.view")
+    public Result<Detail> withdrawalHistory(@PathVariable String source, @PathVariable String id) {
+        return Result.success(withdrawals.history(Ids.parse(source), Ids.parse(id)));
+    }
 
     /**
      * 可回看限制、原原因及本次恢复的办理由来。
