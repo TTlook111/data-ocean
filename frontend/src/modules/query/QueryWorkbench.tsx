@@ -19,6 +19,7 @@ import type { Session } from '../iam/types';
 import { downloadChart, downloadResult } from './download';
 import { activeState, explaining } from './QueryAnswer';
 import { FeedbackInbox } from './FeedbackNotices';
+import { QueryIconButton } from './QueryIconButton';
 import { HistoricalQueryTurn, QueryTurn, queryTurnOptions } from './QueryTurn';
 import type { Conversation, Snapshot, Source, Turn } from './types';
 import styles from './query.module.css';
@@ -437,16 +438,6 @@ export function QueryWorkbench({
                 ),
             )}
         </nav>
-        {/* 站内回告入口在未选来源和来源失权时仍可用。 */}
-        <Button
-          block
-          type="text"
-          className={styles.finder}
-          icon={<BellOutlined aria-hidden />}
-          onClick={() => setShowNotices(true)}
-        >
-          反馈回告
-        </Button>
         <div className={styles.profile}>
           <ActionMenuButton
             placement="topLeft"
@@ -515,6 +506,14 @@ export function QueryWorkbench({
               }
               onChange={(value) => open(value)}
             />
+            {/* 独立的站内回告放在顶栏最右，未选数据源或失权时仍可打开。 */}
+            <QueryIconButton
+              className={styles.noticeTrigger}
+              label="反馈回告"
+              icon={<BellOutlined aria-hidden />}
+              aria-haspopup="dialog"
+              onClick={() => setShowNotices(true)}
+            />
           </div>
         </header>
         <section className={styles.transcript} aria-label="当前问数" tabIndex={0}>
@@ -553,7 +552,7 @@ export function QueryWorkbench({
               </div>
             )}
             {sourceAvailable && !id && !pendingQuestion && (
-              <div className={styles.welcome}>
+              <div className={styles.welcomePrompt}>
                 <span className={styles.welcomeIcon} aria-hidden>
                   <DatabaseOutlined />
                 </span>
@@ -637,6 +636,7 @@ export function QueryWorkbench({
             )}
             <div className={styles.composerRow}>
               <Input.TextArea
+                className={styles.composerInput}
                 ref={(instance) => {
                   draftRef.current = instance?.resizableTextArea?.textArea ?? null;
                 }}
@@ -657,6 +657,8 @@ export function QueryWorkbench({
               />
               {isActive ? (
                 <Button
+                  className={styles.composerAction}
+                  shape="circle"
                   htmlType="button"
                   aria-label="停止问数"
                   title="停止问数"
@@ -666,6 +668,8 @@ export function QueryWorkbench({
                 />
               ) : (
                 <Button
+                  className={styles.composerAction}
+                  shape="circle"
                   type="primary"
                   htmlType="submit"
                   icon={<ArrowUpOutlined />}

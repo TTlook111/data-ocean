@@ -1,16 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import { Button, Form, Input, Select, Space, Tabs } from 'antd';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
+import { MoreFilters } from '../../shared/MoreFilters';
 import { displayTime, Status } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import type { Page } from '../iam/types';
 import { originLabels, statusLabels, type Issue } from './types';
 import './feedback.css';
 
-/** 搜索与服务端使用十进制正编号，两端都允许清空条件。 */
-const issueNumber = /^(?:[1-9][0-9]{0,18})?$/u;
+/** 常用条件与收起的条件统一保存在队列地址中。 */
+type Criteria = {
+  keyword?: string;
+  sourceId?: string;
+  status?: string;
+  origin?: string;
+  assignee?: string;
+};
 
 /** 查找已受理并持久入队的待分派事项。 */
 export function FeedbackQueue() {
@@ -19,13 +26,24 @@ export function FeedbackQueue() {
   const location = useLocation();
   const focus = (location.state as { feedbackFocus?: string } | null)?.feedbackFocus;
   const restored = useRef<string | undefined>(undefined);
+  const [moreOpen, setMoreOpen] = useState(false);
   const issueId = params.get('issueId') ?? '';
-  const sourceId = params.get('sourceId') ?? '';
-  const origin = params.get('origin') ?? '';
+  const filters = {
+    keyword: params.get('keyword') || undefined,
+    sourceId: params.get('sourceId') || undefined,
+    status: params.get('status') || undefined,
+    origin: params.get('origin') || undefined,
+    assignee: params.get('assignee') || undefined,
+  };
   const pageNum = params.get('pageNum');
   const pageSize = params.get('pageSize');
   const scope = params.get('scope') ?? 'ALL';
-  const query = queryString({ issueId, sourceId, origin, scope, pageNum, pageSize });
+  const query = queryString({ issueId, ...filters, scope, pageNum, pageSize });
+  const sources = useQuery({
+    queryKey: ['feedback-sources'],
+    queryFn: () => api<{ id: string; name: string }[]>('/feedback/sources'),
+    retry: false,
+  });
   const listing = useQuery({
     queryKey: ['feedback-issues', query],
     queryFn: () => api<Page<Issue>>('/feedback/issues?' + query),
@@ -46,71 +64,114 @@ export function FeedbackQueue() {
     navigate('/feedback/' + row.id + location.search);
   }
 
-  /** 清除两个实际筛选条件，保留列表默认布局和分页规模。 */
+  /** 重置实际筛选条件，保留当前分组和分页大小。 */
   function reset() {
+    setMoreOpen(false);
     setParams(queryString({ pageSize, scope }));
   }
 
   return (
     <>
       {/* 已应用条件留在地址中，列表刷新与返回不会改变查询。 */}
-      <section className="panel filter-panel feedback-filter" aria-label="查询问题事项">
-        <Form
-          key={issueId + ':' + sourceId + ':' + origin}
+      <section
+        className="panel query-panel compact-query registry-query-panel"
+        aria-label="查询问题事项"
+      >
+        <Form<Criteria>
+          key={queryString({ issueId, ...filters })}
+          className="registry-query registry-query-three-fields"
           layout="inline"
           scrollToFirstError={{ focus: true }}
-          initialValues={{ issueId, sourceId, origin: origin || undefined }}
-          onFinish={(values: { issueId?: string; sourceId?: string; origin?: string }) => {
-            // 提交新条件时恢复第一页。
+          initialValues={{ ...filters, keyword: filters.keyword || issueId || undefined }}
+          onFinish={(values) => {
+            // 应用查询后保留已选条件并回到第一页。
+            setMoreOpen(false);
             setParams(
               queryString({
-                issueId: values.issueId,
-                sourceId: values.sourceId,
-                origin: values.origin,
+                ...values,
+                keyword: values.keyword?.trim(),
+                assignee: values.assignee?.trim(),
                 scope,
                 pageSize,
               }),
             );
           }}
         >
-          <Form.Item
-            name="issueId"
-            label="事项编号"
-            htmlFor="feedback-issue-filter"
-            rules={[{ pattern: issueNumber, message: '请输入有效的事项编号' }]}
-          >
-            <Input id="feedback-issue-filter" allowClear inputMode="numeric" />
+          <Form.Item name="keyword">
+            <Input
+              id="feedback-issue-filter"
+              aria-label="问题摘要或编号"
+              placeholder="问题摘要或编号"
+              allowClear
+              maxLength={80}
+            />
           </Form.Item>
-          <Form.Item
-            name="sourceId"
-            label="数据源编号"
-            rules={[{ pattern: issueNumber, message: '请输入有效的数据源编号' }]}
-          >
-            <Input allowClear inputMode="numeric" />
+          <Form.Item name="sourceId">
+            <Select
+              aria-label="数据源"
+              placeholder="数据源"
+              allowClear
+              showSearch={{ optionFilterProp: 'label' }}
+              options={sources.data?.map(({ id, name }) => ({ value: id, label: name }))}
+              status={sources.isError ? 'error' : undefined}
+              loading={sources.isPending}
+              notFoundContent={sources.isError ? '数据源加载失败' : undefined}
+            />
           </Form.Item>
-          {/* 自动线索和点踩使用同一队列，按真实来源筛选。 */}
-          <Form.Item name="origin" label="来源" className="feedback-origin-filter">
+          <Form.Item name="status">
             <Select
               allowClear
               virtual={false}
-              placeholder="全部来源"
-              options={Object.entries(originLabels).map(([value, label]) => ({ value, label }))}
+              aria-label="事项状态"
+              placeholder="全部状态"
+              options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
-          <Space>
-            <Button htmlType="submit">查询</Button>
-            <Button onClick={reset}>重置</Button>
-          </Space>
+          {/* 低频条件按用户应用的组数标记，收起后仍与队列查询一致。 */}
+          <div className="registry-query-actions">
+            <Space>
+              <MoreFilters
+                open={moreOpen}
+                setOpen={setMoreOpen}
+                count={Number(Boolean(filters.origin)) + Number(Boolean(filters.assignee))}
+              >
+                <Form.Item name="origin">
+                  <Select
+                    allowClear
+                    virtual={false}
+                    aria-label="事项来源"
+                    placeholder="全部来源"
+                    options={Object.entries(originLabels).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                  />
+                </Form.Item>
+                <Form.Item name="assignee">
+                  <Input
+                    allowClear
+                    maxLength={80}
+                    aria-label="负责人姓名"
+                    placeholder="负责人姓名"
+                  />
+                </Form.Item>
+              </MoreFilters>
+              <Button htmlType="submit">查询</Button>
+              <Button onClick={reset}>重置</Button>
+            </Space>
+          </div>
         </Form>
       </section>
       {/* 台账已关联的事项才在后台出现，查询失败交给共用状态处理。 */}
-      <section className="panel records-panel" aria-label="问题队列与处理">
+      <section className="panel records-panel feedback-records" aria-label="问题队列与处理">
         {/* 分组同时影响实际查询和分页，切换后从第一页读起。 */}
         <Tabs
           className="feedback-queue-tabs"
+          size="small"
+          tabBarGutter={40}
           activeKey={scope}
           onChange={(value) =>
-            setParams(queryString({ issueId, sourceId, origin, pageSize, scope: value }))
+            setParams(queryString({ issueId, ...filters, pageSize, scope: value }))
           }
           items={[
             { key: 'MINE', label: '待我处理' },
@@ -125,32 +186,65 @@ export function FeedbackQueue() {
           loading={listing.isPending}
           error={listing.error}
           retry={listing.refetch}
-          filtered={Boolean(issueId || sourceId || origin)}
+          filtered={Boolean(issueId || Object.values(filters).some(Boolean))}
           onReset={reset}
           emptyDescription={scope === 'MINE' ? '暂无待办事项' : '暂无入队事项'}
-          scroll={{ x: 825 }}
+          scroll={{ x: 1104 }}
           columns={[
-            { title: '事项编号', dataIndex: 'id', width: 110 },
-            { title: '数据源', dataIndex: 'sourceName', width: 190, ellipsis: true },
+            {
+              title: '问题 / 编号',
+              key: 'issue',
+              width: 204,
+              render: (_, row) => (
+                <div className="feedback-table-value">
+                  <span className="feedback-table-primary" title={row.summary}>
+                    {row.summary ?? '事项 #' + row.id}
+                  </span>
+                  <small>
+                    #{row.id}
+                    {row.referenceCount ? ` · ${row.referenceCount} 个关联问数` : ''}
+                  </small>
+                </div>
+              ),
+            },
             {
               title: '来源',
               dataIndex: 'origin',
-              width: 136,
+              width: 120,
               render: (value: string) => originLabels[value] ?? value,
             },
+            { title: '数据源', dataIndex: 'sourceName', width: 176, ellipsis: true },
             {
               title: '状态',
               dataIndex: 'status',
-              width: 115,
+              width: 88,
               render: (state: string) => <Status value={state} label={statusLabels[state]} />,
             },
             {
               title: '负责人',
               dataIndex: 'assigneeName',
-              width: 105,
-              render: (value: string | null) => value ?? '—',
+              width: 116,
+              ellipsis: true,
+              render: (value: string | null) => value ?? '待分派',
             },
-            { title: '最近更新', dataIndex: 'updatedAt', width: 170, render: displayTime },
+            {
+              title: '下一步 / 最近更新',
+              key: 'next',
+              width: 160,
+              render: (_, row) => (
+                <div className="feedback-table-value">
+                  <span className="feedback-table-primary">{row.nextAction ?? '查看进度'}</span>
+                  <small>{displayTime(row.updatedAt)}</small>
+                </div>
+              ),
+            },
+            {
+              title: '提出时间',
+              dataIndex: 'createdAt',
+              width: 136,
+              className: 'feedback-date-cell',
+              render: displayTime,
+            },
             {
               title: '操作',
               key: 'action',
@@ -164,7 +258,7 @@ export function FeedbackQueue() {
                   aria-label={'查看事项 #' + row.id}
                   onClick={() => openIssue(row)}
                 >
-                  查看事项
+                  {['RESOLVED', 'CLOSED_OTHER'].includes(row.status) ? '查看结果' : '进入办理'}
                 </Button>
               ),
             },
@@ -178,8 +272,7 @@ export function FeedbackQueue() {
               setParams(
                 queryString({
                   issueId,
-                  sourceId,
-                  origin,
+                  ...filters,
                   scope,
                   pageNum: nextPage,
                   pageSize: size,

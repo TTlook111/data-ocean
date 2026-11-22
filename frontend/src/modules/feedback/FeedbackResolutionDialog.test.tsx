@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App, ConfigProvider } from 'antd';
+import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api, ApiError, mutation } from '../../shared/api';
 import { FeedbackResolutionDialog, type ResolutionAction } from './FeedbackResolutionDialog';
@@ -66,7 +67,9 @@ async function mount(kind: ResolutionAction, issue = detail) {
     <ConfigProvider theme={{ token: { motion: false } }}>
       <App>
         <QueryClientProvider client={cache}>
-          <FeedbackResolutionDialog detail={issue} kind={kind} close={close} refresh={refresh} />
+          <MemoryRouter>
+            <FeedbackResolutionDialog detail={issue} kind={kind} close={close} refresh={refresh} />
+          </MemoryRouter>
         </QueryClientProvider>
       </App>
     </ConfigProvider>,
@@ -86,6 +89,83 @@ async function select(label: string, value: string) {
 function fill(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
+
+/** 治理结果必须选择可用的正式版本，提交后保留确切绑定。 */
+it('提交知识治理结果时仅可选择可用正式版本', async () => {
+  vi.mocked(api).mockResolvedValue({
+    items: [
+      { id: '61', title: '日末库存口径', revision: 2, availability: 'AVAILABLE' },
+      { id: '59', title: '旧日末库存口径', revision: 1, availability: 'PAUSED' },
+    ],
+  });
+  const governance = { ...detail, resolution: { ...detail.resolution!, canSubmitKnowledge: true } };
+  const { dialog, close } = await mount('knowledge', governance);
+  await select('已发布版本', '日末库存口径 · r2');
+  expect(screen.queryByText('旧日末库存口径 · r1')).not.toBeInTheDocument();
+  fill('补齐的知识', '补齐商品规格');
+  fill('原问题的覆盖依据', '独立对账');
+  fireEvent.click(dialog.getByRole('button', { name: '提交治理结果' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/knowledge-results',
+    'POST',
+    { bindingId: '61', summary: '补齐商品规格', checkMethod: '独立对账', expectedVersion: 4 },
+    'feedback.process',
+    expect.any(String),
+  );
+});
+
+/** 实际问数返回之前不能登记结论，网络重试请求保留同一个命令。 */
+it('治理复验关联原问题的实际查询并核对结果', async () => {
+  vi.mocked(api)
+    .mockRejectedValueOnce(new Error('暂时无法连接'))
+    .mockResolvedValueOnce({ id: 'recheck-1' })
+    .mockResolvedValue({ state: 'RESULT_DELIVERED' });
+  const governance = {
+    ...detail,
+    resolution: {
+      ...detail.resolution!,
+      canReplayQuestion: true,
+      result: {
+        version: 3,
+        impact: 'KNOWLEDGE',
+        knowledgeBindingId: '61',
+        summary: null,
+        checkMethod: null,
+        reference: null,
+        regression: null,
+        submittedAt: '2026-11-22T10:00:00Z',
+      },
+    },
+  };
+  const { dialog, close } = await mount('verify', governance);
+  const start = dialog.getByRole('button', { name: '发起问数' });
+  const submit = dialog.getByRole('button', { name: '登记复验结论' });
+  expect(submit).toBeDisabled();
+  fireEvent.click(start);
+  expect(await dialog.findByText('暂时无法连接')).toBeVisible();
+  fireEvent.click(start);
+  expect(await dialog.findByRole('link', { name: '查看本次回答' })).toHaveAttribute(
+    'href',
+    '/query?source=1&request=recheck-1',
+  );
+  await dialog.findByText('已返回结果');
+  expect(vi.mocked(api).mock.calls[0][1]).toEqual(vi.mocked(api).mock.calls[1][1]);
+  await select('复验结论', '通过');
+  fill('复验场景', '按原问题复验');
+  fill('期望结果', '260 箱');
+  fill('实际结果', '260 箱');
+  fill('数据与复验依据', '只读库对账');
+  fireEvent.click(submit);
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/verifications',
+    'POST',
+    expect.objectContaining({ decision: 'PASSED', recheckRequestId: 'recheck-1' }),
+    'feedback.verify',
+    expect.any(String),
+  );
+});
 
 /** 结果只有确认生效后才会开始待验证流程。 */
 it('提交展示修复前要求生效确认', async () => {

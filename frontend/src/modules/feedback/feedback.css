@@ -1,17 +1,7 @@
-/* 编号筛选保留完整显示宽度，窄窗由查询表单自然换行。 */
-.feedback-filter .ant-input-affix-wrapper {
-  width: 168px;
-}
-
-/* 来源选择与编号条件使用相近尺度，窄窗自然换行。 */
-.feedback-origin-filter .ant-select {
-  min-width: 132px;
-}
-
 /* 分组留在结果面板内，分页与表格使用共用高度。 */
 .feedback-queue-tabs {
   flex: none;
-  padding-inline: 16px;
+  padding-inline: 24px;
 }
 
 /* 分组栏直接贴合列表表头。 */
@@ -19,11 +9,46 @@
   margin: 0;
 }
 
+/* 队列表格的摘要和下一步按同一正文与元信息节奏排列。 */
+.feedback-records .ant-table-tbody > tr[data-row-key] {
+  height: 64px;
+}
+
+.feedback-records .ant-table-tbody > tr[data-row-key] > td {
+  padding-block: 11px;
+}
+
+.feedback-table-value {
+  display: grid;
+  min-width: 0;
+  line-height: 24px;
+}
+
+.feedback-table-primary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 缩窄窗口时日期留在单行，由表格保留横向视口。 */
+.feedback-date-cell {
+  white-space: nowrap;
+}
+
+.feedback-table-value small,
+.feedback-identity > .feedback-meta {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: 16px;
+}
+
 /* 详情的标题、页签与底栏采用相同的桌面阅读轴。 */
 .panel.feedback-detail {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   padding: 0;
 }
 
@@ -35,9 +60,53 @@
 /* 事项编号与实际状态同排阅读。 */
 .feedback-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+/* 用实际事项摘要识别工作区，编号保留在同一阅读轴。 */
+.feedback-identity {
+  min-width: 0;
+}
+
+.feedback-identity > h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  line-height: 26px;
+  overflow-wrap: anywhere;
+}
+
+/* 内容超出时只滚动当前页签，标题和操作保持可见。 */
+.feedback-detail-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.feedback-detail-tabs > .ant-tabs-body-holder {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* 核查、结果与复验使用一致的段落标题。 */
+.feedback-detail-tabs :is(h3) {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 跨模块办理入口与复验动作各自成组。 */
+.feedback-work-links,
+.feedback-recheck-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.feedback-recheck-controls {
+  margin-block-end: 16px;
 }
 
 /* 状态文字保持后台标准的小标签，黄色和蓝色都有足够对比度。 */
@@ -70,11 +139,22 @@
   margin-block: 8px;
 }
 
-/* 回告派发和已读独立于操作时间线。 */
+/* 回告派发和已读独立于操作记录，状态间留出可扫描的距离。 */
 .feedback-notice-summary {
-  padding: 8px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-block-end: 16px;
+  padding: 12px 16px;
   border-radius: 6px;
   background: var(--do-subtle);
+}
+
+/* 回告状态之后的阅读时间作为辅助信息。 */
+.feedback-notice-summary time {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
 }
 
 /* 分组页签与详情标题保持同一左边界。 */
@@ -86,7 +166,7 @@
 /* 当前标签正文在面板内部定位，历史和证据共用同一阅读宽度。 */
 .feedback-detail-tabs [role='tabpanel'] {
   min-width: 0;
-  padding: 20px 24px;
+  padding: 24px;
 }
 
 /* 透出多行复核文案的原换行，长编号可以折行。 */
@@ -100,13 +180,6 @@
   margin-block-start: 20px;
   padding-block-start: 16px;
   border-top: 1px solid var(--do-line);
-}
-
-/* 段落标题使用紧凑正文尺度。 */
-.feedback-evidence-section > h3 {
-  margin-block: 0 8px;
-  font-size: 14px;
-  line-height: 22px;
 }
 
 /* 原问和反馈理由优先阅读，关联时间随后展示。 */
@@ -162,12 +235,62 @@
   border-bottom: 1px solid var(--do-line);
 }
 
-/* 办理动作、操作者和时间按阅读顺序自然换行。 */
-.feedback-history-line {
+/* 操作记录之间保留完整段落间距，单条记录末尾无需分割线。 */
+.feedback-history-list > li {
+  padding-block: 20px;
+}
+
+/* 首条从页签的内容起点开始，最后一条收在正文结束处。 */
+.feedback-history-list > li:first-child {
+  padding-block-start: 0;
+}
+
+/* 去掉末条装饰线，分割线只表示记录之间的边界。 */
+.feedback-history-list > li:last-child {
+  padding-block-end: 0;
+  border-bottom: 0;
+}
+
+/* 标题先读，时间在同一标题行收尾，多倍缩放时可换行。 */
+.feedback-history-heading {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  justify-content: space-between;
+  gap: 4px 16px;
+  line-height: 24px;
+}
+
+/* 正文与标题留出分组距离，字段行共用固定标签轴。 */
+.feedback-history-fields {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  line-height: 24px;
+}
+
+/* 先读语义标签，再进入可多行的完整值。 */
+.feedback-history-fields > div {
+  display: grid;
+  grid-template-columns: 4em minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* 字段名使用辅助颜色，实际内容保持后台正文字色。 */
+.feedback-history-fields dt {
+  color: var(--do-muted);
+}
+
+/* 负责人和原文可自然折行，层级由标签列维持。 */
+.feedback-history-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 记录边界占满面板，较长的依据保持易读的行宽。 */
+.feedback-history-fields .feedback-text {
+  max-inline-size: 50em;
 }
 
 /* 时间作为记录的辅助信息。 */
@@ -178,9 +301,7 @@
 
 /* 底栏在纵向滚动时保留返回和可用办理动作。 */
 .feedback-detail-footer {
-  position: sticky;
-  z-index: 1;
-  bottom: 0;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;

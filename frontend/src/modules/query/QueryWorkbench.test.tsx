@@ -145,7 +145,12 @@ afterEach(() => {
 /** 问数工作台能浏览相邻轮次，并以不同业务单位切换和下载结果。 */
 it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async () => {
   const { objectUrl, context } = downloadBrowser();
+  const oldRating = '/query/requests/old/answers/1/rating';
   vi.mocked(api).mockImplementation(async (path) => {
+    if (path === oldRating) {
+      // 只有与该历史回答交互后，页面才读取本轮的评价。
+      return { rating: 'NONE', version: null, reason: null, queueState: 'NONE', issueId: null };
+    }
     if (path === '/query/sources')
       return [
         { id: '1', name: '能耗' },
@@ -176,6 +181,7 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
       conversationId: 'answer-conversation',
       result: series,
       state: 'RESULT_DELIVERED',
+      answerRef: id === 'old' ? { answerId: id, answerRevision: 1 } : null,
     };
   });
   const { router } = mount();
@@ -199,16 +205,15 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
   await waitFor(() => expect(objectUrl).toHaveBeenCalledTimes(2));
   expect(await readBlob(objectUrl.mock.calls[0][0])).toContain('"2026-11-21",""');
   expect(objectUrl.mock.calls[1][0].type).toBe('image/png');
-  // 历史结果先展示正文，展开原轮次操作后仍可核权导出。
+  // 历史工具保留键盘入口，首次聚焦后才读取原轮次的评价。
   const older = within((await screen.findByRole('button', { name: '上一轮' })).closest('section')!);
   expect(older.queryByAltText('')).not.toBeInTheDocument();
   expect(older.getByRole('img', { name: '净用电量趋势图' })).toBeVisible();
-  expect(older.queryByRole('button', { name: '导出 CSV' })).not.toBeInTheDocument();
-  const actions = older.getByRole('button', { name: '更多操作' });
-  expect(actions).toHaveAttribute('aria-expanded', 'false');
-  fireEvent.click(actions);
-  expect(actions).toHaveAttribute('aria-expanded', 'true');
-  expect(older.getByRole('button', { name: '查询依据' })).toBeVisible();
+  expect(older.queryByRole('button', { name: '更多操作' })).not.toBeInTheDocument();
+  expect(vi.mocked(api)).not.toHaveBeenCalledWith(oldRating);
+  fireEvent.focus(older.getByRole('button', { name: '查询依据' }));
+  expect(await older.findByRole('button', { name: '点赞' })).toBeInTheDocument();
+  expect(vi.mocked(api)).toHaveBeenCalledWith(oldRating);
   const beforeExport = vi.mocked(api).mock.calls.length;
   fireEvent.click(older.getByRole('button', { name: '导出 CSV' }));
   await waitFor(() => expect(objectUrl).toHaveBeenCalledTimes(3));
@@ -218,8 +223,6 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
       .mock.calls.slice(beforeExport)
       .map(([path]) => path),
   ).toContain('/query/requests/old');
-  fireEvent.click(actions);
-  expect(older.queryByRole('button', { name: '导出 CSV' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '搜索对话' }));
   fireEvent.change(screen.getByRole('textbox', { name: '按问题搜索' }), {
     target: { value: '能耗' },
@@ -633,13 +636,14 @@ it('单值结果只显示完整答复，同时保留明细和出处', () => {
         ...ended('stock'),
         state: 'RESULT_DELIVERED',
         executionState: 'SUCCEEDED',
+        executedAt: '2026-11-22T11:04:58Z',
         result: {
           columns: [{ name: 'value', label: '可售库存' }],
           rows: [['85']],
           unit: '箱',
           scope: '源库核对口径。',
           truncated: false,
-          dataUpdatedAt: null,
+          dataUpdatedAt: '2026-11-22T10:00:00Z',
         },
         evidence: { title: '库存口径', revision: 1, revisionId: 'r1', fragment: 0 },
         explanation: { revision: 1, status: 'COMPLETED', text: '实际可售库存 85 箱。' },
@@ -652,6 +656,12 @@ it('单值结果只显示完整答复，同时保留明细和出处', () => {
   const scope = screen.getByText('源库核对口径。');
   expect(scope).not.toBeVisible();
   const basis = screen.getByRole('button', { name: '查询依据' });
+  // 辅助时间与工具行同级，图标仍有可访问名称。
+  expect(basis).toHaveTextContent(/^$/);
+  const executedAt = basis.closest('article')?.querySelector('time');
+  expect(executedAt).toHaveAttribute('datetime', '2026-11-22T11:04:58Z');
+  expect(executedAt?.parentElement).toContainElement(basis);
+  expect(screen.queryByText(/查询于|数据更新/)).not.toBeInTheDocument();
   fireEvent.click(basis);
   expect(basis).toHaveAttribute('aria-expanded', 'true');
   expect(scope).toBeVisible();

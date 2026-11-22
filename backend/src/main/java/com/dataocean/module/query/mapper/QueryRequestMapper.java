@@ -48,7 +48,8 @@ public interface QueryRequestMapper {
             String failurePhase,
             String failureCode,
             String failureRuleSignature,
-            String failureEventId) {}
+            String failureEventId,
+            String recheckOriginId) {}
 
     /** 写回执行许可时固定的已校验输入。 */
     record Permit(
@@ -72,7 +73,9 @@ public interface QueryRequestMapper {
             String question,
             String conversation,
             boolean inherit,
-            byte[] fingerprint) {}
+            byte[] fingerprint,
+            String recheckOriginId,
+            String supplement) {}
 
     /** 使用同一业务主键回读，调用方核验来源和本人。 */
     @Select("SELECT * FROM qry_request WHERE id=#{id}")
@@ -116,6 +119,15 @@ public interface QueryRequestMapper {
             """)
     List<History> history(long user, long source);
 
+    /** 只恢复当前复验人就原问、当期提交时间派发的最近轮次。 */
+    @Select(
+            """
+            SELECT id FROM qry_request
+            WHERE recheck_origin_id=#{origin} AND user_id=#{actor} AND created_at >= #{submittedAt}
+            ORDER BY created_at DESC,id DESC LIMIT 1
+            """)
+    String latestFeedbackReplay(String origin, long actor, LocalDateTime submittedAt);
+
     /** 轮次列表只加载定位字段。 */
     record History(String id, String question, String state, LocalDateTime createdAt) {}
 
@@ -123,9 +135,9 @@ public interface QueryRequestMapper {
     @Insert(
             """
             INSERT INTO qry_request(id,user_id,authentication_version,source_id,command_id,previous_id,
-                question,conversation_id,inherit_context,command_fingerprint,state)
+                question,conversation_id,inherit_context,command_fingerprint,state,recheck_origin_id,supplement)
             VALUES(#{id},#{user},#{authentication},#{source},#{command},#{previous},
-                #{question},#{conversation},#{inherit},#{fingerprint},'QUEUED')
+                #{question},#{conversation},#{inherit},#{fingerprint},'QUEUED',#{recheckOriginId},#{supplement})
             ON DUPLICATE KEY UPDATE id=id
             """)
     void insert(Input input);
@@ -289,6 +301,7 @@ public interface QueryRequestMapper {
     @Select(
             """
             SELECT id FROM qry_request WHERE failure_event_id IS NULL AND failure_code IS NOT NULL
+                AND recheck_origin_id IS NULL
                 AND state IN ('KNOWLEDGE_INSUFFICIENT','TECHNICAL_FAILURE') ORDER BY updated_at,id LIMIT 50
             """)
     List<String> pendingIssueRequests();

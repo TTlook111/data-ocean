@@ -1,16 +1,16 @@
 import {
   BookOutlined,
-  DownOutlined,
   DownloadOutlined,
+  PictureOutlined,
   ReloadOutlined,
   TableOutlined,
-  UpOutlined,
 } from '@ant-design/icons';
 import { Alert, Button } from 'antd';
 import { useId, useState } from 'react';
 import type { Snapshot } from './types';
 import { TrendPanel } from './TrendChart';
 import { AnswerRating } from './AnswerRating';
+import { QueryIconButton } from './QueryIconButton';
 import { trendFromResult } from './trend';
 import styles from './query.module.css';
 
@@ -81,9 +81,7 @@ export function QueryAnswer({
   historical?: boolean;
 }) {
   const [panel, setPanel] = useState<'data' | 'basis' | null>(null);
-  const [historyTools, setHistoryTools] = useState<'unopened' | 'expanded' | 'collapsed'>(
-    'unopened',
-  );
+  const [historyRatingRequested, setHistoryRatingRequested] = useState(false);
   const panelId = useId();
   const result = row.result;
   if (!result) {
@@ -113,7 +111,11 @@ export function QueryAnswer({
   const thinking = explaining(row);
   const waitingForAnswer = metric && thinking;
   const hasBasis = Boolean(row.evidence || result.scope || row.sql);
-  const toolsMounted = !historical || historyTools !== 'unopened';
+  // 历史评价仍只在第一次与对应回答交互时读取。
+  const requestHistoryRating =
+    historical && row.answerRef && !historyRatingRequested
+      ? () => setHistoryRatingRequested(true)
+      : undefined;
   const table = (
     <div className={styles.tableScroll}>
       <table className={styles.table}>
@@ -143,56 +145,58 @@ export function QueryAnswer({
   const resultActions = (
     <div className={styles.answerActions} role="group" aria-label="结果操作">
       {metric && (
-        <Button
-          type="text"
-          size="small"
+        <QueryIconButton
+          label="数据明细"
           icon={<TableOutlined aria-hidden />}
           aria-expanded={panel === 'data'}
           aria-controls={panelId + '-data'}
           onClick={() => setPanel(panel === 'data' ? null : 'data')}
-        >
-          数据明细
-        </Button>
+        />
       )}
       {hasBasis && (
-        <Button
-          type="text"
-          size="small"
+        <QueryIconButton
+          label="查询依据"
           icon={<BookOutlined aria-hidden />}
           aria-expanded={panel === 'basis'}
           aria-controls={panelId + '-basis'}
           onClick={() => setPanel(panel === 'basis' ? null : 'basis')}
-        >
-          查询依据
-        </Button>
+        />
       )}
-      <Button type="text" size="small" icon={<DownloadOutlined aria-hidden />} onClick={onDownload}>
-        导出 CSV
-      </Button>
+      <QueryIconButton
+        label="导出 CSV"
+        icon={<DownloadOutlined aria-hidden />}
+        onClick={onDownload}
+      />
       {trend && onDownloadChart && (
-        <Button type="text" size="small" onClick={onDownloadChart}>
-          导出图表
-        </Button>
+        <QueryIconButton
+          label="导出图表"
+          icon={<PictureOutlined aria-hidden />}
+          onClick={onDownloadChart}
+        />
       )}
       {onRequery && (
-        <Button type="text" size="small" icon={<ReloadOutlined aria-hidden />} onClick={onRequery}>
-          重新查询
-        </Button>
+        <QueryIconButton
+          label="重新查询"
+          icon={<ReloadOutlined aria-hidden />}
+          onClick={onRequery}
+        />
       )}
     </div>
   );
-  const metadata = (
-    <div className={styles.metadata}>
-      {row.executedAt && <span>查询于 {dateTime.format(new Date(row.executedAt))}</span>}
-      <span>
-        {result.dataUpdatedAt
-          ? '数据更新于 ' + dateTime.format(new Date(result.dataUpdatedAt))
-          : '数据更新时间未知'}
-      </span>
-    </div>
+  // 查询时间只占工具行的辅助位置，不插入回答正文或直播区域。
+  const queryTime = row.executedAt && (
+    <time className={styles.queryTime} dateTime={row.executedAt}>
+      {dateTime.format(new Date(row.executedAt))}
+    </time>
   );
   return (
-    <article className={styles.answer} aria-label="查询结果">
+    <article
+      className={styles.answer}
+      aria-label="查询结果"
+      data-details-open={panel !== null || undefined}
+      onPointerEnter={requestHistoryRating}
+      onFocus={requestHistoryRating}
+    >
       {/* 只播报结果变化，评价表单在独立的区域处理反馈。 */}
       <div aria-live={historical ? undefined : 'polite'}>
         {/* 单值答复优先显示完整句子，无法生成时仍交付已核验的数值。 */}
@@ -226,69 +230,54 @@ export function QueryAnswer({
             )}
           </div>
         )}
-        {!historical && !waitingForAnswer && metadata}
       </div>
-      {historical && !waitingForAnswer && (
-        <Button
-          className={styles.historyTools}
-          type="text"
-          size="small"
-          icon={
-            historyTools === 'expanded' ? <UpOutlined aria-hidden /> : <DownOutlined aria-hidden />
-          }
-          aria-expanded={historyTools === 'expanded'}
-          aria-controls={toolsMounted ? panelId + '-tools' : undefined}
-          onClick={() => setHistoryTools(historyTools === 'expanded' ? 'collapsed' : 'expanded')}
-        >
-          更多操作
-        </Button>
-      )}
-      {/* 展开后才读取评价。临时收起时继续保留已经填写的草稿和已展开的依据。 */}
-      {toolsMounted && (
-        <div
-          id={panelId + '-tools'}
-          hidden={waitingForAnswer || (historical && historyTools === 'collapsed')}
-        >
-          {historical && metadata}
-          {row.answerRef ? (
-            <AnswerRating
-              key={row.answerRef.answerId + ':' + row.answerRef.answerRevision}
-              {...row.answerRef}
-              sourceId={row.sourceId}
-              resultActions={resultActions}
-            />
-          ) : (
-            <div className={styles.answerFooter}>{resultActions}</div>
-          )}
-          {/* 明细和依据仍在原答复附近展开。 */}
-          {metric && (
-            <div id={panelId + '-data'} className={styles.answerPanel} hidden={panel !== 'data'}>
-              {table}
+      {/* 工具占位固定，鼠标移开或重试说明时保留已有草稿和面板。 */}
+      <div hidden={waitingForAnswer}>
+        {row.answerRef ? (
+          <AnswerRating
+            key={row.answerRef.answerId + ':' + row.answerRef.answerRevision}
+            {...row.answerRef}
+            sourceId={row.sourceId}
+            resultActions={resultActions}
+            queryTime={queryTime}
+            enabled={!historical || historyRatingRequested}
+          />
+        ) : (
+          <div className={styles.answerFooter}>
+            <div className={styles.answerToolbar}>
+              {resultActions}
+              {queryTime}
             </div>
-          )}
-          {hasBasis && (
-            <div id={panelId + '-basis'} className={styles.answerPanel} hidden={panel !== 'basis'}>
-              <div className={styles.basis}>
-                {row.evidence && (
-                  <div className={styles.basisVersion}>
-                    <strong>{row.evidence.title}</strong>
-                    <span>
-                      r{row.evidence.revision} · 片段 {row.evidence.fragment + 1}
-                    </span>
-                  </div>
-                )}
-                {result.scope && <p>{result.scope}</p>}
-                {row.sql && (
-                  <details className={styles.sql}>
-                    <summary>查看 SQL</summary>
-                    <pre>{row.sql}</pre>
-                  </details>
-                )}
-              </div>
+          </div>
+        )}
+        {/* 明细和依据仍在原答复附近展开。 */}
+        {metric && (
+          <div id={panelId + '-data'} className={styles.answerPanel} hidden={panel !== 'data'}>
+            {table}
+          </div>
+        )}
+        {hasBasis && (
+          <div id={panelId + '-basis'} className={styles.answerPanel} hidden={panel !== 'basis'}>
+            <div className={styles.basis}>
+              {row.evidence && (
+                <div className={styles.basisVersion}>
+                  <strong>{row.evidence.title}</strong>
+                  <span>
+                    r{row.evidence.revision} · 片段 {row.evidence.fragment + 1}
+                  </span>
+                </div>
+              )}
+              {result.scope && <p>{result.scope}</p>}
+              {row.sql && (
+                <details className={styles.sql}>
+                  <summary>查看 SQL</summary>
+                  <pre>{row.sql}</pre>
+                </details>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </article>
   );
 }

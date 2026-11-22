@@ -11,4 +11,5 @@ public record VerifyIssueDTO(
         @NotBlank @Size(max = 1000) String testScope,
         @NotBlank @Size(max = 500) String expected,
         @NotBlank @Size(max = 1000) String actual,
-        @NotBlank @Size(max = 1000) String dataBasis) {}
+        @NotBlank @Size(max = 1000) String dataBasis,
+        @Size(max = 36) String recheckRequestId) {}

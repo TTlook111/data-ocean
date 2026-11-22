@@ -48,7 +48,10 @@ public record FeedbackIssueDetailVO(
             boolean canCloseOther,
             ProcessingResult result,
             Recheck verification,
-            NoticeStatus notice) {}
+            NoticeStatus notice,
+            boolean canSubmitKnowledge,
+            boolean canReplayQuestion,
+            String recheckRequestId) {}
 
     /** 已提交结果与实际修复影响范围。 */
     public record ProcessingResult(
@@ -58,7 +61,8 @@ public record FeedbackIssueDetailVO(
             String checkMethod,
             String reference,
             String regression,
-            Instant submittedAt) {}
+            Instant submittedAt,
+            String knowledgeBindingId) {}
 
     /** 人工登记的检查与当前版本、测试授权上下文的对应关系。 */
     public record Recheck(
@@ -69,7 +73,8 @@ public record FeedbackIssueDetailVO(
             String expected,
             String actual,
             String dataBasis,
-            Instant verifiedAt) {}
+            Instant verifiedAt,
+            String recheckRequestId) {}
 
     /** 回告的收件与阅读状态与事项结案分开。 */
     public record NoticeStatus(String state, Instant sentAt, Instant readAt) {}

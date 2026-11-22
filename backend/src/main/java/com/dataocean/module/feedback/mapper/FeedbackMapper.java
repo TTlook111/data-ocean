@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
+import com.dataocean.module.query.service.QueryProtocol.SourceOption;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,7 +50,9 @@ public interface FeedbackMapper {
             Integer resultVersion,
             Integer verificationVersion,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {}
+            LocalDateTime updatedAt,
+            String summary,
+            int referenceCount) {}
 
     /** 写操作按确定的下一版本保存操作与必要核查依据。 */
     record Activity(
@@ -75,14 +78,42 @@ public interface FeedbackMapper {
             String conclusion,
             LocalDateTime occurredAt) {}
 
+    /** 搜索仅使用可公开给队列角色的固定摘要，不从原问或反馈原文推断。 */
+    String ISSUE_SUMMARY =
+            """
+            CASE
+                WHEN i.origin='USER_DISLIKE' THEN '问数回答收到反馈'
+                WHEN q.failure_code='NO_PUBLISHED_KNOWLEDGE' THEN '数据源缺少已发布知识'
+                WHEN i.origin='QUERY_KNOWLEDGE_GAP' THEN '现有知识不足以回答原问题'
+                WHEN q.execution_state='UNKNOWN' THEN '查询执行状态待核实'
+                ELSE '问数执行失败'
+            END
+            """;
+
     /** 基础事项查询统一返回同一组列。 */
     String ISSUE_SELECT =
             """
             SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_request_id AS request_id,
                 i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,
-                i.result_version,i.verification_version,i.created_at,i.updated_at
+                i.result_version,i.verification_version,i.created_at,i.updated_at,
+                CASE WHEN i.origin='USER_DISLIKE' THEN 1 ELSE
+                    (SELECT COUNT(*) FROM fb_issue_query_evidence e WHERE e.issue_id=i.id) END AS reference_count,
+            """
+                    + ISSUE_SUMMARY
+                    + """
+                AS summary
             FROM fb_issue i JOIN ds_source s ON s.id=i.source_id LEFT JOIN iam_user u ON u.id=i.assignee_id
+            JOIN qry_request q ON q.id=i.origin_request_id
             """;
+
+    /** 已有事项使用的来源是队列内的数据源选项。 */
+    @Select(
+            """
+            SELECT CAST(s.id AS CHAR) AS id,s.name FROM ds_source s
+            WHERE EXISTS(SELECT 1 FROM fb_issue i WHERE i.source_id=s.id)
+            ORDER BY s.name,s.id
+            """)
+    List<SourceOption> issueSources();
 
     /** 历史正文可为空，基础查看只需要同版操作元数据。 */
     String ACTIVITY_SELECT =
@@ -197,6 +228,15 @@ public interface FeedbackMapper {
                 <if test="source != null">i.source_id=#{source}</if>
                 <if test="issue != null">AND i.id=#{issue}</if>
                 <if test="origin != null">AND i.origin=#{origin}</if>
+                <if test="status != null">AND i.status=#{status}</if>
+                <if test="assignee != null">AND u.display_name LIKE #{assignee} ESCAPE '!'</if>
+                <if test="keyword != null">
+                    AND (CONCAT('#',i.id) LIKE #{keyword} ESCAPE '!' OR (
+            """
+                    + ISSUE_SUMMARY
+                    + """
+                    ) LIKE #{keyword} ESCAPE '!')
+                </if>
                 <if test="scope == 'OWNED'">AND i.assignee_id=#{actor} AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION')</if>
                 <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER')</if>
                 <if test="scope == 'MINE'">
@@ -222,6 +262,9 @@ public interface FeedbackMapper {
             Long issue,
             String scope,
             String origin,
+            String keyword,
+            String status,
+            String assignee,
             long actor,
             boolean canAssign,
             boolean canReview,
@@ -236,7 +279,8 @@ public interface FeedbackMapper {
     @Select(
             """
             SELECT id,source_id,NULL AS source_name,origin,origin_request_id AS request_id,
-                status,assignee_id,NULL AS assignee_name,version,direction,result_version,verification_version,created_at,updated_at
+                status,assignee_id,NULL AS assignee_name,version,direction,result_version,verification_version,
+                created_at,updated_at,NULL AS summary,0 AS reference_count
             FROM fb_issue WHERE id=#{id} FOR UPDATE
             """)
     Issue lockIssue(long id);

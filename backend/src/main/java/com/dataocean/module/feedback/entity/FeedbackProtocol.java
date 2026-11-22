@@ -41,5 +41,8 @@ public final class FeedbackProtocol {
             String assigneeId,
             String assigneeName,
             Instant createdAt,
-            Instant updatedAt) {}
+            Instant updatedAt,
+            String summary,
+            int referenceCount,
+            String nextAction) {}
 }

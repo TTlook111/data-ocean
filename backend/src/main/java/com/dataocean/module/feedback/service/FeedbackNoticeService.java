@@ -234,7 +234,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     /** 产品内模板只来自固定枚举，内部结论和自由文本不参与。 */
     private String message(String template, boolean canAsk) {
         return switch (template) {
-            case "RESOLVED" -> "你提交的反馈已完成处理并通过复验。" + (canAsk ? "可以重新查询原问题。" : "");
+            case "RESOLVED" -> "这次问数的问题已处理并通过复验。" + (canAsk ? "可以重新查询原问题。" : "");
             case "DEFINITION_CONFIRMED" -> "本次反馈已按现行口径核查并结案。";
             case "NOT_REPRODUCED" -> "本次核查未能复现反馈的问题，已保留反馈记录。";
             case "CANCELLED" -> "本次反馈已按核查依据取消处理。";

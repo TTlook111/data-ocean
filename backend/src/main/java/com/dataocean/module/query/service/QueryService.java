@@ -162,16 +162,78 @@ public class QueryService {
 
     /** 接收原始问题和命令，网络重放不再生成新的轮次。 */
     public Accepted ask(Ask input, String header) {
+        return submit(input, header, null);
+    }
+
+    /** 在办理人的当前权限下重跑原问，保留原补充和原业务日锚点。 */
+    public Accepted replayFeedback(String id, AccessScopeVO scope, String command) {
+        var original = requests.get(uuid(id));
+        if (original == null || !canReplayFeedback(id, scope)) {
+            throw BizIllegalException.state("原问题的条件无法完整、安全地用于复验");
+        }
+        return submit(
+                new Ask(Ids.text(original.sourceId()), original.question(), null, null, false), command, original);
+    }
+
+    /** 只复用当前可核对的原问与补充，不把其他人的对话历史传给模型。 */
+    public boolean canReplayFeedback(String id, AccessScopeVO scope) {
+        var row = requests.get(uuid(id));
+        return row != null
+                && Ids.text(row.sourceId()).equals(scope.getSource().getId())
+                && Objects.equals(evidenceRuleSignature(row), feedbackRuleSignature(scope))
+                && feedbackText(scope, row.question()) != null
+                && (row.supplement() == null || feedbackText(scope, row.supplement()) != null)
+                && (row.previousId() == null || !row.inheritContext());
+    }
+
+    /** 办理详情只恢复本人的原问题复验轮次。 */
+    public String latestFeedbackReplay(String origin, LocalDateTime submittedAt) {
+        return requests.latestFeedbackReplay(uuid(origin), UserContext.getUser(), submittedAt);
+    }
+
+    /** 核对复验真实轮次、执行身份、现行输出规则和命中的正式绑定。 */
+    public boolean feedbackReplayMatches(
+            String id,
+            String origin,
+            long actor,
+            long source,
+            long binding,
+            LocalDateTime publishedAt,
+            String ruleSignature,
+            boolean passed) {
+        var row = requests.get(uuid(id));
+        if (row == null
+                || row.userId() != actor
+                || row.sourceId() != source
+                || !origin.equals(row.recheckOriginId())
+                || row.createdAt().isBefore(publishedAt)
+                || !Objects.equals(ruleSignature, evidenceRuleSignature(row))) {
+            return false;
+        }
+        var original = requests.get(origin);
+        return passed
+                ? "RESULT_DELIVERED".equals(row.state())
+                        && "SUCCEEDED".equals(row.executionState())
+                        && row.executedAt() != null
+                        && Objects.equals(row.bindingId(), binding)
+                        && !Objects.equals(original.bindingId(), row.bindingId())
+                        && Objects.equals(row.supplement(), original.supplement())
+                : Set.of("RESULT_DELIVERED", "KNOWLEDGE_INSUFFICIENT", "TECHNICAL_FAILURE")
+                        .contains(row.state());
+    }
+
+    /** 普通问数和治理复验共用命令防重、认证、排队及真实执行路径。 */
+    private Accepted submit(Ask input, String header, Request original) {
         String command = uuid(header);
         long source = Ids.parse(input.sourceId());
         String question = text(input.question(), 600);
         String requestedParent = input.previousId() == null ? null : uuid(input.previousId());
         String requestedConversation = input.conversationId() == null ? null : uuid(input.conversationId());
         boolean inherit = !Boolean.FALSE.equals(input.inheritContext());
-        var fingerprint = fingerprints.command(
-                "query.submit",
-                Ids.text(source),
-                new Ask(Ids.text(source), question, requestedParent, requestedConversation, inherit));
+        var normalized = new Ask(Ids.text(source), question, requestedParent, requestedConversation, inherit);
+        var fingerprint = original == null
+                ? fingerprints.command("query.submit", Ids.text(source), normalized)
+                : fingerprints.command("query.feedback.replay", original.id(), normalized);
         var actor = UserContext.current();
         return tx.execute(status -> {
             guard.shared();
@@ -183,7 +245,8 @@ public class QueryService {
                 // 重放只返回原收据，不把最新会话指针作为隐式新参数。
                 boolean mismatched = replay.commandFingerprint() != null
                         ? !MessageDigest.isEqual(replay.commandFingerprint(), fingerprint)
-                        : replay.sourceId() != source
+                        : original != null
+                                || replay.sourceId() != source
                                 || !replay.question().equals(question)
                                 || replay.inheritContext() != inherit
                                 || (requestedParent != null && !requestedParent.equals(replay.previousId()))
@@ -232,7 +295,9 @@ public class QueryService {
                     question,
                     conversationId,
                     inherit,
-                    fingerprint));
+                    fingerprint,
+                    original == null ? null : original.id(),
+                    original == null ? null : original.supplement()));
             return new Accepted(id);
         });
     }
@@ -898,7 +963,7 @@ public class QueryService {
             }
             var frozen = new RunInput(
                     signature,
-                    context.capture(row, signature),
+                    memory(row, signature),
                     bindings,
                     models.revision("sql-generate"),
                     models.revision("sql-semantic-check"),
@@ -908,6 +973,16 @@ public class QueryService {
             }
             return frozen;
         });
+    }
+
+    /** 复验只沿用原问题接受日，继续使用当前发布的知识与当前权限。 */
+    private QueryProtocol.Memory memory(Request row, String signature) {
+        if (row.recheckOriginId() == null) {
+            return context.capture(row, signature);
+        }
+        var original = requests.get(row.recheckOriginId());
+        return new QueryProtocol.Memory(
+                original.createdAt().toInstant(ZoneOffset.UTC).toString(), List.of(), List.of());
     }
 
     /** 检索使用有界同源上下文，步骤回执指纹同时绑定原提问和已确认条件。 */

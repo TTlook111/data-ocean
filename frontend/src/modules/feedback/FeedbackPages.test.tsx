@@ -76,6 +76,13 @@ function mount(path = '/feedback', state?: { feedbackFocus?: string }) {
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
   const url = new URL(path, 'http://feedback.test');
+  // 按接口独立回退来源列表，事项列表与详情响应继续由各用例控制。
+  if (url.pathname === '/feedback') {
+    const response = vi.mocked(api).getMockImplementation();
+    vi.mocked(api).mockImplementation(async (path, options) =>
+      path === '/feedback/sources' ? [{ id: '17', name: '库存验收库' }] : response?.(path, options),
+    );
+  }
   const router = createMemoryRouter(
     [
       { path: '/feedback', element: <FeedbackQueue /> },
@@ -115,10 +122,13 @@ it('在队列筛选、分页并通过同一编号返回', async () => {
   const { router } = mount();
   await screen.findByRole('button', { name: '查看事项 #21' });
   expect(screen.getByText('问数点踩')).toBeVisible();
-  expect(screen.getByText('待分派')).toBeVisible();
+  expect(screen.getAllByText('待分派')).toHaveLength(2);
   fireEvent.click(screen.getByRole('tab', { name: '待我处理' }));
   await waitFor(() => expect(router.state.location.search).toContain('scope=MINE'));
-  fireEvent.change(screen.getByLabelText('数据源编号'), { target: { value: '17' } });
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: '数据源' }));
+  fireEvent.click(
+    await screen.findByText('库存验收库', { selector: '.ant-select-item-option-content' }),
+  );
   fireEvent.click(screen.getByRole('button', { name: /查\s*询/ }));
   await waitFor(() =>
     expect(vi.mocked(api)).toHaveBeenCalledWith('/feedback/issues?sourceId=17&scope=MINE'),
@@ -136,16 +146,13 @@ it('在队列筛选、分页并通过同一编号返回', async () => {
   await waitFor(() => expect(screen.getByRole('button', { name: '查看事项 #21' })).toHaveFocus());
 });
 
-/** 拒绝无效编号，返回时事项已移出筛选范围则回查询输入。 */
+/** 返回时事项已移出筛选范围则回查询输入，已用条件可以整体清空。 */
 it('在无匹配或无权限时提供不同的反馈', async () => {
   vi.mocked(api).mockResolvedValue(page([]));
   const { router, cache } = mount('/feedback?issueId=21&scope=MINE', { feedbackFocus: '21' });
   expect(await screen.findByText('没有匹配的记录')).toBeVisible();
-  const number = screen.getByLabelText('事项编号');
+  const number = screen.getByLabelText('问题摘要或编号');
   expect(number).toHaveFocus();
-  fireEvent.change(number, { target: { value: '0' } });
-  fireEvent.click(screen.getByRole('button', { name: /查\s*询/ }));
-  expect(await screen.findByText('请输入有效的事项编号')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '清空条件' }));
   expect(await screen.findByText('暂无待办事项')).toBeVisible();
   expect(router.state.location.search).toBe('?scope=MINE');
@@ -157,27 +164,32 @@ it('在无匹配或无权限时提供不同的反馈', async () => {
 
 /** 读失败的重试只重读同一过滤条件，负责人和新状态均可辨认。 */
 it('重读失败列表并保留我负责的分组', async () => {
-  vi.mocked(api)
-    .mockRejectedValueOnce(new Error('连接中断'))
-    .mockResolvedValue(
-      page([
-        {
-          ...issue,
-          origin: 'TECHNICAL_FAILURE',
-          status: 'IN_PROGRESS',
-          assigneeId: '7',
-          assigneeName: '陈处理员',
-        },
-      ]),
-    );
+  let fail = true;
+  vi.mocked(api).mockImplementation(async () => {
+    if (fail) {
+      fail = false;
+      throw new Error('连接中断');
+    }
+    return page([
+      {
+        ...issue,
+        origin: 'TECHNICAL_FAILURE',
+        status: 'IN_PROGRESS',
+        assigneeId: '7',
+        assigneeName: '陈处理员',
+      },
+    ]);
+  });
   mount('/feedback?scope=OWNED');
   fireEvent.click(await screen.findByRole('button', { name: '重新加载' }));
   expect(await screen.findByText('陈处理员')).toBeVisible();
   expect(screen.getByText('处理中')).toBeVisible();
-  expect(vi.mocked(api).mock.calls.map(([path]) => path)).toEqual([
-    '/feedback/issues?scope=OWNED',
-    '/feedback/issues?scope=OWNED',
-  ]);
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.map(([path]) => path)
+      .filter((path) => path.startsWith('/feedback/issues')),
+  ).toEqual(['/feedback/issues?scope=OWNED', '/feedback/issues?scope=OWNED']);
 });
 
 /** 原问、用户补充、反馈和 SQL 在相应区域独立呈现。 */
@@ -317,9 +329,9 @@ it('完成详情中的核查并反映新记录', async () => {
   fireEvent.click(screen.getByRole('tab', { name: '记录与回告' }));
   const history = within(screen.getByRole('tabpanel', { name: '记录与回告' }));
   expect(history.getByText('分派事项')).toBeVisible();
-  expect(history.getByText('负责人 陈处理员')).toBeVisible();
+  expect(history.getByText('负责人').nextElementSibling).toHaveTextContent('陈处理员');
+  expect(history.getByText('分派依据').nextElementSibling).toHaveTextContent('请复核库存展示');
   expect(history.getByText('定位到图表单位设置')).toBeVisible();
-  expect(history.getByText('请复核库存展示')).toBeVisible();
 });
 
 /** 提交成功后读取异常时撤下旧表单，重试仅回读当前详情。 */
@@ -443,7 +455,8 @@ it('按知识缺口筛选，进入真实事项的默认分派方向', async () =
   );
   const { router } = mount();
   await screen.findByRole('button', { name: '查看事项 #21' });
-  fireEvent.mouseDown(screen.getByRole('combobox', { name: '来源' }));
+  fireEvent.click(screen.getByRole('button', { name: '更多筛选' }));
+  fireEvent.mouseDown(await screen.findByRole('combobox', { name: '事项来源' }));
   fireEvent.click(await screen.findByRole('option', { name: '问数知识缺口' }));
   fireEvent.click(screen.getByRole('button', { name: /查\s*询/ }));
   await waitFor(() =>

@@ -10,6 +10,7 @@ import { useEffect, useId, useRef, useState, type ComponentRef, type ReactNode }
 import { api, ApiError } from '../../shared/api';
 import type { FeedbackNotice } from '../feedback/types';
 import { FeedbackNoticeLine } from './FeedbackNotices';
+import { QueryIconButton } from './QueryIconButton';
 import type { Snapshot } from './types';
 import styles from './query.module.css';
 
@@ -48,17 +49,24 @@ export function AnswerRating({
   answerRevision,
   sourceId,
   resultActions,
+  queryTime,
+  enabled = true,
 }: NonNullable<Snapshot['answerRef']> & {
   /** 原数据源用于定位本次已交付结果的缓存。 */
   sourceId: string;
   /** 明细和导出，与评价共享操作行。 */
   resultActions: ReactNode;
+  /** 对应原查询的时间，使用工具行的辅助位置。 */
+  queryTime?: ReactNode;
+  /** 历史答复由悬停或聚焦触发第一次评价读取。 */
+  enabled?: boolean;
 }) {
   const cache = useQueryClient();
   const path = '/query/requests/' + answerId + '/answers/' + answerRevision + '/rating';
   const rating = useQuery({
     queryKey: ['answer-rating', answerId, answerRevision],
     queryFn: () => api<Rating>(path),
+    enabled,
     // 暂时读失败时暂停轮询，由用户恢复读取。
     refetchInterval: ({ state }) => {
       if (state.error) return false;
@@ -194,26 +202,22 @@ export function AnswerRating({
   }
 
   return (
-    <div className={styles.answerFooter}>
+    <div className={styles.answerFooter} data-rating-open={Boolean(editor) || undefined}>
       {/* 结果动作与评价并排，窄窗在自然间距处换行。 */}
       <div className={styles.answerToolbar}>
         {resultActions}
         {data && (
           <div className={styles.ratingControls} role="group" aria-label="回答评价">
-            <Button
-              type="text"
-              size="small"
+            <QueryIconButton
+              label={data.rating === 'LIKE' ? '已点赞' : '点赞'}
               icon={<LikeOutlined aria-hidden />}
               aria-pressed={data.rating === 'LIKE'}
               disabled={blocked || Boolean(editor)}
               onClick={() => submit(data.rating === 'LIKE' ? 'REVOKE' : 'LIKE')}
-            >
-              {data.rating === 'LIKE' ? '已点赞' : '点赞'}
-            </Button>
-            <Button
+            />
+            <QueryIconButton
               ref={trigger}
-              type="text"
-              size="small"
+              label={data.rating === 'DISLIKE' ? '已点踩' : '点踩'}
               icon={<DislikeOutlined aria-hidden />}
               aria-pressed={data.rating === 'DISLIKE'}
               aria-expanded={Boolean(editor)}
@@ -229,9 +233,7 @@ export function AnswerRating({
                 setError(null);
                 requestAnimationFrame(() => field.current?.focus());
               }}
-            >
-              {data.rating === 'DISLIKE' ? '已点踩' : '点踩'}
-            </Button>
+            />
           </div>
         )}
         {readFailed && (
@@ -244,6 +246,7 @@ export function AnswerRating({
             重试读取评价
           </Button>
         )}
+        {queryTime}
       </div>
       {/* 保留同一播报区域，状态只来自已成功的回读。 */}
       {!data?.notice && (

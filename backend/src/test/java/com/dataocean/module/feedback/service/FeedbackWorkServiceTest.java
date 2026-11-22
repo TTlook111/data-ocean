@@ -18,6 +18,7 @@ import com.dataocean.module.access.entity.vo.AccessScopeVO;
 import com.dataocean.module.access.entity.vo.AccessSourceOptionVO;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.audit.service.AuditService;
+import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.feedback.entity.ReviewIssueDTO;
 import com.dataocean.module.feedback.entity.VerifyIssueDTO;
 import com.dataocean.module.feedback.mapper.FeedbackMapper;
@@ -32,6 +33,7 @@ import com.dataocean.module.iam.mapper.CommandMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PermissionService;
+import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
 import com.dataocean.module.query.service.QueryService;
 
 import java.time.LocalDateTime;
@@ -78,7 +80,9 @@ class FeedbackWorkServiceTest {
             mock(JsonCodec.class),
             audit,
             resolutions,
-            notices);
+            notices,
+            mock(KnowledgeVersionUse.class),
+            mock(GovernanceCatalog.class));
 
     /** 模拟真实登录主体，避免跨测试残留线程身份。 */
     @BeforeEach
@@ -136,8 +140,11 @@ class FeedbackWorkServiceTest {
         when(fingerprints.command(eq("feedback.verify.context"), eq("1"), any()))
                 .thenReturn(new byte[32]);
         when(resolutions.verify(3L, 4, 5, "IN_PROGRESS")).thenReturn(1);
+        when(resolutions.result(3L, 3))
+                .thenReturn(new FeedbackResolutionMapper.ResultRecord(
+                        3L, 3, ACTOR, "DISPLAY", "展示修复", "页面回查", null, null, row.updatedAt(), null));
         var receipt = work.verify(
-                "3", UUID.randomUUID().toString(), new VerifyIssueDTO(4, "FAILED", "库存问数", "一次", "两次", "实际页面"));
+                "3", UUID.randomUUID().toString(), new VerifyIssueDTO(4, "FAILED", "库存问数", "一次", "两次", "实际页面", null));
         assertThat(receipt.getVersion()).isEqualTo(5);
         verify(resolutions).verify(3L, 4, 5, "IN_PROGRESS");
         verifyNoInteractions(notices);
@@ -151,8 +158,8 @@ class FeedbackWorkServiceTest {
         eligibleActor();
         when(access.findSource(ACTOR, 1L)).thenReturn(Optional.empty());
         when(resolutions.verification(3L, 4))
-                .thenReturn(
-                        new Verification(3L, 4, 3, ACTOR, "原授权", "PASSED", "原问", "一次", "一次", "当前页面", row.updatedAt()));
+                .thenReturn(new Verification(
+                        3L, 4, 3, ACTOR, "原授权", "PASSED", "原问", "一次", "一次", "当前页面", row.updatedAt(), null));
         assertThatThrownBy(() -> work.closurePreview("3", "RESOLVED", null))
                 .isInstanceOf(BizIllegalException.class)
                 .hasMessage("当前处理结果尚未通过有效复验");
@@ -187,7 +194,9 @@ class FeedbackWorkServiceTest {
                 3,
                 verification,
                 row.createdAt(),
-                row.updatedAt());
+                row.updatedAt(),
+                row.summary(),
+                row.referenceCount());
     }
 
     /** 固定当前可办理、带确切版本的事项记录。 */
@@ -207,6 +216,8 @@ class FeedbackWorkServiceTest {
                 null,
                 null,
                 instant,
-                instant);
+                instant,
+                "问数回答收到反馈",
+                1);
     }
 }

@@ -15,6 +15,7 @@ import com.dataocean.module.access.entity.vo.AccessScopeVO;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
+import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.feedback.entity.AssignIssueDTO;
 import com.dataocean.module.feedback.entity.CloseIssueDTO;
 import com.dataocean.module.feedback.entity.FeedbackIssueDetailVO;
@@ -22,6 +23,7 @@ import com.dataocean.module.feedback.entity.FeedbackIssueDetailVO.Report;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.IssueRow;
 import com.dataocean.module.feedback.entity.ReviewIssueDTO;
 import com.dataocean.module.feedback.entity.SubmitIssueResultDTO;
+import com.dataocean.module.feedback.entity.SubmitKnowledgeResultDTO;
 import com.dataocean.module.feedback.entity.VerifyIssueDTO;
 import com.dataocean.module.feedback.mapper.FeedbackMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Activity;
@@ -38,6 +40,10 @@ import com.dataocean.module.iam.mapper.CommandMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PermissionService;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
+import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.query.service.QueryProtocol.Accepted;
+import com.dataocean.module.query.service.QueryProtocol.SourceOption;
 import com.dataocean.module.query.service.QueryService;
 
 import java.time.Instant;
@@ -106,9 +112,22 @@ public class FeedbackWorkService {
 
     private final FeedbackNoticeService notices;
 
+    /** 发布、暂停与复验资格沿用正式知识使用检查。 */
+    private final KnowledgeVersionUse versions;
+
+    private final GovernanceCatalog catalog;
+
     /** 队列分页在真实责任过滤之后计算，基础行不带原问题。 */
     @Transactional
-    public PageVO<IssueRow> issues(PageQuery query, String source, String issue, String scope, String origin) {
+    public PageVO<IssueRow> issues(
+            PageQuery query,
+            String source,
+            String issue,
+            String scope,
+            String origin,
+            String keyword,
+            String status,
+            String assignee) {
         guard.shared();
         permissions.require(VIEW);
         if (!Set.of("ALL", "MINE", "OWNED", "CLOSED").contains(scope)) {
@@ -116,6 +135,11 @@ public class FeedbackWorkService {
         }
         if (origin != null && !ORIGINS.contains(origin)) {
             throw BizIllegalException.invalid("无效的事项来源");
+        }
+        if (status != null
+                && !Set.of(PENDING, IN_PROGRESS, TO_VERIFY, RESOLVED, CLOSED_OTHER)
+                        .contains(status)) {
+            throw BizIllegalException.invalid("无效的事项状态");
         }
         long actor = UserContext.getUser();
         var verifySources = "MINE".equals(scope) && permissions.has(VERIFY) && permissions.has("query.view")
@@ -129,12 +153,23 @@ public class FeedbackWorkService {
                 Ids.nullable(issue),
                 scope,
                 origin,
+                keyword == null || keyword.isBlank() ? null : TextSearch.pattern(keyword),
+                status,
+                assignee == null || assignee.isBlank() ? null : TextSearch.pattern(assignee),
                 actor,
                 permissions.has(ASSIGN),
                 permissions.has(PROCESS),
                 verifySources,
                 permissions.has(CLOSE));
         return PageVO.from(page, this::summary);
+    }
+
+    /** 数据源筛选遵从与列表相同的查看权限。 */
+    @Transactional
+    public List<SourceOption> sources() {
+        guard.shared();
+        permissions.require(VIEW);
+        return feedback.issueSources();
     }
 
     /** 分派候选只返回启用且同时具有反馈查看、处理权限的人员。 */
@@ -316,14 +351,74 @@ public class FeedbackWorkService {
                     normalized.checkMethod(),
                     normalized.reference(),
                     normalized.regression(),
+                    null,
                     null));
-            if (resolutions.submit(row.id(), row.version(), next) != 1) {
-                throw BizIllegalException.conflict();
-            }
-            feedback.appendActivity(
-                    new Activity(row.id(), next, actor, "RESULT_SUBMITTED", null, null, "已提交处理结果", null, null));
-            return List.of(new ChangeVO("status", "状态", row.status(), TO_VERIFY));
+            return acceptResult(row, next, actor);
         });
+    }
+
+    /** 责任人提交已核实生效的知识版本和相应修订依据。 */
+    @Transactional
+    public MutationVO submitKnowledge(String id, String command, SubmitKnowledgeResultDTO input) {
+        long binding = Ids.parse(input.bindingId());
+        var normalized = new SubmitKnowledgeResultDTO(
+                input.expectedVersion(),
+                Ids.text(binding),
+                requiredText(input.summary(), "请填写补齐的知识"),
+                requiredText(input.checkMethod(), "请填写原问题的覆盖依据"));
+        return change(id, command, PROCESS, "feedback.knowledge.submit", input.expectedVersion(), normalized, row -> {
+            long actor = UserContext.getUser();
+            if (!canSubmitKnowledge(row, actor)) {
+                throw BizIllegalException.denied();
+            }
+            publishedBinding(row.sourceId(), binding, true);
+            int next = row.version() + 1;
+            resolutions.appendResult(new ResultRecord(
+                    row.id(),
+                    next,
+                    actor,
+                    "KNOWLEDGE",
+                    normalized.summary(),
+                    normalized.checkMethod(),
+                    null,
+                    null,
+                    null,
+                    binding));
+            return acceptResult(row, next, actor);
+        });
+    }
+
+    /** 两类办理结果使用相同的版本、审计和状态推进。 */
+    private List<ChangeVO> acceptResult(Issue row, int next, long actor) {
+        if (resolutions.submit(row.id(), row.version(), next) != 1) {
+            throw BizIllegalException.conflict();
+        }
+        feedback.appendActivity(
+                new Activity(row.id(), next, actor, "RESULT_SUBMITTED", null, null, "已提交处理结果", null, null));
+        return List.of(new ChangeVO("status", "状态", row.status(), TO_VERIFY));
+    }
+
+    /** 使用原问题发起真正的问数，复验人可在自己的工作台查看结果。 */
+    @Transactional
+    public Accepted replayQuestion(String id, String command) {
+        guard.shared();
+        permissions.require(VIEW);
+        permissions.require(VERIFY);
+        var row = requireIssue(feedback.issue(Ids.parse(id)));
+        var result = currentResult(row);
+        if (!TO_VERIFY.equals(row.status())
+                || result == null
+                || result.knowledgeBindingId() == null
+                || !eligibleHandler(row)
+                || validVerification(row, currentVerification(row))) {
+            throw BizIllegalException.state("当前知识治理结果不处于待复验状态");
+        }
+        var scope = replayScope(UserContext.getUser(), row.sourceId());
+        if (scope == null) {
+            throw BizIllegalException.denied();
+        }
+        publishedBinding(row.sourceId(), result.knowledgeBindingId(), false);
+        return queries.replayFeedback(row.requestId(), scope, command);
     }
 
     /** 人工复验绑定当前处理结果与实际操作人的源权限，未通过返回处理。 */
@@ -339,7 +434,8 @@ public class FeedbackWorkService {
                 requiredText(input.testScope(), "请填写复验场景"),
                 requiredText(input.expected(), "请填写期望结果"),
                 requiredText(input.actual(), "请填写实际结果"),
-                requiredText(input.dataBasis(), "请填写数据与复验依据"));
+                requiredText(input.dataBasis(), "请填写数据与复验依据"),
+                optionalText(input.recheckRequestId()));
         return change(id, command, VERIFY, input.expectedVersion(), normalized, row -> {
             if (!TO_VERIFY.equals(row.status()) || row.resultVersion() == null || !eligibleHandler(row)) {
                 throw BizIllegalException.state("当前处理结果或负责人资格已变化，请重新核查");
@@ -350,6 +446,17 @@ public class FeedbackWorkService {
                 throw BizIllegalException.denied();
             }
             boolean passed = "PASSED".equals(decision);
+            var result = currentResult(row);
+            if (result == null) {
+                throw BizIllegalException.state("当前处理结果已变化，请重新读取事项");
+            }
+            if (result.knowledgeBindingId() != null) {
+                if (!matchesRecheck(row, result, verifier, normalized.recheckRequestId(), passed, true)) {
+                    throw BizIllegalException.state("请先用原问题复验并核对问数结果与当前发布版本");
+                }
+            } else if (normalized.recheckRequestId() != null) {
+                throw BizIllegalException.invalid("技术复验使用实际复查记录");
+            }
             String nextStatus = passed ? TO_VERIFY : IN_PROGRESS;
             int next = row.version() + 1;
             resolutions.appendVerification(new Verification(
@@ -363,20 +470,13 @@ public class FeedbackWorkService {
                     normalized.expected(),
                     normalized.actual(),
                     normalized.dataBasis(),
-                    null));
+                    null,
+                    normalized.recheckRequestId()));
             if (resolutions.verify(row.id(), row.version(), next, nextStatus) != 1) {
                 throw BizIllegalException.conflict();
             }
             feedback.appendActivity(new Activity(
-                    row.id(),
-                    next,
-                    verifier,
-                    passed ? "VERIFIED" : "RECHECK_FAILED",
-                    null,
-                    null,
-                    "已登记人工复验",
-                    null,
-                    null));
+                    row.id(), next, verifier, passed ? "VERIFIED" : "RECHECK_FAILED", null, null, "已登记复验", null, null));
             return List.of(
                     new ChangeVO("verification", "复验结论", null, passed ? "通过" : "未通过"),
                     new ChangeVO("status", "状态", row.status(), nextStatus));
@@ -430,7 +530,7 @@ public class FeedbackWorkService {
 
     /** 展示当前结果和复验事实，技术负责人无证据权限时仍可办理。 */
     private FeedbackIssueDetailVO.Resolution resolution(Issue row, long actor, AccessScopeVO scope) {
-        var result = row.resultVersion() == null ? null : resolutions.result(row.id(), row.resultVersion());
+        var result = currentResult(row);
         var verification = currentVerification(row);
         boolean valid = validVerification(row, verification);
         boolean canClose = permissions.has(CLOSE);
@@ -444,6 +544,12 @@ public class FeedbackWorkService {
                 && permissions.has(VERIFY)
                 && eligibleHandler(row)
                 && verificationContext(actor, row.sourceId()) != null;
+        boolean canReplay = canVerify
+                && scope != null
+                && result != null
+                && result.knowledgeBindingId() != null
+                && replayScope(actor, row.sourceId()) != null
+                && queries.canReplayFeedback(row.requestId(), scope);
         var summary = result == null
                 ? null
                 : new FeedbackIssueDetailVO.ProcessingResult(
@@ -453,7 +559,10 @@ public class FeedbackWorkService {
                         visibleText(scope, result.checkMethod()),
                         visibleText(scope, result.referenceText()),
                         visibleText(scope, result.regression()),
-                        instant(result.submittedAt()));
+                        instant(result.submittedAt()),
+                        scope == null || result.knowledgeBindingId() == null
+                                ? null
+                                : Ids.text(result.knowledgeBindingId()));
         var checked = verification == null
                 ? null
                 : new FeedbackIssueDetailVO.Recheck(
@@ -464,7 +573,8 @@ public class FeedbackWorkService {
                         visibleText(scope, verification.expected()),
                         visibleText(scope, verification.actual()),
                         visibleText(scope, verification.dataBasis()),
-                        instant(verification.verifiedAt()));
+                        instant(verification.verifiedAt()),
+                        scope != null && verification.verifierId() == actor ? verification.recheckRequestId() : null);
         var notice =
                 RESOLVED.equals(row.status()) || CLOSED_OTHER.equals(row.status()) ? notices.status(row.id()) : null;
         var delivery = notice == null
@@ -478,16 +588,94 @@ public class FeedbackWorkService {
                 canClose && canExplainClose(row),
                 summary,
                 checked,
-                delivery);
+                delivery,
+                scope != null && canSubmitKnowledge(row, actor),
+                canReplay,
+                canReplay ? queries.latestFeedbackReplay(row.requestId(), result.submittedAt()) : null);
+    }
+
+    /** 治理结果要求当前负责人具备已发布版本和核查依据的查看资格。 */
+    private boolean canSubmitKnowledge(Issue row, long actor) {
+        return owner(row, actor)
+                && "KNOWLEDGE".equals(row.direction())
+                && permissions.has(PROCESS)
+                && permissions.has("releases.view")
+                && permissions.has("feedback.evidence")
+                && permissions.has("query.view")
+                && feedback.hasCurrentReview(row.id(), actor)
+                && access.findSource(actor, row.sourceId())
+                        .map(scope -> queries.feedbackQuestion(row.requestId(), scope) != null)
+                        .orElse(false);
+    }
+
+    /** 重跑原问与读取其依据分别要求当前范围和对应操作权限。 */
+    private AccessScopeVO replayScope(long actor, long source) {
+        var codes = permissions.effective(actor);
+        return codes.containsAll(Set.of("feedback.evidence", "query.view", "query.ask"))
+                ? access.findSource(actor, source).orElse(null)
+                : null;
+    }
+
+    /** 发布、暂停及撤下以当前锁内的权威版本为准。 */
+    private Binding publishedBinding(long source, long id, boolean lock) {
+        var origin = catalog.source(source, lock);
+        var binding = versions.current(source, id);
+        if (versions.isPaused(binding.scopeId())) {
+            throw BizIllegalException.state("关联的知识版本已暂停使用");
+        }
+        versions.requireBasis(origin, binding);
+        return binding;
+    }
+
+    /** 真实轮次至少在本期处理结果提交后启动，成功必须采用所关联的现行绑定。 */
+    private boolean matchesRecheck(
+            Issue row, ResultRecord result, long verifier, String request, boolean passed, boolean lock) {
+        var scope = replayScope(verifier, row.sourceId());
+        if (request == null || scope == null || !queries.canReplayFeedback(row.requestId(), scope)) {
+            return false;
+        }
+        try {
+            var binding = publishedBinding(row.sourceId(), result.knowledgeBindingId(), lock);
+            var earliest =
+                    binding.verifiedAt().isAfter(result.submittedAt()) ? binding.verifiedAt() : result.submittedAt();
+            return queries.feedbackReplayMatches(
+                    request,
+                    row.requestId(),
+                    verifier,
+                    row.sourceId(),
+                    binding.id(),
+                    earliest,
+                    queries.feedbackRuleSignature(scope),
+                    passed);
+        } catch (BizIllegalException changed) {
+            return false;
+        }
+    }
+
+    /** 只加载事项当前指向的处理结果。 */
+    private ResultRecord currentResult(Issue row) {
+        return row.resultVersion() == null ? null : resolutions.result(row.id(), row.resultVersion());
     }
 
     /** 原结果、相关版本和测试身份的当前授权缺一不可。 */
     private boolean validVerification(Issue row, Verification record) {
-        return record != null
+        return validVerification(row, record, false);
+    }
+
+    /** 结案写事务用同一来源锁确认绑定未被切换。 */
+    private boolean validVerification(Issue row, Verification record, boolean lock) {
+        boolean accepted = record != null
                 && "PASSED".equals(record.decision())
                 && Objects.equals(row.resultVersion(), record.resultVersion())
                 && eligibleHandler(row)
                 && record.contextSignature().equals(verificationContext(record.verifierId(), row.sourceId()));
+        if (!accepted) {
+            return false;
+        }
+        var result = currentResult(row);
+        return result != null
+                && (result.knowledgeBindingId() == null
+                        || matchesRecheck(row, result, record.verifierId(), record.recheckRequestId(), true, lock));
     }
 
     /** 每个人名下的来源和输出规则都要使用当前版本，比对时不展示凭据或业务数据。 */
@@ -543,7 +731,7 @@ public class FeedbackWorkService {
     /** 已解决和其他结案有不同事实门槛和固定模板。 */
     private String closureTemplate(Issue row, String outcome, String reason) {
         if (RESOLVED.equals(outcome)) {
-            if (!TO_VERIFY.equals(row.status()) || !validVerification(row, currentVerification(row))) {
+            if (!TO_VERIFY.equals(row.status()) || !validVerification(row, currentVerification(row), true)) {
                 throw BizIllegalException.state("当前处理结果尚未通过有效复验");
             }
             return RESOLVED;
@@ -641,7 +829,15 @@ public class FeedbackWorkService {
                 Ids.text(row.assigneeId()),
                 row.assigneeName(),
                 instant(row.createdAt()),
-                instant(row.updatedAt()));
+                instant(row.updatedAt()),
+                row.summary(),
+                row.referenceCount(),
+                switch (row.status()) {
+                    case PENDING -> "分派负责人";
+                    case IN_PROGRESS -> "核查与处理";
+                    case TO_VERIFY -> row.verificationVersion() == null ? "复验处理结果" : "核对复验与结案";
+                    default -> "查看结果";
+                });
     }
 
     /** 历史基础字段可用，原文独立检查是否可交付。 */

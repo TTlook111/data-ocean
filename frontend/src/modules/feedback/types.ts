@@ -7,7 +7,11 @@ export type Issue = {
   status: string;
   assigneeId: string | null;
   assigneeName: string | null;
+  createdAt?: string;
   updatedAt: string;
+  summary?: string;
+  referenceCount?: number;
+  nextAction?: string;
 };
 
 /** 业务自由文本可能受限，操作人与责任关系仍可核对。 */
@@ -72,6 +76,9 @@ export type Resolution = {
   canVerify: boolean;
   canResolve: boolean;
   canCloseOther: boolean;
+  canSubmitKnowledge?: boolean;
+  canReplayQuestion?: boolean;
+  recheckRequestId?: string | null;
   result: {
     version: number;
     impact: string;
@@ -80,6 +87,7 @@ export type Resolution = {
     reference: string | null;
     regression: string | null;
     submittedAt: string;
+    knowledgeBindingId?: string | null;
   } | null;
   verification: {
     version: number;
@@ -90,6 +98,7 @@ export type Resolution = {
     actual: string | null;
     dataBasis: string | null;
     verifiedAt: string;
+    recheckRequestId?: string | null;
   } | null;
   notice: { state: string; sentAt: string | null; readAt: string | null } | null;
 };

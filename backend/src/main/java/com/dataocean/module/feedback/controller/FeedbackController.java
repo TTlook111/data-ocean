@@ -13,6 +13,7 @@ import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
 import com.dataocean.module.feedback.entity.ReviewIssueDTO;
 import com.dataocean.module.feedback.entity.SubmitIssueResultDTO;
+import com.dataocean.module.feedback.entity.SubmitKnowledgeResultDTO;
 import com.dataocean.module.feedback.entity.VerifyIssueDTO;
 import com.dataocean.module.feedback.service.FeedbackNoticeService;
 import com.dataocean.module.feedback.service.FeedbackService;
@@ -20,6 +21,10 @@ import com.dataocean.module.feedback.service.FeedbackWorkService;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
 import com.dataocean.module.iam.security.RequirePermission;
+import com.dataocean.module.query.service.QueryProtocol.Accepted;
+import com.dataocean.module.query.service.QueryProtocol.SourceOption;
+
+import java.util.List;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -91,8 +96,18 @@ public class FeedbackController {
             @RequestParam(required = false) String sourceId,
             @RequestParam(required = false) String issueId,
             @RequestParam(defaultValue = "ALL") String scope,
-            @RequestParam(required = false) String origin) {
-        return Result.success(work.issues(page, sourceId, issueId, scope, origin));
+            @RequestParam(required = false) String origin,
+            @RequestParam(required = false) @Size(max = 80) String keyword,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @Size(max = 80) String assignee) {
+        return Result.success(work.issues(page, sourceId, issueId, scope, origin, keyword, status, assignee));
+    }
+
+    /** 队列与筛选选项共用后台事项查看权限。 */
+    @GetMapping("/api/v1/feedback/sources")
+    @RequirePermission("feedback.view")
+    public Result<List<SourceOption>> sources() {
+        return Result.success(work.sources());
     }
 
     /** 详情只向当前有权查看的人提供对应业务投影。 */
@@ -138,6 +153,23 @@ public class FeedbackController {
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody SubmitIssueResultDTO input) {
         return Result.success(work.submitResult(id, command, input));
+    }
+
+    /** 关联已经正式上线的治理结果，不在反馈模块另行发布知识。 */
+    @PostMapping("/api/v1/feedback/issues/{id}/knowledge-results")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> submitKnowledge(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody SubmitKnowledgeResultDTO input) {
+        return Result.success(work.submitKnowledge(id, command, input));
+    }
+
+    /** 同一原问题按当前复验人的权限实际派发。 */
+    @PostMapping("/api/v1/feedback/issues/{id}/rechecks")
+    @RequirePermission("feedback.verify")
+    public Result<Accepted> replayQuestion(@PathVariable String id, @RequestHeader("Idempotency-Key") String command) {
+        return Result.success(work.replayQuestion(id, command));
     }
 
     /** 人工复验固定实际操作人、来源权限和当前结果版本。 */

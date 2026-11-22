@@ -1,7 +1,7 @@
 import { Alert, Button, Descriptions, Empty, Tabs } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../../shared/api';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { displayTime, ReadState, Status } from '../../shared/Records';
@@ -30,12 +30,82 @@ const activityLabels: Record<Activity['action'], string> = {
   RECHECK_FAILED: '人工复验未通过',
   CLOSED: '办理结案',
 };
+
+/** 记录正文在不同操作中有不同来源，按当时保存的业务含义标注。 */
+const activityNoteLabels: Record<Activity['action'], string> = {
+  ASSIGNED: '分派依据',
+  REVIEWED: '核查依据',
+  RESULT_SUBMITTED: '处理说明',
+  VERIFIED: '实际结果',
+  RECHECK_FAILED: '实际结果',
+  CLOSED: '结案依据',
+};
+
 const noticeLabels: Record<string, string> = {
   QUEUED: '待投递',
   DELIVERED: '已投递',
   RESTRICTED: '已投递受限提示',
   SUPPRESSED: '接收账号不可用',
 };
+
+/**
+ * 操作、时间和办理字段按各自层级呈现，受限正文由服务端省略。
+ */
+function IssueHistory({ detail }: { detail: IssueDetail }) {
+  const notice = detail.resolution?.notice;
+  return (
+    <>
+      {/* 回告送达情况与各次操作记录独立展示。 */}
+      {notice && (
+        <div className="feedback-notice-summary" role="status">
+          <strong>回告状态</strong>
+          <span>{noticeLabels[notice.state]}</span>
+          {notice.readAt && <time dateTime={notice.readAt}>已读 {displayTime(notice.readAt)}</time>}
+        </div>
+      )}
+      {detail.activities.length ? (
+        <ol className="feedback-entries feedback-history-list" aria-label="操作记录">
+          {detail.activities.map((entry) => (
+            <li key={entry.version}>
+              {/* 操作名称和发生时间构成每条记录的入口。 */}
+              <div className="feedback-history-heading">
+                <strong>{activityLabels[entry.action]}</strong>
+                <time dateTime={entry.occurredAt}>{displayTime(entry.occurredAt)}</time>
+              </div>
+              {/* 明确区分操作者、接手负责人和自由文本依据。 */}
+              <dl className="feedback-history-fields">
+                <div>
+                  <dt>操作人</dt>
+                  <dd>{entry.actor}</dd>
+                </div>
+                {entry.assignee && (
+                  <div>
+                    <dt>负责人</dt>
+                    <dd>{entry.assignee}</dd>
+                  </div>
+                )}
+                {entry.note && (
+                  <div>
+                    <dt>{activityNoteLabels[entry.action]}</dt>
+                    <dd className="feedback-text">{entry.note}</dd>
+                  </div>
+                )}
+                {entry.conclusion && (
+                  <div>
+                    <dt>结案结论</dt>
+                    <dd className="feedback-text">{entry.conclusion}</dd>
+                  </div>
+                )}
+              </dl>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无处理记录" />
+      )}
+    </>
+  );
+}
 
 /** 对外显示人工复验实际状态，正文为空时保留分步操作事实。 */
 function ResolutionDetails({ detail }: { detail: IssueDetail }) {
@@ -50,15 +120,31 @@ function ResolutionDetails({ detail }: { detail: IssueDetail }) {
             size="small"
             column={1}
             items={[
-              { key: 'impact', label: '修复影响范围', children: impactLabels[record.impact] },
+              ...(record.knowledgeBindingId
+                ? [
+                    {
+                      key: 'binding',
+                      label: '正式发布版本',
+                      children: (
+                        <Link
+                          to={`/releases/versions/${record.knowledgeBindingId}?source=${detail.issue.sourceId}`}
+                        >
+                          查看版本
+                        </Link>
+                      ),
+                    },
+                  ]
+                : [
+                    { key: 'impact', label: '修复影响范围', children: impactLabels[record.impact] },
+                  ]),
               {
                 key: 'summary',
-                label: '修正说明',
+                label: record.impact === 'KNOWLEDGE' ? '补齐的知识' : '修正说明',
                 children: <span className="feedback-text">{record.summary ?? '受限'}</span>,
               },
               {
                 key: 'check',
-                label: '复查方式与结果',
+                label: record.impact === 'KNOWLEDGE' ? '原问题的覆盖依据' : '复查方式与结果',
                 children: <span className="feedback-text">{record.checkMethod ?? '受限'}</span>,
               },
               ...(record.reference
@@ -99,6 +185,21 @@ function ResolutionDetails({ detail }: { detail: IssueDetail }) {
                 label: '数据与复验依据',
                 children: <span className="feedback-text">{checked.dataBasis ?? '受限'}</span>,
               },
+              ...(checked.recheckRequestId
+                ? [
+                    {
+                      key: 'request',
+                      label: '问数复验',
+                      children: (
+                        <Link
+                          to={`/query?source=${detail.issue.sourceId}&request=${checked.recheckRequestId}`}
+                        >
+                          查看复验回答
+                        </Link>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
         </section>
@@ -312,10 +413,15 @@ export function FeedbackIssuePage() {
   const next = resolution?.canResolve
     ? { key: 'resolve' as const, label: '验证结案并回告' }
     : resolution?.canVerify
-      ? { key: 'verify' as const, label: '登记人工复验' }
+      ? {
+          key: 'verify' as const,
+          label: resolution.result?.impact === 'KNOWLEDGE' ? '用原问题复验' : '登记人工复验',
+        }
       : resolution?.canSubmitResult
         ? { key: 'result' as const, label: '提交处理结果' }
-        : null;
+        : resolution?.canSubmitKnowledge
+          ? { key: 'knowledge' as const, label: '提交治理结果' }
+          : null;
   const secondary = [
     ...(row.canAssign
       ? [{ key: 'assign' as const, label: issue.assigneeId ? '重新分派' : '分派负责人' }]
@@ -328,9 +434,12 @@ export function FeedbackIssuePage() {
       {/* 页首固定责任和状态，业务正文在各自页签内阅读。 */}
       <header className="feedback-detail-header">
         <div className="feedback-heading">
-          <h2 id="feedback-detail-title" tabIndex={-1}>
-            事项 #{issue.id}
-          </h2>
+          <div className="feedback-identity">
+            <h2 id="feedback-detail-title" tabIndex={-1}>
+              {issue.summary ?? '事项 #' + issue.id}
+            </h2>
+            {issue.summary && <span className="feedback-meta">事项 #{issue.id}</span>}
+          </div>
           <Status value={issue.status} label={statusLabels[issue.status]} />
         </div>
         <Descriptions
@@ -356,6 +465,7 @@ export function FeedbackIssuePage() {
             label: '核查与处理',
             children: (
               <section aria-label="核查结论">
+                <h3>核查结论</h3>
                 <Descriptions
                   column={1}
                   items={[
@@ -382,6 +492,16 @@ export function FeedbackIssuePage() {
                     },
                   ]}
                 />
+                {resolution?.canSubmitKnowledge && (
+                  <section className="feedback-work-section" aria-label="知识治理">
+                    <h3>知识治理</h3>
+                    <div className="feedback-work-links">
+                      <Link to={`/knowledge?source=${issue.sourceId}`}>知识文档</Link>
+                      <Link to={`/test-cases?source=${issue.sourceId}`}>标准题单</Link>
+                      <Link to={`/releases?source=${issue.sourceId}`}>发布与版本</Link>
+                    </div>
+                  </section>
+                )}
                 <ResolutionDetails detail={row} />
               </section>
             ),
@@ -390,36 +510,7 @@ export function FeedbackIssuePage() {
           {
             key: 'history',
             label: '记录与回告',
-            children: (
-              <>
-                {resolution?.notice && (
-                  <div className="feedback-notice-summary" role="status">
-                    <strong>回告状态</strong> {noticeLabels[resolution.notice.state]}
-                    {resolution.notice.readAt && (
-                      <span> · 已读 {displayTime(resolution.notice.readAt)}</span>
-                    )}
-                  </div>
-                )}
-                {row.activities.length ? (
-                  <ol className="feedback-entries">
-                    {row.activities.map((entry) => (
-                      <li key={entry.version}>
-                        <div className="feedback-history-line">
-                          <strong>{activityLabels[entry.action]}</strong>
-                          <span>{entry.actor}</span>
-                          <time dateTime={entry.occurredAt}>{displayTime(entry.occurredAt)}</time>
-                        </div>
-                        {entry.assignee && <p>负责人 {entry.assignee}</p>}
-                        {entry.note && <p className="feedback-text">{entry.note}</p>}
-                        {entry.conclusion && <p className="feedback-text">{entry.conclusion}</p>}
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无处理记录" />
-                )}
-              </>
-            ),
+            children: <IssueHistory detail={row} />,
           },
         ]}
       />
