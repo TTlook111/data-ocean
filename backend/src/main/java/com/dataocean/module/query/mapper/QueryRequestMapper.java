@@ -44,7 +44,11 @@ public interface QueryRequestMapper {
             String runInput,
             byte[] commandFingerprint,
             byte[] executionFingerprint,
-            String usageRefs) {}
+            String usageRefs,
+            String failurePhase,
+            String failureCode,
+            String failureRuleSignature,
+            String failureEventId) {}
 
     /** 写回执行许可时固定的已校验输入。 */
     record Permit(
@@ -251,17 +255,25 @@ public interface QueryRequestMapper {
     @Update(
             """
             UPDATE qry_request SET
+            failure_phase=CASE WHEN NOT cancel_requested AND #{diagnostic} IS NOT NULL THEN state ELSE NULL END,
+            failure_code=CASE WHEN NOT cancel_requested THEN #{diagnostic} ELSE NULL END,
+            failure_rule_signature=CASE WHEN NOT cancel_requested AND #{diagnostic} IS NOT NULL
+                THEN COALESCE(rule_signature,#{signature}) ELSE NULL END,
             state=CASE WHEN cancel_requested THEN 'USER_CANCELLED' ELSE #{state} END,
             execution_state=#{execution},result=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
               AND state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
             """)
-    int stop(String id, int run, String state, String execution);
+    int stop(String id, int run, String state, String execution, String diagnostic, String signature);
 
     /** 超时回收原轮次，已派发记录保持未知且不进入待执行队列。 */
     @Update(
             """
             UPDATE qry_request SET
+            failure_phase=CASE WHEN state<>'WAITING' AND NOT cancel_requested THEN state ELSE NULL END,
+            failure_code=CASE WHEN state<>'WAITING' AND NOT cancel_requested THEN 'QUERY_LEASE_EXPIRED' ELSE NULL END,
+            failure_rule_signature=CASE WHEN state<>'WAITING' AND NOT cancel_requested
+                THEN COALESCE(rule_signature,JSON_UNQUOTE(JSON_EXTRACT(run_input,'$.signature'))) ELSE NULL END,
             execution_state=CASE WHEN state='EXECUTING' THEN 'UNKNOWN' ELSE execution_state END,
             state=CASE WHEN state='WAITING' THEN 'WAIT_EXPIRED'
                 WHEN cancel_requested THEN 'USER_CANCELLED' ELSE 'TECHNICAL_FAILURE' END,
@@ -272,6 +284,22 @@ public interface QueryRequestMapper {
                    AND processing_started_at<=UTC_TIMESTAMP(3)-INTERVAL 165 SECOND)
             """)
     void expire();
+
+    /** 分批从已经提交的失败中领取原请求，历史终态没有该标记。 */
+    @Select(
+            """
+            SELECT id FROM qry_request WHERE failure_event_id IS NULL AND failure_code IS NOT NULL
+                AND state IN ('KNOWLEDGE_INSUFFICIENT','TECHNICAL_FAILURE') ORDER BY updated_at,id LIMIT 50
+            """)
+    List<String> pendingIssueRequests();
+
+    /** 记录已接收的 Outbox 编号，不改变原问更新时刻和终态。 */
+    @Update("UPDATE qry_request SET failure_event_id=#{event} WHERE id=#{id} AND failure_event_id IS NULL")
+    int markIssueEvent(String id, String event);
+
+    /** 按权威原请求绑定识别待分派事件，不依赖异步载荷声称的来源。 */
+    @Select("SELECT id FROM qry_request WHERE failure_event_id=#{event}")
+    String issueEventRequest(String event);
 
     /** 限量结果保留期与请求事实分开。 */
     @Update(

@@ -414,3 +414,80 @@ it('显示当前复验条件与处理后的回告', async () => {
   expect(screen.getByText(/已投递/)).toBeVisible();
   expect(screen.getByText(/已读/)).toBeVisible();
 });
+
+/** 自动来源以独立条件查询，分组和回退沿用同一查询入口。 */
+it('按知识缺口筛选，进入真实事项的默认分派方向', async () => {
+  const gap = { ...issue, origin: 'QUERY_KNOWLEDGE_GAP' };
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === '/feedback/issues/21'
+      ? {
+          ...pending,
+          issue: gap,
+          direction: 'KNOWLEDGE',
+          reports: [],
+          question: { ...pending.question, evidence: null, sql: null },
+          incidents: [
+            {
+              requestId: 'query-gap-1',
+              state: 'KNOWLEDGE_INSUFFICIENT',
+              phase: 'RETRIEVING',
+              diagnostic: 'NO_PUBLISHED_KNOWLEDGE',
+              executionState: 'NOT_SUBMITTED',
+              failedAt: occurredAt,
+            },
+          ],
+        }
+      : path.startsWith('/feedback/assignees')
+        ? page([])
+        : page([gap]),
+  );
+  const { router } = mount();
+  await screen.findByRole('button', { name: '查看事项 #21' });
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: '来源' }));
+  fireEvent.click(await screen.findByRole('option', { name: '问数知识缺口' }));
+  fireEvent.click(screen.getByRole('button', { name: /查\s*询/ }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/feedback/issues?origin=QUERY_KNOWLEDGE_GAP&scope=ALL'),
+  );
+  fireEvent.click(screen.getByRole('tab', { name: '待我处理' }));
+  await waitFor(() => expect(router.state.location.search).toContain('origin=QUERY_KNOWLEDGE_GAP'));
+  fireEvent.click(await screen.findByRole('button', { name: '查看事项 #21' }));
+  expect(await screen.findByText('业务知识')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: '原问题与证据' }));
+  expect(screen.getByText('数据源暂无生效知识')).toBeVisible();
+  expect(screen.getByText('query-gap-1')).toBeVisible();
+  expect(screen.getByText('检索知识')).toBeVisible();
+  expect(screen.getByText('未执行')).toBeVisible();
+  expect(screen.queryByText('点踩原因')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '分派负责人' }));
+  expect(await screen.findByRole('dialog', { name: '分派事项' })).toHaveTextContent('业务知识');
+});
+
+/** 技术协调者可看执行未知等有限诊断，原问、参数和连接错误保持受限。 */
+it('技术失败的受限详情保留可分派的状态证据', async () => {
+  vi.mocked(api).mockResolvedValue({
+    ...pending,
+    issue: { ...issue, origin: 'QUERY_TECHNICAL_FAILURE' },
+    direction: 'TECHNICAL',
+    evidenceRestricted: true,
+    question: null,
+    reports: [],
+    incidents: [
+      {
+        requestId: 'query-error-1',
+        state: 'TECHNICAL_FAILURE',
+        phase: 'EXECUTING',
+        diagnostic: 'SOURCE_EXECUTION_UNCERTAIN',
+        executionState: 'UNKNOWN',
+        failedAt: occurredAt,
+      },
+    ],
+  });
+  mount('/feedback/21');
+  expect(await screen.findByText('技术失败')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: '原问题与证据' }));
+  expect(screen.getByText('当前无权查看原问题与业务证据')).toBeVisible();
+  expect(screen.getByText('源端执行状态待核实')).toBeVisible();
+  expect(screen.getByText('执行查询')).toBeVisible();
+  expect(screen.getByRole('button', { name: '分派负责人' })).toBeEnabled();
+});

@@ -27,6 +27,7 @@ import com.dataocean.module.feedback.mapper.FeedbackMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Activity;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.ActivityRow;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Issue;
+import com.dataocean.module.feedback.mapper.FeedbackQueryIssueMapper;
 import com.dataocean.module.feedback.mapper.FeedbackResolutionMapper;
 import com.dataocean.module.feedback.mapper.FeedbackResolutionMapper.ResultRecord;
 import com.dataocean.module.feedback.mapper.FeedbackResolutionMapper.Verification;
@@ -72,6 +73,8 @@ public class FeedbackWorkService {
     private static final String RESOLVED = "RESOLVED";
     private static final String CLOSED_OTHER = "CLOSED_OTHER";
     private static final Set<String> IMPACTS = Set.of("DISPLAY", "CONNECTION", "QUERY_SAFETY");
+    private static final Set<String> ORIGINS =
+            Set.of("USER_DISLIKE", FeedbackQueryIssueIntake.KNOWLEDGE_GAP, FeedbackQueryIssueIntake.TECHNICAL_FAILURE);
     private static final Set<String> OTHER_REASONS =
             Set.of("NOT_REPRODUCED", "DEFINITION_CONFIRMED", "CANCELLED", "OTHER");
     private static final Set<String> DIRECTIONS =
@@ -79,6 +82,8 @@ public class FeedbackWorkService {
 
     /** 处理记录复用本模块统一台账。 */
     private final FeedbackMapper feedback;
+    /** 问数自动来源证据与点赞、点踩事件独立。 */
+    private final FeedbackQueryIssueMapper queryIssues;
     /** 与权限、人员状态和数据授权变化串行。 */
     private final GuardMapper guard;
     /** 候选人员提交时用实际使用资格而非前端列表校验。 */
@@ -103,11 +108,14 @@ public class FeedbackWorkService {
 
     /** 队列分页在真实责任过滤之后计算，基础行不带原问题。 */
     @Transactional
-    public PageVO<IssueRow> issues(PageQuery query, String source, String issue, String scope) {
+    public PageVO<IssueRow> issues(PageQuery query, String source, String issue, String scope, String origin) {
         guard.shared();
         permissions.require(VIEW);
         if (!Set.of("ALL", "MINE", "OWNED", "CLOSED").contains(scope)) {
             throw BizIllegalException.invalid("无效的事项分组");
+        }
+        if (origin != null && !ORIGINS.contains(origin)) {
+            throw BizIllegalException.invalid("无效的事项来源");
         }
         long actor = UserContext.getUser();
         var verifySources = "MINE".equals(scope) && permissions.has(VERIFY) && permissions.has("query.view")
@@ -120,6 +128,7 @@ public class FeedbackWorkService {
                 Ids.nullable(source),
                 Ids.nullable(issue),
                 scope,
+                origin,
                 actor,
                 permissions.has(ASSIGN),
                 permissions.has(PROCESS),
@@ -155,14 +164,26 @@ public class FeedbackWorkService {
         var scope = permissions.has("feedback.evidence") && permissions.has("query.view")
                 ? access.findSource(actor, row.sourceId()).orElse(null)
                 : null;
-        var question = scope == null ? null : queries.feedbackQuestion(row.answerId(), scope);
+        var question = scope == null ? null : queries.feedbackQuestion(row.requestId(), scope);
         boolean evidenceAllowed = question != null;
-        var reports = evidenceAllowed
+        boolean fromRating = "USER_DISLIKE".equals(row.origin());
+        var reports = evidenceAllowed && fromRating
                 ? feedback.reports(row.id()).stream()
                         .map(report -> new Report(
                                 report.id(), visibleText(scope, report.reason()), instant(report.occurredAt())))
                         .toList()
                 : List.<Report>of();
+        var incidents = fromRating
+                ? List.<FeedbackIssueDetailVO.QueryIncident>of()
+                : queryIssues.incidents(row.id()).stream()
+                        .map(entry -> new FeedbackIssueDetailVO.QueryIncident(
+                                entry.requestId(),
+                                entry.state(),
+                                entry.phase(),
+                                entry.diagnostic(),
+                                entry.executionState(),
+                                instant(entry.failedAt())))
+                        .toList();
         var last = feedback.latestReview(row.id(), evidenceAllowed);
         var history = feedback.activities(row.id(), evidenceAllowed).stream()
                 .map(entry -> activity(evidenceAllowed ? scope : null, entry))
@@ -176,6 +197,7 @@ public class FeedbackWorkService {
                 !evidenceAllowed,
                 question,
                 reports,
+                incidents,
                 last == null ? null : activity(evidenceAllowed ? scope : null, last),
                 history,
                 resolution(row, actor, evidenceAllowed ? scope : null));

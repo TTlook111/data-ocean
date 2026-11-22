@@ -252,7 +252,7 @@ class QueryServiceTest {
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                 .thenReturn(new Plan(decision, null, null, null, null, null, List.of(), List.of()));
         service.work();
-        verify(requests).stop(id, 2, state, "NOT_SUBMITTED");
+        verify(requests).stop(id, 2, state, "NOT_SUBMITTED", diagnostic(state), new QueryOutput().signature(List.of()));
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
     }
 
@@ -269,7 +269,8 @@ class QueryServiceTest {
         service.work();
         service.work();
         verify(requests).waitForAnswer(id, 2, "请输入线路名称");
-        verify(requests).stop(id, 2, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED");
+        verify(requests).stop(id, 2, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED",
+                "INSUFFICIENT_KNOWLEDGE", new QueryOutput().signature(List.of()));
     }
 
     /**
@@ -297,7 +298,7 @@ class QueryServiceTest {
         }
         service.work();
         if ("pending".equals(mode)) {
-            verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString());
+            verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString(), any(), any());
         } else {
             String expected = switch (mode) {
                 case "input" -> "KNOWLEDGE_INSUFFICIENT";
@@ -306,8 +307,30 @@ class QueryServiceTest {
                 case "moved" -> "PERMISSION_DENIED";
                 default -> "TECHNICAL_FAILURE";
             };
-            verify(requests).stop(id, 2, expected, "sql".equals(mode) ? "UNKNOWN" : "NOT_SUBMITTED");
+            verify(requests).stop(id, 2, expected, "sql".equals(mode) ? "UNKNOWN" : "NOT_SUBMITTED",
+                    "sql".equals(mode) ? "SOURCE_EXECUTION_UNCERTAIN" : diagnostic(expected),
+                    "cancel".equals(mode) ? null : new QueryOutput().signature(List.of()));
         }
+    }
+
+    /** 没有生效知识保存可归组的确切事实，模型不会被用来猜测根因。 */
+    @Test
+    void absentPublishedKnowledgeCreatesSourceLevelDiagnostic() throws SQLException {
+        ready();
+        when(corpus.bindings(SOURCE)).thenReturn(List.of());
+        service.work();
+        verify(requests).stop(id, 2, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED",
+                "NO_PUBLISHED_KNOWLEDGE", new QueryOutput().signature(List.of()));
+        verify(models, never()).retrieve(any(), anyString(), anyList(), anyInt());
+    }
+
+    /** 校验自动事项的允许范围，其他终态保持空诊断。 */
+    private String diagnostic(String state) {
+        return switch (state) {
+            case "KNOWLEDGE_INSUFFICIENT" -> "INSUFFICIENT_KNOWLEDGE";
+            case "TECHNICAL_FAILURE" -> "QUERY_RUNTIME_FAILURE";
+            default -> null;
+        };
     }
 
     /**

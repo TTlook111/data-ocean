@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { Button, Form, Input, Space, Tabs } from 'antd';
+import { Button, Form, Input, Select, Space, Tabs } from 'antd';
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { displayTime, Status } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import type { Page } from '../iam/types';
-import { statusLabels, type Issue } from './types';
+import { originLabels, statusLabels, type Issue } from './types';
 import './feedback.css';
 
 /** 搜索与服务端使用十进制正编号，两端都允许清空条件。 */
@@ -21,10 +21,11 @@ export function FeedbackQueue() {
   const restored = useRef<string | undefined>(undefined);
   const issueId = params.get('issueId') ?? '';
   const sourceId = params.get('sourceId') ?? '';
+  const origin = params.get('origin') ?? '';
   const pageNum = params.get('pageNum');
   const pageSize = params.get('pageSize');
   const scope = params.get('scope') ?? 'ALL';
-  const query = queryString({ issueId, sourceId, scope, pageNum, pageSize });
+  const query = queryString({ issueId, sourceId, origin, scope, pageNum, pageSize });
   const listing = useQuery({
     queryKey: ['feedback-issues', query],
     queryFn: () => api<Page<Issue>>('/feedback/issues?' + query),
@@ -55,16 +56,17 @@ export function FeedbackQueue() {
       {/* 已应用条件留在地址中，列表刷新与返回不会改变查询。 */}
       <section className="panel filter-panel feedback-filter" aria-label="查询问题事项">
         <Form
-          key={issueId + ':' + sourceId}
+          key={issueId + ':' + sourceId + ':' + origin}
           layout="inline"
           scrollToFirstError={{ focus: true }}
-          initialValues={{ issueId, sourceId }}
-          onFinish={(values: { issueId?: string; sourceId?: string }) => {
+          initialValues={{ issueId, sourceId, origin: origin || undefined }}
+          onFinish={(values: { issueId?: string; sourceId?: string; origin?: string }) => {
             // 提交新条件时恢复第一页。
             setParams(
               queryString({
                 issueId: values.issueId,
                 sourceId: values.sourceId,
+                origin: values.origin,
                 scope,
                 pageSize,
               }),
@@ -86,6 +88,15 @@ export function FeedbackQueue() {
           >
             <Input allowClear inputMode="numeric" />
           </Form.Item>
+          {/* 自动线索和点踩使用同一队列，按真实来源筛选。 */}
+          <Form.Item name="origin" label="来源" className="feedback-origin-filter">
+            <Select
+              allowClear
+              virtual={false}
+              placeholder="全部来源"
+              options={Object.entries(originLabels).map(([value, label]) => ({ value, label }))}
+            />
+          </Form.Item>
           <Space>
             <Button htmlType="submit">查询</Button>
             <Button onClick={reset}>重置</Button>
@@ -99,7 +110,7 @@ export function FeedbackQueue() {
           className="feedback-queue-tabs"
           activeKey={scope}
           onChange={(value) =>
-            setParams(queryString({ issueId, sourceId, pageSize, scope: value }))
+            setParams(queryString({ issueId, sourceId, origin, pageSize, scope: value }))
           }
           items={[
             { key: 'MINE', label: '待我处理' },
@@ -114,7 +125,7 @@ export function FeedbackQueue() {
           loading={listing.isPending}
           error={listing.error}
           retry={listing.refetch}
-          filtered={Boolean(issueId || sourceId)}
+          filtered={Boolean(issueId || sourceId || origin)}
           onReset={reset}
           emptyDescription={scope === 'MINE' ? '暂无待办事项' : '暂无入队事项'}
           scroll={{ x: 825 }}
@@ -124,8 +135,8 @@ export function FeedbackQueue() {
             {
               title: '来源',
               dataIndex: 'origin',
-              width: 120,
-              render: (origin: string) => (origin === 'USER_DISLIKE' ? '问数点踩' : origin),
+              width: 136,
+              render: (value: string) => originLabels[value] ?? value,
             },
             {
               title: '状态',
@@ -165,7 +176,14 @@ export function FeedbackQueue() {
             onChange: (nextPage, size) => {
               // 切页只改变分页，不覆盖已应用的过滤条件。
               setParams(
-                queryString({ issueId, sourceId, scope, pageNum: nextPage, pageSize: size }),
+                queryString({
+                  issueId,
+                  sourceId,
+                  origin,
+                  scope,
+                  pageNum: nextPage,
+                  pageSize: size,
+                }),
               );
             },
           }}

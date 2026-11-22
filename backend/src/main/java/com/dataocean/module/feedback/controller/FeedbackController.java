@@ -90,8 +90,9 @@ public class FeedbackController {
             @ModelAttribute PageQuery page,
             @RequestParam(required = false) String sourceId,
             @RequestParam(required = false) String issueId,
-            @RequestParam(defaultValue = "ALL") String scope) {
-        return Result.success(work.issues(page, sourceId, issueId, scope));
+            @RequestParam(defaultValue = "ALL") String scope,
+            @RequestParam(required = false) String origin) {
+        return Result.success(work.issues(page, sourceId, issueId, scope, origin));
     }
 
     /** 详情只向当前有权查看的人提供对应业务投影。 */

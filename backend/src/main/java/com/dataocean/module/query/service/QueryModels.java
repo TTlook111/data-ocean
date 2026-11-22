@@ -1,5 +1,6 @@
 package com.dataocean.module.query.service;
 
+import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
@@ -81,7 +82,7 @@ class QueryModels {
     /** 问数是否可以在当前部署把已获准的内容发送给分配模型。 */
     void requireScope(long source) {
         if (!allowedSources.contains(source) || worker.getIfAvailable() == null) {
-            throw QueryFailure.technical();
+            throw QueryFailure.modelUnavailable();
         }
     }
 
@@ -95,7 +96,12 @@ class QueryModels {
 
     /** 取稳定节点快照，任务内不换提供方重试。 */
     long revision(String node) {
-        return models.requireBinding(node);
+        try {
+            return models.requireBinding(node);
+        } catch (BizIllegalException unconfigured) {
+            // 权威模型目录缺少当前节点属于配置失败，与业务知识缺口分开。
+            throw QueryFailure.modelUnavailable();
+        }
     }
 
     /** 通过实际固定向量模型召回并验证代次。 */

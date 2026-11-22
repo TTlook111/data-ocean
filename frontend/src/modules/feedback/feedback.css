@@ -3,6 +3,11 @@
   width: 168px;
 }
 
+/* 来源选择与编号条件使用相近尺度，窄窗自然换行。 */
+.feedback-origin-filter .ant-select {
+  min-width: 132px;
+}
+
 /* 分组留在结果面板内，分页与表格使用共用高度。 */
 .feedback-queue-tabs {
   flex: none;

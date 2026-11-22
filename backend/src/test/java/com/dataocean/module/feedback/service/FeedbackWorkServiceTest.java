@@ -23,6 +23,7 @@ import com.dataocean.module.feedback.entity.VerifyIssueDTO;
 import com.dataocean.module.feedback.mapper.FeedbackMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.ActivityRow;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Issue;
+import com.dataocean.module.feedback.mapper.FeedbackQueryIssueMapper;
 import com.dataocean.module.feedback.mapper.FeedbackResolutionMapper;
 import com.dataocean.module.feedback.mapper.FeedbackResolutionMapper.Verification;
 import com.dataocean.module.iam.entity.po.GuardPO;
@@ -65,6 +66,7 @@ class FeedbackWorkServiceTest {
     private final FeedbackNoticeService notices = mock(FeedbackNoticeService.class);
     private final FeedbackWorkService work = new FeedbackWorkService(
             feedback,
+            mock(FeedbackQueryIssueMapper.class),
             guard,
             permissions,
             users,
@@ -176,7 +178,7 @@ class FeedbackWorkServiceTest {
                 row.sourceId(),
                 row.sourceName(),
                 row.origin(),
-                row.answerId(),
+                row.requestId(),
                 "PENDING_VERIFICATION",
                 row.assigneeId(),
                 row.assigneeName(),

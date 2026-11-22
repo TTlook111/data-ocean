@@ -11,7 +11,14 @@ import {
   impactLabels,
   type ResolutionAction,
 } from './FeedbackResolutionDialog';
-import { directions, statusLabels, type Activity, type IssueDetail } from './types';
+import {
+  directions,
+  originLabels,
+  statusLabels,
+  type Activity,
+  type IssueDetail,
+  type QueryIncident,
+} from './types';
 import './feedback.css';
 
 /** 处理与回告分别显示事实名称，旧记录继续按原动作读取。 */
@@ -100,11 +107,74 @@ function ResolutionDetails({ detail }: { detail: IssueDetail }) {
   );
 }
 
+/** 诊断来自固定服务端分类，详情不输出调用或数据库原始异常。 */
+const diagnostics: Record<string, string> = {
+  NO_PUBLISHED_KNOWLEDGE: '数据源暂无生效知识',
+  INSUFFICIENT_KNOWLEDGE: '当前知识不足以确认查询口径',
+  MODEL_CONFIGURATION_UNAVAILABLE: '问数模型配置不可用',
+  QUERY_RUNTIME_FAILURE: '问数处理异常',
+  QUERY_LEASE_EXPIRED: '处理租约已到期',
+  SOURCE_EXECUTION_UNCERTAIN: '源端执行状态待核实',
+};
+const phaseLabels: Record<string, string> = {
+  RETRIEVING: '检索知识',
+  GENERATING: '确定查询条件',
+  CHECKING: '核对口径和权限',
+  EXECUTING: '执行查询',
+  FINALIZING: '核对查询结果',
+};
+const executionLabels: Record<string, string> = {
+  NOT_SUBMITTED: '未执行',
+  RUNNING: '执行中',
+  SUCCEEDED: '已执行',
+  UNKNOWN: '待核实',
+};
+
+/** 自动来源提供实际失败节点、证据身份和执行状态，便于直接分派。 */
+function QueryIncidents({ incidents = [] }: { incidents?: QueryIncident[] }) {
+  return (
+    <section className="feedback-evidence-section" aria-label="问数诊断">
+      <h3>问数诊断</h3>
+      <ul className="feedback-entries">
+        {incidents.map((incident) => (
+          <li key={incident.requestId}>
+            <strong>{diagnostics[incident.diagnostic] ?? '问数未完成'}</strong>
+            <Descriptions
+              size="small"
+              column={{ xs: 1, sm: 1, md: 2 }}
+              items={[
+                {
+                  key: 'request',
+                  label: '原问数编号',
+                  children: <span className="feedback-text">{incident.requestId}</span>,
+                },
+                { key: 'time', label: '发生时间', children: displayTime(incident.failedAt) },
+                { key: 'phase', label: '所在阶段', children: phaseLabels[incident.phase] ?? '—' },
+                {
+                  key: 'execution',
+                  label: '源端执行',
+                  children: executionLabels[incident.executionState] ?? '—',
+                },
+              ]}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** 原问证据区保留历史真实引用，受限、缺失和已知内容分别显示。 */
 function IssueEvidence({ detail }: { detail: IssueDetail }) {
   const question = detail.question;
+  const automatic = detail.issue.origin.startsWith('QUERY_');
   if (detail.evidenceRestricted || !question) {
-    return <Alert showIcon type="info" title="当前无权查看原问题与业务证据" />;
+    return (
+      <>
+        <Alert showIcon type="info" title="当前无权查看原问题与业务证据" className="form-alert" />
+        {automatic && <QueryIncidents incidents={detail.incidents} />}
+      </>
+    );
   }
   return (
     <>
@@ -126,59 +196,65 @@ function IssueEvidence({ detail }: { detail: IssueDetail }) {
           />
         )}
       </section>
-      <section className="feedback-evidence-section" aria-label="点踩原因">
-        <h3>点踩原因</h3>
-        {detail.reports.length ? (
-          <ul className="feedback-entries">
-            {detail.reports.map((report) => (
-              <li key={report.id}>
-                <p className="feedback-text">{report.reason ?? '原文受限或已到期'}</p>
-                <time dateTime={report.occurredAt}>{displayTime(report.occurredAt)}</time>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="feedback-meta">暂无点踩记录</p>
-        )}
-      </section>
-      <section className="feedback-evidence-section" aria-label="当次查询依据">
-        <h3>当次查询依据</h3>
-        {question.incomplete && (
-          <Alert showIcon type="info" title="证据不完整" className="form-alert" />
-        )}
-        <Descriptions
-          size="small"
-          column={{ xs: 1, sm: 1, md: 2 }}
-          items={[
-            {
-              key: 'source',
-              label: '知识依据',
-              span: 'filled',
-              children: question.evidence
-                ? `${question.evidence.title} · r${question.evidence.revision} · 片段 ${question.evidence.fragment + 1}`
-                : '—',
-            },
-            {
-              key: 'scope',
-              label: '查询口径',
-              span: 'filled',
-              children: <span className="feedback-text">{question.scope ?? '—'}</span>,
-            },
-            {
-              key: 'answer',
-              label: '原回答编号',
-              children: <span className="feedback-text">{question.answerId}</span>,
-            },
-            { key: 'at', label: '查询时间', children: displayTime(question.executedAt) },
-          ]}
-        />
-        {question.sql && (
-          <details className="feedback-sql">
-            <summary>查看 SQL</summary>
-            <pre>{question.sql}</pre>
-          </details>
-        )}
-      </section>
+      {automatic ? (
+        <QueryIncidents incidents={detail.incidents} />
+      ) : (
+        <section className="feedback-evidence-section" aria-label="点踩原因">
+          <h3>点踩原因</h3>
+          {detail.reports.length ? (
+            <ul className="feedback-entries">
+              {detail.reports.map((report) => (
+                <li key={report.id}>
+                  <p className="feedback-text">{report.reason ?? '原文受限或已到期'}</p>
+                  <time dateTime={report.occurredAt}>{displayTime(report.occurredAt)}</time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="feedback-meta">暂无点踩记录</p>
+          )}
+        </section>
+      )}
+      {(!automatic || question.evidence) && (
+        <section className="feedback-evidence-section" aria-label="当次查询依据">
+          <h3>当次查询依据</h3>
+          {question.incomplete && (
+            <Alert showIcon type="info" title="证据不完整" className="form-alert" />
+          )}
+          <Descriptions
+            size="small"
+            column={{ xs: 1, sm: 1, md: 2 }}
+            items={[
+              {
+                key: 'source',
+                label: '知识依据',
+                span: 'filled',
+                children: question.evidence
+                  ? `${question.evidence.title} · r${question.evidence.revision} · 片段 ${question.evidence.fragment + 1}`
+                  : '—',
+              },
+              {
+                key: 'scope',
+                label: '查询口径',
+                span: 'filled',
+                children: <span className="feedback-text">{question.scope ?? '—'}</span>,
+              },
+              {
+                key: 'answer',
+                label: automatic ? '原问数编号' : '原回答编号',
+                children: <span className="feedback-text">{question.answerId}</span>,
+              },
+              { key: 'at', label: '查询时间', children: displayTime(question.executedAt) },
+            ]}
+          />
+          {question.sql && (
+            <details className="feedback-sql">
+              <summary>查看 SQL</summary>
+              <pre>{question.sql}</pre>
+            </details>
+          )}
+        </section>
+      )}
     </>
   );
 }
@@ -265,7 +341,7 @@ export function FeedbackIssuePage() {
             {
               key: 'origin',
               label: '来源',
-              children: issue.origin === 'USER_DISLIKE' ? '问数点踩' : issue.origin,
+              children: originLabels[issue.origin] ?? issue.origin,
             },
             { key: 'owner', label: '负责人', children: issue.assigneeName ?? '待分派' },
             { key: 'updated', label: '最近更新', children: displayTime(issue.updatedAt) },

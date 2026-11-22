@@ -40,7 +40,7 @@ public interface FeedbackMapper {
             long sourceId,
             String sourceName,
             String origin,
-            String answerId,
+            String requestId,
             String status,
             Long assigneeId,
             String assigneeName,
@@ -78,7 +78,7 @@ public interface FeedbackMapper {
     /** 基础事项查询统一返回同一组列。 */
     String ISSUE_SELECT =
             """
-            SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_answer_id AS answer_id,
+            SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_request_id AS request_id,
                 i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,
                 i.result_version,i.verification_version,i.created_at,i.updated_at
             FROM fb_issue i JOIN ds_source s ON s.id=i.source_id LEFT JOIN iam_user u ON u.id=i.assignee_id
@@ -128,7 +128,7 @@ public interface FeedbackMapper {
     @Select(
             """
             SELECT id FROM fb_issue
-            WHERE origin='USER_DISLIKE' AND origin_answer_id=#{ref.answerId}
+            WHERE origin='USER_DISLIKE' AND origin_request_id=#{ref.answerId}
             AND origin_answer_revision=#{ref.answerRevision}
             """)
     Long issueId(@Param("ref") AnswerRef ref);
@@ -172,7 +172,7 @@ public interface FeedbackMapper {
     /** 创建待分派事项，来源取自原请求。 */
     @Insert(
             """
-            INSERT INTO fb_issue(source_id,origin,origin_answer_id,origin_answer_revision,status,version)
+            INSERT INTO fb_issue(source_id,origin,origin_request_id,origin_answer_revision,status,version)
             VALUES(#{source},'USER_DISLIKE',#{ref.answerId},#{ref.answerRevision},'PENDING_ASSIGNMENT',1)
             """)
     void createIssue(long source, AnswerRef ref);
@@ -196,6 +196,7 @@ public interface FeedbackMapper {
             <where>
                 <if test="source != null">i.source_id=#{source}</if>
                 <if test="issue != null">AND i.id=#{issue}</if>
+                <if test="origin != null">AND i.origin=#{origin}</if>
                 <if test="scope == 'OWNED'">AND i.assignee_id=#{actor} AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION')</if>
                 <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER')</if>
                 <if test="scope == 'MINE'">
@@ -220,6 +221,7 @@ public interface FeedbackMapper {
             Long source,
             Long issue,
             String scope,
+            String origin,
             long actor,
             boolean canAssign,
             boolean canReview,
@@ -233,7 +235,7 @@ public interface FeedbackMapper {
     /** 业务写锁只锁事项行，避免分派写入与人员读取互相加锁。 */
     @Select(
             """
-            SELECT id,source_id,NULL AS source_name,origin,origin_answer_id AS answer_id,
+            SELECT id,source_id,NULL AS source_name,origin,origin_request_id AS request_id,
                 status,assignee_id,NULL AS assignee_name,version,direction,result_version,verification_version,created_at,updated_at
             FROM fb_issue WHERE id=#{id} FOR UPDATE
             """)

@@ -353,7 +353,7 @@ public class QueryService {
         var row = requests.get(uuid(id));
         if (row == null
                 || !Ids.text(row.sourceId()).equals(scope.getSource().getId())
-                || !output.signature(scope.getRules()).equals(row.ruleSignature())) {
+                || !output.signature(scope.getRules()).equals(evidenceRuleSignature(row))) {
             // 以原执行授权为可回看证据的上限，无法比较时保留事项基础信息。
             return null;
         }
@@ -412,13 +412,18 @@ public class QueryService {
         return row != null
                 && row.userId() == recipient
                 && Ids.text(row.sourceId()).equals(scope.getSource().getId())
-                && Objects.equals(row.ruleSignature(), feedbackRuleSignature(scope))
+                && Objects.equals(evidenceRuleSignature(row), feedbackRuleSignature(scope))
                 && feedbackText(scope, row.question()) != null;
     }
 
     /** 人工复验签名和回告权限沿用问数真实输出规则的定义。 */
     public String feedbackRuleSignature(AccessScopeVO scope) {
         return output.signature(scope.getRules());
+    }
+
+    /** 成功执行用许可摘要，未拿到执行许可的失败使用生成前已核验的范围。 */
+    private String evidenceRuleSignature(Request row) {
+        return row.ruleSignature() != null ? row.ruleSignature() : row.failureRuleSignature();
     }
 
     /** 与结果回看共用交付状态和到期边界。 */
@@ -499,6 +504,7 @@ public class QueryService {
         }
         leases.put(row.id(), row.runVersion());
         String execution = row.executionState();
+        String evidenceSignature = null;
         try {
             if ("FINALIZING".equals(row.state())) {
                 // 业务 JDBC 已返回，进程恢复只做授权交付。
@@ -510,6 +516,7 @@ public class QueryService {
             String signature = output.signature(rules);
             String question = row.supplement() == null ? row.question() : row.question() + "\n补充：" + row.supplement();
             output.checkDirectRequest(rules, question);
+            evidenceSignature = signature;
             models.requireScope(row.sourceId());
             var frozen = prepare(row, signature, rules.isEmpty());
             var recent = frozen.memory().recent();
@@ -757,22 +764,24 @@ public class QueryService {
         } catch (QueryFailure failure) {
             // HTTP 进程中断后放弃本机租约，新代次只核对已登记节点。
             if (!"RECOVERY_PENDING".equals(failure.state())) {
-                stop(row, failure.state(), execution);
+                stop(row, failure.state(), execution, failure.diagnostic(), evidenceSignature);
             }
         } catch (BizIllegalException denied) {
             stop(
                     row,
                     denied.getStatus() == 403 || denied.getStatus() == 401
                             ? "PERMISSION_DENIED"
-                            : "KNOWLEDGE_INSUFFICIENT",
-                    execution);
+                            : denied.getStatus() >= 500 ? "TECHNICAL_FAILURE" : "KNOWLEDGE_INSUFFICIENT",
+                    execution,
+                    null,
+                    evidenceSignature);
         } catch (SQLException unavailable) {
             // 源端响应不明保留原执行号，禁止自动重发。
-            stop(row, "TECHNICAL_FAILURE", "UNKNOWN");
+            stop(row, "TECHNICAL_FAILURE", "UNKNOWN", "SOURCE_EXECUTION_UNCERTAIN", evidenceSignature);
         } catch (RuntimeException failure) {
             // 操作原话、SQL 参数、凭据及提供方响应都不进入日志。
             log.warn("问数轮次中止，requestId={}，异常类={}", row.id(), failure.getClass().getSimpleName());
-            stop(row, "TECHNICAL_FAILURE", execution);
+            stop(row, "TECHNICAL_FAILURE", execution, null, evidenceSignature);
         } finally {
             leases.remove(row.id(), row.runVersion());
             running.remove(row.id());
@@ -882,10 +891,15 @@ public class QueryService {
         }
         return asActor(row, () -> {
             requireRules(row, signature);
+            var bindings = corpus.bindings(row.sourceId());
+            if (bindings.isEmpty()) {
+                // 没有生效知识时确立来源级缺口，不调用模型猜测原因。
+                throw QueryFailure.noPublishedKnowledge();
+            }
             var frozen = new RunInput(
                     signature,
                     context.capture(row, signature),
-                    corpus.bindings(row.sourceId()),
+                    bindings,
                     models.revision("sql-generate"),
                     models.revision("sql-semantic-check"),
                     noRules ? null : models.revision("output-meaning"));
@@ -988,11 +1002,17 @@ public class QueryService {
     }
 
     /** 只在确实已登记执行时保留运行、实际成功或未知记录。 */
-    private void stop(Request row, String state, String execution) {
+    private void stop(Request row, String state, String execution, String reason, String signature) {
         var latest = requests.get(row.id());
         String actual =
                 latest.executionId() == null ? "NOT_SUBMITTED" : "SUCCEEDED".equals(execution) ? execution : "UNKNOWN";
-        requests.stop(row.id(), row.runVersion(), state, actual);
+        String diagnostic =
+                switch (state) {
+                    case "KNOWLEDGE_INSUFFICIENT" -> reason == null ? "INSUFFICIENT_KNOWLEDGE" : reason;
+                    case "TECHNICAL_FAILURE" -> reason == null ? "QUERY_RUNTIME_FAILURE" : reason;
+                    default -> null;
+                };
+        requests.stop(row.id(), row.runVersion(), state, actual, diagnostic, signature);
     }
 
     /** 原问题及历史答案只向本人定位。 */

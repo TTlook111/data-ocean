@@ -16,12 +16,17 @@ public record FeedbackIssueDetailVO(
         boolean evidenceRestricted,
         FeedbackQuestion question,
         List<Report> reports,
+        List<QueryIncident> incidents,
         Activity latestReview,
         List<Activity> activities,
         Resolution resolution) {
 
     /** 附于原事项的点踩历史，原因到期时只保留时间和引用。 */
     public record Report(String id, String reason, Instant occurredAt) {}
+
+    /** 只包含受控诊断编码和原问身份，原文另行裁剪。 */
+    public record QueryIncident(
+            String requestId, String state, String phase, String diagnostic, String executionState, Instant failedAt) {}
 
     /** 操作历史保留本人、操作、版本和时间，正文仅向有证据权的人员披露。 */
     public record Activity(

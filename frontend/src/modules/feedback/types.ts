@@ -42,9 +42,28 @@ export type IssueDetail = {
     incomplete: boolean;
   } | null;
   reports: { id: string; reason: string | null; occurredAt: string }[];
+  /** 未交付的原问仍有独立诊断证据。 */
+  incidents?: QueryIncident[];
   latestReview: Activity | null;
   activities: Activity[];
   resolution?: Resolution;
+};
+
+/** 问数失败的安全定位信息，后台无需原文权限也能分派。 */
+export type QueryIncident = {
+  requestId: string;
+  state: string;
+  phase: string;
+  diagnostic: string;
+  executionState: string;
+  failedAt: string;
+};
+
+/** 评价与问数自动来源按实际成因独立呈现。 */
+export const originLabels: Record<string, string> = {
+  USER_DISLIKE: '问数点踩',
+  QUERY_KNOWLEDGE_GAP: '问数知识缺口',
+  QUERY_TECHNICAL_FAILURE: '技术失败',
 };
 
 /** 从处理结果到回告，各状态由服务端独立核验。 */

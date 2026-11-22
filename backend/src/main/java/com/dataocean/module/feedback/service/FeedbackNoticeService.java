@@ -66,7 +66,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
 
     /** 根据当前真实原问和收件资格生成预览，正文永远来自模板。 */
     Preview preview(Issue issue, String template) {
-        var request = requests.get(issue.answerId());
+        var request = requests.get(issue.requestId());
         if (request == null || request.sourceId() != issue.sourceId()) {
             throw BizIllegalException.state("无法核对原回答的接收人");
         }
@@ -79,7 +79,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
                     "SUPPRESSED",
                     UNAVAILABLE);
         }
-        var eligibility = eligibility(request.userId(), issue.sourceId(), issue.answerId());
+        var eligibility = eligibility(request.userId(), issue.sourceId(), issue.requestId());
         return new Preview(
                 issue.version(),
                 Ids.text(request.userId()),
@@ -97,7 +97,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
                 issue.id(),
                 1,
                 actor,
-                issue.answerId(),
+                issue.requestId(),
                 issue.sourceId(),
                 template,
                 "QUEUED",
