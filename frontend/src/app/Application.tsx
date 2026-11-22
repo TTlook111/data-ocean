@@ -103,6 +103,10 @@ const AuditPage = lazyPage(() => import('../modules/iam/AuditPage').then((m) => 
 const FeedbackQueue = lazyPage(() =>
   import('../modules/feedback/FeedbackQueue').then((m) => m.FeedbackQueue),
 );
+// 正式事项的核查和分派在同一独立详情办理。
+const FeedbackIssuePage = lazyPage(() =>
+  import('../modules/feedback/FeedbackIssuePage').then((m) => m.FeedbackIssuePage),
+);
 
 // 数据源和数据访问页面保留现有具名入口及跨页复用。
 const DatasourceManagementPage = lazyPage(() =>
@@ -202,6 +206,7 @@ const workspaceRoutes = [
   { path: '/releases/versions/:id', element: <KnowledgeEffectiveVersionPage /> },
   // 反馈基础队列通过已有页面权限保护。
   { path: '/feedback', element: <FeedbackQueue /> },
+  { path: '/feedback/:id', element: <FeedbackIssuePage /> },
   // 系统配置的真实模型与诊断入口。
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },

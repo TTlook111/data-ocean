@@ -23,6 +23,8 @@ import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
 import com.dataocean.module.query.service.QueryProtocol.Ask;
 import com.dataocean.module.query.service.QueryProtocol.Conversation;
 import com.dataocean.module.query.service.QueryProtocol.Data;
+import com.dataocean.module.query.service.QueryProtocol.Evidence;
+import com.dataocean.module.query.service.QueryProtocol.FeedbackQuestion;
 import com.dataocean.module.query.service.QueryProtocol.RatingAnswer;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
@@ -344,6 +346,64 @@ public class QueryService {
                 row.bindingId(),
                 reasoning == null ? null : reasoning.evidence(),
                 row.usageRefs());
+    }
+
+    /** 反馈工作区使用已核验的当前源范围回查原问，授权差异时不给出历史正文。 */
+    public FeedbackQuestion feedbackQuestion(String id, AccessScopeVO scope) {
+        var row = requests.get(uuid(id));
+        if (row == null
+                || !Ids.text(row.sourceId()).equals(scope.getSource().getId())
+                || !output.signature(scope.getRules()).equals(row.ruleSignature())) {
+            // 以原执行授权为可回看证据的上限，无法比较时保留事项基础信息。
+            return null;
+        }
+        var reasoning = row.reasoning() == null ? null : json.read(row.reasoning(), Reasoning.class);
+        Evidence evidence = reasoning == null ? null : reasoning.evidence();
+        if (evidence != null && feedbackText(scope, evidence.title()) == null) {
+            // 知识文档名称也可能含有当前受限的业务含义。
+            evidence = null;
+        }
+        String dataScope = null;
+        String sql = null;
+        if (hasLiveResult(row)) {
+            try {
+                // 查询口径与 SQL 模板沿用结果留存和当前发布资格，不返回原值及参数。
+                requireReadableResult(row, scope);
+                dataScope =
+                        feedbackText(scope, json.read(row.result(), Data.class).scope());
+                if (reasoning != null && permissions.has("query.sql")) {
+                    sql = feedbackText(scope, reasoning.sql());
+                }
+            } catch (BizIllegalException unavailable) {
+                // 知识停用时仍保留可核对的原问和证据身份。
+            }
+        }
+        String question = feedbackText(scope, row.question());
+        return new FeedbackQuestion(
+                row.id(),
+                question,
+                feedbackText(scope, row.supplement()),
+                instant(row.executedAt()),
+                evidence,
+                dataScope,
+                sql,
+                question == null || evidence == null || row.usageRefs() == null || dataScope == null);
+    }
+
+    /** 原问、反馈原因及后台自由文本沿用相同的输出限制。 */
+    public String feedbackText(AccessScopeVO scope, String text) {
+        if (text == null) {
+            // 到期的内容保持缺失，不以当前事实或占位文字冒充原文。
+            return null;
+        }
+        try {
+            output.checkSupported(scope.getRules());
+            output.checkDisclosure(scope.getRules(), text);
+            return text;
+        } catch (QueryFailure restricted) {
+            // 单项受限仅隐藏该字段，基础办理记录继续可用。
+            return null;
+        }
     }
 
     /** 与结果回看共用交付状态和到期边界。 */

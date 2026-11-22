@@ -10,6 +10,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:query-coverage": "vitest run src/modules/query --coverage --coverage.include=\"src/modules/query/**/*.{ts,tsx}\" --coverage.thresholds.lines=90 --coverage.reporter=text --coverage.reporter=json-summary",
+    "test:feedback-coverage": "vitest run src/modules/feedback --coverage --coverage.include=\"src/modules/feedback/**/*.{ts,tsx}\" --coverage.thresholds.lines=90 --coverage.thresholds.statements=90 --coverage.thresholds.branches=90 --coverage.thresholds.functions=90 --coverage.reporter=text --coverage.reporter=json-summary",
     "lint": "eslint src",
     "format": "prettier --write src *.ts *.json",
     "format:check": "prettier --check src *.ts *.json"

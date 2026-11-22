@@ -1,0 +1,183 @@
+/* 编号筛选保留完整显示宽度，窄窗由查询表单自然换行。 */
+.feedback-filter .ant-input-affix-wrapper {
+  width: 168px;
+}
+
+/* 分组留在结果面板内，分页与表格使用共用高度。 */
+.feedback-queue-tabs {
+  flex: none;
+  padding-inline: 16px;
+}
+
+/* 分组栏直接贴合列表表头。 */
+.feedback-queue-tabs > .ant-tabs-nav {
+  margin: 0;
+}
+
+/* 详情的标题、页签与底栏采用相同的桌面阅读轴。 */
+.panel.feedback-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+
+/* 标题区由详情管理自己的面板内距。 */
+.feedback-detail-header {
+  padding: 24px 24px 12px;
+}
+
+/* 事项编号与实际状态同排阅读。 */
+.feedback-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* 状态文字保持后台标准的小标签，黄色和蓝色都有足够对比度。 */
+.record-status-pending_assignment.ant-tag {
+  color: #805815;
+  background: #fbf2dd;
+}
+
+.record-status-in_progress.ant-tag {
+  color: #224aab;
+  background: var(--do-selected);
+}
+
+/* 分组页签与详情标题保持同一左边界。 */
+.feedback-detail-tabs > .ant-tabs-nav {
+  padding-inline: 24px;
+  margin: 0;
+}
+
+/* 当前标签正文在面板内部定位，历史和证据共用同一阅读宽度。 */
+.feedback-detail-tabs [role='tabpanel'] {
+  min-width: 0;
+  padding: 20px 24px;
+}
+
+/* 透出多行复核文案的原换行，长编号可以折行。 */
+.feedback-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 原问、反馈和查询依据按阅读顺序分段，保留同一条左轴。 */
+.feedback-evidence-section + .feedback-evidence-section {
+  margin-block-start: 20px;
+  padding-block-start: 16px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 段落标题使用紧凑正文尺度。 */
+.feedback-evidence-section > h3 {
+  margin-block: 0 8px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 原问和反馈理由优先阅读，关联时间随后展示。 */
+.feedback-evidence-section > .feedback-text {
+  margin-block-end: 8px;
+}
+
+/* 缺少反馈正文时仍有清楚的状态。 */
+.feedback-meta {
+  color: var(--do-muted);
+}
+
+/* 点踩原因已经与上下段分开，首尾行免去重复分割线。 */
+.feedback-evidence-section .feedback-entries > li:first-child {
+  padding-block-start: 0;
+}
+
+.feedback-evidence-section .feedback-entries > li:last-child {
+  padding-block-end: 0;
+  border-bottom: 0;
+}
+
+/* SQL 按需展开，长模板在自己的区域滚动。 */
+.feedback-sql {
+  margin-block-start: 8px;
+}
+
+/* SQL 开关沿用链接色和清楚的点击区，正文按需展开。 */
+.feedback-sql summary {
+  width: fit-content;
+  padding: 4px 0;
+  color: var(--do-primary);
+  cursor: pointer;
+}
+
+/* 查询模板使用浅底和内距与周围正文区分。 */
+.feedback-sql pre {
+  overflow: auto;
+  padding: 12px;
+  background: var(--do-subtle);
+}
+
+/* 原始线索和处理记录采用同一时间层级。 */
+.feedback-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 同一线索用内距分开，行尾统一保留边界。 */
+.feedback-entries li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 办理动作、操作者和时间按阅读顺序自然换行。 */
+.feedback-history-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+/* 时间作为记录的辅助信息。 */
+.feedback-entries time {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+/* 底栏在纵向滚动时保留返回和可用办理动作。 */
+.feedback-detail-footer {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--do-line);
+  border-radius: 0 0 8px 8px;
+  background: var(--do-panel);
+}
+
+/* 已获准动作随底栏靠右成组。 */
+.feedback-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 方向与负责人彼此相关，宽弹窗并排，窄视口顺序换行。 */
+.feedback-assignment-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  gap: 0 16px;
+}
+
+@media (max-width: 720px) {
+  /* 桌面高倍缩放时保留完整候选姓名和操作文字。 */
+  .feedback-assignment-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

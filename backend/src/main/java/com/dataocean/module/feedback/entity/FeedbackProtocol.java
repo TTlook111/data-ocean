@@ -34,9 +34,11 @@ public final class FeedbackProtocol {
     public record IssueRow(
             String id,
             String sourceId,
+            String sourceName,
             String origin,
             String status,
             String assigneeId,
+            String assigneeName,
             Instant createdAt,
             Instant updatedAt) {}
 }

@@ -34,6 +34,15 @@ export function workspaceParent(
       state: { catalogReturnTo: origin?.catalogRow ?? id },
     };
   }
+  if (route === '/feedback/:id') {
+    // 与详情内的底部返回保持同一筛选及事项焦点。
+    return {
+      label: '问题队列与处理',
+      current: '事项 #' + id,
+      url: '/feedback' + location.search,
+      state: { feedbackFocus: id },
+    };
+  }
   if (route === '/governance/:id') {
     if (origin?.catalogSearch && permissions.includes('catalog.view')) {
       return {

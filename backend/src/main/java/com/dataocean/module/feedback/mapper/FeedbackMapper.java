@@ -2,6 +2,7 @@ package com.dataocean.module.feedback.mapper;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.module.iam.entity.po.UserPO;
 import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
 
 import java.time.LocalDateTime;
@@ -37,11 +38,57 @@ public interface FeedbackMapper {
     record Issue(
             long id,
             long sourceId,
+            String sourceName,
             String origin,
+            String answerId,
             String status,
             Long assigneeId,
+            String assigneeName,
+            int version,
+            String direction,
             LocalDateTime createdAt,
             LocalDateTime updatedAt) {}
+
+    /** 写操作按确定的下一版本保存操作与必要核查依据。 */
+    record Activity(
+            long issueId,
+            int version,
+            long actorId,
+            String action,
+            Long assigneeId,
+            String direction,
+            String note,
+            String rootCause) {}
+
+    /** 操作人和负责人使用当前人员名称，历史的人员编号由事件保留。 */
+    record ActivityRow(
+            int version,
+            String action,
+            String actor,
+            String assignee,
+            String direction,
+            String note,
+            String rootCause,
+            LocalDateTime occurredAt) {}
+
+    /** 基础事项查询统一返回同一组列。 */
+    String ISSUE_SELECT =
+            """
+            SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_answer_id AS answer_id,
+                i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,i.created_at,i.updated_at
+            FROM fb_issue i JOIN ds_source s ON s.id=i.source_id LEFT JOIN iam_user u ON u.id=i.assignee_id
+            """;
+
+    /** 历史正文可为空，基础查看只需要同版操作元数据。 */
+    String ACTIVITY_SELECT =
+            """
+            SELECT a.issue_version AS version,a.action,u.display_name AS actor,v.display_name AS assignee,
+                a.direction,
+                CASE WHEN #{includeText} THEN a.note ELSE NULL END AS note,
+                CASE WHEN #{includeText} THEN a.root_cause ELSE NULL END AS root_cause,a.occurred_at
+            FROM fb_issue_activity a JOIN iam_user u ON u.id=a.actor_id
+            LEFT JOIN iam_user v ON v.id=a.assignee_id WHERE a.issue_id=#{id}
+            """;
 
     /** 只用于诊断等待超出正常派发窗口的点踩。 */
     record Backlog(long pending, LocalDateTime oldest) {}
@@ -135,17 +182,99 @@ public interface FeedbackMapper {
 
     /** 查询条件共同用于分页计数，排序由服务端固定。 */
     @Select(
-            """
-            <script>
-            SELECT id,source_id,origin,status,assignee_id,created_at,updated_at FROM fb_issue
+            "<script>" + ISSUE_SELECT
+                    + """
             <where>
-                <if test="source != null">source_id=#{source}</if>
-                <if test="issue != null">AND id=#{issue}</if>
+                <if test="source != null">i.source_id=#{source}</if>
+                <if test="issue != null">AND i.id=#{issue}</if>
+                <if test="scope == 'OWNED'">AND i.assignee_id=#{actor}</if>
+                <if test="scope == 'MINE'">
+                    AND ((#{canAssign} AND i.status='PENDING_ASSIGNMENT')
+                        OR (#{canReview} AND i.assignee_id=#{actor} AND i.status='IN_PROGRESS'))
+                </if>
             </where>
-            ORDER BY updated_at DESC,id DESC
+            ORDER BY i.updated_at DESC,i.id DESC
             </script>
             """)
-    IPage<Issue> list(Page<Issue> page, Long source, Long issue);
+    IPage<Issue> list(
+            Page<Issue> page, Long source, Long issue, String scope, long actor, boolean canAssign, boolean canReview);
+
+    /** 独立打开事项使用同一基础投影。 */
+    @Select(ISSUE_SELECT + " WHERE i.id=#{id}")
+    Issue issue(long id);
+
+    /** 业务写锁只锁事项行，避免分派写入与人员读取互相加锁。 */
+    @Select(
+            """
+            SELECT id,source_id,NULL AS source_name,origin,origin_answer_id AS answer_id,
+                status,assignee_id,NULL AS assignee_name,version,direction,created_at,updated_at
+            FROM fb_issue WHERE id=#{id} FOR UPDATE
+            """)
+    Issue lockIssue(long id);
+
+    /** 分派和转派原子推进版本，仅更新本动作确实改变的责任字段。 */
+    @Update(
+            """
+            UPDATE fb_issue SET assignee_id=#{assignee},direction=#{direction},status='IN_PROGRESS',
+                version=version+1,updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND version=#{version} AND status IN ('PENDING_ASSIGNMENT','IN_PROGRESS')
+            """)
+    int assign(long id, int version, long assignee, String direction);
+
+    /** 当前负责人核查不改变事项主状态，但推进聚合版本。 */
+    @Update(
+            """
+            UPDATE fb_issue SET version=version+1,updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND version=#{version} AND assignee_id=#{actor} AND status='IN_PROGRESS'
+            """)
+    int review(long id, int version, long actor);
+
+    /** 审计和责任变更同事务追加业务历史。 */
+    @Insert(
+            """
+            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause)
+            VALUES(#{issueId},#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause})
+            """)
+    void appendActivity(Activity event);
+
+    /** 回看最近处理过程，保留已发生的操作顺序。 */
+    @Select(ACTIVITY_SELECT + " ORDER BY a.issue_version DESC LIMIT 20")
+    List<ActivityRow> activities(long id, boolean includeText);
+
+    /** 核查摘要独立定位最新核查记录，转派后仍保留。 */
+    @Select(ACTIVITY_SELECT + " AND a.action='REVIEWED' ORDER BY a.issue_version DESC LIMIT 1")
+    ActivityRow latestReview(long id, boolean includeText);
+
+    /** 沿用真实关联事件读取最近反馈，原因清理后的事件仍可定位。 */
+    @Select(
+            """
+            SELECT f.id,f.user_id,f.answer_id,f.answer_revision,f.sequence,f.previous_event_id,
+                f.action,f.reason,f.command_id,f.occurred_at
+            FROM fb_issue_evidence e JOIN fb_event f ON f.id=e.feedback_event_id
+            WHERE e.issue_id=#{id} ORDER BY f.occurred_at DESC,f.id DESC LIMIT 20
+            """)
+    List<Event> reports(long id);
+
+    /** 候选按当前有效角色筛选，分页发生在权限过滤之后。 */
+    @Select(
+            """
+            <script>
+            SELECT u.id,u.username,u.display_name,u.version FROM iam_user u
+            WHERE u.lifecycle='ENABLED' AND u.must_change_password=0
+                AND 2=(SELECT COUNT(DISTINCT rp.permission_code) FROM iam_user_role ur
+                    JOIN iam_role r ON r.id=ur.role_id AND r.lifecycle='ENABLED'
+                    JOIN iam_role_permission rp ON rp.role_id=r.id
+                    JOIN iam_permission p ON p.code=rp.permission_code AND p.enabled=1
+                    WHERE ur.user_id=u.id AND ur.ended_at IS NULL
+                      AND rp.permission_code IN ('feedback.view','feedback.process'))
+                <if test="pattern != null">
+                    AND (LOWER(u.display_name) LIKE #{pattern} ESCAPE '!'
+                        OR LOWER(u.username) LIKE #{pattern} ESCAPE '!')
+                </if>
+            ORDER BY u.display_name,u.id
+            </script>
+            """)
+    IPage<UserPO> candidates(Page<UserPO> page, String pattern);
 
     /** 按积压点踩补足仅靠租约重投无法覆盖的队列缺口。 */
     @Select(

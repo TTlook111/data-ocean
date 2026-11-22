@@ -56,6 +56,17 @@ public final class QueryProtocol {
     /** 已交付结果的评价身份，与解释和执行代次独立。 */
     public record AnswerRef(String answerId, int answerRevision) {}
 
+    /** 核查仅引用原问和实际执行依据，不复制查询结果行或绑定参数。 */
+    public record FeedbackQuestion(
+            String answerId,
+            String question,
+            String supplement,
+            Instant executedAt,
+            Evidence evidence,
+            String scope,
+            String sql,
+            boolean incomplete) {}
+
     /** 当前已获权的内部证据引用，不包含结果行及 SQL 参数。 */
     public record RatingAnswer(
             AnswerRef ref,

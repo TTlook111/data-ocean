@@ -2,8 +2,6 @@ package com.dataocean.module.feedback.service;
 
 import com.dataocean.common.ErrorVO.FieldErrorVO;
 import com.dataocean.common.Ids;
-import com.dataocean.common.PageQuery;
-import com.dataocean.common.PageVO;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.exception.FieldValidationException;
@@ -13,17 +11,14 @@ import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.infrastructure.SecretKeyProvider;
 import com.dataocean.module.audit.entity.dto.AuditWriteDTO;
 import com.dataocean.module.audit.service.AuditService;
-import com.dataocean.module.feedback.entity.FeedbackProtocol.IssueRow;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Rating;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
 import com.dataocean.module.feedback.mapper.FeedbackMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Event;
-import com.dataocean.module.feedback.mapper.FeedbackMapper.Issue;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
 import com.dataocean.module.iam.mapper.CommandMapper;
 import com.dataocean.module.iam.mapper.GuardMapper;
-import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.query.service.QueryService;
 
 import java.time.Instant;
@@ -68,9 +63,6 @@ public class FeedbackService {
 
     /** 固定本次安全修订和后台功能。 */
     private final GuardMapper guard;
-
-    /** 后台列表单独核验当前角色功能。 */
-    private final PermissionService permissions;
 
     /** 将可靠派发与评价一同提交。 */
     private final FeedbackIntake intake;
@@ -198,24 +190,6 @@ public class FeedbackService {
             throw BizIllegalException.missing();
         }
         return receipt;
-    }
-
-    /** 控制后台队列的基础投影和实际分页总数。 */
-    @Transactional
-    public PageVO<IssueRow> issues(PageQuery query, String source, String issue) {
-        guard.shared();
-        permissions.require("feedback.view");
-        var page = feedback.list(query.<Issue>toFixedOrderMpPage(), Ids.nullable(source), Ids.nullable(issue));
-        return PageVO.from(
-                page,
-                row -> new IssueRow(
-                        Ids.text(row.id()),
-                        Ids.text(row.sourceId()),
-                        row.origin(),
-                        row.status(),
-                        Ids.text(row.assigneeId()),
-                        instant(row.createdAt()),
-                        instant(row.updatedAt())));
     }
 
     /** 单独清理到期原因，已受理待入队记录保留到派发完成。 */
