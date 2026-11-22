@@ -406,6 +406,21 @@ public class QueryService {
         }
     }
 
+    /** 回告按原提问人当前授权核对，返回定位资格但不读取结果正文。 */
+    public boolean canOpenFeedbackAnswer(String id, long recipient, AccessScopeVO scope) {
+        var row = requests.get(uuid(id));
+        return row != null
+                && row.userId() == recipient
+                && Ids.text(row.sourceId()).equals(scope.getSource().getId())
+                && Objects.equals(row.ruleSignature(), feedbackRuleSignature(scope))
+                && feedbackText(scope, row.question()) != null;
+    }
+
+    /** 人工复验签名和回告权限沿用问数真实输出规则的定义。 */
+    public String feedbackRuleSignature(AccessScopeVO scope) {
+        return output.signature(scope.getRules());
+    }
+
     /** 与结果回看共用交付状态和到期边界。 */
     private boolean hasLiveResult(Request row) {
         return "RESULT_DELIVERED".equals(row.state())

@@ -28,7 +28,8 @@ public final class FeedbackProtocol {
             Integer version,
             Instant updatedAt,
             String queueState,
-            String issueId) {}
+            String issueId,
+            FeedbackNoticeVO notice) {}
 
     /** 后台队列的基础投影，不含原问题或用户原因。 */
     public record IssueRow(

@@ -655,6 +655,24 @@
   outline-offset: -2px;
 }
 
+/* 回告跟随原回答，与评价按钮和业务结论保持各自阅读顺序。 */
+.noticeLine {
+  margin-block: 10px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+
+/* 阅读动作放在送达时间旁，窄窗自然换行。 */
+.noticeMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: #5b6575;
+  font-size: 12px;
+}
+
 @media (max-height: 640px) {
   .thread {
     padding: 23px 0;

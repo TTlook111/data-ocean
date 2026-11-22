@@ -105,6 +105,7 @@ export function FeedbackQueue() {
             { key: 'MINE', label: '待我处理' },
             { key: 'OWNED', label: '我负责的' },
             { key: 'ALL', label: '全部事项' },
+            { key: 'CLOSED', label: '结案回看' },
           ]}
         />
         <RecordTable<Issue>

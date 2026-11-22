@@ -84,6 +84,9 @@ const actionLabels: Record<string, string> = {
   'feedback.rating.submit': '提交问数评价',
   'feedback.assign': '分派反馈事项',
   'feedback.process': '记录反馈核查',
+  'feedback.result.submit': '提交处理结果',
+  'feedback.verify': '登记反馈复验',
+  'feedback.close': '办理反馈结案',
 };
 
 /**

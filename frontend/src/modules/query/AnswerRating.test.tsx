@@ -81,6 +81,24 @@ afterEach(() => {
   vi.mocked(api).mockReset();
 });
 
+/** 结案后原问展示当前回告，避免同时强调旧的入队进度。 */
+it('已投递回告替换原回答的入队提示', async () => {
+  vi.mocked(api).mockResolvedValue({
+    ...queued,
+    notice: {
+      id: 'notice-1',
+      message: '你提交的反馈已完成处理并通过复验。',
+      sourceId: '1',
+      requestId: 'answer-one',
+      sentAt: '2026-11-22T10:00:00Z',
+      readAt: null,
+    },
+  });
+  mount();
+  expect(await screen.findByText('你提交的反馈已完成处理并通过复验。')).toBeVisible();
+  expect(screen.queryByText(/已进入问题队列/)).not.toBeInTheDocument();
+});
+
 /** 评价读失败仍有恢复操作，已经交付的数据仍可读。 */
 it('评价读失败时保留原结果并允许单独重试', async () => {
   vi.mocked(api).mockRejectedValueOnce(new Error('连接中断')).mockResolvedValue(unrated);

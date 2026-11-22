@@ -46,6 +46,8 @@ public interface FeedbackMapper {
             String assigneeName,
             int version,
             String direction,
+            Integer resultVersion,
+            Integer verificationVersion,
             LocalDateTime createdAt,
             LocalDateTime updatedAt) {}
 
@@ -58,7 +60,8 @@ public interface FeedbackMapper {
             Long assigneeId,
             String direction,
             String note,
-            String rootCause) {}
+            String rootCause,
+            String conclusion) {}
 
     /** 操作人和负责人使用当前人员名称，历史的人员编号由事件保留。 */
     record ActivityRow(
@@ -69,13 +72,15 @@ public interface FeedbackMapper {
             String direction,
             String note,
             String rootCause,
+            String conclusion,
             LocalDateTime occurredAt) {}
 
     /** 基础事项查询统一返回同一组列。 */
     String ISSUE_SELECT =
             """
             SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_answer_id AS answer_id,
-                i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,i.created_at,i.updated_at
+                i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,
+                i.result_version,i.verification_version,i.created_at,i.updated_at
             FROM fb_issue i JOIN ds_source s ON s.id=i.source_id LEFT JOIN iam_user u ON u.id=i.assignee_id
             """;
 
@@ -84,10 +89,14 @@ public interface FeedbackMapper {
             """
             SELECT a.issue_version AS version,a.action,u.display_name AS actor,v.display_name AS assignee,
                 a.direction,
-                CASE WHEN #{includeText} THEN a.note ELSE NULL END AS note,
-                CASE WHEN #{includeText} THEN a.root_cause ELSE NULL END AS root_cause,a.occurred_at
+                CASE WHEN #{includeText} THEN COALESCE(r.summary,vf.actual,a.note) ELSE NULL END AS note,
+                CASE WHEN #{includeText} THEN a.root_cause ELSE NULL END AS root_cause,
+                CASE WHEN #{includeText} THEN a.conclusion ELSE NULL END AS conclusion,a.occurred_at
             FROM fb_issue_activity a JOIN iam_user u ON u.id=a.actor_id
-            LEFT JOIN iam_user v ON v.id=a.assignee_id WHERE a.issue_id=#{id}
+            LEFT JOIN iam_user v ON v.id=a.assignee_id
+            LEFT JOIN fb_issue_result r ON r.issue_id=a.issue_id AND r.version=a.issue_version
+            LEFT JOIN fb_issue_verification vf ON vf.issue_id=a.issue_id AND vf.version=a.issue_version
+            WHERE a.issue_id=#{id}
             """;
 
     /** 只用于诊断等待超出正常派发窗口的点踩。 */
@@ -187,17 +196,35 @@ public interface FeedbackMapper {
             <where>
                 <if test="source != null">i.source_id=#{source}</if>
                 <if test="issue != null">AND i.id=#{issue}</if>
-                <if test="scope == 'OWNED'">AND i.assignee_id=#{actor}</if>
+                <if test="scope == 'OWNED'">AND i.assignee_id=#{actor} AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION')</if>
+                <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER')</if>
                 <if test="scope == 'MINE'">
                     AND ((#{canAssign} AND i.status='PENDING_ASSIGNMENT')
-                        OR (#{canReview} AND i.assignee_id=#{actor} AND i.status='IN_PROGRESS'))
+                        OR (#{canReview} AND i.assignee_id=#{actor} AND i.status='IN_PROGRESS')
+                        <if test="verifySources.size() &gt; 0">
+                          OR (i.status='PENDING_VERIFICATION' AND i.result_version IS NOT NULL AND i.source_id IN
+                            <foreach collection="verifySources" item="id" open="(" separator="," close=")">#{id}</foreach>)
+                        </if>
+                        OR (#{canClose} AND ((i.status='PENDING_VERIFICATION' AND i.verification_version IS NOT NULL)
+                            OR (i.status='IN_PROGRESS' AND EXISTS(SELECT 1 FROM fb_issue_activity a
+                                WHERE a.issue_id=i.id AND a.actor_id=i.assignee_id AND a.action='REVIEWED'
+                                AND a.issue_version &gt; COALESCE((SELECT MAX(b.issue_version) FROM fb_issue_activity b
+                                    WHERE b.issue_id=i.id AND b.action='ASSIGNED'),0))))))
                 </if>
             </where>
             ORDER BY i.updated_at DESC,i.id DESC
             </script>
             """)
     IPage<Issue> list(
-            Page<Issue> page, Long source, Long issue, String scope, long actor, boolean canAssign, boolean canReview);
+            Page<Issue> page,
+            Long source,
+            Long issue,
+            String scope,
+            long actor,
+            boolean canAssign,
+            boolean canReview,
+            List<Long> verifySources,
+            boolean canClose);
 
     /** 独立打开事项使用同一基础投影。 */
     @Select(ISSUE_SELECT + " WHERE i.id=#{id}")
@@ -207,7 +234,7 @@ public interface FeedbackMapper {
     @Select(
             """
             SELECT id,source_id,NULL AS source_name,origin,origin_answer_id AS answer_id,
-                status,assignee_id,NULL AS assignee_name,version,direction,created_at,updated_at
+                status,assignee_id,NULL AS assignee_name,version,direction,result_version,verification_version,created_at,updated_at
             FROM fb_issue WHERE id=#{id} FOR UPDATE
             """)
     Issue lockIssue(long id);
@@ -216,8 +243,8 @@ public interface FeedbackMapper {
     @Update(
             """
             UPDATE fb_issue SET assignee_id=#{assignee},direction=#{direction},status='IN_PROGRESS',
-                version=version+1,updated_at=UTC_TIMESTAMP(3)
-            WHERE id=#{id} AND version=#{version} AND status IN ('PENDING_ASSIGNMENT','IN_PROGRESS')
+                result_version=NULL,verification_version=NULL,version=version+1,updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND version=#{version} AND status IN ('PENDING_ASSIGNMENT','IN_PROGRESS','PENDING_VERIFICATION')
             """)
     int assign(long id, int version, long assignee, String direction);
 
@@ -232,8 +259,8 @@ public interface FeedbackMapper {
     /** 审计和责任变更同事务追加业务历史。 */
     @Insert(
             """
-            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause)
-            VALUES(#{issueId},#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause})
+            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause,conclusion)
+            VALUES(#{issueId},#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause},#{conclusion})
             """)
     void appendActivity(Activity event);
 
@@ -244,6 +271,15 @@ public interface FeedbackMapper {
     /** 核查摘要独立定位最新核查记录，转派后仍保留。 */
     @Select(ACTIVITY_SELECT + " AND a.action='REVIEWED' ORDER BY a.issue_version DESC LIMIT 1")
     ActivityRow latestReview(long id, boolean includeText);
+
+    /** 处理结果须建立在当前负责人最近一次分派后的真实核查上。 */
+    @Select(
+            """
+            SELECT EXISTS (SELECT 1 FROM fb_issue_activity a WHERE a.issue_id=#{id} AND a.actor_id=#{actor}
+                AND a.action='REVIEWED' AND a.issue_version > COALESCE((SELECT MAX(b.issue_version)
+                  FROM fb_issue_activity b WHERE b.issue_id=#{id} AND b.action='ASSIGNED'),0))
+            """)
+    boolean hasCurrentReview(long id, long actor);
 
     /** 沿用真实关联事件读取最近反馈，原因清理后的事件仍可定位。 */
     @Select(

@@ -67,6 +67,9 @@ public class FeedbackService {
     /** 将可靠派发与评价一同提交。 */
     private final FeedbackIntake intake;
 
+    /** 查阅原回答时复用已交付提示及本人资格。 */
+    private final FeedbackNoticeService notices;
+
     /** 写入最小成功审计。 */
     private final AuditService audit;
 
@@ -98,7 +101,8 @@ public class FeedbackService {
                 current == null ? null : current.version(),
                 current == null ? null : instant(current.updatedAt()),
                 queue,
-                Ids.text(issue));
+                Ids.text(issue),
+                notices.answer(answer.userId(), ref.answerId()));
     }
 
     /** 当前核权后在原回答锁下原子追加、推进摘要和登记待派发。 */

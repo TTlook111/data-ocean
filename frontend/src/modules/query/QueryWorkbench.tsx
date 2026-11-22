@@ -7,6 +7,7 @@ import {
   SearchOutlined,
   StopOutlined,
   AppstoreOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Empty, Input, Select, Spin } from 'antd';
@@ -17,6 +18,7 @@ import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import type { Session } from '../iam/types';
 import { downloadChart, downloadResult } from './download';
 import { activeState, explaining } from './QueryAnswer';
+import { FeedbackInbox } from './FeedbackNotices';
 import { HistoricalQueryTurn, QueryTurn, queryTurnOptions } from './QueryTurn';
 import type { Conversation, Snapshot, Source, Turn } from './types';
 import styles from './query.module.css';
@@ -60,6 +62,7 @@ export function QueryWorkbench({
   const [input, setInput] = useState({ context: '', text: '' });
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [showNotices, setShowNotices] = useState(false);
   const [sending, setSending] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState('');
   const [message, setMessage] = useState('');
@@ -434,6 +437,16 @@ export function QueryWorkbench({
                 ),
             )}
         </nav>
+        {/* 站内回告入口在未选来源和来源失权时仍可用。 */}
+        <Button
+          block
+          type="text"
+          className={styles.finder}
+          icon={<BellOutlined aria-hidden />}
+          onClick={() => setShowNotices(true)}
+        >
+          反馈回告
+        </Button>
         <div className={styles.profile}>
           <ActionMenuButton
             placement="topLeft"
@@ -466,6 +479,15 @@ export function QueryWorkbench({
           </ActionMenuButton>
         </div>
       </aside>
+      {showNotices && (
+        <FeedbackInbox
+          close={() => setShowNotices(false)}
+          open={(nextSource, request) => {
+            setShowNotices(false);
+            open(nextSource, request);
+          }}
+        />
+      )}
       <main className={styles.main}>
         {/* 来源始终位于对话之外，在途时不会切换实际请求的来源。 */}
         <header className={styles.header}>

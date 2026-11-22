@@ -3,10 +3,102 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../../shared/api';
+import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { displayTime, ReadState, Status } from '../../shared/Records';
 import { FeedbackActionDialog } from './FeedbackActionDialog';
-import { directions, statusLabels, type IssueDetail } from './types';
+import {
+  FeedbackResolutionDialog,
+  impactLabels,
+  type ResolutionAction,
+} from './FeedbackResolutionDialog';
+import { directions, statusLabels, type Activity, type IssueDetail } from './types';
 import './feedback.css';
+
+/** 处理与回告分别显示事实名称，旧记录继续按原动作读取。 */
+const activityLabels: Record<Activity['action'], string> = {
+  ASSIGNED: '分派事项',
+  REVIEWED: '记录核查',
+  RESULT_SUBMITTED: '提交处理结果',
+  VERIFIED: '人工复验通过',
+  RECHECK_FAILED: '人工复验未通过',
+  CLOSED: '办理结案',
+};
+const noticeLabels: Record<string, string> = {
+  QUEUED: '待投递',
+  DELIVERED: '已投递',
+  RESTRICTED: '已投递受限提示',
+  SUPPRESSED: '接收账号不可用',
+};
+
+/** 对外显示人工复验实际状态，正文为空时保留分步操作事实。 */
+function ResolutionDetails({ detail }: { detail: IssueDetail }) {
+  const record = detail.resolution?.result;
+  const checked = detail.resolution?.verification;
+  return (
+    <>
+      {record && (
+        <section className="feedback-work-section" aria-label="处理结果">
+          <h3>处理结果</h3>
+          <Descriptions
+            size="small"
+            column={1}
+            items={[
+              { key: 'impact', label: '修复影响范围', children: impactLabels[record.impact] },
+              {
+                key: 'summary',
+                label: '修正说明',
+                children: <span className="feedback-text">{record.summary ?? '受限'}</span>,
+              },
+              {
+                key: 'check',
+                label: '复查方式与结果',
+                children: <span className="feedback-text">{record.checkMethod ?? '受限'}</span>,
+              },
+              ...(record.reference
+                ? [{ key: 'reference', label: '相关处理记录', children: record.reference }]
+                : []),
+              ...(record.regression
+                ? [{ key: 'regression', label: '相关场景测试', children: record.regression }]
+                : []),
+              { key: 'time', label: '提交时间', children: displayTime(record.submittedAt) },
+            ]}
+          />
+        </section>
+      )}
+      {checked && (
+        <section className="feedback-work-section" aria-label="人工复验">
+          <h3>人工复验</h3>
+          {detail.issue.status === 'PENDING_VERIFICATION' && !checked.valid && (
+            <Alert type="warning" showIcon title="复验条件已变化，请重新登记" />
+          )}
+          <Descriptions
+            size="small"
+            column={1}
+            items={[
+              {
+                key: 'decision',
+                label: '复验结论',
+                children: checked.decision === 'PASSED' ? '通过' : '未通过',
+              },
+              { key: 'scope', label: '复验场景', children: checked.testScope ?? '受限' },
+              { key: 'expected', label: '期望结果', children: checked.expected ?? '受限' },
+              {
+                key: 'actual',
+                label: '实际结果',
+                children: <span className="feedback-text">{checked.actual ?? '受限'}</span>,
+              },
+              {
+                key: 'basis',
+                label: '数据与复验依据',
+                children: <span className="feedback-text">{checked.dataBasis ?? '受限'}</span>,
+              },
+            ]}
+          />
+        </section>
+      )}
+    </>
+  );
+}
 
 /** 原问证据区保留历史真实引用，受限、缺失和已知内容分别显示。 */
 function IssueEvidence({ detail }: { detail: IssueDetail }) {
@@ -97,7 +189,7 @@ export function FeedbackIssuePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const cache = useQueryClient();
-  const [action, setAction] = useState<'assign' | 'review'>();
+  const [action, setAction] = useState<'assign' | 'review' | ResolutionAction>();
   const focused = useRef<string | undefined>(undefined);
   const detail = useQuery({
     queryKey: ['feedback-issue', id],
@@ -140,6 +232,21 @@ export function FeedbackIssuePage() {
   }
   const issue = row.issue;
   const last = row.latestReview;
+  const resolution = row.resolution;
+  const next = resolution?.canResolve
+    ? { key: 'resolve' as const, label: '验证结案并回告' }
+    : resolution?.canVerify
+      ? { key: 'verify' as const, label: '登记人工复验' }
+      : resolution?.canSubmitResult
+        ? { key: 'result' as const, label: '提交处理结果' }
+        : null;
+  const secondary = [
+    ...(row.canAssign
+      ? [{ key: 'assign' as const, label: issue.assigneeId ? '重新分派' : '分派负责人' }]
+      : []),
+    ...(row.canReview ? [{ key: 'review' as const, label: '记录核查' }] : []),
+    ...(resolution?.canCloseOther ? [{ key: 'explain' as const, label: '说明并结案' }] : []),
+  ];
   return (
     <article className="panel feedback-detail" aria-labelledby="feedback-detail-title">
       {/* 页首固定责任和状态，业务正文在各自页签内阅读。 */}
@@ -199,29 +306,43 @@ export function FeedbackIssuePage() {
                     },
                   ]}
                 />
+                <ResolutionDetails detail={row} />
               </section>
             ),
           },
           { key: 'evidence', label: '原问题与证据', children: <IssueEvidence detail={row} /> },
           {
             key: 'history',
-            label: '处理记录',
-            children: row.activities.length ? (
-              <ol className="feedback-entries">
-                {row.activities.map((entry) => (
-                  <li key={entry.version}>
-                    <div className="feedback-history-line">
-                      <strong>{entry.action === 'ASSIGNED' ? '分派事项' : '记录核查'}</strong>
-                      <span>{entry.actor}</span>
-                      <time dateTime={entry.occurredAt}>{displayTime(entry.occurredAt)}</time>
-                    </div>
-                    {entry.assignee && <p>负责人 {entry.assignee}</p>}
-                    {entry.note && <p className="feedback-text">{entry.note}</p>}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无处理记录" />
+            label: '记录与回告',
+            children: (
+              <>
+                {resolution?.notice && (
+                  <div className="feedback-notice-summary" role="status">
+                    <strong>回告状态</strong> {noticeLabels[resolution.notice.state]}
+                    {resolution.notice.readAt && (
+                      <span> · 已读 {displayTime(resolution.notice.readAt)}</span>
+                    )}
+                  </div>
+                )}
+                {row.activities.length ? (
+                  <ol className="feedback-entries">
+                    {row.activities.map((entry) => (
+                      <li key={entry.version}>
+                        <div className="feedback-history-line">
+                          <strong>{activityLabels[entry.action]}</strong>
+                          <span>{entry.actor}</span>
+                          <time dateTime={entry.occurredAt}>{displayTime(entry.occurredAt)}</time>
+                        </div>
+                        {entry.assignee && <p>负责人 {entry.assignee}</p>}
+                        {entry.note && <p className="feedback-text">{entry.note}</p>}
+                        {entry.conclusion && <p className="feedback-text">{entry.conclusion}</p>}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无处理记录" />
+                )}
+              </>
             ),
           },
         ]}
@@ -230,23 +351,46 @@ export function FeedbackIssuePage() {
       <footer className="feedback-detail-footer">
         <Button onClick={back}>返回队列</Button>
         <div className="feedback-detail-actions">
-          {row.canAssign && (
-            <Button
-              type={row.canReview ? 'default' : 'primary'}
-              onClick={() => setAction('assign')}
+          {next && secondary.length > 1 ? (
+            <ActionMenuButton
+              placement="topRight"
+              menu={{
+                items: secondary,
+                onClick: ({ key }) => setAction(secondary.find((item) => item.key === key)?.key),
+              }}
             >
-              {issue.assigneeId ? '重新分派' : '分派负责人'}
-            </Button>
+              更多
+            </ActionMenuButton>
+          ) : (
+            secondary.map((item) => (
+              <Button
+                key={item.key}
+                type={
+                  !next && (item.key === 'review' || secondary.length === 1) ? 'primary' : 'default'
+                }
+                onClick={() => setAction(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))
           )}
-          {row.canReview && (
-            <Button type="primary" onClick={() => setAction('review')}>
-              记录核查
+          {next && (
+            <Button type="primary" onClick={() => setAction(next.key)}>
+              {next.label}
             </Button>
           )}
         </div>
       </footer>
-      {action && (
+      {(action === 'assign' || action === 'review') && (
         <FeedbackActionDialog
+          kind={action}
+          detail={row}
+          refresh={refresh}
+          close={() => setAction(undefined)}
+        />
+      )}
+      {action && action !== 'assign' && action !== 'review' && (
+        <FeedbackResolutionDialog
           kind={action}
           detail={row}
           refresh={refresh}

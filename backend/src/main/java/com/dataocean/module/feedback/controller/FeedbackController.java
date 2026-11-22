@@ -4,12 +4,17 @@ import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.feedback.entity.AssignIssueDTO;
+import com.dataocean.module.feedback.entity.CloseIssueDTO;
 import com.dataocean.module.feedback.entity.FeedbackIssueDetailVO;
+import com.dataocean.module.feedback.entity.FeedbackNoticeVO;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.IssueRow;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Rating;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
 import com.dataocean.module.feedback.entity.ReviewIssueDTO;
+import com.dataocean.module.feedback.entity.SubmitIssueResultDTO;
+import com.dataocean.module.feedback.entity.VerifyIssueDTO;
+import com.dataocean.module.feedback.service.FeedbackNoticeService;
 import com.dataocean.module.feedback.service.FeedbackService;
 import com.dataocean.module.feedback.service.FeedbackWorkService;
 import com.dataocean.module.iam.entity.vo.MutationVO;
@@ -24,6 +29,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -46,6 +52,8 @@ public class FeedbackController {
 
     /** 队列分派、核查及证据回看由事项工作区服务维护。 */
     private final FeedbackWorkService work;
+    /** 站内回告从同一本人收件箱读取。 */
+    private final FeedbackNoticeService notices;
 
     /** 读取本人当前评价。 */
     @GetMapping(RATING)
@@ -119,5 +127,57 @@ public class FeedbackController {
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody ReviewIssueDTO input) {
         return Result.success(work.review(id, command, input));
+    }
+
+    /** 从当前分派和核查提交实际技术处理结果。 */
+    @PostMapping("/api/v1/feedback/issues/{id}/results")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> submitResult(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody SubmitIssueResultDTO input) {
+        return Result.success(work.submitResult(id, command, input));
+    }
+
+    /** 人工复验固定实际操作人、来源权限和当前结果版本。 */
+    @PostMapping("/api/v1/feedback/issues/{id}/verifications")
+    @RequirePermission("feedback.verify")
+    public Result<MutationVO> verify(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody VerifyIssueDTO input) {
+        return Result.success(work.verify(id, command, input));
+    }
+
+    /** 结案前只读核对受控回告和原接收人。 */
+    @GetMapping("/api/v1/feedback/issues/{id}/closure-preview")
+    @RequirePermission("feedback.close")
+    public Result<FeedbackNoticeService.Preview> closurePreview(
+            @PathVariable String id, @RequestParam String outcome, @RequestParam(required = false) String reason) {
+        return Result.success(work.closurePreview(id, outcome, reason));
+    }
+
+    /** 成功结案时接收站内任务，实际交付异步确认。 */
+    @PostMapping("/api/v1/feedback/issues/{id}/closures")
+    @RequirePermission("feedback.close")
+    public Result<MutationVO> close(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody CloseIssueDTO input) {
+        return Result.success(work.close(id, command, input));
+    }
+
+    /** 问数失权后仍可读取本人的通用反馈提示。 */
+    @GetMapping("/api/v1/feedback/notices")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
+    public Result<PageVO<FeedbackNoticeVO>> inbox(@ModelAttribute PageQuery page) {
+        return Result.success(notices.inbox(page));
+    }
+
+    /** 已读限定当前用户，稳定消息编号天然防止重复写入。 */
+    @PutMapping("/api/v1/feedback/notices/{id}/read")
+    @RequirePermission(access = RequirePermission.Access.AUTHENTICATED)
+    public Result<FeedbackNoticeVO> read(@PathVariable String id) {
+        return Result.success(notices.read(id));
     }
 }

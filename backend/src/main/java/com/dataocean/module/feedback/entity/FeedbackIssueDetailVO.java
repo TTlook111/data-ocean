@@ -17,7 +17,8 @@ public record FeedbackIssueDetailVO(
         FeedbackQuestion question,
         List<Report> reports,
         Activity latestReview,
-        List<Activity> activities) {
+        List<Activity> activities,
+        Resolution resolution) {
 
     /** 附于原事项的点踩历史，原因到期时只保留时间和引用。 */
     public record Report(String id, String reason, Instant occurredAt) {}
@@ -31,5 +32,40 @@ public record FeedbackIssueDetailVO(
             String direction,
             String note,
             String rootCause,
+            String conclusion,
             Instant occurredAt) {}
+
+    /** 当前工作结果、复验有效性和允许继续办理的权限。 */
+    public record Resolution(
+            boolean canSubmitResult,
+            boolean canVerify,
+            boolean canResolve,
+            boolean canCloseOther,
+            ProcessingResult result,
+            Recheck verification,
+            NoticeStatus notice) {}
+
+    /** 已提交结果与实际修复影响范围。 */
+    public record ProcessingResult(
+            int version,
+            String impact,
+            String summary,
+            String checkMethod,
+            String reference,
+            String regression,
+            Instant submittedAt) {}
+
+    /** 人工登记的检查与当前版本、测试授权上下文的对应关系。 */
+    public record Recheck(
+            int version,
+            String decision,
+            boolean valid,
+            String testScope,
+            String expected,
+            String actual,
+            String dataBasis,
+            Instant verifiedAt) {}
+
+    /** 回告的收件与阅读状态与事项结案分开。 */
+    public record NoticeStatus(String state, Instant sentAt, Instant readAt) {}
 }

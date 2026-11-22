@@ -36,7 +36,8 @@
 }
 
 /* 状态文字保持后台标准的小标签，黄色和蓝色都有足够对比度。 */
-.record-status-pending_assignment.ant-tag {
+.record-status-pending_assignment.ant-tag,
+.record-status-pending_verification.ant-tag {
   color: #805815;
   background: #fbf2dd;
 }
@@ -44,6 +45,31 @@
 .record-status-in_progress.ant-tag {
   color: #224aab;
   background: var(--do-selected);
+}
+
+/* 通过复验并实际结案的事项才显示解决色。 */
+.record-status-resolved.ant-tag {
+  color: #216449;
+  background: #e8f4ee;
+}
+
+/* 结果与验证独立记录，共用工作区阅读轴。 */
+.feedback-work-section {
+  margin-block-start: 20px;
+  padding-block-start: 16px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 警示与详情正文之间保留可扫读的空间。 */
+.feedback-work-section > .ant-alert {
+  margin-block: 8px;
+}
+
+/* 回告派发和已读独立于操作时间线。 */
+.feedback-notice-summary {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--do-subtle);
 }
 
 /* 分组页签与详情标题保持同一左边界。 */

@@ -8,6 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Form, Input } from 'antd';
 import { useEffect, useId, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { api, ApiError } from '../../shared/api';
+import type { FeedbackNotice } from '../feedback/types';
+import { FeedbackNoticeLine } from './FeedbackNotices';
 import type { Snapshot } from './types';
 import styles from './query.module.css';
 
@@ -23,6 +25,8 @@ interface Rating {
   queueState: 'NONE' | 'RECEIVED' | 'QUEUED';
   /** 已入队时可核对的事项编号。 */
   issueId: string | null;
+  /** 结案后仅本人有权看到的站内提示。 */
+  notice?: FeedbackNotice | null;
 }
 
 /** 回包不明时核对原命令和原输入。 */
@@ -56,8 +60,10 @@ export function AnswerRating({
     queryKey: ['answer-rating', answerId, answerRevision],
     queryFn: () => api<Rating>(path),
     // 暂时读失败时暂停轮询，由用户恢复读取。
-    refetchInterval: ({ state }) =>
-      !state.error && state.data?.queueState === 'RECEIVED' ? 1500 : false,
+    refetchInterval: ({ state }) => {
+      if (state.error) return false;
+      return state.data?.queueState === 'RECEIVED' ? 1500 : state.data?.issueId ? 5000 : false;
+    },
     retry: false,
   });
   const restricted = unavailable(rating.error);
@@ -240,20 +246,23 @@ export function AnswerRating({
         )}
       </div>
       {/* 保留同一播报区域，状态只来自已成功的回读。 */}
-      <div className={styles.ratingStatus} role="status">
-        {data?.queueState === 'RECEIVED' && (
-          <>
-            <ClockCircleOutlined aria-hidden />
-            反馈已收到
-          </>
-        )}
-        {data?.queueState === 'QUEUED' && (
-          <>
-            <CheckCircleOutlined aria-hidden />
-            已进入问题队列 · #{data.issueId}
-          </>
-        )}
-      </div>
+      {!data?.notice && (
+        <div className={styles.ratingStatus} role="status">
+          {data?.queueState === 'RECEIVED' && (
+            <>
+              <ClockCircleOutlined aria-hidden />
+              反馈已收到
+            </>
+          )}
+          {data?.queueState === 'QUEUED' && (
+            <>
+              <CheckCircleOutlined aria-hidden />
+              已进入问题队列 · #{data.issueId}
+            </>
+          )}
+        </div>
+      )}
+      {data?.notice && <FeedbackNoticeLine notice={data.notice} />}
       {/* 内联编辑不覆盖查询结果，取消和撤销使用不同动作。 */}
       {data && editor && (
         <Form

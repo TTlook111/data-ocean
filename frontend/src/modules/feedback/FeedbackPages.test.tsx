@@ -196,7 +196,7 @@ it('核对完整证据与尚无处理记录', async () => {
   expect(basis.getByText('可售库存口径 · r2 · 片段 4')).toBeVisible();
   expect(basis.getByText('answer-21')).toBeVisible();
   expect(basis.getByText('查看 SQL').closest('details')).not.toHaveAttribute('open');
-  fireEvent.click(screen.getByRole('tab', { name: '处理记录' }));
+  fireEvent.click(screen.getByRole('tab', { name: '记录与回告' }));
   expect(screen.getByText('暂无处理记录')).toBeVisible();
 });
 
@@ -314,8 +314,8 @@ it('完成详情中的核查并反映新记录', async () => {
   fireEvent.click(screen.getByRole('button', { name: '保存核查' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(screen.getByText('图表显示单位')).toBeVisible();
-  fireEvent.click(screen.getByRole('tab', { name: '处理记录' }));
-  const history = within(screen.getByRole('tabpanel', { name: '处理记录' }));
+  fireEvent.click(screen.getByRole('tab', { name: '记录与回告' }));
+  const history = within(screen.getByRole('tabpanel', { name: '记录与回告' }));
   expect(history.getByText('分派事项')).toBeVisible();
   expect(history.getByText('负责人 陈处理员')).toBeVisible();
   expect(history.getByText('定位到图表单位设置')).toBeVisible();
@@ -351,4 +351,66 @@ it('查询依据可读取时明确展示空的反馈记录', async () => {
   expect(screen.getByText('OTHER_ORIGIN')).toBeVisible();
   fireEvent.click(screen.getByRole('tab', { name: '原问题与证据' }));
   expect(screen.getByText('暂无点踩记录')).toBeVisible();
+});
+
+/** 结果、复验与回告在详情中分别保留实际记录和当前权限。 */
+it('显示当前复验条件与处理后的回告', async () => {
+  const stored: IssueDetail = {
+    ...assigned,
+    issue: { ...assigned.issue, status: 'PENDING_VERIFICATION' },
+    resolution: {
+      canSubmitResult: false,
+      canVerify: true,
+      canResolve: false,
+      canCloseOther: true,
+      result: {
+        version: 3,
+        impact: 'QUERY_SAFETY',
+        summary: '去掉重复答复',
+        checkMethod: '复查原问题',
+        reference: '修复提交',
+        regression: '核查撤权场景',
+        submittedAt: occurredAt,
+      },
+      verification: {
+        version: 4,
+        decision: 'PASSED',
+        valid: false,
+        testScope: '桌面浏览器',
+        expected: '只显示一句',
+        actual: '实际只显示一句',
+        dataBasis: '库存验收记录',
+        verifiedAt: occurredAt,
+      },
+      notice: null,
+    },
+  };
+  vi.mocked(api).mockResolvedValue(stored);
+  const { cache } = mount('/feedback/21');
+  expect(await screen.findByText('去掉重复答复')).toBeVisible();
+  expect(screen.getByText('复验条件已变化，请重新登记')).toBeVisible();
+  expect(screen.getByText('核查撤权场景')).toBeVisible();
+  expect(screen.queryByRole('button', { name: '验证结案并回告' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /更\s*多/ }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: '说明并结案' }));
+  expect(await screen.findByRole('dialog', { name: '说明并结案' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+  const completed = {
+    ...stored,
+    issue: { ...stored.issue, status: 'RESOLVED' },
+    resolution: {
+      ...stored.resolution,
+      canVerify: false,
+      canCloseOther: false,
+      notice: { state: 'DELIVERED', sentAt: occurredAt, readAt: occurredAt },
+    },
+    activities: [{ ...stored.activities[0], action: 'CLOSED', conclusion: '已核查并结案' }],
+  };
+  vi.mocked(api).mockResolvedValue(completed);
+  await act(() => cache.invalidateQueries({ queryKey: ['feedback-issue'] }));
+  await screen.findByText('已解决');
+  fireEvent.click(screen.getByRole('tab', { name: '记录与回告' }));
+  expect(await screen.findByText('已核查并结案')).toBeVisible();
+  expect(screen.getByText(/已投递/)).toBeVisible();
+  expect(screen.getByText(/已读/)).toBeVisible();
 });

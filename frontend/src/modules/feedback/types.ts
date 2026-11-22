@@ -13,12 +13,13 @@ export type Issue = {
 /** 业务自由文本可能受限，操作人与责任关系仍可核对。 */
 export type Activity = {
   version: number;
-  action: 'ASSIGNED' | 'REVIEWED';
+  action: 'ASSIGNED' | 'REVIEWED' | 'RESULT_SUBMITTED' | 'VERIFIED' | 'RECHECK_FAILED' | 'CLOSED';
   actor: string;
   assignee: string | null;
   direction: string | null;
   note: string | null;
   rootCause: string | null;
+  conclusion?: string | null;
   occurredAt: string;
 };
 
@@ -43,6 +44,45 @@ export type IssueDetail = {
   reports: { id: string; reason: string | null; occurredAt: string }[];
   latestReview: Activity | null;
   activities: Activity[];
+  resolution?: Resolution;
+};
+
+/** 从处理结果到回告，各状态由服务端独立核验。 */
+export type Resolution = {
+  canSubmitResult: boolean;
+  canVerify: boolean;
+  canResolve: boolean;
+  canCloseOther: boolean;
+  result: {
+    version: number;
+    impact: string;
+    summary: string | null;
+    checkMethod: string | null;
+    reference: string | null;
+    regression: string | null;
+    submittedAt: string;
+  } | null;
+  verification: {
+    version: number;
+    decision: 'PASSED' | 'FAILED';
+    valid: boolean;
+    testScope: string | null;
+    expected: string | null;
+    actual: string | null;
+    dataBasis: string | null;
+    verifiedAt: string;
+  } | null;
+  notice: { state: string; sentAt: string | null; readAt: string | null } | null;
+};
+
+/** 产品内通知与业务正文独立，授权失效时省略原问链接。 */
+export type FeedbackNotice = {
+  id: string;
+  message: string;
+  sourceId: string | null;
+  requestId: string | null;
+  sentAt: string;
+  readAt: string | null;
 };
 
 /** 初步方向沿用原型，待核实也是有效的分派选择。 */
@@ -59,4 +99,7 @@ export const directions = {
 export const statusLabels: Record<string, string> = {
   PENDING_ASSIGNMENT: '待分派',
   IN_PROGRESS: '处理中',
+  PENDING_VERIFICATION: '待验证',
+  RESOLVED: '已解决',
+  CLOSED_OTHER: '其他结案',
 };
