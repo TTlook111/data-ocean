@@ -51,9 +51,9 @@ class QueryPersistenceIT {
 
             assertThat(requests.claim(id, 1)).isOne();
             assertThat(requests.renew(id, 1)).isZero();
-            assertThat(requests.permit(new Permit(id, 1, execution, 1, "rules", "{}", fingerprint)))
+            assertThat(requests.permit(new Permit(id, 1, execution, 1, "rules", "{}", fingerprint, null)))
                     .isZero();
-            assertThat(requests.permit(new Permit(id, 2, execution, 1, "rules", "{}", fingerprint)))
+            assertThat(requests.permit(new Permit(id, 2, execution, 1, "rules", "{}", fingerprint, null)))
                     .isOne();
             assertThat(requests.capture(id, 1, "{}")).isZero();
             assertThat(requests.capture(id, 2, "{}")).isOne();

@@ -81,6 +81,7 @@ const actionLabels: Record<string, string> = {
   'test-cases.edit': '维护标准题',
   'test-cases.review': '审核标准题',
   'releases.build': '办理发布候选',
+  'feedback.rating.submit': '提交问数评价',
 };
 
 /**

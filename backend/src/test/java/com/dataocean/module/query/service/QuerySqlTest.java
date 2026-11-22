@@ -65,6 +65,13 @@ class QuerySqlTest {
         assertThat(result.parameters()).containsExactly(LocalDate.of(2026, 11, 20));
         assertThat(result.scope()).contains("2026-11-20", "不计在途");
         assertThat(result.unit()).isEqualTo("箱");
+        // 使用证据应来自最终表达式和实际筛选，保留确切列修订。
+        var usage = result.usage();
+        assertThat(usage.objects()).containsExactly(new QueryUsage.ObjectRef("1", 1, "10", List.of(
+                new QueryUsage.ColumnRef("8", "9", List.of("COMPUTE")),
+                new QueryUsage.ColumnRef("10", "11", List.of("COMPUTE")),
+                new QueryUsage.ColumnRef("6", "7", List.of("FILTER")))));
+        assertThat(usage.facts()).containsExactly(new QueryUsage.FactRef("METRIC", "1", "8", "9"));
         assertThatThrownBy(() ->
                         new QuerySql().compile(basis("VIEW", stock, locked, date, metric), plan, true, "warehouse"))
                 .isInstanceOf(QueryFailure.class)
@@ -292,7 +299,8 @@ class QuerySqlTest {
                 observation,
                 List.of(
                         new Column(6, 7, "business_date", "date", false, "", 3),
-                        new Column(8, 9, "on_hand", "decimal(9,2)", false, "", 4)));
+                        new Column(8, 9, "on_hand", "decimal(9,2)", false, "", 4),
+                        new Column(10, 11, locked.column(), "decimal(9,2)", false, "", 5)));
         var available = Map.of("stock_snapshot", new Table(catalog, Map.of()));
         var labels = Map.of(stock, "实际在库", locked, "锁定量", date, "业务日");
         return new Basis(

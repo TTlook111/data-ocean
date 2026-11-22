@@ -63,6 +63,9 @@ public class OutboxDispatcher {
      */
     private final DataOceanProperties properties;
 
+    /** 本地业务消费者只声明自己所属的事件类型。 */
+    private final List<OutboxLocalConsumer> localConsumers;
+
     /**
      * 有界领取已到期事件，外部失败保留重投依据。
      */
@@ -104,6 +107,12 @@ public class OutboxDispatcher {
      */
     private void deliver(OutboxPO event) {
         try {
+            for (var consumer : localConsumers) {
+                // 本地持久副作用先完成，失去租约的旧进程停止派发。
+                if (consumer.eventType().equals(event.getEventType()) && !consumer.consume(event)) {
+                    return;
+                }
+            }
             // 本地会话消费者先执行幂等失效，权威认证版本独立阻断旧会话。
             if (event.getEventType().equals("iam.authentication.invalidated")
                     && !outbox.hasReceipt(event.getEventId(), "SESSION_INVALIDATION")) {

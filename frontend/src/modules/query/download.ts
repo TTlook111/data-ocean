@@ -25,14 +25,14 @@ export async function downloadChart(id: string) {
   await saveChart(trend, 'DataOcean-图表-' + id.slice(0, 8) + '.png');
 }
 
-/** 业务结果与本地预览复用同一 CSV 格式。 */
-export function saveCsv(table: (string | null)[][], name: string) {
+/** 将已核权的查询结果保存为 CSV。 */
+function saveCsv(table: (string | null)[][], name: string) {
   const csv = table.map((row) => row.map(csvCell).join(',')).join('\r\n');
   saveFile(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), name);
 }
 
 /** 图表图片从同一份可见的图表数据生成。 */
-export async function saveChart(trend: Trend, name: string) {
+async function saveChart(trend: Trend, name: string) {
   const canvas = document.createElement('canvas');
   drawTrend(canvas, trend);
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));

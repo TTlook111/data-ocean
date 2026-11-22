@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importTrend, trendFromResult, trendRows } from './trend';
+import { trendFromResult, trendRows } from './trend';
 
 describe('业务日趋势', () => {
   /** 日期跨度以执行口径为准，真实零值和缺测分别保留。 */
@@ -27,27 +27,23 @@ describe('业务日趋势', () => {
     ]);
   });
 
-  /** 读取真实两列 CSV 时保留单位、空值与引号。 */
-  it('导入后仍保留可导出的时间范围和内容', () => {
-    const trend = importTrend(
-      '\uFEFF"业务日期","A, ""B""（箱）"\r\n"2026-11-20","85"\r\n"2026-11-22","0"',
-    );
-    expect(trend.title).toBe('A, "B"');
-    expect(trend.unit).toBe('箱');
-    expect(trendRows(trend)).toEqual([
-      ['业务日期', 'A, "B"（箱）'],
+  /** 正式趋势的单位和缺测同时保留在导出数据中。 */
+  it('导出行沿用图表的业务日期与单位', () => {
+    expect(
+      trendRows({
+        title: '可售库存',
+        unit: '箱',
+        points: [
+          { day: '2026-11-20', value: '85' },
+          { day: '2026-11-21', value: null },
+          { day: '2026-11-22', value: '0' },
+        ],
+      }),
+    ).toEqual([
+      ['业务日期', '可售库存（箱）'],
       ['2026-11-20', '85'],
       ['2026-11-21', null],
       ['2026-11-22', '0'],
     ]);
-  });
-
-  /** 拒绝重复日期、非法日期和将表达式当作图表数据。 */
-  it.each([
-    '日期,数值\n2026-11-20,85\n2026-11-20,90',
-    '日期,数值\n2026-02-30,85',
-    '日期,数值\n2026-11-20,=2+3',
-  ])('无效 CSV 不进入预览', (csv) => {
-    expect(() => importTrend(csv)).toThrow();
   });
 });

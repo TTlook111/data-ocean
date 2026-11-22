@@ -67,4 +67,6 @@ export interface Snapshot extends Turn {
   runVersion: number;
   /** 已交付结果的当前解释修订。 */
   explanation: Explanation | null;
+  /** 已交付且仍获准回看的回答评价身份。 */
+  answerRef: { answerId: string; answerRevision: number } | null;
 }

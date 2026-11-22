@@ -123,6 +123,6 @@ class QueryJdbcTest {
      */
     private Compiled plan(boolean verifyUnit) {
         return new Compiled("SELECT value FROM energy", List.of("zone-a"), List.of(new Column("value", "读数")),
-                List.of(), "kWh", "", verifyUnit, null);
+                List.of(), "kWh", "", verifyUnit, null, null);
     }
 }

@@ -6,7 +6,6 @@ import {
   RightOutlined,
   SearchOutlined,
   StopOutlined,
-  UploadOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,13 +15,24 @@ import { useSearchParams } from 'react-router';
 import { api, ApiError, queryString } from '../../shared/api';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import type { Session } from '../iam/types';
-import { downloadChart, downloadResult, saveChart, saveCsv } from './download';
-import { TrendPanel } from './TrendChart';
-import { importTrend, trendRows } from './trend';
-import type { Trend } from './trend';
-import { QueryAnswer, activeState, explaining, statusText } from './QueryAnswer';
+import { downloadChart, downloadResult } from './download';
+import { activeState, explaining } from './QueryAnswer';
+import { HistoricalQueryTurn, QueryTurn, queryTurnOptions } from './QueryTurn';
 import type { Conversation, Snapshot, Source, Turn } from './types';
 import styles from './query.module.css';
+
+/** 轮次正文分批读取，长期会话不会一次加载全部结果表格。 */
+const HISTORY_BATCH = 5;
+
+/** SSE 的同轮次已核验答复，其他状态继续用快照定位。 */
+type QueryUpdate = Pick<Snapshot, 'id' | 'runVersion' | 'state'> & {
+  /** 答复所属的解释修订。 */
+  explanationRevision: number | null;
+  /** 客户端只把完成状态应用到已有快照。 */
+  explanationStatus: string | null;
+  /** 服务端已核验的完整答复。 */
+  explanationText: string | null;
+};
 
 /**
  * 桌面问数工作台，使用独立工作区维持原型的历史、来源和对话层次。
@@ -53,11 +63,12 @@ export function QueryWorkbench({
   const [sending, setSending] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState('');
   const [message, setMessage] = useState('');
-  const [preview, setPreview] = useState<{ name: string; trend: Trend } | null>(null);
+  const [historyWindow, setHistoryWindow] = useState({ context: '', before: 0, after: 0 });
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const explainCommand = useRef<{ id: string; key: string; sending: boolean } | null>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
-  const uploadRef = useRef<HTMLInputElement>(null);
+  const currentTurnRef = useRef<HTMLDivElement>(null);
+  const anchoredTurn = useRef('');
   const mayView = session.permissionCodes.includes('query.view');
   const access = useQuery({
     queryKey: ['workbench-sources'],
@@ -89,13 +100,8 @@ export function QueryWorkbench({
     retry: false,
   });
   const detail = useQuery({
-    queryKey: ['workbench-request', source, id],
-    queryFn: () => api<Snapshot>('/query/requests/' + id),
+    ...queryTurnOptions(source, id),
     enabled: sourceAvailable && Boolean(id),
-    retry: false,
-    refetchInterval: (query) =>
-      activeState(query.state.data?.state) || explaining(query.state.data) ? 1800 : 4500,
-    refetchOnWindowFocus: 'always',
   });
   const row =
     sourceAvailable && !detail.isError && detail.data?.sourceId === source
@@ -110,20 +116,79 @@ export function QueryWorkbench({
     retry: false,
   });
   const isActive = activeState(row?.state);
-  const streamActive = isActive || explaining(row);
+  const streamEligible = sourceAvailable && !detail.isError;
+  const streamRevision = row?.explanation?.revision ?? 1;
   const waiting = row?.state === 'WAITING';
 
-  // 状态事件只触发读取，原 HTTP 请求及 SQL 无需重发。
+  useLayoutEffect(() => {
+    if (!id) anchoredTurn.current = '';
+    if (!row || turns.isPending || anchoredTurn.current === context) return;
+    // 进入会话或选择一轮时定位一次，轮询及加载更早的答复不打断阅读。
+    anchoredTurn.current = context;
+    currentTurnRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+  }, [context, id, row, turns.isPending]);
+
+  // 由服务端终态关闭连接，详情先完成时仍保留最后一条正文事件。
   useEffect(() => {
-    if (!sourceAvailable || !id || !streamActive) return;
+    if (!streamEligible || !id || waiting || typeof EventSource === 'undefined') return;
     const stream = new EventSource('/api/v1/query/requests/' + id + '/events');
+    const { queryKey } = queryTurnOptions(source, id);
     const read = () => {
-      void cache.invalidateQueries({ queryKey: ['workbench-request', source, id] });
+      void cache.invalidateQueries({ queryKey, exact: true });
     };
-    stream.addEventListener('query.updated', read);
+    /** 只把正文应用到已核验的同源、同代次、同修订快照，避免旧消息恢复失权内容。 */
+    const update = (event: Event) => {
+      if (visibleContext.current !== context) return;
+      if (event instanceof MessageEvent && typeof event.data === 'string') {
+        let next: QueryUpdate | null = null;
+        try {
+          next = JSON.parse(event.data) as QueryUpdate | null;
+        } catch {
+          // 事件无法解析时仍可从详情恢复。
+        }
+        const current = cache.getQueryState(queryKey);
+        const snapshot = current?.data;
+        if (
+          next?.id === id &&
+          typeof next.state === 'string' &&
+          (!snapshot || next.runVersion >= snapshot.runVersion) &&
+          (next.explanationRevision ?? 1) >= streamRevision &&
+          !activeState(next.state) &&
+          next.explanationStatus !== 'QUEUED' &&
+          next.explanationStatus !== 'GENERATING'
+        ) {
+          // 原生 EventSource 会自动重连，正常终态应主动停止。
+          stream.close();
+        }
+        const text = next?.explanationText;
+        if (
+          next?.id === id &&
+          next.explanationStatus === 'COMPLETED' &&
+          typeof text === 'string' &&
+          text.trim() &&
+          current?.status === 'success' &&
+          snapshot?.result &&
+          snapshot.sourceId === source &&
+          snapshot.runVersion === next.runVersion &&
+          snapshot.explanation &&
+          snapshot.explanation.revision === next.explanationRevision &&
+          explaining(snapshot)
+        ) {
+          // 丢弃事件前发出的旧读取，避免它覆盖已收到的完成状态。
+          void cache.cancelQueries({ queryKey, exact: true }, { revert: false });
+          cache.setQueryData(queryKey, {
+            ...snapshot,
+            explanation: { ...snapshot.explanation, status: 'COMPLETED', text },
+          });
+          return;
+        }
+      }
+      read();
+    };
+    stream.addEventListener('query.updated', update);
     stream.addEventListener('error', read);
     return () => stream.close();
-  }, [cache, id, streamActive, source, sourceAvailable]);
+  }, [cache, context, id, source, streamEligible, streamRevision, waiting]);
 
   /**
    * 切换源或轮次，保留独立 URL 以便刷新回看。
@@ -132,7 +197,6 @@ export function QueryWorkbench({
     visibleContext.current = `${nextSource}/${request ?? ''}`;
     setMessage('');
     setPendingQuestion('');
-    setPreview(null);
     setParams(queryString({ source: nextSource, request }));
   }
 
@@ -141,8 +205,7 @@ export function QueryWorkbench({
    */
   async function send(forceNew = false) {
     const question = forceNew ? row?.question : draft.trim();
-    if (!question || preview || !mayAsk || !sourceAvailable || !contextReady || sending || isActive)
-      return;
+    if (!question || !mayAsk || !sourceAvailable || !contextReady || sending || isActive) return;
     const body =
       waiting && !forceNew
         ? { answer: question }
@@ -231,36 +294,19 @@ export function QueryWorkbench({
   /**
    * 重新获取可见数据后下载，失权时同步撤下当前结果。
    */
-  async function exportAnswer(chart = false) {
-    try {
-      await (chart ? downloadChart(id) : downloadResult(id));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '暂时无法导出本次结果。');
-      await detail.refetch();
-    }
-  }
-
-  /** CSV 只用于当前页面预览，读取期间切换会话时不抢占新页面。 */
-  async function loadChart(file: File) {
+  async function exportAnswer(request: string, chart = false) {
     const current = visibleContext.current;
-    setMessage('');
     try {
-      if (file.size > 128 * 1024) throw new Error('CSV 文件应小于 128 KB。');
-      const trend = importTrend(await file.text());
-      if (visibleContext.current === current) setPreview({ name: file.name, trend });
+      await (chart ? downloadChart(request) : downloadResult(request));
     } catch (error) {
       if (visibleContext.current === current) {
-        setMessage(error instanceof Error ? error.message : '无法导入此 CSV。');
+        // 在下载重核期间切换会话时，不把旧错误带给新会话。
+        setMessage(error instanceof Error ? error.message : '暂时无法导出本次结果。');
       }
-    }
-  }
-
-  /** 本地导入值与其输出图片共用相同的图表数据。 */
-  async function exportPreview(trend: Trend) {
-    try {
-      await saveChart(trend, 'DataOcean-本地图表.png');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '无法生成图表图片。');
+      await cache.invalidateQueries({
+        queryKey: ['workbench-request', source, request],
+        exact: true,
+      });
     }
   }
 
@@ -290,38 +336,35 @@ export function QueryWorkbench({
   const title = row
     ? history.data?.find((item) => item.id === conversationId)?.title || row.question
     : '';
-  // 接口按倒序返回。定位当前轮次后，分别按时间正序显示前后入口。
+  // 轮次接口按倒序返回，从选中轮次的两侧分批读取，再按时间正序呈现。
   const conversationTurns = !turns.isError && sourceAvailable ? (turns.data ?? []) : [];
   const currentTurnIndex = conversationTurns.findIndex((turn) => turn.id === id);
-  const earlierTurns =
-    currentTurnIndex < 0
-      ? []
-      : conversationTurns.slice(currentTurnIndex + 1, currentTurnIndex + 6).reverse();
-  const laterTurns =
-    currentTurnIndex < 0
-      ? []
-      : conversationTurns.slice(Math.max(0, currentTurnIndex - 5), currentTurnIndex).reverse();
+  const loadedWindow =
+    historyWindow.context === context ? historyWindow : { context, before: 0, after: 0 };
+  const previous = currentTurnIndex < 0 ? [] : conversationTurns.slice(currentTurnIndex + 1);
+  const following = currentTurnIndex < 0 ? [] : conversationTurns.slice(0, currentTurnIndex);
+  const earlierTurns = previous.slice(0, HISTORY_BATCH + loadedWindow.before).reverse();
+  const laterTurns = following.slice(-(HISTORY_BATCH + loadedWindow.after)).reverse();
 
-  /** 同一对话内跳转保留当前数据源。 */
-  function renderTurns(items: Turn[], label: string, later = false) {
-    if (!items.length) return null;
-    return (
-      <nav
-        className={later ? `${styles.turnLinks} ${styles.laterTurns}` : styles.turnLinks}
-        aria-label={label}
-      >
-        {items.map((turn) => (
-          <button
-            key={turn.id}
-            type="button"
-            title={turn.question}
-            onClick={() => open(source, turn.id)}
-          >
-            {turn.question}
-          </button>
-        ))}
-      </nav>
-    );
+  /** 历史问答使用自己的原轮次编号查看、跳转和导出。 */
+  function renderHistory(items: Turn[]) {
+    if (!conversationId) return null;
+    return items.map(({ id: request }) => (
+      <HistoricalQueryTurn
+        key={request}
+        id={request}
+        source={source}
+        conversationId={conversationId}
+        onSelect={() => open(source, request)}
+        onDownload={() => void exportAnswer(request)}
+        onDownloadChart={() => void exportAnswer(request, true)}
+      />
+    ));
+  }
+
+  /** 同一选中轮次内追加历史，切换会话后从附近轮次开始。 */
+  function moreHistory(side: 'before' | 'after') {
+    setHistoryWindow({ ...loadedWindow, [side]: loadedWindow[side] + HISTORY_BATCH });
   }
   const noAccess = mayView && !access.isPending && !access.isError && !sourceAvailable;
   const unavailableApi = access.error instanceof ApiError && access.error.code === 404001;
@@ -436,31 +479,6 @@ export function QueryWorkbench({
             )}
           </div>
           <div className={styles.sourcePicker}>
-            {mayView && (
-              <>
-                <input
-                  ref={uploadRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  hidden
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    event.currentTarget.value = '';
-                    if (file) void loadChart(file);
-                  }}
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<UploadOutlined aria-hidden />}
-                  onClick={() => uploadRef.current?.click()}
-                  disabled={isActive || sending}
-                >
-                  导入 CSV
-                </Button>
-              </>
-            )}
-            <DatabaseOutlined aria-hidden />
             <Select
               aria-label="数据源"
               className={styles.source}
@@ -479,128 +497,105 @@ export function QueryWorkbench({
         </header>
         <section className={styles.transcript} aria-label="当前问数" tabIndex={0}>
           <div className={styles.thread}>
-            {preview && mayView ? (
-              <section className={styles.preview} aria-label="本地导入图表">
-                <div className={styles.previewHeader}>
-                  <h2 title={preview.name}>{preview.name}</h2>
-                  <Button type="text" size="small" onClick={() => setPreview(null)}>
-                    关闭预览
+            {((mayView && access.isPending) || (sourceAvailable && id && detail.isPending)) && (
+              <Spin aria-label="正在读取问数" />
+            )}
+            {!mayView && (
+              <div className={styles.welcome}>
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前账号暂无问数权限。" />
+              </div>
+            )}
+            {mayView && access.isError && (
+              <Alert
+                className={styles.sourceError}
+                type="error"
+                showIcon
+                title={unavailableApi ? '当前服务尚未接入问数' : '暂时无法核对数据源'}
+                action={
+                  <Button size="small" onClick={() => void access.refetch()}>
+                    重新读取
                   </Button>
-                </div>
-                <TrendPanel key={preview.name} trend={preview.trend} />
-                <div className={styles.answerActions} role="group" aria-label="本地图表操作">
-                  <Button
-                    type="text"
-                    size="small"
-                    onClick={() => saveCsv(trendRows(preview.trend), 'DataOcean-本地图表.csv')}
-                  >
-                    导出 CSV
-                  </Button>
-                  <Button
-                    type="text"
-                    size="small"
-                    onClick={() => void exportPreview(preview.trend)}
-                  >
-                    导出图表
-                  </Button>
-                </div>
-              </section>
-            ) : (
-              <>
-                {((mayView && access.isPending) || (sourceAvailable && id && detail.isPending)) && (
-                  <Spin aria-label="正在读取问数" />
-                )}
-                {!mayView && (
-                  <div className={styles.welcome}>
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description="当前账号暂无问数权限。"
-                    />
-                  </div>
-                )}
-                {mayView && access.isError && (
-                  <Alert
-                    className={styles.sourceError}
-                    type="error"
-                    showIcon
-                    title={unavailableApi ? '当前服务尚未接入问数' : '暂时无法核对数据源'}
-                    action={
-                      <Button size="small" onClick={() => void access.refetch()}>
-                        重新读取
-                      </Button>
-                    }
-                  />
-                )}
-                {noAccess && (
-                  <div className={styles.welcome}>
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={
-                        access.data?.length
-                          ? '当前数据源已不可访问，请选择其他数据源。'
-                          : '当前没有可用的数据源。'
-                      }
-                    />
-                  </div>
-                )}
-                {sourceAvailable && !id && !pendingQuestion && (
-                  <div className={styles.welcome}>
-                    <span className={styles.welcomeIcon} aria-hidden>
-                      <DatabaseOutlined />
-                    </span>
-                    <h2>想查什么数据？</h2>
-                  </div>
-                )}
-                {row && renderTurns(earlierTurns, '同一对话的问答')}
-                {(row?.question || pendingQuestion) && (
-                  <p className={styles.question}>{row?.question ?? pendingQuestion}</p>
-                )}
-                {row?.clarification && (
-                  <div className={styles.clarification} role={waiting ? 'status' : undefined}>
-                    <img src="/dataocean-mark.png" alt="" />
-                    <p>{row.clarification}</p>
-                  </div>
-                )}
-                {row?.supplement && <p className={styles.question}>{row.supplement}</p>}
-                {isActive && row && (
-                  <div className={styles.activity} role="status">
-                    <Spin size="small" />
-                    {row.cancelRequested
-                      ? '正在核实停止状态'
-                      : row.runVersion > 1 && !row.supplement
-                        ? '恢复中 · ' + statusText[row.state]
-                        : statusText[row.state]}
-                  </div>
-                )}
-                {row && !isActive && !waiting && (
-                  <QueryAnswer
-                    key={row.id}
-                    row={row}
-                    onDownload={() => void exportAnswer()}
-                    onDownloadChart={() => void exportAnswer(true)}
-                    onRequery={mayAsk && !waiting ? () => void send(true) : undefined}
-                    onExplainAgain={mayAsk ? () => void explainAgain() : undefined}
-                    onStopExplanation={mayAsk ? () => void stop() : undefined}
-                  />
-                )}
-                {row && renderTurns(laterTurns, '后续问答', true)}
-                {sourceAvailable && detail.isError && (
-                  <Alert
-                    showIcon
-                    type={inaccessible ? 'warning' : 'error'}
-                    title={
-                      inaccessible ? '当前权限不足，无法读取该轮问数。' : '暂时无法读取该轮问数。'
-                    }
-                    action={
-                      inaccessible ? undefined : (
-                        <Button size="small" onClick={() => void detail.refetch()}>
-                          重试
-                        </Button>
-                      )
-                    }
-                  />
-                )}
-              </>
+                }
+              />
+            )}
+            {noAccess && (
+              <div className={styles.welcome}>
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={
+                    access.data?.length
+                      ? '当前数据源已不可访问，请选择其他数据源。'
+                      : '当前没有可用的数据源。'
+                  }
+                />
+              </div>
+            )}
+            {sourceAvailable && !id && !pendingQuestion && (
+              <div className={styles.welcome}>
+                <span className={styles.welcomeIcon} aria-hidden>
+                  <DatabaseOutlined />
+                </span>
+                <h2>想查什么数据？</h2>
+              </div>
+            )}
+            {row && turns.isError && (
+              <Button
+                className={styles.historyMore}
+                size="small"
+                onClick={() => void turns.refetch()}
+              >
+                重试读取同一对话的历史
+              </Button>
+            )}
+            {row && previous.length > earlierTurns.length && (
+              <Button
+                className={styles.historyMore}
+                size="small"
+                onClick={() => moreHistory('before')}
+              >
+                查看更早问答
+              </Button>
+            )}
+            {row && renderHistory(earlierTurns)}
+            {row && (
+              <div ref={currentTurnRef} className={styles.currentTurn}>
+                <QueryTurn
+                  key={row.id}
+                  row={row}
+                  onDownload={() => void exportAnswer(row.id)}
+                  onDownloadChart={() => void exportAnswer(row.id, true)}
+                  onRequery={mayAsk && !waiting ? () => void send(true) : undefined}
+                  onExplainAgain={mayAsk ? () => void explainAgain() : undefined}
+                  onStopExplanation={mayAsk ? () => void stop() : undefined}
+                />
+              </div>
+            )}
+            {sourceAvailable && !row && pendingQuestion && (
+              <p className={styles.question}>{pendingQuestion}</p>
+            )}
+            {row && renderHistory(laterTurns)}
+            {row && following.length > laterTurns.length && (
+              <Button
+                className={styles.historyMore}
+                size="small"
+                onClick={() => moreHistory('after')}
+              >
+                查看更多后续问答
+              </Button>
+            )}
+            {sourceAvailable && detail.isError && (
+              <Alert
+                showIcon
+                type={inaccessible ? 'warning' : 'error'}
+                title={inaccessible ? '当前权限不足，无法读取该轮问数。' : '暂时无法读取该轮问数。'}
+                action={
+                  inaccessible ? undefined : (
+                    <Button size="small" onClick={() => void detail.refetch()}>
+                      重试
+                    </Button>
+                  )
+                }
+              />
             )}
           </div>
         </section>
@@ -629,14 +624,7 @@ export function QueryWorkbench({
                 variant="borderless"
                 autoSize={{ minRows: 1, maxRows: 5 }}
                 placeholder={waiting ? '在这里补充条件…' : '输入你想查的问题…'}
-                disabled={
-                  Boolean(preview) ||
-                  !mayAsk ||
-                  !sourceAvailable ||
-                  !contextReady ||
-                  sending ||
-                  isActive
-                }
+                disabled={!mayAsk || !sourceAvailable || !contextReady || sending || isActive}
                 onChange={(event) => setInput({ context, text: event.target.value })}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -662,13 +650,7 @@ export function QueryWorkbench({
                   aria-label="发送问题"
                   title="发送问题"
                   loading={sending}
-                  disabled={
-                    Boolean(preview) ||
-                    !mayAsk ||
-                    !sourceAvailable ||
-                    !contextReady ||
-                    !draft.trim()
-                  }
+                  disabled={!mayAsk || !sourceAvailable || !contextReady || !draft.trim()}
                 />
               )}
             </div>

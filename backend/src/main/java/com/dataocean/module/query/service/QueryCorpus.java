@@ -136,7 +136,7 @@ public class QueryCorpus {
             if (!fact.getRevisionId().equals(evidence.factRevisionId())) {
                 throw QueryFailure.knowledge();
             }
-            facts.put(evidence.targetId(), fact);
+            facts.put(factKey(ref.kind(), evidence.targetId()), fact);
             String name = entry.observation().structure().object().name();
             if ("TABLE".equals(ref.kind())) {
                 // 同名不同模式必须有明确指代，首条链路按逻辑表名做唯一定位。
@@ -157,7 +157,7 @@ public class QueryCorpus {
             var table = tables.get(field.table());
             if (table != null) {
                 // 提供业务含义及源字段名，用于语义和输出权限核对。
-                var fact = facts.get(id);
+                var fact = facts.get(factKey("COLUMN", id));
                 String label = fact.getContent().path("meaning").asText(fact.getLabel());
                 table.columns().put(field.column(), label);
                 labels.put(field, label);
@@ -169,6 +169,11 @@ public class QueryCorpus {
     /** 已确认目录与当前片段允许引用的字段。 */
     record Table(GovernanceCatalog.Entry entry, Map<String, String> columns) {}
 
+    /** 不同治理类型的数字目标可以重号，实际证据沿类型共同定位。 */
+    private static String factKey(String kind, String targetId) {
+        return kind + ":" + targetId;
+    }
+
     /** Java 唯一可信的片段结构，模型不能回填 SQL 标识。 */
     record Basis(
             Source source,
@@ -179,6 +184,11 @@ public class QueryCorpus {
             Map<String, Field> fields,
             Map<String, GovernanceFactVO> facts,
             Map<Field, String> labels) {
+
+        /** 同一片段上读取某类稳定目标的确切治理修订。 */
+        GovernanceFactVO fact(String kind, long targetId) {
+            return facts.get(factKey(kind, Ids.text(targetId)));
+        }
 
         /** 模型上下文仅含已授权确认内容及逻辑表列。 */
         Snippet snippet() {

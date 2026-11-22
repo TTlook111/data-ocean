@@ -43,7 +43,8 @@ public interface QueryRequestMapper {
             LocalDateTime leaseUntil,
             String runInput,
             byte[] commandFingerprint,
-            byte[] executionFingerprint) {}
+            byte[] executionFingerprint,
+            String usageRefs) {}
 
     /** 写回执行许可时固定的已校验输入。 */
     record Permit(
@@ -53,7 +54,8 @@ public interface QueryRequestMapper {
             long binding,
             String signature,
             String reasoning,
-            byte[] fingerprint) {}
+            byte[] fingerprint,
+            String usageRefs) {}
 
     /** 轮次与其初次请求的关系。 */
     record Input(
@@ -75,6 +77,10 @@ public interface QueryRequestMapper {
     /** 解释幂等命令在原请求锁内串行提交。 */
     @Select("SELECT * FROM qry_request WHERE id=#{id} FOR UPDATE")
     Request lock(String id);
+
+    /** 仅锁和当前提问人匹配的回答。 */
+    @Select("SELECT * FROM qry_request WHERE id=#{id} AND user_id=#{user} FOR UPDATE")
+    Request lockOwned(String id, long user);
 
     /** 同用户的同一原命令可恢复提交。 */
     @Select("SELECT * FROM qry_request WHERE user_id=#{user} AND command_id=#{command}")
@@ -192,7 +198,7 @@ public interface QueryRequestMapper {
             """
             UPDATE qry_request SET state='EXECUTING',execution_state='RUNNING',execution_id=#{execution},
                 binding_id=#{binding},rule_signature=#{signature},reasoning=#{reasoning},
-                execution_fingerprint=#{fingerprint},
+                execution_fingerprint=#{fingerprint},usage_refs=#{usageRefs},
             updated_at=UTC_TIMESTAMP(3),executed_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
               AND state='CHECKING' AND execution_id IS NULL AND cancel_requested=FALSE

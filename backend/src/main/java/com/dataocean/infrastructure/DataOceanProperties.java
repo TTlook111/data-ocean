@@ -1,5 +1,7 @@
 package com.dataocean.infrastructure;
 
+import java.time.Duration;
+
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
@@ -61,6 +63,11 @@ public class DataOceanProperties {
      * 可靠事件写入的固定 Redis Stream 名称。
      */
     private String outboxStream = "dataocean:events:domain";
+
+    /**
+     * 本机已批准的点踩原因保留期限，未配置时暂停接收新评价。
+     */
+    private Duration feedbackReasonRetention;
 
     /**
      * 受控初始化指定的首管理员登录名。

@@ -9,6 +9,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * 公共契约的持久化适配，业务状态和权限由所属服务核验。
@@ -21,6 +22,28 @@ public interface OutboxMapper extends BaseMapper<OutboxPO> {
     @Insert(
             "INSERT INTO sys_outbox(event_id,event_type,aggregate_type,aggregate_id,aggregate_version,command_id,payload,available_at,occurred_at) VALUES(#{d.eventId},#{d.eventType},#{d.aggregateType},#{d.aggregateId},#{d.aggregateVersion},#{d.commandId},#{d.payload},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
     int append(@Param("d") OutboxPO data);
+
+    /** 恢复反馈时沿用原事件发生时刻，重新计算可领取时间。 */
+    @Insert(
+            """
+            INSERT INTO sys_outbox(event_id,event_type,aggregate_type,aggregate_id,aggregate_version,command_id,
+                payload,available_at,occurred_at)
+            VALUES(#{d.eventId},#{d.eventType},#{d.aggregateType},#{d.aggregateId},#{d.aggregateVersion},
+                #{d.commandId},#{d.payload},UTC_TIMESTAMP(3),#{d.occurredAt})
+            """)
+    int appendAt(@Param("d") OutboxPO data);
+
+    /** 消费者与补偿共享同一事件行，核对持久租约。 */
+    @Select("SELECT * FROM sys_outbox WHERE event_id=#{id} FOR UPDATE")
+    OutboxPO lockEvent(String id);
+
+    /** 已投递但缺少本地副作用时，使用原编号重新排队。 */
+    @Update(
+            """
+            UPDATE sys_outbox SET delivery_state='PENDING',available_at=UTC_TIMESTAMP(3),delivered_at=NULL
+            WHERE event_id=#{id} AND delivery_state='DELIVERED'
+            """)
+    int requeue(String id);
 
     /**
      * 有界领取到期或租约过期事件，不锁住其他派发进程已持有的记录。

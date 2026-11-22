@@ -19,9 +19,11 @@ import com.dataocean.module.query.mapper.QueryRequestMapper.Input;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Permit;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.Accepted;
+import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
 import com.dataocean.module.query.service.QueryProtocol.Ask;
 import com.dataocean.module.query.service.QueryProtocol.Conversation;
 import com.dataocean.module.query.service.QueryProtocol.Data;
+import com.dataocean.module.query.service.QueryProtocol.RatingAnswer;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
 import com.dataocean.module.query.service.QueryProtocol.Snapshot;
@@ -280,15 +282,9 @@ public class QueryService {
             Data data = null;
             Reasoning reasoning = null;
             String state = row.state();
-            if ("RESULT_DELIVERED".equals(state)
-                    && row.result() != null
-                    && row.executedAt()
-                            .isAfter(LocalDateTime.now(ZoneOffset.UTC).minusDays(1))) {
+            if (hasLiveResult(row)) {
                 // 读结果和依据时使用实际当前规则及固定正式版本。
-                if (!output.signature(scope.getRules()).equals(row.ruleSignature())) {
-                    throw BizIllegalException.denied();
-                }
-                versions.requireForQuery(row.sourceId(), row.bindingId());
+                requireReadableResult(row, scope);
                 data = json.read(row.result(), Data.class);
                 reasoning = json.read(row.reasoning(), Reasoning.class);
             }
@@ -311,27 +307,93 @@ public class QueryService {
                     instant(row.updatedAt()),
                     row.conversationId(),
                     row.runVersion(),
-                    data == null ? null : explanations.view(row.id()));
+                    data == null ? null : explanations.view(row.id()),
+                    data == null ? null : new AnswerRef(row.id(), 1));
         });
     }
 
-    /** 状态订阅不需要装载结果，也不派发任务。 */
-    public Progress progress(String id, long user) {
-        var row = owned(id, user);
-        access.requireSource(user, row.sourceId());
-        var explanation = "RESULT_DELIVERED".equals(row.state()) ? explanations.view(id) : null;
-        return new Progress(
-                row.id(),
-                row.state(),
-                row.executionState(),
-                row.cancelRequested(),
-                instant(row.updatedAt()),
-                row.runVersion(),
-                explanation == null ? null : explanation.revision(),
-                explanation == null ? null : explanation.status());
+    /** 评价及重放使用原提问人、当前资格和确切的已交付回答。 */
+    public RatingAnswer ratingAnswer(String id, int revision, boolean lock) {
+        if (revision != 1) {
+            // 当前查询只交付一个基础回答修订。
+            throw BizIllegalException.missing();
+        }
+        guard.shared();
+        var principal = UserContext.current();
+        var answer = uuid(id);
+        if (lock) {
+            // 与现有问数写入沿用相同的安全锁、人员锁和请求锁顺序。
+            users.lock(principal.userId());
+        }
+        var row = lock
+                ? ownedRow(requests.lockOwned(answer, principal.userId()), principal.userId())
+                : owned(answer, principal.userId());
+        actors.require(principal.userId(), principal.authenticationVersion(), "query.view", "query.ask");
+        var scope = access.requireSource(row.userId(), row.sourceId());
+        if (!hasLiveResult(row)) {
+            // 只对仍存在于当前交付窗口的结果接受评价。
+            throw BizIllegalException.state("本次回答尚未交付或结果已超过保留期");
+        }
+        requireReadableResult(row, scope);
+        var reasoning = row.reasoning() == null ? null : json.read(row.reasoning(), Reasoning.class);
+        return new RatingAnswer(
+                new AnswerRef(row.id(), revision),
+                row.userId(),
+                row.sourceId(),
+                row.executionId(),
+                row.bindingId(),
+                reasoning == null ? null : reasoning.evidence(),
+                row.usageRefs());
     }
 
-    /** SSE 仅推送可比较的状态及稳定游标。 */
+    /** 与结果回看共用交付状态和到期边界。 */
+    private boolean hasLiveResult(Request row) {
+        return "RESULT_DELIVERED".equals(row.state())
+                && row.result() != null
+                && row.executedAt() != null
+                && row.executedAt().isAfter(LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
+    }
+
+    /** 使用当前授权和原绑定，历史记录不能绕过当前规则。 */
+    private void requireReadableResult(Request row, AccessScopeVO scope) {
+        if (!output.signature(scope.getRules()).equals(row.ruleSignature())) {
+            // 旧输出签名无法代表当前限制。
+            throw BizIllegalException.denied();
+        }
+        versions.requireForQuery(row.sourceId(), row.bindingId());
+    }
+
+    /** 订阅沿用当前源权限，完整答复通过结果回看门禁后才随状态交付。 */
+    public Progress progress(String id, long user) {
+        return tx.execute(status -> {
+            guard.shared();
+            var row = owned(id, user);
+            var scope = access.requireSource(user, row.sourceId());
+            var explanation = hasLiveResult(row) ? explanations.view(row.id()) : null;
+            String text = null;
+            if (explanation != null && "COMPLETED".equals(explanation.status())) {
+                // 只发送已核过事实、未过期且当前绑定和输出规则仍允许的正文。
+                requireReadableResult(row, scope);
+                text = explanation.text();
+            }
+            return new Progress(
+                    row.id(),
+                    row.state(),
+                    row.executionState(),
+                    row.cancelRequested(),
+                    instant(row.updatedAt()),
+                    row.runVersion(),
+                    explanation == null ? null : explanation.revision(),
+                    explanation == null ? null : explanation.status(),
+                    text);
+        });
+    }
+
+    /**
+     * 同一请求的状态和可交付答复使用同一个 SSE 游标。
+     *
+     * @param explanationText 已通过结果回看及文本校验的完整答复
+     */
     public record Progress(
             String id,
             String state,
@@ -340,8 +402,9 @@ public class QueryService {
             Instant updatedAt,
             int runVersion,
             Integer explanationRevision,
-            String explanationStatus) {
-        /** 终态后由客户端通过详情独立回读。 */
+            String explanationStatus,
+            String explanationText) {
+        /** 查询和独立解释都结束后关闭订阅。 */
         public boolean terminal() {
             return TERMINAL.contains(state)
                     && !"QUEUED".equals(explanationStatus)
@@ -375,7 +438,8 @@ public class QueryService {
             models.requireScope(row.sourceId());
             var frozen = prepare(row, signature, rules.isEmpty());
             var recent = frozen.memory().recent();
-            var previous = recent.isEmpty() ? null : recent.get(recent.size() - 1).plan();
+            var previous =
+                    recent.isEmpty() ? null : recent.get(recent.size() - 1).plan();
             if (row.supplement() == null && previous == null && QueryDates.needsMonth(question)) {
                 // 用户只给了日号，月份无法从当前对话唯一确定。
                 updateStage(row, "GENERATING");
@@ -422,7 +486,8 @@ public class QueryService {
             if (named != null && QueryProductNames.asksStock(question) && !named.confirmed()) {
                 if (named.alternative() != null && !named.supplied() && row.supplement() == null) {
                     // 只问仍有歧义的规格，保留用户已经说出的日期。
-                    waitForAnswer(row, "你想查 " + named.size() + " 还是 " + named.alternative() + " 的" + named.name() + "？");
+                    waitForAnswer(
+                            row, "你想查 " + named.size() + " 还是 " + named.alternative() + " 的" + named.name() + "？");
                     return;
                 }
                 if (named.simpleStock() && named.supplied()) {
@@ -431,13 +496,16 @@ public class QueryService {
                 }
             }
             QueryProtocol.Plan namedPlan = null;
-            if (named != null && named.confirmed() && named.simpleStock()
+            if (named != null
+                    && named.confirmed()
+                    && named.simpleStock()
                     && (relativeDay != null || !QueryDates.mentionsSpecificDate(question))) {
                 // 该问法只有已核验的商品、规格及单日范围，不让示例中的其他条件进入计划。
                 namedPlan = new QuerySql().namedStock(named, relativeDay);
             }
             long generation = frozen.generationRevision();
-            String planningQuestion = relativeDay == null ? question : withBusinessDate(question, relativeDay.toString());
+            String planningQuestion =
+                    relativeDay == null ? question : withBusinessDate(question, relativeDay.toString());
             QueryProtocol.Plan proposed;
             boolean generated = adjacentDay == null && namedPlan == null;
             if (namedPlan != null) {
@@ -493,14 +561,16 @@ public class QueryService {
             if (checked.inheritedDay()) {
                 // 让独立审核看到本题已确定沿用的日期和用户修改的原话。
                 question = withBusinessDate(question, plan.time().start());
-            } else if (relativeDay != null && plan.time() != null && "DAY".equals(plan.time().mode())) {
+            } else if (relativeDay != null
+                    && plan.time() != null
+                    && "DAY".equals(plan.time().mode())) {
                 // 同一请求的规划、复核和实际查询使用同一个日历基准。
                 question = withBusinessDate(question, plan.time().start());
             }
             if (namedPlan != null) {
                 // 用户原话和发布依据的商品映射一起提交独立语义与输出核对。
-                String confirmed = question + "\n发布依据已确认商品为 " + named.size() + " " + named.name()
-                        + "，商品编码 " + named.code() + "。本题查询该规格的可售库存数量。";
+                String confirmed = question + "\n发布依据已确认商品为 " + named.size() + " " + named.name() + "，商品编码 "
+                        + named.code() + "。本题查询该规格的可售库存数量。";
                 if (confirmed.length() <= 1210) {
                     question = confirmed;
                 }
@@ -558,6 +628,21 @@ public class QueryService {
                     revisions,
                     plan,
                     basis.source().configurationId());
+            var contextIds = new ArrayList<>(checked.parameterUse().contextRequestIds());
+            if (adjacentDay != null || checked.inheritedDay()) {
+                // 仅在实际沿用上轮日期时登记其确切轮次。
+                contextIds.add(recent.get(0).requestId());
+            }
+            var parameterBases = new ArrayList<QueryCorpus.Basis>();
+            if (namedPlan != null) {
+                // 商品名称规格映射可能来自另一片实际命中。
+                parameterBases.add(named.basis());
+            }
+            if (checked.parameterUse().published()) {
+                // 编译时以正式片段核验了实际使用的参数。
+                parameterBases.add(basis);
+            }
+            var usage = compiled.usage().withBasis(basis, parameterBases, contextIds);
             var executionFingerprint = fingerprints.command(
                     "query.execute", Ids.text(row.sourceId()), List.of(compiled.sql(), compiled.parameters()));
             running.put(row.id(), new Running(row, binding, signature));
@@ -583,7 +668,8 @@ public class QueryService {
                                         binding,
                                         signature,
                                         json.write(reasoning),
-                                        executionFingerprint))
+                                        executionFingerprint,
+                                        json.write(usage)))
                                 != 1) {
                             throw new QueryFailure("USER_CANCELLED");
                         }
@@ -662,12 +748,15 @@ public class QueryService {
             String question) {
         var basis = selectBasis(bases, plan);
         var compiler = new QuerySql();
-        var inherited = compiler.keepsBusinessDay(question) ? compiler.followBusinessDay(basis, plan, previous, 0) : null;
+        var inherited =
+                compiler.keepsBusinessDay(question) ? compiler.followBusinessDay(basis, plan, previous, 0) : null;
         boolean hasHistory = !memory.recent().isEmpty() || !memory.earlier().isEmpty();
-        var resolved = inherited != null ? inherited : compiler.resolveTime(basis, plan, businessDay(memory), question, hasHistory);
+        var resolved = inherited != null
+                ? inherited
+                : compiler.resolveTime(basis, plan, businessDay(memory), question, hasHistory);
         var compiled = jdbc.compile(basis, resolved);
-        compiler.checkProductCodes(basis, resolved, question, memory);
-        return new CheckedPlan(resolved, basis, compiled, inherited != null);
+        var parameterUse = compiler.checkProductCodes(basis, resolved, question, memory);
+        return new CheckedPlan(resolved, basis, compiled, inherited != null, parameterUse);
     }
 
     /** 澄清和任务恢复都沿用请求接收时的北京时间日期。 */
@@ -679,7 +768,11 @@ public class QueryService {
 
     /** 已编译的实际候选进入独立的语义、输出和时序核验。 */
     private record CheckedPlan(
-            QueryProtocol.Plan plan, QueryCorpus.Basis basis, QuerySql.Compiled compiled, boolean inheritedDay) {}
+            QueryProtocol.Plan plan,
+            QueryCorpus.Basis basis,
+            QuerySql.Compiled compiled,
+            boolean inheritedDay,
+            QueryUsage.ParameterUse parameterUse) {}
 
     /** 定期检查实际在途执行的当前资格并尝试取消，独立于查询工作线程。 */
     @Scheduled(fixedDelay = 1000)

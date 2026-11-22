@@ -203,11 +203,16 @@ class QueryServiceTest {
         assertThat(service.read(id).sql()).isNull();
         assertThat(service.read(id).sql()).isEqualTo("SELECT route");
         assertThat(service.progress(id, USER).terminal()).isFalse();
+        assertThat(service.progress(id, USER).explanationText()).isNull();
         assertThatThrownBy(() -> service.progress(id, USER + 1)).isInstanceOf(BizIllegalException.class);
+        when(explanations.view(id)).thenReturn(new QueryProtocol.Explanation(1, "COMPLETED", "妥投线路为三号线。"));
+        assertThat(service.progress(id, USER).explanationText()).isEqualTo("妥投线路为三号线。");
         when(row.ruleSignature()).thenReturn("revoked");
         assertThatThrownBy(() -> service.read(id)).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> service.progress(id, USER)).isInstanceOf(BizIllegalException.class);
         when(row.executedAt()).thenReturn(time.minusDays(2));
         assertThat(service.read(id).result()).isNull();
+        assertThat(service.progress(id, USER).explanationText()).isNull();
     }
 
     /**
@@ -333,7 +338,9 @@ class QueryServiceTest {
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any())).thenReturn(plan);
         when(models.check(any(), anyString(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
                 .thenReturn("ALLOW");
-        var compiled = new Compiled("SELECT route", List.of(), data.columns(), List.of(label), "", "", false, null);
+        var usage = new QueryUsage(1, List.of(), List.of(), List.of(), List.of());
+        var compiled = new Compiled(
+                "SELECT route", List.of(), data.columns(), List.of(label), "", "", false, null, usage);
         when(jdbc.compile(eq(basis), any())).thenReturn(compiled);
         when(jdbc.execute(eq(source), eq(id), eq(compiled), any(), any())).thenAnswer(call -> {
             assertThat(call.<IntSupplier>getArgument(3).getAsInt()).isPositive();

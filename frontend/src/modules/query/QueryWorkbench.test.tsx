@@ -30,6 +30,7 @@ function ended(id: string): Snapshot {
     conversationId: id + '-conversation',
     runVersion: 1,
     explanation: null,
+    answerRef: null,
     createdAt: '2026-11-22T01:00:00Z',
     updatedAt: '2026-11-22T01:00:00Z',
     executedAt: null,
@@ -168,15 +169,21 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
         { id: 'old', question: '上一轮' },
       ];
     }
+    const id = path.split('/').at(-1)!;
     return {
-      ...ended(path.split('/').at(-1)!),
+      ...ended(id),
+      question: id === 'next' ? '下一轮' : id === 'old' ? '上一轮' : '当前轮',
       conversationId: 'answer-conversation',
       result: series,
       state: 'RESULT_DELIVERED',
     };
   });
   const { router } = mount();
-  const result = await screen.findByRole('article', { name: '查询结果' });
+  const result = within(await screen.findByRole('region', { name: '当前轮次' })).getByRole(
+    'article',
+    { name: '查询结果' },
+  );
+  expect(within(result).queryByAltText('')).not.toBeInTheDocument();
   expect(within(result).getByRole('img', { name: '净用电量趋势图' })).toBeVisible();
   expect(context.fillText).toHaveBeenCalledWith(
     '净用电量（kWh）',
@@ -192,6 +199,27 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
   await waitFor(() => expect(objectUrl).toHaveBeenCalledTimes(2));
   expect(await readBlob(objectUrl.mock.calls[0][0])).toContain('"2026-11-21",""');
   expect(objectUrl.mock.calls[1][0].type).toBe('image/png');
+  // 历史结果先展示正文，展开原轮次操作后仍可核权导出。
+  const older = within((await screen.findByRole('button', { name: '上一轮' })).closest('section')!);
+  expect(older.queryByAltText('')).not.toBeInTheDocument();
+  expect(older.getByRole('img', { name: '净用电量趋势图' })).toBeVisible();
+  expect(older.queryByRole('button', { name: '导出 CSV' })).not.toBeInTheDocument();
+  const actions = older.getByRole('button', { name: '更多操作' });
+  expect(actions).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(actions);
+  expect(actions).toHaveAttribute('aria-expanded', 'true');
+  expect(older.getByRole('button', { name: '查询依据' })).toBeVisible();
+  const beforeExport = vi.mocked(api).mock.calls.length;
+  fireEvent.click(older.getByRole('button', { name: '导出 CSV' }));
+  await waitFor(() => expect(objectUrl).toHaveBeenCalledTimes(3));
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.slice(beforeExport)
+      .map(([path]) => path),
+  ).toContain('/query/requests/old');
+  fireEvent.click(actions);
+  expect(older.queryByRole('button', { name: '导出 CSV' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '搜索对话' }));
   fireEvent.change(screen.getByRole('textbox', { name: '按问题搜索' }), {
     target: { value: '能耗' },
@@ -203,34 +231,110 @@ it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async ()
   expect(router.state.location.search).toBe('?source=1');
 });
 
-/** CSV 在本地预览，公式按文本导出，超量和绘制失败展示可见原因。 */
-it('导入、关闭及重新下载本地趋势，保留源查询入口', async () => {
-  const { objectUrl, toBlob } = downloadBrowser();
-  vi.mocked(api).mockImplementation(async (path) =>
-    path === '/query/sources' ? [{ id: '1', name: '物流' }] : [],
-  );
-  const { container } = mount('/query?source=1');
-  await screen.findByText('想查什么数据？');
-  const input = container.querySelector('input[type=file]')!;
-  const showPicker = vi.spyOn(input as HTMLInputElement, 'click');
-  fireEvent.click(screen.getByRole('button', { name: '导入 CSV' }));
-  expect(showPicker).toHaveBeenCalled();
-  const file = Object.assign(new File([], 'delivery.csv'), {
-    text: async () => '日期,=妥投量\n2026-11-22,8',
+/** 历史详情按原轮次读取，并与当前结果保持同一个顺序。 */
+it('同一对话按原顺序显示历史问答，并分别处理已过期和失权的轮次', async () => {
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') return [{ id: '1', name: '库存' }];
+    if (path.startsWith('/query/conversations?')) return [];
+    if (path === '/query/conversations/stock/requests') {
+      // 接口返回倒序的轮次摘要，页面要还原正序。
+      return [
+        { id: 'answer', question: '本轮问题' },
+        { id: 'restricted', question: '受限旧问题' },
+        { id: 'expired', question: '已过期问题' },
+        { id: 'old', question: '历史问题' },
+      ];
+    }
+    const id = path.split('/').at(-1)!;
+    if (id === 'restricted') throw new ApiError(403003, '已撤权');
+    const questions: Record<string, string> = {
+      answer: '本轮问题',
+      expired: '已过期问题',
+      old: '历史问题',
+    };
+    return {
+      ...ended(id),
+      conversationId: 'stock',
+      question: questions[id],
+      clarification: id === 'old' ? '哪个仓库？' : null,
+      supplement: id === 'old' ? '华东仓' : null,
+      state: 'RESULT_DELIVERED',
+      result:
+        id === 'expired'
+          ? null
+          : {
+              ...series,
+              columns: [{ name: 'value', label: id === 'old' ? '历史可售库存' : '本轮可售库存' }],
+              rows: [[id === 'old' ? '155' : '85']],
+              unit: '箱',
+              series: null,
+            },
+    };
   });
-  fireEvent.change(input, { target: { files: [file] } });
-  const preview = await screen.findByRole('region', { name: '本地导入图表' });
-  expect(screen.getByRole('textbox', { name: '输入问题' })).toBeDisabled();
-  fireEvent.click(within(preview).getByRole('button', { name: '导出 CSV' }));
-  expect(await readBlob(objectUrl.mock.calls[0][0])).toContain('"\'=妥投量"');
+  mount();
+  expect(await screen.findByRole('heading', { name: /历史可售库存.*155/ })).toBeVisible();
+  expect(await screen.findByText('哪个仓库？')).toBeVisible();
+  expect(screen.getByText('华东仓')).toBeVisible();
+  expect(await screen.findByText('本次结果已超过保留期。')).toBeVisible();
+  expect(await screen.findByText('当前权限不足，无法读取该轮问数。')).toBeVisible();
+  expect(screen.queryByText('受限旧问题')).not.toBeInTheDocument();
+  expect(screen.getAllByRole('heading', { level: 2 }).map((node) => node.textContent)).toEqual([
+    '历史可售库存155箱',
+    '本轮可售库存85箱',
+  ]);
+  expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});
+
+/** 长会话分批读取，新增轮次放回原时间顺序。 */
+it('长会话先读取相邻轮次，再把更早记录补到正文上方', async () => {
+  const summaries = ['answer', 'seven', 'six', 'five', 'four', 'three', 'two', 'one'];
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') return [{ id: '1', name: '库存' }];
+    if (path.startsWith('/query/conversations?')) return [];
+    if (path === '/query/conversations/stock/requests') {
+      // 整个摘要可查，较长的正文在请求下一批时才读取。
+      return summaries.map((id) => ({ id, question: id + '原问题' }));
+    }
+    return { ...ended(path.split('/').at(-1)!), conversationId: 'stock' };
+  });
+  mount();
+  await screen.findByRole('button', { name: 'seven原问题' });
+  expect(vi.mocked(api)).not.toHaveBeenCalledWith('/query/requests/one');
+  expect(screen.queryByRole('button', { name: 'one原问题' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '查看更早问答' }));
+  await screen.findByRole('button', { name: 'one原问题' });
+  const history = screen.getAllByRole('region', { name: '历史问答' });
+  expect(history.map((turn) => within(turn).getByRole('button').textContent)).toEqual(
+    summaries
+      .slice(1)
+      .reverse()
+      .map((id) => id + '原问题'),
+  );
+});
+
+/** 导出继续使用已核权的结果，导入不再出现在问数页面。 */
+it('保留结果导出和输入框，CSV 公式文本安全写入文件', async () => {
+  const { objectUrl, toBlob } = downloadBrowser();
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') return [{ id: '1', name: '物流' }];
+    if (path.startsWith('/query/conversations')) return [];
+    return {
+      ...ended('answer'),
+      state: 'RESULT_DELIVERED',
+      result: { ...series, columns: [series.columns[0], { name: 'value', label: '=妥投量' }] },
+    };
+  });
+  const { container } = mount();
+  const result = await screen.findByRole('article', { name: '查询结果' });
+  expect(container.querySelector('input[type=file]')).toBeNull();
+  expect(screen.queryByRole('button', { name: '导入 CSV' })).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: '输入问题' })).toBeEnabled();
+  fireEvent.click(within(result).getByRole('button', { name: '导出 CSV' }));
+  await waitFor(() => expect(objectUrl).toHaveBeenCalledTimes(1));
+  expect(await readBlob(objectUrl.mock.calls[0][0])).toContain('"\'=妥投量（kWh）"');
   toBlob.mockImplementationOnce((callback) => callback(null));
-  fireEvent.click(within(preview).getByRole('button', { name: '导出图表' }));
+  fireEvent.click(within(result).getByRole('button', { name: '导出图表' }));
   await screen.findByText('无法生成图表图片。');
-  fireEvent.click(within(preview).getByRole('button', { name: '关闭预览' }));
-  expect(screen.queryByRole('region', { name: '本地导入图表' })).not.toBeInTheDocument();
-  const oversized = new File([new Uint8Array(128 * 1024 + 1)], 'oversized.csv');
-  fireEvent.change(input, { target: { files: [oversized] } });
-  await screen.findByText('CSV 文件应小于 128 KB。');
 });
 
 /** 澄清和正常重查命令分别绑定当前轮次，不重发已确认的旧执行。 */
@@ -260,7 +364,9 @@ it('断线后的澄清重试复用命令，重新查询清除原上下文继承'
         };
   });
   const { router } = mount();
-  await screen.findByText('哪一个车间？');
+  const currentTurn = within(await screen.findByRole('region', { name: '当前轮次' }));
+  expect(currentTurn.getByRole('status')).toHaveTextContent('哪一个车间？');
+  expect(currentTurn.queryByAltText('')).not.toBeInTheDocument();
   const input = screen.getByRole('textbox', { name: '补充条件' });
   fireEvent.change(input, { target: { value: '第二车间' } });
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
@@ -315,7 +421,72 @@ it('从恢复中停止问数并关闭事件订阅', async () => {
   await screen.findByText('稍后停止');
   fireEvent.click(screen.getByRole('button', { name: '停止问数' }));
   await screen.findByText('问数已取消。');
+  act(() => {
+    event.addEventListener.mock.calls[0][1](
+      new MessageEvent('query.updated', {
+        data: JSON.stringify({ id: 'answer', state: 'USER_CANCELLED', runVersion: 2 }),
+      }),
+    );
+  });
   expect(event.close).toHaveBeenCalled();
+});
+
+/** 同轮次完成事件直接交付正文，错误修订和等候中的旧结果保持不可见。 */
+it('显示思考中并直接采用当前修订的 SSE 答复', async () => {
+  const connections: EventTarget[] = [];
+  vi.stubGlobal(
+    'EventSource',
+    vi.fn(
+      class extends EventTarget {
+        constructor() {
+          super();
+          connections.push(this);
+        }
+
+        /** 模拟关闭当前连接。 */
+        close = vi.fn();
+      },
+    ),
+  );
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') return [{ id: '1', name: '库存' }];
+    if (path.startsWith('/query/conversations')) return [];
+    return {
+      ...ended('answer'),
+      state: 'RESULT_DELIVERED',
+      result: { ...series, columns: [{ name: 'value', label: '商品种数' }], rows: [['4']] },
+      explanation: { revision: 2, status: 'GENERATING', text: null },
+    };
+  });
+  mount();
+  expect(await screen.findByText('思考中')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /商品种数/ })).not.toBeInTheDocument();
+  const events = connections.at(-1)!;
+  const message = {
+    id: 'answer',
+    state: 'RESULT_DELIVERED',
+    runVersion: 1,
+    explanationStatus: 'COMPLETED',
+    explanationText: '共有 4 种。',
+  };
+  // 过期修订仅触发回读，当前修订才直接出现在页面上。
+  await act(async () => {
+    events.dispatchEvent(
+      new MessageEvent('query.updated', {
+        data: JSON.stringify({ ...message, explanationRevision: 1 }),
+      }),
+    );
+  });
+  expect(screen.queryByText(message.explanationText)).not.toBeInTheDocument();
+  act(() => {
+    events.dispatchEvent(
+      new MessageEvent('query.updated', {
+        data: JSON.stringify({ ...message, explanationRevision: 2 }),
+      }),
+    );
+  });
+  expect(await screen.findByText(message.explanationText)).toBeVisible();
+  expect(screen.queryByText('思考中')).not.toBeInTheDocument();
 });
 
 /** 失效的结果和无图表的响应不能从下载入口复用旧结果。 */
@@ -418,8 +589,8 @@ it('未知执行保留待核实反馈并隐藏重新查询入口', () => {
   expect(screen.queryByRole('button', { name: /重新查询/ })).not.toBeInTheDocument();
 });
 
-/** 解释重试的按钮与已交付的实际值分开。 */
-it('解释失败仍显示原结果，重试只触发解释动作', () => {
+/** 解释失败保留原值，原始口径仍可从依据查看。 */
+it('解释失败仍显示原结果和查询依据，重试只触发解释动作', () => {
   const explain = vi.fn();
   const requery = vi.fn();
   render(
@@ -432,7 +603,7 @@ it('解释失败仍显示原结果，重试只触发解释动作', () => {
           columns: [{ name: 'value', label: '可售库存' }],
           rows: [['85']],
           unit: '箱',
-          scope: '',
+          scope: '按仓库当前可售数量统计。',
           truncated: false,
           dataUpdatedAt: null,
         },
@@ -446,12 +617,16 @@ it('解释失败仍显示原结果，重试只触发解释动作', () => {
   fireEvent.click(screen.getByRole('button', { name: '重试说明' }));
   expect(screen.getByText('85', { selector: 'strong' })).toBeVisible();
   expect(screen.getByText('箱')).toBeVisible();
+  const scope = screen.getByText('按仓库当前可售数量统计。');
+  expect(scope).not.toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '查询依据' }));
+  expect(scope).toBeVisible();
   expect(explain).toHaveBeenCalledOnce();
   expect(requery).not.toHaveBeenCalled();
 });
 
-/** 首屏使用已生成说明，原始口径和明细可以从同一操作行回看。 */
-it('说明与原始口径分层，同时保留明细和出处', () => {
+/** 单值结果生成完整答复后只显示一句，原值和口径可按需查看。 */
+it('单值结果只显示完整答复，同时保留明细和出处', () => {
   render(
     <QueryAnswer
       row={{
@@ -473,6 +648,7 @@ it('说明与原始口径分层，同时保留明细和出处', () => {
     />,
   );
   expect(screen.getByText('实际可售库存 85 箱。')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: /可售库存.*85/ })).not.toBeInTheDocument();
   const scope = screen.getByText('源库核对口径。');
   expect(scope).not.toBeVisible();
   const basis = screen.getByRole('button', { name: '查询依据' });
@@ -484,4 +660,5 @@ it('说明与原始口径分层，同时保留明细和出处', () => {
   expect(basis).toHaveAttribute('aria-expanded', 'false');
   expect(scope).not.toBeVisible();
   expect(screen.getByRole('table')).toBeVisible();
+  expect(screen.getByRole('cell', { name: '85' })).toBeVisible();
 });

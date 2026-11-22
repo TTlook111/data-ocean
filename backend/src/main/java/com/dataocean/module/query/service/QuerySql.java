@@ -40,13 +40,14 @@ final class QuerySql {
             String unit,
             String scope,
             boolean verifiesUnit,
-            SeriesWindow series) {}
+            SeriesWindow series,
+            QueryUsage usage) {}
 
     /** 关联由同版治理的确切字段对提供。 */
     private record Pair(Field left, Field right) {}
 
     /** 关联组的全部键都要参与实际 JOIN。 */
-    private record Relation(String left, String right, List<Pair> keys) {}
+    private record Relation(String left, String right, List<Pair> keys, GovernanceFactVO fact) {}
 
     /** 标准聚合字段数，其他运算一律不接受。 */
     private static final Map<String, Integer> ARITY = Map.of("COUNT_DISTINCT", 1, "SUM", 1, "SUM_DIFFERENCE", 2);
@@ -215,16 +216,17 @@ final class QuerySql {
                 || previous == null
                 || !Objects.equals(plan.binding(), previous.binding())
                 || !Objects.equals(plan.metric(), previous.metric())
-                || offset == 0 && plan.time() != null && "TREND".equals(plan.time().mode())) {
+                || offset == 0
+                        && plan.time() != null
+                        && "TREND".equals(plan.time().mode())) {
             // 不向不同口径或不同知识绑定借用日期。
             return null;
         }
         var time = previous.time();
         if (time == null) {
             // 兼容已交付的早期计划在普通等值条件里保存业务日期。
-            var dateFilters = (previous.filters() == null ? List.<QueryProtocol.Condition>of() : previous.filters()).stream()
-                    .filter(filter -> dateField(basis, filter.field()))
-                    .toList();
+            var dateFilters = (previous.filters() == null ? List.<QueryProtocol.Condition>of() : previous.filters())
+                    .stream().filter(filter -> dateField(basis, filter.field())).toList();
             if (dateFilters.size() != 1) {
                 return null;
             }
@@ -265,8 +267,10 @@ final class QuerySql {
     /**
      * 仅允许来自用户、已确认上文或发布材料的商品编码。模型翻译名称后仍需独立语义核对。
      */
-    void checkProductCodes(Basis basis, Plan plan, String question, QueryProtocol.Memory memory) {
+    QueryUsage.ParameterUse checkProductCodes(Basis basis, Plan plan, String question, QueryProtocol.Memory memory) {
         boolean hasProduct = false;
+        boolean published = false;
+        var context = new LinkedHashSet<String>();
         for (var filter : plan.filters()) {
             // 只处理被确认为商品编码的列，其他等值业务条件沿用原有验证。
             String label = basis.labels().get(filter.field());
@@ -276,17 +280,21 @@ final class QuerySql {
                 continue;
             }
             hasProduct = true;
-            Pattern exact = Pattern.compile(
-                    "(?i)(?<![\\w-])" + Pattern.quote(filter.value()) + "(?![\\w-])");
-            if (exact.matcher(question).find() && (code || EXPLICIT_IDENTIFIER.matcher(question).find())) {
+            Pattern exact = Pattern.compile("(?i)(?<![\\w-])" + Pattern.quote(filter.value()) + "(?![\\w-])");
+            if (exact.matcher(question).find()
+                    && (code || EXPLICIT_IDENTIFIER.matcher(question).find())) {
                 // 编码必须完整匹配，不能由短前缀匹配另一个商品。
                 continue;
             }
-            boolean inherited = Stream.concat(memory.recent().stream(), memory.earlier().stream())
-                    .map(QueryProtocol.MemoryTurn::plan)
-                    .filter(prior -> prior != null && Objects.equals(prior.binding(), plan.binding()) && prior.filters() != null)
-                    .anyMatch(prior -> prior.filters().contains(filter));
-            if (inherited && PRODUCT_CONTINUATION.matcher(question).find()) {
+            var inherited = Stream.concat(memory.recent().stream(), memory.earlier().stream())
+                    .filter(turn -> turn.plan() != null
+                            && Objects.equals(turn.plan().binding(), plan.binding())
+                            && turn.plan().filters() != null
+                            && turn.plan().filters().contains(filter))
+                    .findFirst();
+            if (inherited.isPresent() && PRODUCT_CONTINUATION.matcher(question).find()) {
+                // 记录实际为这个参数提供依据的原轮次。
+                context.add(inherited.orElseThrow().requestId());
                 continue;
             }
             if (id || !exact.matcher(basis.text()).find()) {
@@ -300,12 +308,15 @@ final class QuerySql {
                     throw QueryFailure.knowledge();
                 }
             }
+            published = true;
         }
-        if (!hasProduct && ARITY.containsKey(plan.operation())
+        if (!hasProduct
+                && ARITY.containsKey(plan.operation())
                 && metric(basis, plan).getContent().path("usage").asText().matches("(?is).*先固定[^；。]{0,24}SKU.*")) {
             // 指标要求锁定单个商品时，不能把未识别商品变成全量库存查询。
             throw QueryFailure.knowledge();
         }
+        return new QueryUsage.ParameterUse(List.copyOf(context), published);
     }
 
     /**
@@ -321,7 +332,8 @@ final class QuerySql {
     Plan namedStock(QueryProductNames.Match product, LocalDate day) {
         var basis = product.basis();
         var facts = basis.facts().values().stream()
-                .filter(fact -> "METRIC".equals(fact.getTarget().getKind()) && fact.getLabel().contains("可售库存"))
+                .filter(fact -> "METRIC".equals(fact.getTarget().getKind())
+                        && fact.getLabel().contains("可售库存"))
                 .toList();
         if (facts.size() != 1) {
             // 仍有多个口径时交给正常语义规划。
@@ -333,7 +345,8 @@ final class QuerySql {
         if (!formula.matches()) {
             return null;
         }
-        var fields = List.of(new Field(formula.group(1), formula.group(2)), new Field(formula.group(3), formula.group(4)));
+        var fields =
+                List.of(new Field(formula.group(1), formula.group(2)), new Field(formula.group(3), formula.group(4)));
         if (!fields.stream().allMatch(basis.labels()::containsKey)) {
             // 不能通过公式中未获准的列取数。
             return null;
@@ -345,7 +358,9 @@ final class QuerySql {
         if (date == null) {
             return null;
         }
-        return day == null ? plan : withTime(plan, filters, new TimeSelection(date, "DAY", day.toString(), day.toString(), false));
+        return day == null
+                ? plan
+                : withTime(plan, filters, new TimeSelection(date, "DAY", day.toString(), day.toString(), false));
     }
 
     /** 明确日期优先，未给日期时只使用原请求时间锚点。 */
@@ -424,10 +439,12 @@ final class QuerySql {
             throw QueryFailure.knowledge();
         }
         var required = new LinkedHashSet<String>();
+        var usage = new QueryUsage.Capture(basis);
         for (var field : plan.fields()) {
             // 接受的投影与库表标识全部来自真实目录。
             checkField(basis, field);
             required.add(field.table());
+            usage.field(field, arity == null ? "SELECT" : "COMPUTE");
         }
         for (var filter : plan.filters()) {
             // 列必须在同版证据中，值不参与 SQL 拼接。
@@ -456,6 +473,7 @@ final class QuerySql {
         if (arity != null) {
             // 核验真实表达式与确认指标，不让模型擅改字段、单位或必需连接。
             var metric = metric(basis, plan);
+            usage.fact(metric);
             for (var fact : metric.getDependencies()) {
                 if ("COLUMN".equals(fact.getKind())) {
                     // 库存覆盖计数即使只投影商品键也必须关联快照存在性。
@@ -466,8 +484,8 @@ final class QuerySql {
                     required.add(field.table());
                 }
             }
-            var usage = metric.getContent().path("usage").asText();
-            if (!"COUNT_DISTINCT".equals(plan.operation()) && usage.contains("单位")) {
+            var metricUsage = metric.getContent().path("usage").asText();
+            if (!"COUNT_DISTINCT".equals(plan.operation()) && metricUsage.contains("单位")) {
                 // 定义要求单位一致时从实际同行回读确认的计量字段。
                 var candidates = metric.getDependencies().stream()
                         .filter(fact -> "COLUMN".equals(fact.getKind()))
@@ -479,12 +497,13 @@ final class QuerySql {
                     unitField = candidates.get(0);
                     checkField(basis, unitField);
                     projection.add(unitField);
-                } else if (SAME_UNIT.matcher(usage).find()) {
+                    usage.field(unitField, "UNIT_CHECK");
+                } else if (SAME_UNIT.matcher(metricUsage).find()) {
                     // 无法读取可信计量单位时，不执行可能混加的业务查询。
                     throw QueryFailure.knowledge();
                 }
             }
-            var matcher = java.util.regex.Pattern.compile("单位为([\\p{L}]{1,5})").matcher(usage);
+            var matcher = java.util.regex.Pattern.compile("单位为([\\p{L}]{1,5})").matcher(metricUsage);
             unit = matcher.find() ? matcher.group(1) : "";
             if (unit.isEmpty()
                     && plan.unit() != null
@@ -495,7 +514,7 @@ final class QuerySql {
                 // 只有命中证据实际出现的单位才可以与本次结果一起交付。
                 unit = plan.unit();
             }
-            meaning = metric.getContent().path("meaning").asText() + usage;
+            meaning = metric.getContent().path("meaning").asText() + metricUsage;
             columns.add(new Column("value", metric.getLabel()));
         } else {
             // 明细由确切的已确认字段集合决定，禁止星号和模型别名。
@@ -510,6 +529,13 @@ final class QuerySql {
             }
             required.add(time.field().table());
             projection.add(time.field());
+            usage.field(time.field(), "FILTER");
+            if (trend) {
+                // 趋势的日期也是结果维度、分组键和排序键。
+                usage.field(time.field(), "SELECT");
+                usage.field(time.field(), "GROUP");
+                usage.field(time.field(), "ORDER");
+            }
         }
         var aliases = new LinkedHashMap<String, String>();
         required.forEach(name -> aliases.put(name, "t" + aliases.size()));
@@ -528,7 +554,7 @@ final class QuerySql {
         var sql = new StringBuilder("SELECT ").append(select).append(" FROM ");
         var first = required.iterator().next();
         sql.append(sqlTable(basis, first, mysql, database)).append(' ').append(aliases.get(first));
-        join(basis, required, aliases, first, mysql, database, sql);
+        join(basis, required, aliases, first, mysql, database, sql, usage);
 
         var predicates = new ArrayList<String>();
         var parameters = new ArrayList<Object>();
@@ -546,6 +572,7 @@ final class QuerySql {
             // 采用真实列类型，避免依赖数据库隐式类型转换。
             var field = filter.field();
             var column = basis.tables().get(field.table()).entry().named(field.column());
+            usage.field(field, "FILTER");
             predicates.add(sqlField(field, aliases, mysql) + " = ?");
             var argument = parameter(column.nativeType(), filter.value());
             parameters.add(argument);
@@ -569,7 +596,8 @@ final class QuerySql {
                 unit,
                 scopeText,
                 unitField != null,
-                trend ? new SeriesWindow(time.start(), time.end()) : null);
+                trend ? new SeriesWindow(time.start(), time.end()) : null,
+                usage.finish(required));
     }
 
     /** 聚合必须匹配发布中已确认的指标公式。 */
@@ -601,7 +629,8 @@ final class QuerySql {
      * 通过发布字段语义识别行业自己的单位列名，并兼容现有目录命名。
      */
     private boolean measuresUnit(Basis basis, Field field) {
-        return field.column().equals("unit") || field.column().endsWith("_unit")
+        return field.column().equals("unit")
+                || field.column().endsWith("_unit")
                 || basis.labels().getOrDefault(field, "").contains("计量单位");
     }
 
@@ -613,7 +642,8 @@ final class QuerySql {
             String first,
             boolean mysql,
             String database,
-            StringBuilder sql) {
+            StringBuilder sql,
+            QueryUsage.Capture usage) {
         var remaining = new LinkedHashSet<>(required);
         remaining.remove(first);
         var linked = new LinkedHashSet<>(Set.of(first));
@@ -638,6 +668,12 @@ final class QuerySql {
             var conditions = relation.keys().stream()
                     .map(p -> sqlField(p.left(), aliases, mysql) + " = " + sqlField(p.right(), aliases, mysql))
                     .collect(Collectors.joining(" AND "));
+            usage.fact(relation.fact());
+            for (var key : relation.keys()) {
+                // 每个实际写入 ON 的复合键字段都保留稳定编号。
+                usage.field(key.left(), "JOIN");
+                usage.field(key.right(), "JOIN");
+            }
             sql.append(" JOIN ")
                     .append(sqlTable(basis, next, mysql, database))
                     .append(' ')
@@ -672,7 +708,7 @@ final class QuerySql {
                 if (pairs.stream()
                         .allMatch(p -> p.left().table().equals(key.left().table())
                                 && p.right().table().equals(key.right().table()))) {
-                    relations.add(new Relation(key.left().table(), key.right().table(), pairs));
+                    relations.add(new Relation(key.left().table(), key.right().table(), pairs, fact));
                 }
             }
         }

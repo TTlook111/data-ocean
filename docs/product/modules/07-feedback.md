@@ -26,4 +26,4 @@
 
 保留[原问数](06-query.md)实际依据；知识修正经[治理](04-governance.md)及[发布](05-knowledge-release.md)生效；[看板](08-dashboard.md)引用统一事件与状态。
 
-技术设计与验收见[统一入口](../README.md#架构与重构任务怎样读取)。
+评价提交、可靠入队及首步验收见[详细设计](../../backend/feedback/评价与入队.md)。

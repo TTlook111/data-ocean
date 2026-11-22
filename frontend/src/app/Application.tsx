@@ -67,6 +67,7 @@ const navigation = [
   { key: '/knowledge', label: '知识文档', permission: 'knowledge.view' },
   { key: '/test-cases', label: '标准题单', permission: 'test-cases.view' },
   { key: '/releases', label: '发布与版本', permission: 'releases.view' },
+  { key: '/feedback', label: '问题队列与处理', permission: 'feedback.view' },
   { key: '/models', label: '模型配置', permission: 'models.view' },
   { key: '/diagnostics', label: '调用记录与故障', permission: 'diagnostics.view' },
   { key: '/my-requests', label: '我的申请', permission: 'my-requests.view' },
@@ -98,6 +99,10 @@ const DepartmentsPage = lazyPage(() =>
 const RolesPage = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RolesPage));
 const RoleEditor = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RoleEditor));
 const AuditPage = lazyPage(() => import('../modules/iam/AuditPage').then((m) => m.AuditPage));
+// 已可靠入队的事项通过反馈处理菜单进入。
+const FeedbackQueue = lazyPage(() =>
+  import('../modules/feedback/FeedbackQueue').then((m) => m.FeedbackQueue),
+);
 
 // 数据源和数据访问页面保留现有具名入口及跨页复用。
 const DatasourceManagementPage = lazyPage(() =>
@@ -195,6 +200,8 @@ const workspaceRoutes = [
   { path: '/releases', element: <KnowledgeReleasePage /> },
   { path: '/releases/:id', element: <KnowledgeReleaseBuildPage /> },
   { path: '/releases/versions/:id', element: <KnowledgeEffectiveVersionPage /> },
+  // 反馈基础队列通过已有页面权限保护。
+  { path: '/feedback', element: <FeedbackQueue /> },
   // 系统配置的真实模型与诊断入口。
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },

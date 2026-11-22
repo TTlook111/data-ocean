@@ -1,8 +1,16 @@
-import { BookOutlined, DownloadOutlined, ReloadOutlined, TableOutlined } from '@ant-design/icons';
+import {
+  BookOutlined,
+  DownOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+  TableOutlined,
+  UpOutlined,
+} from '@ant-design/icons';
 import { Alert, Button } from 'antd';
 import { useId, useState } from 'react';
 import type { Snapshot } from './types';
 import { TrendPanel } from './TrendChart';
+import { AnswerRating } from './AnswerRating';
 import { trendFromResult } from './trend';
 import styles from './query.module.css';
 
@@ -55,6 +63,7 @@ export function QueryAnswer({
   onDownloadChart,
   onExplainAgain,
   onStopExplanation,
+  historical = false,
 }: {
   /** 当前已授权的轮次。 */
   row: Snapshot;
@@ -68,8 +77,13 @@ export function QueryAnswer({
   onExplainAgain?: () => void;
   /** 停止当前解释，保留已交付的数据。 */
   onStopExplanation?: () => void;
+  /** 历史答复默认优先展示结果正文。 */
+  historical?: boolean;
 }) {
   const [panel, setPanel] = useState<'data' | 'basis' | null>(null);
+  const [historyTools, setHistoryTools] = useState<'unopened' | 'expanded' | 'collapsed'>(
+    'unopened',
+  );
   const panelId = useId();
   const result = row.result;
   if (!result) {
@@ -77,6 +91,7 @@ export function QueryAnswer({
       row.state === 'RESULT_DELIVERED' ? '本次结果已超过保留期。' : statusText[row.state];
     return (
       <Alert
+        className={historical ? styles.historyNotice : undefined}
         showIcon
         type={row.state === 'PERMISSION_DENIED' ? 'warning' : 'info'}
         title={info}
@@ -94,8 +109,11 @@ export function QueryAnswer({
   const metric =
     result.columns.length === 1 && result.columns[0].name === 'value' && result.rows.length === 1;
   const trend = trendFromResult(result);
-  const explanation = row.explanation?.status === 'COMPLETED' ? row.explanation.text : null;
+  const explanation = row.explanation?.status === 'COMPLETED' ? row.explanation.text?.trim() : null;
+  const thinking = explaining(row);
+  const waitingForAnswer = metric && thinking;
   const hasBasis = Boolean(row.evidence || result.scope || row.sql);
+  const toolsMounted = !historical || historyTools !== 'unopened';
   const table = (
     <div className={styles.tableScroll}>
       <table className={styles.table}>
@@ -122,132 +140,153 @@ export function QueryAnswer({
       {result.truncated && <p className={styles.emptyRows}>结果已截断，显示前 2,000 行。</p>}
     </div>
   );
-  return (
-    <article className={styles.answer} aria-label="查询结果" aria-live="polite">
-      <div className={styles.answerIdentity}>
-        <img src="/dataocean-mark.png" alt="" />
-        <span>DataOcean</span>
-      </div>
-      {/* 单指标先读名称和真实数值，普通结果直接呈现表格。 */}
-      {metric ? (
-        <div className={styles.metric}>
-          <h2>
-            <span>{result.columns[0].label}</span>
-            <strong>{result.rows[0][0] ?? '暂无数据'}</strong>
-            {result.unit && result.rows[0][0] !== null && <small>{result.unit}</small>}
-          </h2>
-        </div>
-      ) : trend ? (
-        <TrendPanel trend={trend} />
-      ) : (
-        table
-      )}
-      {/* 解释就绪前用实际执行口径说明结果，原始口径始终可在依据中核对。 */}
-      {(explanation || result.scope) && (
-        <p className={styles.explanation}>{explanation || result.scope}</p>
-      )}
-      {explaining(row) && (
-        <div className={styles.explanationState} role="status">
-          正在生成结果说明
-          {onStopExplanation && (
-            <Button type="text" size="small" onClick={onStopExplanation}>
-              停止说明
-            </Button>
-          )}
-        </div>
-      )}
-      {(row.explanation?.status === 'FAILED' || row.explanation?.status === 'STOPPED') && (
-        <div className={styles.explanationState}>
-          {row.explanation.status === 'FAILED' ? '结果说明生成失败' : '已停止说明'}
-          {onExplainAgain && (
-            <Button type="link" size="small" onClick={onExplainAgain}>
-              重试说明
-            </Button>
-          )}
-        </div>
-      )}
-      <div className={styles.metadata}>
-        {row.executedAt && <span>查询于 {dateTime.format(new Date(row.executedAt))}</span>}
-        <span>
-          {result.dataUpdatedAt
-            ? '数据更新于 ' + dateTime.format(new Date(result.dataUpdatedAt))
-            : '数据更新时间未知'}
-        </span>
-      </div>
-      <div className={styles.answerActions} role="group" aria-label="结果操作">
-        {metric && (
-          <Button
-            type="text"
-            size="small"
-            icon={<TableOutlined aria-hidden />}
-            aria-expanded={panel === 'data'}
-            aria-controls={panelId + '-data'}
-            onClick={() => setPanel(panel === 'data' ? null : 'data')}
-          >
-            数据明细
-          </Button>
-        )}
-        {hasBasis && (
-          <Button
-            type="text"
-            size="small"
-            icon={<BookOutlined aria-hidden />}
-            aria-expanded={panel === 'basis'}
-            aria-controls={panelId + '-basis'}
-            onClick={() => setPanel(panel === 'basis' ? null : 'basis')}
-          >
-            查询依据
-          </Button>
-        )}
+  const resultActions = (
+    <div className={styles.answerActions} role="group" aria-label="结果操作">
+      {metric && (
         <Button
           type="text"
           size="small"
-          icon={<DownloadOutlined aria-hidden />}
-          onClick={onDownload}
+          icon={<TableOutlined aria-hidden />}
+          aria-expanded={panel === 'data'}
+          aria-controls={panelId + '-data'}
+          onClick={() => setPanel(panel === 'data' ? null : 'data')}
         >
-          导出 CSV
+          数据明细
         </Button>
-        {trend && onDownloadChart && (
-          <Button type="text" size="small" onClick={onDownloadChart}>
-            导出图表
-          </Button>
-        )}
-        {onRequery && (
-          <Button
-            type="text"
-            size="small"
-            icon={<ReloadOutlined aria-hidden />}
-            onClick={onRequery}
-          >
-            重新查询
-          </Button>
-        )}
-      </div>
-      {/* 可展开内容共享一块阅读区，窄窗可在对话内滚动。 */}
-      {metric && (
-        <div id={panelId + '-data'} className={styles.answerPanel} hidden={panel !== 'data'}>
-          {table}
-        </div>
       )}
       {hasBasis && (
-        <div id={panelId + '-basis'} className={styles.answerPanel} hidden={panel !== 'basis'}>
-          <div className={styles.basis}>
-            {row.evidence && (
-              <div className={styles.basisVersion}>
-                <strong>{row.evidence.title}</strong>
-                <span>
-                  r{row.evidence.revision} · 片段 {row.evidence.fragment + 1}
-                </span>
-              </div>
-            )}
-            {result.scope && <p>{result.scope}</p>}
-            {row.sql && (
-              <details className={styles.sql}>
-                <summary>查看 SQL</summary>
-                <pre>{row.sql}</pre>
-              </details>
+        <Button
+          type="text"
+          size="small"
+          icon={<BookOutlined aria-hidden />}
+          aria-expanded={panel === 'basis'}
+          aria-controls={panelId + '-basis'}
+          onClick={() => setPanel(panel === 'basis' ? null : 'basis')}
+        >
+          查询依据
+        </Button>
+      )}
+      <Button type="text" size="small" icon={<DownloadOutlined aria-hidden />} onClick={onDownload}>
+        导出 CSV
+      </Button>
+      {trend && onDownloadChart && (
+        <Button type="text" size="small" onClick={onDownloadChart}>
+          导出图表
+        </Button>
+      )}
+      {onRequery && (
+        <Button type="text" size="small" icon={<ReloadOutlined aria-hidden />} onClick={onRequery}>
+          重新查询
+        </Button>
+      )}
+    </div>
+  );
+  const metadata = (
+    <div className={styles.metadata}>
+      {row.executedAt && <span>查询于 {dateTime.format(new Date(row.executedAt))}</span>}
+      <span>
+        {result.dataUpdatedAt
+          ? '数据更新于 ' + dateTime.format(new Date(result.dataUpdatedAt))
+          : '数据更新时间未知'}
+      </span>
+    </div>
+  );
+  return (
+    <article className={styles.answer} aria-label="查询结果">
+      {/* 只播报结果变化，评价表单在独立的区域处理反馈。 */}
+      <div aria-live={historical ? undefined : 'polite'}>
+        {/* 单值答复优先显示完整句子，无法生成时仍交付已核验的数值。 */}
+        {metric && !thinking && !explanation && (
+          <h2 className={styles.metric}>
+            <span>{result.columns[0].label}</span>
+            <strong>{result.rows[0][0] ?? '暂无数据'}</strong>
+            {result.unit && result.rows[0][0] !== null && <span>{result.unit}</span>}
+          </h2>
+        )}
+        {/* 多行结果继续展示表格或趋势，完整解读随结果交付。 */}
+        {!metric && (trend ? <TrendPanel trend={trend} /> : table)}
+        {explanation && <p className={styles.explanation}>{explanation}</p>}
+        {thinking && (
+          <div className={styles.explanationState} role="status">
+            思考中
+            {onStopExplanation && (
+              <Button type="text" size="small" onClick={onStopExplanation}>
+                停止说明
+              </Button>
             )}
           </div>
+        )}
+        {(row.explanation?.status === 'FAILED' || row.explanation?.status === 'STOPPED') && (
+          <div className={styles.explanationState}>
+            {row.explanation.status === 'FAILED' ? '结果说明生成失败' : '已停止说明'}
+            {onExplainAgain && (
+              <Button type="link" size="small" onClick={onExplainAgain}>
+                重试说明
+              </Button>
+            )}
+          </div>
+        )}
+        {!historical && !waitingForAnswer && metadata}
+      </div>
+      {historical && !waitingForAnswer && (
+        <Button
+          className={styles.historyTools}
+          type="text"
+          size="small"
+          icon={
+            historyTools === 'expanded' ? <UpOutlined aria-hidden /> : <DownOutlined aria-hidden />
+          }
+          aria-expanded={historyTools === 'expanded'}
+          aria-controls={toolsMounted ? panelId + '-tools' : undefined}
+          onClick={() => setHistoryTools(historyTools === 'expanded' ? 'collapsed' : 'expanded')}
+        >
+          更多操作
+        </Button>
+      )}
+      {/* 展开后才读取评价。临时收起时继续保留已经填写的草稿和已展开的依据。 */}
+      {toolsMounted && (
+        <div
+          id={panelId + '-tools'}
+          hidden={waitingForAnswer || (historical && historyTools === 'collapsed')}
+        >
+          {historical && metadata}
+          {row.answerRef ? (
+            <AnswerRating
+              key={row.answerRef.answerId + ':' + row.answerRef.answerRevision}
+              {...row.answerRef}
+              sourceId={row.sourceId}
+              resultActions={resultActions}
+            />
+          ) : (
+            <div className={styles.answerFooter}>{resultActions}</div>
+          )}
+          {/* 明细和依据仍在原答复附近展开。 */}
+          {metric && (
+            <div id={panelId + '-data'} className={styles.answerPanel} hidden={panel !== 'data'}>
+              {table}
+            </div>
+          )}
+          {hasBasis && (
+            <div id={panelId + '-basis'} className={styles.answerPanel} hidden={panel !== 'basis'}>
+              <div className={styles.basis}>
+                {row.evidence && (
+                  <div className={styles.basisVersion}>
+                    <strong>{row.evidence.title}</strong>
+                    <span>
+                      r{row.evidence.revision} · 片段 {row.evidence.fragment + 1}
+                    </span>
+                  </div>
+                )}
+                {result.scope && <p>{result.scope}</p>}
+                {row.sql && (
+                  <details className={styles.sql}>
+                    <summary>查看 SQL</summary>
+                    <pre>{row.sql}</pre>
+                  </details>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </article>

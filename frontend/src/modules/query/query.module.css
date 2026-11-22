@@ -222,12 +222,8 @@
 }
 
 .sourcePicker {
-  /* 原型的数据源图标与选择器在同一工具区。 */
-  display: flex;
+  /* 会话顶栏的右端留给当前数据源。 */
   flex-shrink: 0;
-  align-items: center;
-  gap: 9px;
-  color: #53667c;
 }
 
 .source {
@@ -275,59 +271,69 @@
   font-weight: 600;
 }
 
-.question {
+.question,
+.questionLink {
+  /* 当前和历史问题使用相同的正文字号与紧凑内距。 */
   align-self: flex-end;
   max-width: min(600px, 82%);
   margin: 0;
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-radius: 10px 10px 3px 10px;
   background: #edf2f8;
   color: #20375c;
+  font: inherit;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
-.turnLinks {
-  /* 同一会话的历史入口小于本轮答案的视觉层级。 */
-  display: grid;
-  gap: 4px;
-  max-height: 92px;
-  overflow-y: auto;
-  padding-bottom: 7px;
-  border-bottom: 1px solid #e5eaf1;
-}
-
-.laterTurns {
-  /* 后续轮次在本轮答案下方提供回看入口。 */
-  padding: 7px 0 0;
-  border-top: 1px solid #e5eaf1;
-  border-bottom: 0;
-}
-
-.turnLinks button {
+.turn {
+  /* 问题、澄清与原答复自然排布在同一滚动区。 */
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 4px 7px;
-  overflow: hidden;
+  gap: 12px;
+}
+
+.currentTurn {
+  /* 进入会话时定位当前轮次，在阅读区保留上沿间距。 */
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+
+.questionLink {
+  /* 历史问题保留可聚焦的原轮次入口。 */
   border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #41618f;
-  font: inherit;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
 }
 
-.turnLinks button:hover {
-  background: #eef3fa;
+.questionLink:hover {
+  /* 仅在悬停时强调轮次入口。 */
+  background: #e3edf9;
+}
+
+.turn + .turn,
+.turn + .currentTurn,
+.currentTurn + .turn {
+  /* 用间距分开相邻问答，避免把上一轮解释误读为下一轮答案。 */
+  padding-top: 18px;
+}
+
+.historyMore {
+  /* 更多轮次按钮位于消息之间，随对话一起滚动。 */
+  align-self: center;
 }
 
 .explanation {
-  /* 说明与指标保持一条阅读轴，长内容自然换行。 */
-  margin: 13px 0 0;
+  /* 完整答复从正文顶部开始，长内容自然换行。 */
+  margin: 0;
   line-height: 1.65;
   overflow-wrap: anywhere;
+}
+
+.explanation:not(:first-child) {
+  /* 多行结果的解读与上方图表保持间距。 */
+  margin-top: 8px;
 }
 
 .explanationState,
@@ -341,28 +347,20 @@
 }
 
 .explanationState {
+  /* 说明等待与结果使用同一条阅读轴。 */
   flex-wrap: wrap;
+}
+
+.explanationState:not(:first-child) {
+  /* 结果已显示时，为状态留出行间距。 */
   margin-top: 8px;
 }
 
 .clarification {
-  /* 原型中的追问在左侧，用实际用户答复还原当时的对话顺序。 */
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  /* 澄清沿用结果区的左侧阅读轴，保留原文换行。 */
   max-width: min(600px, 84%);
-  color: #314666;
-}
-
-.clarification img {
-  width: 20px;
-  height: 22px;
-  flex: none;
-  object-fit: contain;
-}
-
-.clarification p {
   margin: 0;
+  color: #314666;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -370,47 +368,25 @@
 .answer {
   /* 主值和技术依据共用阅读轴，细节按需展开。 */
   min-width: 0;
-  padding-top: 6px;
+  padding-top: 2px;
 }
 
-.answerIdentity {
-  /* 沿原型的答复标识区分用户气泡和系统结果。 */
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 7px;
-  color: #53667c;
-  font-size: 12px;
-}
-
-.answerIdentity img {
-  width: 18px;
-  height: 20px;
-  object-fit: contain;
-}
-
-.metric h2 {
-  /* 直接呈现指标和实际值，便于扫读对话。 */
+.metric {
+  /* 名称、数值和单位共用对话正文字号，小窗口自然换行。 */
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 1px 7px;
   margin: 0;
   color: #182a44;
-  font-size: 16px;
-  line-height: 1.5;
+  font: inherit;
+  overflow-wrap: anywhere;
 }
 
 .metric strong {
-  font-size: 19px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
+  /* 通过字重和等宽数字突出实际查询值。 */
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-.metric small {
-  font-size: 13px;
-  font-weight: 500;
 }
 
 .trendPanel {
@@ -438,21 +414,17 @@
   height: auto;
 }
 
-.previewHeader {
-  /* 文件名可回看，长文件名不占用操作位置。 */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.historyTools:global(.ant-btn) {
+  /* 每条历史答复先保留一个操作入口，展开时恢复原工具行。 */
+  margin-top: 6px;
+  padding-inline: 4px;
+  color: #52647c;
 }
 
-.previewHeader h2 {
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 16px;
-  font-weight: 600;
+.historyNotice:global(.ant-alert-info) {
+  /* 历史的说明状态使用安静的底色，保留原文和状态图标。 */
+  background: #f6f8fb;
+  border-color: #e5eaf1;
 }
 
 .metadata {
@@ -464,18 +436,95 @@
   font-size: 12px;
 }
 
-.answerActions {
-  /* 依据、明细和导出处于同一工具行，窄窗按控件宽度换行。 */
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.answerFooter {
+  /* 查询操作、评价及编辑共用一条分隔，保持结果主体独立。 */
   padding-top: 6px;
   border-top: 1px solid #e5eaf1;
 }
 
-.answerActions button[aria-expanded='true'] {
+.answerToolbar {
+  /* 两类动作有各自阅读顺序，空间不足时整组换行。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.answerActions,
+.ratingControls {
+  /* 组内也可换行，保留高缩放时的可达性。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ratingControls {
+  /* 换行后仍保持评价靠右。 */
+  margin-inline-start: auto;
+}
+
+.answerActions button[aria-expanded='true'],
+.ratingControls button[aria-expanded='true'],
+.ratingControls button[aria-pressed='true'] {
+  /* 展开和选中都保留明确的操作形态。 */
   background: #eaf0fc;
   color: #244eaa;
+}
+
+.ratingStatus:not(:empty) {
+  /* 受理与入队以图标和文字表达，空状态不占空间。 */
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: #465c77;
+  font-size: 12px;
+}
+
+.ratingForm {
+  /* 编辑区沿用依据面板的边界，在原回答附近保留完整操作。 */
+  margin-top: 9px;
+  padding: 12px 14px;
+  border: 1px solid #e5eaf1;
+  border-radius: 6px;
+  background: #fafbfd;
+}
+
+.ratingForm :global(.ant-form-item) {
+  /* 矮视口减少原因、校验与按钮之间的留白。 */
+  margin-bottom: 8px;
+}
+
+.ratingNotice,
+.ratingFormActions,
+.ratingSubmitActions {
+  /* 冲突确认、撤销和提交在缩放时均可自然换行。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.ratingNotice {
+  /* 仅版本冲突时显示需要用户核对的状态。 */
+  margin-bottom: 6px;
+  color: #624522;
+  font-size: 13px;
+}
+
+.ratingSubmitActions {
+  /* 取消紧邻提交，撤销保留在另一侧。 */
+  margin-inline-start: auto;
+}
+
+/* 就近字段和命令错误使用具备对比度的危险色。 */
+.ratingError {
+  color: #a8071a;
+  margin: 4px 0;
+  font-size: 13px;
 }
 
 .answerPanel {
@@ -598,8 +647,9 @@
 }
 
 .historyItem:focus-visible,
-.turnLinks button:focus-visible,
-.answerActions button:focus-visible,
+.questionLink:focus-visible,
+.historyTools:focus-visible,
+.answerFooter button:focus-visible,
 .sql summary:focus-visible {
   outline: 2px solid #2f63d5;
   outline-offset: -2px;

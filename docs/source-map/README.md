@@ -38,6 +38,8 @@
 
 正式问数首条链路由 [React 问数工作台](../../frontend/src/modules/query/QueryWorkbench.tsx)、[Java 问数接口](../../backend/src/main/java/com/dataocean/module/query/controller/QueryController.java)和 [Python 检索与模型入口](../../python-service/src/dataocean_ai/query/api.py)组成。当前覆盖见[问数首条链路验收](../backend/query/设计与验收.md)。
 
+F 批评价与入队由 [React 回答评价](../../frontend/src/modules/query/AnswerRating.tsx)、[React 问题队列](../../frontend/src/modules/feedback/FeedbackQueue.tsx)及 [Java 评价接口](../../backend/src/main/java/com/dataocean/module/feedback/controller/FeedbackController.java)组成。问数的实际引用由 [QueryUsage](../../backend/src/main/java/com/dataocean/module/query/service/QueryUsage.java)生成，表结构见 [V38 迁移](../../backend/src/main/resources/db/migration/V38__feedback_rating_intake.sql)。
+
 001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
 
 | 模块 |

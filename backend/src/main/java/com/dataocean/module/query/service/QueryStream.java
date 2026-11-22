@@ -16,13 +16,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 向原浏览器会话发送真实持久化进度，断线可以从快照继续。
+ * 向原浏览器会话发送持久化进度及已核验答复，断线可以从快照继续。
  */
 @Service
 @RequiredArgsConstructor
 public class QueryStream {
 
-    /** 并发连接数量有界，正文通过独立鉴权的详情端点读取。 */
+    /** 并发连接数量有界，状态与答复都通过当前订阅资格验证。 */
     private final ConcurrentHashMap<String, Subscription> listeners = new ConcurrentHashMap<>();
     /** 使用真实请求状态和当前来源授权。 */
     private final QueryService queries;

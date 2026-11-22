@@ -53,6 +53,19 @@ public final class QueryProtocol {
     /** 发布索引的实际命中定位，结果中不输出向量或内部连接信息。 */
     public record Evidence(String title, int revision, String revisionId, int fragment) {}
 
+    /** 已交付结果的评价身份，与解释和执行代次独立。 */
+    public record AnswerRef(String answerId, int answerRevision) {}
+
+    /** 当前已获权的内部证据引用，不包含结果行及 SQL 参数。 */
+    public record RatingAnswer(
+            AnswerRef ref,
+            long userId,
+            long sourceId,
+            String executionId,
+            Long bindingId,
+            Evidence evidence,
+            String usageRefs) {}
+
     /** 与实际执行 SQL 对应的结果列，数值仍保留数据库精度。 */
     public record Column(String name, String label) {}
 
@@ -87,7 +100,8 @@ public final class QueryProtocol {
             Instant updatedAt,
             String conversationId,
             int runVersion,
-            Explanation explanation) {}
+            Explanation explanation,
+            AnswerRef answerRef) {}
 
     /** 模型只传受控目录的逻辑标识。 */
     public record Field(String table, String column) {}
