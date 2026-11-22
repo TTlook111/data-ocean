@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { displayTime, ReadState } from '../../shared/Records';
 import { RecordTable } from '../../shared/RecordTable';
 import { MoreFilters } from '../../shared/MoreFilters';
@@ -634,7 +635,16 @@ function TaskInformation({ task }: { task: CollectionTask }) {
       {task.state === 'RUNNING' && (
         <section className="ds-detail-block">
           <h3>当前进度</h3>
-          <p>{task.stopProgress?.message ?? datasourceLabel(content?.phase)}</p>
+          <p>
+            {counts?.totalCount ? (
+              (task.stopProgress?.message ?? datasourceLabel(content?.phase))
+            ) : (
+              <LoadingStatus>
+                {task.stopProgress?.message ??
+                  (content?.phase ? datasourceLabel(content.phase) : '采集中')}
+              </LoadingStatus>
+            )}
+          </p>
           {counts && (
             <p>
               已发现 {counts.discoveredCount} 个，已尝试读取 {counts.attemptedCount} 个

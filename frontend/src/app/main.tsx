@@ -4,6 +4,7 @@ import { App as AntApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
+import { LoadingIndicator } from '../shared/LoadingIndicator';
 import { Application } from './Application';
 import { appTheme } from './theme';
 import './styles.css';
@@ -28,6 +29,9 @@ const cache = new QueryClient({
  */
 const router = createBrowserRouter([{ path: '*', element: <Application /> }]);
 
+// 页面和表格、按钮及下拉复用等待图形，组件继续管理各自的加载状态。
+const loadingIndicator = <LoadingIndicator />;
+
 // 统一主题沿用已确认的桌面尺度，所有业务页面复用同一上下文。
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -35,7 +39,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={appTheme}
       componentSize="large"
-      button={{ autoInsertSpace: false }}
+      spin={{ indicator: loadingIndicator }}
+      button={{ autoInsertSpace: false, loadingIcon: loadingIndicator }}
+      select={{ loadingIcon: loadingIndicator }}
       modal={{ className: 'app-dialog' }}
     >
       <AntApp>

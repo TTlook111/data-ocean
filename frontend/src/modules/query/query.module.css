@@ -253,6 +253,31 @@
   padding: 32px 0;
 }
 
+/* 对话尚未读出时，把简短状态放在正文区域中间。 */
+.threadLoading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: auto;
+  padding: 7px 16px 7px 7px;
+  border: 1px solid var(--do-line);
+  border-radius: 999px;
+  background: var(--do-panel);
+  color: var(--do-muted);
+  font-weight: 500;
+}
+
+/* 浅蓝底把动效与短标签组合为一个状态提示。 */
+.threadLoadingIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: 50%;
+  background: var(--do-selected);
+}
+
 .welcome {
   margin: auto 0;
   padding-bottom: 30px;
@@ -358,6 +383,13 @@
   gap: 8px;
   margin: 0;
   color: #4d6078;
+}
+
+/* 单轮历史读取停留在该轮位置，弱化视觉层级。 */
+.historyLoading {
+  align-self: center;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
 }
 
 .explanationState {

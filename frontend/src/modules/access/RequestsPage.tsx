@@ -21,6 +21,7 @@ import type { Preview } from '../iam/types';
 import { displayTime, ReadAccessDenied, ReadFailure, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { RecordPagination } from '../../shared/RecordTable';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import {
   accessPath,
   accessList,
@@ -354,17 +355,15 @@ function ApprovalInbox() {
                   });
                 }}
               />
+            ) : read.isPending ? (
+              <div className="approval-document-empty muted">
+                <LoadingStatus>正在加载单据</LoadingStatus>
+              </div>
             ) : (
               <div className="approval-document-empty">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    read.isPending
-                      ? '正在加载单据'
-                      : filtered
-                        ? '没有匹配的申请'
-                        : '当前分组暂无申请'
-                  }
+                  description={filtered ? '没有匹配的申请' : '当前分组暂无申请'}
                 />
               </div>
             )}
@@ -1161,15 +1160,16 @@ function DecisionEditor({
           />
         </Form.Item>
       )}
+      {/* 核对期间在来源下显示等待，读完后仍在原处交付审批人。 */}
       {action === 'ROUTE' && chosenSource && (
-        <p className="muted" role="status">
-          {assignment.error
-            ? assignment.error.message
-            : assignment.isPending
-              ? '正在核对审批负责人'
-              : contact
-                ? `审批负责人 · ${contact.after}`
-                : ''}
+        <p className="muted">
+          {assignment.isPending ? (
+            <LoadingStatus>正在核对审批负责人</LoadingStatus>
+          ) : (
+            <span role="status">
+              {assignment.error?.message ?? (contact ? `审批负责人 · ${contact.after}` : '')}
+            </span>
+          )}
         </p>
       )}
       {action === 'PLAN' && (

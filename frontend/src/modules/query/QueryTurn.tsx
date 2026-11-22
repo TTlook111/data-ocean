@@ -2,6 +2,7 @@ import { queryOptions, useQuery } from '@tanstack/react-query';
 import { Alert, Button, Spin } from 'antd';
 import type { ComponentProps } from 'react';
 import { api, ApiError } from '../../shared/api';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { QueryAnswer, activeState, explaining, statusText } from './QueryAnswer';
 import type { Snapshot } from './types';
 import styles from './query.module.css';
@@ -46,9 +47,10 @@ export function QueryTurn({
         </p>
       )}
       {row.supplement && <p className={styles.question}>{row.supplement}</p>}
+      {/* 动效和实际阶段放在同一行，当前轮次只播报阶段文字。 */}
       {running && (
         <div className={styles.activity} role={onSelect ? undefined : 'status'}>
-          <Spin size="small" />
+          <Spin size="small" aria-hidden="true" />
           {row.cancelRequested
             ? '正在核实停止状态'
             : row.runVersion > 1 && !row.supplement
@@ -89,7 +91,11 @@ export function HistoricalQueryTurn({
   const row = detail.data;
   if (detail.isPending) {
     // 在时间线原来的位置等待，后续轮次不会替换此轮。
-    return <Spin size="small" aria-label="正在读取历史问答" />;
+    return (
+      <div className={styles.historyLoading}>
+        <LoadingStatus>正在读取历史问答</LoadingStatus>
+      </div>
+    );
   }
   if (
     detail.isError ||

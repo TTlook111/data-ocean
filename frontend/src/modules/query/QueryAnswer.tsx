@@ -5,7 +5,7 @@ import {
   ReloadOutlined,
   TableOutlined,
 } from '@ant-design/icons';
-import { Alert, Button } from 'antd';
+import { Alert, Button, Spin } from 'antd';
 import { useId, useState } from 'react';
 import type { Snapshot } from './types';
 import { TrendPanel } from './TrendChart';
@@ -210,8 +210,10 @@ export function QueryAnswer({
         {/* 多行结果继续展示表格或趋势，完整解读随结果交付。 */}
         {!metric && (trend ? <TrendPanel trend={trend} /> : table)}
         {explanation && <p className={styles.explanation}>{explanation}</p>}
+        {/* 已交付结果的说明等待使用行内动效，停止入口留在原处。 */}
         {thinking && (
           <div className={styles.explanationState} role="status">
+            <Spin size="small" aria-hidden="true" />
             思考中
             {onStopExplanation && (
               <Button type="text" size="small" onClick={onStopExplanation}>

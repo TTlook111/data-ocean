@@ -1,7 +1,8 @@
-import { Button, Empty, Space, Spin, Tag } from 'antd';
+import { Button, Empty, Space, Tag } from 'antd';
 import type { ReactNode } from 'react';
 import { DisconnectOutlined, LockOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ApiError } from './api';
+import { LoadingStatus } from './LoadingIndicator';
 
 /**
  * 将业务状态编码统一映射为清楚的中文名称。
@@ -132,8 +133,8 @@ export function ReadState({
   // 首次读取时不展示尚未到达的人员资料或功能配置空白值。
   if (loading)
     return (
-      <div className="read-loading" role="status" aria-label="正在加载">
-        <Spin />
+      <div className="read-loading muted">
+        <LoadingStatus>正在加载</LoadingStatus>
       </div>
     );
   return children;

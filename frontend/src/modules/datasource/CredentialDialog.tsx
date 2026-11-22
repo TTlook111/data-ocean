@@ -2,6 +2,7 @@ import { Alert, App, Button, Descriptions, Form, Input, Modal, Space } from 'ant
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../shared/api';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { ReviewDialog } from '../../shared/ReviewDialog';
 import type { ReviewSubmission } from '../../shared/ReviewDialog';
 import type { Preview } from '../iam/types';
@@ -135,7 +136,7 @@ export function CredentialDialog({ source, close }: { source: SourceDetail; clos
                 children: result.data ? (
                   <DatasourceStatus value={result.data.state} />
                 ) : (
-                  (result.error?.message ?? '正在读取回执')
+                  (result.error?.message ?? <LoadingStatus>正在读取回执</LoadingStatus>)
                 ),
               },
               ...(result.data?.blockingTaskId

@@ -3,6 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
+import { LoadingIndicator } from '../../shared/LoadingIndicator';
 import { displayTime, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { ReleaseScopeAdjustment } from './ReleaseScopeAdjustment';
@@ -305,6 +306,9 @@ function BuildWorkspace({
   const needsTests = data.issues.some((issue) => issue.startsWith('缺少已审核'));
   const canPrepareTests = needsTests && allowed(session, 'test-cases.view');
   const failed = row.status === 'BUILD_FAILED';
+  // 任务和最新轮次都指向在途状态时才展示构建等待。
+  const building =
+    row.status === 'BUILDING' && (!latest || ['QUEUED', 'RUNNING'].includes(latest.state));
   const stage =
     row.status === 'BUILDING' ? buildStates[latest?.state ?? 'QUEUED'] : releaseStates[row.status];
   const publication = useQuery({
@@ -509,8 +513,12 @@ function BuildWorkspace({
             发布任务 {row.id} · {data.sourceName}
           </small>
         </div>
+        {/* 构建和逐题验证在任务详情标题处展示在途状态。 */}
         <div className="knowledge-build-header-actions">
-          <Tag color={failed ? 'error' : row.status === 'BUILDING' ? 'processing' : undefined}>
+          <Tag
+            color={failed ? 'error' : row.status === 'BUILDING' ? 'processing' : undefined}
+            icon={building || testing ? <LoadingIndicator /> : undefined}
+          >
             {stage}
           </Tag>
         </div>

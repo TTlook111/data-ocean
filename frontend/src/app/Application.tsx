@@ -28,6 +28,7 @@ import { api, ApiError, queryString, resetCsrf } from '../shared/api';
 import { SessionContext } from '../shared/session';
 import { ReadAccessDenied, readErrorMessage } from '../shared/Records';
 import { ActionMenuButton } from '../shared/ActionMenuButton';
+import { LoadingStatus } from '../shared/LoadingIndicator';
 import type { Person, Session } from '../modules/iam/types';
 import { ConnectionFailure, NotFoundPage } from './StatusPage';
 import '../modules/datasource/datasource.css';
@@ -731,8 +732,8 @@ export function Application() {
             ) : (
               <Suspense
                 fallback={
-                  <div className="read-loading" role="status" aria-label="正在加载页面">
-                    <Spin />
+                  <div className="read-loading muted">
+                    <LoadingStatus>正在加载页面</LoadingStatus>
                   </div>
                 }
               >

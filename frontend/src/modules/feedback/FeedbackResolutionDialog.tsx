@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { Link } from 'react-router';
 import { api, ApiError, mutation, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
 import { statusLabels, type IssueDetail } from './types';
@@ -372,13 +373,16 @@ export function FeedbackResolutionDialog({
               查看本次回答
             </Link>
           )}
+          {/* 回到复验界面可直接看到当前问数是否还在运行。 */}
           {recheck && (
-            <span className="feedback-meta" role="status">
-              {replayState === 'RESULT_DELIVERED'
-                ? '已返回结果'
-                : completed.isError || !isRunning(replayState)
-                  ? '问数未完成'
-                  : '问数处理中'}
+            <span className="feedback-meta">
+              {!completed.isError && isRunning(replayState) ? (
+                <LoadingStatus>问数处理中</LoadingStatus>
+              ) : (
+                <span role="status">
+                  {replayState === 'RESULT_DELIVERED' ? '已返回结果' : '问数未完成'}
+                </span>
+              )}
             </span>
           )}
           {!detail.resolution?.canReplayQuestion && (

@@ -16,6 +16,7 @@ import type { TableProps } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
+import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { RecordTable } from '../../shared/RecordTable';
 import { displayTime, readErrorMessage, Status } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
@@ -506,13 +507,13 @@ function ModelConnectionStatus({
   error: boolean;
   result?: ModelConnectionTest | null;
 }) {
-  if (testing) {
-    // 测试期间就地标记正在等待提供方。
-    return <span role="status">测试中…</span>;
+  if (testing || pending) {
+    // 测试和读取期间都在结果位置给出明确的等待反馈。
+    return <LoadingStatus>{testing ? '测试中' : '读取中'}</LoadingStatus>;
   }
-  if (pending || error || !result) {
+  if (error || !result) {
     // 查询失败与确实未测分别表达。
-    return <span role="status">{pending ? '读取中…' : error ? '读取失败' : '未测试'}</span>;
+    return <span role="status">{error ? '读取失败' : '未测试'}</span>;
   }
   // 连接测试在模型详情回看，未知响应时提示核对连接入口。
   const failure =

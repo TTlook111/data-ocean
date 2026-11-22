@@ -518,8 +518,14 @@ export function QueryWorkbench({
         </header>
         <section className={styles.transcript} aria-label="当前问数" tabIndex={0}>
           <div className={styles.thread}>
+            {/* 首次读取时在正文可用空间内提示，侧栏与输入区继续由原布局承接。 */}
             {((mayView && access.isPending) || (sourceAvailable && id && detail.isPending)) && (
-              <Spin aria-label="正在读取问数" />
+              <div className={styles.threadLoading} role="status">
+                <div className={styles.threadLoadingIcon} aria-hidden="true">
+                  <Spin size="medium" />
+                </div>
+                {access.isPending ? '正在读取数据源' : '正在读取对话'}
+              </div>
             )}
             {!mayView && (
               <div className={styles.welcome}>
