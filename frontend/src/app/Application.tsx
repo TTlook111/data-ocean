@@ -88,6 +88,9 @@ const InitialPasswordPage = lazyPage(() =>
 
 // 身份和组织页面按各自入口加载；角色列表和编辑继续共用同一模块。
 const AccountPage = lazyPage(() => import('../modules/iam/AccountPage').then((m) => m.AccountPage));
+const QueryWorkbench = lazyPage(() =>
+  import('../modules/query/QueryWorkbench').then((m) => m.QueryWorkbench),
+);
 const UsersPage = lazyPage(() => import('../modules/iam/UsersPage').then((m) => m.UsersPage));
 const DepartmentsPage = lazyPage(() =>
   import('../modules/iam/DepartmentsPage').then((m) => m.DepartmentsPage),
@@ -166,6 +169,8 @@ const ModelCallsPage = lazyPage(() =>
  * 工作区路由同时用于内容渲染与权限、菜单和面包屑定位。
  */
 const workspaceRoutes = [
+  // 问数使用独立工作台，管理页面继续走原有外壳。
+  { path: '/query' },
   // 人员、组织与功能权限管理。
   { path: '/iam/users', element: <UsersPage /> },
   { path: '/iam/departments', element: <DepartmentsPage /> },
@@ -303,13 +308,7 @@ export function Application() {
     cache.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
     const result = await identity.refetch();
     navigate(
-      result.data?.mustChangePassword
-        ? '/password/initial'
-        : result.data?.permissionCodes.includes('users.view')
-          ? '/iam/users'
-          : result.data
-            ? '/account'
-            : '/login',
+      result.data?.mustChangePassword ? '/password/initial' : result.data ? '/query' : '/login',
       { replace: true },
     );
   }
@@ -392,6 +391,28 @@ export function Application() {
     );
   }
 
+  const visible = navigation.filter((item) => session.permissionCodes.includes(item.permission));
+  const home = visible[0]?.key ?? '/account';
+
+  if (entryPaths.some((path) => matchPath(path, location.pathname))) {
+    // 有效会话从正式入口进入问数，首次改密仍由前面的认证分流处理。
+    return <Navigate to="/query" replace />;
+  }
+
+  if (activePath === '/query') {
+    return (
+      <Suspense fallback={sessionLoading}>
+        <QueryWorkbench
+          session={session}
+          department={account.data?.primaryDepartment?.name}
+          onBack={() => openPage(home)}
+          onLogout={() => void logout()}
+          loggingOut={loggingOut}
+        />
+      </Suspense>
+    );
+  }
+
   // 已注册的子页继承所属模块的菜单位置和页面权限。
   const selected = navigation.find(
     (item) => activePath && matchPath({ path: item.key, end: false }, activePath),
@@ -415,9 +436,6 @@ export function Application() {
   const noteMode =
     activePath === '/business-notes' ? new URLSearchParams(location.search).get('edit') : null;
   const noteSource = (location.state as { noteSource?: string } | null)?.noteSource;
-
-  const visible = navigation.filter((item) => session.permissionCodes.includes(item.permission));
-  const home = visible[0]?.key ?? '/account';
 
   const granted = !selected || session.permissionCodes.includes(selected.permission);
   const detailBreadcrumb = workspaceParent(activePath, location, session.permissionCodes);
@@ -646,7 +664,7 @@ export function Application() {
                 : []),
             ]}
           />
-          <Button type="text" className="workbench-link" disabled>
+          <Button type="text" className="workbench-link" onClick={() => navigate('/query')}>
             问数工作台
           </Button>
           <ActionMenuButton
@@ -708,9 +726,6 @@ export function Application() {
               >
                 {/* 路由模块加载只暂缓工作区正文，导航和登录核验不受影响。 */}
                 <Routes>
-                  {entryPaths.map((path) => (
-                    <Route key={path} path={path} element={<Navigate to={home} replace />} />
-                  ))}
                   <Route path="/account" element={<AccountPage expired={refreshIdentity} />} />
                   {workspaceRoutes.map(({ path, element }) => (
                     <Route key={path} path={path} element={element} />

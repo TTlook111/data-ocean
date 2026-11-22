@@ -1,0 +1,277 @@
+package com.dataocean.module.query.mapper;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+/**
+ * 单条请求状态的防重、抢占、执行和交付条件。
+ */
+public interface QueryRequestMapper {
+
+    /** 权威请求记录，正文和安全检查只在对应任务内部消费。 */
+    record Request(
+            String id,
+            long userId,
+            long authenticationVersion,
+            long sourceId,
+            String commandId,
+            String previousId,
+            String question,
+            String clarification,
+            String supplement,
+            String clarificationCommand,
+            boolean cancelRequested,
+            String state,
+            String executionState,
+            String executionId,
+            Long bindingId,
+            String ruleSignature,
+            String reasoning,
+            String result,
+            int remainingMillis,
+            LocalDateTime processingStartedAt,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            LocalDateTime executedAt,
+            String conversationId,
+            boolean inheritContext,
+            int runVersion,
+            LocalDateTime leaseUntil,
+            String runInput,
+            byte[] commandFingerprint,
+            byte[] executionFingerprint) {}
+
+    /** 写回执行许可时固定的已校验输入。 */
+    record Permit(
+            String id,
+            int run,
+            String execution,
+            long binding,
+            String signature,
+            String reasoning,
+            byte[] fingerprint) {}
+
+    /** 轮次与其初次请求的关系。 */
+    record Input(
+            String id,
+            long user,
+            long authentication,
+            long source,
+            String command,
+            String previous,
+            String question,
+            String conversation,
+            boolean inherit,
+            byte[] fingerprint) {}
+
+    /** 使用同一业务主键回读，调用方核验来源和本人。 */
+    @Select("SELECT * FROM qry_request WHERE id=#{id}")
+    Request get(String id);
+
+    /** 解释幂等命令在原请求锁内串行提交。 */
+    @Select("SELECT * FROM qry_request WHERE id=#{id} FOR UPDATE")
+    Request lock(String id);
+
+    /** 同用户的同一原命令可恢复提交。 */
+    @Select("SELECT * FROM qry_request WHERE user_id=#{user} AND command_id=#{command}")
+    Request byCommand(long user, String command);
+
+    /** 源端执行尚未核实时，同样的问题不能借新编号重复派发。 */
+    @Select(
+            """
+            SELECT EXISTS(SELECT 1 FROM qry_request WHERE user_id=#{user} AND source_id=#{source}
+                AND question=#{question} AND (execution_state='UNKNOWN' OR state='EXECUTING'))
+            """)
+    boolean hasUnresolved(long user, long source, String question);
+
+    /** 改写问题或调整等值条件顺序仍不能重复派发同一已核验语句。 */
+    @Select(
+            """
+            SELECT EXISTS(SELECT 1 FROM qry_request WHERE user_id=#{user} AND source_id=#{source}
+                AND execution_fingerprint=#{fingerprint} AND id<>#{id}
+                AND execution_state IN ('RUNNING','UNKNOWN'))
+            """)
+    boolean hasUnresolvedExecution(long user, long source, byte[] fingerprint, String id);
+
+    /** 同来源近期轮次不返回其他用户的记录。 */
+    @Select(
+            """
+            SELECT id,question,state,created_at FROM qry_request
+            WHERE user_id=#{user} AND source_id=#{source} AND created_at >= UTC_TIMESTAMP(3)-INTERVAL 90 DAY
+            ORDER BY created_at DESC,id DESC LIMIT 30
+            """)
+    List<History> history(long user, long source);
+
+    /** 轮次列表只加载定位字段。 */
+    record History(String id, String question, String state, LocalDateTime createdAt) {}
+
+    /** 抢占命令键，从并行或网络重试返回原轮次。 */
+    @Insert(
+            """
+            INSERT INTO qry_request(id,user_id,authentication_version,source_id,command_id,previous_id,
+                question,conversation_id,inherit_context,command_fingerprint,state)
+            VALUES(#{id},#{user},#{authentication},#{source},#{command},#{previous},
+                #{question},#{conversation},#{inherit},#{fingerprint},'QUEUED')
+            ON DUPLICATE KEY UPDATE id=id
+            """)
+    void insert(Input input);
+
+    /** 恢复可核实的旧代次，已派发且结果未知的请求不允许重新领取。 */
+    @Select(
+            """
+            SELECT * FROM qry_request
+            WHERE state='QUEUED' OR (state IN ('RETRIEVING','GENERATING','CHECKING','FINALIZING')
+                AND run_version>0 AND lease_until<=UTC_TIMESTAMP(3))
+            ORDER BY (state='FINALIZING') DESC,created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
+            """)
+    Request next();
+
+    /** 单次活动预算与进入处理的时间。 */
+    @Update(
+            """
+            UPDATE qry_request SET state=IF(state='QUEUED','RETRIEVING',state),
+                processing_started_at=COALESCE(processing_started_at,UTC_TIMESTAMP(3)),
+                run_version=run_version+1,lease_until=UTC_TIMESTAMP(3)+INTERVAL 12 SECOND,updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run}
+            """)
+    int claim(String id, int run);
+
+    /** 心跳只续当前代次，过期旧进程不能重新激活租约。 */
+    @Update(
+            """
+            UPDATE qry_request SET lease_until=UTC_TIMESTAMP(3)+INTERVAL 12 SECOND
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
+            """)
+    int renew(String id, int run);
+
+    /** 模型配置、同版索引入口与对话在原轮次第一次冻结。 */
+    @Update(
+            """
+            UPDATE qry_request SET run_input=#{input} WHERE id=#{id} AND run_version=#{run}
+              AND lease_until>UTC_TIMESTAMP(3) AND run_input IS NULL AND cancel_requested=FALSE
+            """)
+    int freeze(String id, int run, String input);
+
+    /** 状态变化只允许属于本次活动且未取消的在途请求。 */
+    @Update(
+            """
+            UPDATE qry_request SET state=IF(state='CHECKING',state,#{state}),updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state IN ('RETRIEVING','GENERATING','CHECKING') AND cancel_requested=FALSE
+            """)
+    int stage(String id, int run, String state);
+
+    /** 等待补充时扣完本次活动消耗，并暂停计时。 */
+    @Update(
+            """
+            UPDATE qry_request SET state='WAITING',clarification=#{text},updated_at=UTC_TIMESTAMP(3),
+            remaining_millis=GREATEST(0,remaining_millis-
+                TIMESTAMPDIFF(MICROSECOND,processing_started_at,UTC_TIMESTAMP(3)) DIV 1000),
+                processing_started_at=NULL,lease_until=NULL
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state='GENERATING' AND cancel_requested=FALSE AND clarification_command IS NULL
+            """)
+    int waitForAnswer(String id, int run, String text);
+
+    /** 等待有效期内原轮次恢复并保留当次补充防重键。 */
+    @Update(
+            """
+            UPDATE qry_request SET state='QUEUED',supplement=#{answer},clarification_command=#{command},
+            updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND state='WAITING' AND updated_at>UTC_TIMESTAMP(3)-INTERVAL 30 MINUTE
+            """)
+    int answer(String id, String command, String answer);
+
+    /** 派发事实在业务数据库执行之前提交，进程接管时不得重复执行。 */
+    @Update(
+            """
+            UPDATE qry_request SET state='EXECUTING',execution_state='RUNNING',execution_id=#{execution},
+                binding_id=#{binding},rule_signature=#{signature},reasoning=#{reasoning},
+                execution_fingerprint=#{fingerprint},
+            updated_at=UTC_TIMESTAMP(3),executed_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state='CHECKING' AND execution_id IS NULL AND cancel_requested=FALSE
+            """)
+    int permit(Permit input);
+
+    /** SQL 已成功返回，先持久化结果并保留原执行编号。 */
+    @Update(
+            """
+            UPDATE qry_request SET state='FINALIZING',execution_state='SUCCEEDED',result=#{data},
+                updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state='EXECUTING'
+            """)
+    int capture(String id, int run, String data);
+
+    /** 只交付已捕获且重新授权的结果，外呼预算扣到原轮次。 */
+    @Update(
+            """
+            UPDATE qry_request SET state='RESULT_DELIVERED',lease_until=NULL,updated_at=UTC_TIMESTAMP(3),
+                remaining_millis=GREATEST(0,remaining_millis-
+                    TIMESTAMPDIFF(MICROSECOND,processing_started_at,UTC_TIMESTAMP(3)) DIV 1000),
+                processing_started_at=NULL
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state='FINALIZING' AND cancel_requested=FALSE
+              AND result IS NOT NULL AND executed_at>UTC_TIMESTAMP(3)-INTERVAL 1 DAY
+            """)
+    int deliver(String id, int run);
+
+    /** 把本次解释额度从原轮次剩余活动预算中预留，进程失联也不复用。 */
+    @Update(
+            """
+            UPDATE qry_request SET remaining_millis=remaining_millis-#{millis}
+            WHERE id=#{id} AND state='RESULT_DELIVERED' AND remaining_millis>=#{millis}
+            """)
+    int reserveExplanation(String id, int millis);
+
+    /** 停止待办请求，在途请求仅登记取消，实际 SQL 状态随后回写。 */
+    @Update(
+            """
+            UPDATE qry_request SET cancel_requested=TRUE,
+            state=CASE WHEN state IN ('QUEUED','WAITING') THEN 'USER_CANCELLED' ELSE state END,
+            updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND state IN ('QUEUED','WAITING','RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
+             AND cancel_requested=FALSE
+            """)
+    int cancel(String id);
+
+    /** 精确记录请求终态和 SQL 的独立结果。 */
+    @Update(
+            """
+            UPDATE qry_request SET
+            state=CASE WHEN cancel_requested THEN 'USER_CANCELLED' ELSE #{state} END,
+            execution_state=#{execution},result=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
+              AND state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
+            """)
+    int stop(String id, int run, String state, String execution);
+
+    /** 超时回收原轮次，已派发记录保持未知且不进入待执行队列。 */
+    @Update(
+            """
+            UPDATE qry_request SET
+            execution_state=CASE WHEN state='EXECUTING' THEN 'UNKNOWN' ELSE execution_state END,
+            state=CASE WHEN state='WAITING' THEN 'WAIT_EXPIRED'
+                WHEN cancel_requested THEN 'USER_CANCELLED' ELSE 'TECHNICAL_FAILURE' END,
+            updated_at=UTC_TIMESTAMP(3)
+            WHERE (state='WAITING' AND updated_at<=UTC_TIMESTAMP(3)-INTERVAL 30 MINUTE)
+               OR (state='EXECUTING' AND lease_until<=UTC_TIMESTAMP(3))
+               OR (state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING') AND run_version=0
+                   AND processing_started_at<=UTC_TIMESTAMP(3)-INTERVAL 165 SECOND)
+            """)
+    void expire();
+
+    /** 限量结果保留期与请求事实分开。 */
+    @Update(
+            """
+            UPDATE qry_request SET result=NULL
+            WHERE result IS NOT NULL AND executed_at<=UTC_TIMESTAMP(3)-INTERVAL 1 DAY
+            """)
+    void expireResults();
+}

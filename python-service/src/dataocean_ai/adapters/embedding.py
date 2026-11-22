@@ -1,13 +1,17 @@
 """使用受控配置和单次请求预算生成向量。"""
 
 import asyncio
+import logging
 import math
+import re
 
 import httpx
 from langchain_openai import OpenAIEmbeddings
 from openai import APIError
 
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
+
+logger = logging.getLogger(__name__)
 
 
 async def embed(config: ModelConfiguration, texts: list[str]) -> list[list[float]]:
@@ -36,6 +40,19 @@ async def embed(config: ModelConfiguration, texts: list[str]) -> list[list[float
             rows = await model.aembed_documents(texts)
     except APIError as error:
         # 诊断只披露服务故障的安全分类，不保存上游正文或凭据。
+        provider_code = getattr(error, "code", None)
+        if (
+            not isinstance(provider_code, str)
+            or re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", provider_code) is None
+        ):
+            provider_code = "-"
+        logger.info(
+            "向量服务调用失败，revision=%s，http=%s，provider_code=%s，transport=%s",
+            config.revision_id,
+            getattr(error, "status_code", None),
+            provider_code,
+            type(error.__cause__).__name__,
+        )
         codes = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
         raise ModelFailure(
             codes.get(getattr(error, "status_code", None), "MODEL_RESULT_UNKNOWN")

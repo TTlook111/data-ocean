@@ -1,0 +1,620 @@
+.workspace {
+  /* 工作台与后台各自拥有布局，使用统一的蓝色和底色。 */
+  display: grid;
+  --thread-width: min(100% - 64px, 820px);
+  grid-template-columns: 218px minmax(0, 1fr);
+  height: 100dvh;
+  background: #fff;
+  color: #1f2937;
+  overflow: hidden;
+}
+
+.sidebar {
+  /* 原型的常驻会话区分配独立滚动。 */
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 27px 15px 16px;
+  border-right: 1px solid #e5eaf1;
+  background: #f5f7fa;
+}
+
+.brand {
+  /* 标识和操作在同一侧边轴线上。 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 7px 26px;
+  color: #182a44;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+
+.welcomeIcon {
+  /* 来源图标沿用已有蓝色，空态保持轻量。 */
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #eaf0fc;
+  color: #2f63d5;
+}
+
+.brandMark {
+  /* 复用现有产品标志。 */
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.historyHeading {
+  /* 用真实近期时间分隔对话，空分组不占空间。 */
+  display: block;
+  padding: 13px 12px 4px;
+  color: #5b6575;
+  font-size: 12px;
+}
+
+.sidebar .newQuestion,
+.sidebar .finder {
+  /* 侧栏动作沿用原型的左对齐和密度。 */
+  justify-content: flex-start;
+  min-height: 38px;
+  flex-shrink: 0;
+  padding-inline: 11px;
+  border-radius: 7px;
+}
+
+.sidebar .newQuestion {
+  font-weight: 560;
+}
+
+.sidebar .finder {
+  color: #52647a;
+}
+
+.historyGroup + .historyGroup {
+  margin-top: 5px;
+}
+
+.history {
+  /* 会话行很多时保留底部身份入口。 */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: 2px;
+  overflow: hidden auto;
+}
+
+.historyItem {
+  /* 整行点击进入原查询，不另设逐行菜单。 */
+  min-width: 0;
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #344258;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.historyItem:hover,
+.historyItem[aria-current='page'] {
+  background: #eaf0fc;
+  color: #244eaa;
+}
+
+.profile {
+  /* 本人信息固定在会话栏下边，动作有明确可访问名称。 */
+  flex-shrink: 0;
+  padding-top: 8px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.profile .accountMenu {
+  /* 整个账号摘要就是菜单触发器。 */
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 49px;
+  height: auto;
+  padding: 6px 7px;
+  border-radius: 7px;
+  text-align: left;
+}
+
+.avatar {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: #dce7eb;
+  color: #365c66;
+}
+
+.profileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileName strong,
+.profileName small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileName strong {
+  font-weight: 550;
+}
+
+.profileName small {
+  color: #626f7f;
+  font-size: 12px;
+}
+
+.main {
+  /* 内容按当前桌面窗口收缩，长标题和画布不撑宽顶栏或输入区。 */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 60px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 0 clamp(20px, 3vw, 40px);
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.threadTitle {
+  /* 只在有实际对话时显示当前标题，长问句不挤压数据源。 */
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.threadTitle h1 {
+  flex-shrink: 0;
+  margin: 0;
+  color: #52647a;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.threadTitle strong {
+  overflow: hidden;
+  color: #182a44;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadTitle > :global(.anticon) {
+  flex-shrink: 0;
+  color: #7a8799;
+  font-size: 10px;
+}
+
+.sourcePicker {
+  /* 原型的数据源图标与选择器在同一工具区。 */
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 9px;
+  color: #53667c;
+}
+
+.source {
+  width: clamp(174px, 18vw, 244px);
+}
+
+.transcript {
+  /* 只滚动对话，保持随时可查看的数据源和输入。 */
+  min-width: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: var(--thread-width);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 32px 0;
+}
+
+.welcome {
+  margin: auto 0;
+  padding-bottom: 30px;
+  text-align: center;
+}
+
+.sourceError {
+  /* 服务不可用反馈和正常无来源状态在同一阅读区出现。 */
+  width: min(100%, 540px);
+  margin: auto;
+}
+
+.welcomeIcon {
+  width: 44px;
+  height: 44px;
+  font-size: 19px;
+}
+
+.welcome h2 {
+  margin: 14px 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.question {
+  align-self: flex-end;
+  max-width: min(600px, 82%);
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px 10px 3px 10px;
+  background: #edf2f8;
+  color: #20375c;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.turnLinks {
+  /* 同一会话的历史入口小于本轮答案的视觉层级。 */
+  display: grid;
+  gap: 4px;
+  max-height: 92px;
+  overflow-y: auto;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.laterTurns {
+  /* 后续轮次在本轮答案下方提供回看入口。 */
+  padding: 7px 0 0;
+  border-top: 1px solid #e5eaf1;
+  border-bottom: 0;
+}
+
+.turnLinks button {
+  min-width: 0;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #41618f;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.turnLinks button:hover {
+  background: #eef3fa;
+}
+
+.explanation {
+  /* 说明与指标保持一条阅读轴，长内容自然换行。 */
+  margin: 13px 0 0;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.explanationState,
+.activity {
+  /* 运行或说明状态在对应内容附近交付。 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #4d6078;
+}
+
+.explanationState {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.clarification {
+  /* 原型中的追问在左侧，用实际用户答复还原当时的对话顺序。 */
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(600px, 84%);
+  color: #314666;
+}
+
+.clarification img {
+  width: 20px;
+  height: 22px;
+  flex: none;
+  object-fit: contain;
+}
+
+.clarification p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.answer {
+  /* 主值和技术依据共用阅读轴，细节按需展开。 */
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.answerIdentity {
+  /* 沿原型的答复标识区分用户气泡和系统结果。 */
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  color: #53667c;
+  font-size: 12px;
+}
+
+.answerIdentity img {
+  width: 18px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.metric h2 {
+  /* 直接呈现指标和实际值，便于扫读对话。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 7px;
+  margin: 0;
+  color: #182a44;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.metric strong {
+  font-size: 19px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric small {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.trendPanel {
+  /* 图表、表格共用宽度以及同一业务日期。 */
+  border: 1px solid #e5eaf1;
+  border-radius: 7px;
+  margin: 8px 0 12px;
+  overflow: hidden;
+}
+
+.trendToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 7px 11px;
+  color: #5b6575;
+  font-size: 12px;
+}
+
+.trendCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.previewHeader {
+  /* 文件名可回看，长文件名不占用操作位置。 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.previewHeader h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 10px 0 8px;
+  color: #5b6575;
+  font-size: 12px;
+}
+
+.answerActions {
+  /* 依据、明细和导出处于同一工具行，窄窗按控件宽度换行。 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.answerActions button[aria-expanded='true'] {
+  background: #eaf0fc;
+  color: #244eaa;
+}
+
+.answerPanel {
+  /* 仅按操作展开，保持结果和操作位置稳定。 */
+  margin-top: 9px;
+}
+
+.basis {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e5eaf1;
+  border-radius: 6px;
+  background: #fafbfd;
+}
+
+.basisVersion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.basisVersion span {
+  color: #5b6575;
+  font-size: 12px;
+}
+
+.basis p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.sql summary {
+  width: fit-content;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+.sql pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 5px;
+  background: #f5f7fa;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tableScroll {
+  overflow: auto;
+  border: 1px solid #e5eaf1;
+  border-radius: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(th, td) {
+  padding: 10px 14px;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.table th {
+  background: #f5f7fa;
+}
+
+.emptyRows {
+  padding: 0 14px;
+  color: #5b6575;
+}
+
+.footer {
+  /* 发送区和正文对齐，PC 矮窗仍可触达。 */
+  min-width: 0;
+  padding: 10px 0 28px;
+  background: #fff;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.composer {
+  width: var(--thread-width);
+  margin-inline: auto;
+  padding: 10px 10px 10px 9px;
+  border: 1px solid #d7e0ed;
+  border-radius: 13px;
+  box-shadow: 0 4px 14px #182e480a;
+}
+
+.composer:focus-within {
+  border-color: #7194de;
+  outline: 2px solid #eaf0fc;
+}
+
+.composerRow {
+  display: flex;
+  align-items: end;
+  min-height: 62px;
+  gap: 8px;
+}
+
+.composerRow :global(.ant-input) {
+  resize: none;
+}
+
+.composerRow > :first-child {
+  /* 输入从上缘起排，发送按钮沿原型贴右下角。 */
+  flex: 1;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+.error {
+  padding: 2px 7px 8px;
+  color: #a53737;
+}
+
+.historyItem:focus-visible,
+.turnLinks button:focus-visible,
+.answerActions button:focus-visible,
+.sql summary:focus-visible {
+  outline: 2px solid #2f63d5;
+  outline-offset: -2px;
+}
+
+@media (max-height: 640px) {
+  .thread {
+    padding: 23px 0;
+  }
+
+  .footer {
+    padding-bottom: 14px;
+  }
+
+  .composerRow {
+    min-height: 49px;
+  }
+}

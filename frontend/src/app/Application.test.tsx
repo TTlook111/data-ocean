@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import { api } from '../shared/api';
+import { api, ApiError } from '../shared/api';
 import { Application } from './Application';
 
 // jsdom 缺少原生模态方法，组件测试仅替代开关，真正的焦点隔离由浏览器检查。
@@ -69,7 +69,7 @@ vi.mock('../modules/iam/RolesPage', () => ({
 /**
  * 按实际路由挂载应用，分别检查不存在的地址和真实权限限制。
  */
-it('404 保留未知地址并可返回有权访问的首页', async () => {
+it('404 保留未知地址并可经问数首页进入有权访问的后台', async () => {
   service.unavailable = false;
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter([{ path: '*', element: <Application /> }], {
@@ -90,12 +90,47 @@ it('404 保留未知地址并可返回有权访问的首页', async () => {
   // 独立状态页不触发登录探测，进入有效地址后才读取身份。
   expect(api).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '返回首页' }));
-  await waitFor(() => expect(router.state.location.pathname).toBe('/iam/roles'));
+  await waitFor(() => expect(router.state.location.pathname).toBe('/query'));
   expect(api).toHaveBeenCalledWith('/auth/me');
+  expect(await screen.findByText('当前账号暂无问数权限。')).toBeVisible();
+  expect(api).not.toHaveBeenCalledWith('/query/sources');
+  fireEvent.click(await screen.findByRole('button', { name: /用户菜单/ }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: '后台管理' }));
+  await waitFor(() => expect(router.state.location.pathname).toBe('/iam/roles'));
 
   // 确实存在的页面仍按原功能权限限制访问。
   await act(() => router.navigate('/iam/users'));
   expect(await screen.findByText('当前无权查看此页面')).toBeInTheDocument();
+});
+
+/** 登录完成后以问数为落点，权限只限制实际操作。 */
+it('普通登录直接进入问数工作台', async () => {
+  vi.mocked(api).mockImplementationOnce(async () => {
+    throw new ApiError(401001, '请先登录');
+  });
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter([{ path: '*', element: <Application /> }], {
+    initialEntries: ['/login'],
+  });
+  render(
+    <ConfigProvider theme={{ token: { motion: false } }}>
+      <App>
+        <QueryClientProvider client={cache}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </App>
+    </ConfigProvider>,
+  );
+  fireEvent.change(await screen.findByPlaceholderText('请输入登录名'), {
+    target: { value: 'test' },
+  });
+  fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
+    target: { value: 'test-password' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /^登\s*录$/ }));
+  await waitFor(() => expect(router.state.location.pathname).toBe('/query'));
+  expect(await screen.findByRole('heading', { name: '问数工作台' })).toBeVisible();
+  expect(api).not.toHaveBeenCalledWith('/query/sources');
 });
 
 /**

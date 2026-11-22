@@ -1,0 +1,218 @@
+package com.dataocean.module.query.service;
+
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.Ids;
+import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.infrastructure.JsonCodec;
+import com.dataocean.module.datasource.service.GovernanceCatalog;
+import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
+import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
+import com.dataocean.module.governance.service.GovernanceKnowledgeService;
+import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
+import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
+import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Evidence;
+import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.dataocean.module.query.service.QueryProtocol.Fragment;
+import com.dataocean.module.query.service.QueryProtocol.Hit;
+import com.dataocean.module.query.service.QueryProtocol.Index;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import org.springframework.stereotype.Service;
+
+import lombok.RequiredArgsConstructor;
+
+/**
+ * 从权威正式索引和固定治理引用解析本次可用的查询语料。
+ */
+@Service
+@RequiredArgsConstructor
+public class QueryCorpus {
+
+    /** 同源正式版本及确认历史。 */
+    private final KnowledgePublicationMapper publications;
+    /** 复用当前治理禁止及正式知识使用控制。 */
+    private final KnowledgeVersionUse versions;
+    /** 取发布候选内容指纹而非最新草稿。 */
+    private final KnowledgeReleaseCandidateMapper candidates;
+    /** 查阅固定片段及实际代次。 */
+    private final KnowledgeBuildMapper builds;
+    /** 已发布文档采用的确切依赖。 */
+    private final KnowledgeDocumentMapper documents;
+    /** 源端可信结构和实际标识。 */
+    private final GovernanceCatalog catalog;
+    /** 现行治理定义与确切修订。 */
+    private final GovernanceKnowledgeService governance;
+    /** 已启用的固定 Embedding 配置。 */
+    private final ModelRegistry models;
+    /** 已持久化的治理证据。 */
+    private final JsonCodec json;
+
+    /** 内部检索只选择当前可用白名单，超过搜索预算时明确失败。 */
+    public List<Long> bindings(long source) {
+        var rows = publications.current(new Page<>(1, 9, false), source, null, "", "", null);
+        if (rows.getRecords().size() > 8) {
+            throw QueryFailure.resource();
+        }
+        var allowed = new ArrayList<Long>();
+        for (var row : rows.getRecords()) {
+            // 暂停、撤下、待核实和禁止的版本不进入外发及召回语料。
+            try {
+                versions.requireForQuery(source, row.id());
+                allowed.add(row.id());
+            } catch (BizIllegalException unavailable) {
+                continue;
+            }
+        }
+        return allowed;
+    }
+
+    /** 继续使用原任务固定的生效入口，任何一项失效都要求结束旧流程。 */
+    public List<Index> indexes(long source, List<Long> frozen, int remaining) {
+        var allowed = new ArrayList<Index>();
+        for (var id : frozen) {
+            var binding = versions.requireForQuery(source, id);
+            var candidate = candidates.selectById(binding.candidateId());
+            var build = builds.get(binding.buildId());
+            var chunks = builds.chunks(binding.buildId());
+            if (candidate == null
+                    || build == null
+                    || chunks.isEmpty()
+                    || !Objects.equals(build.verifiedChunks(), chunks.size())) {
+                throw QueryFailure.technical();
+            }
+            allowed.add(new Index(
+                    Ids.text(binding.id()),
+                    Ids.text(binding.candidateId()),
+                    Ids.text(binding.documentRevisionId()),
+                    candidate.getFingerprint(),
+                    binding.collectionName(),
+                    chunks.stream()
+                            .map(chunk -> new Fragment(chunk.ordinal(), chunk.digest()))
+                            .toList(),
+                    models.invocation(binding.embeddingRevisionId(), Math.min(16, remaining))));
+        }
+        return allowed;
+    }
+
+    /** 只读取实际召回的固定片段并提供该片段确切治理依据。 */
+    public Basis basis(long sourceId, Hit hit) {
+        var binding = versions.requireForQuery(sourceId, Ids.parse(hit.binding()));
+        var source = catalog.source(sourceId, false);
+        var chunk = builds.chunks(binding.buildId()).stream()
+                .filter(row -> row.ordinal() == hit.ordinal() && row.digest().equals(hit.digest()))
+                .findFirst()
+                .orElseThrow(QueryFailure::technical);
+        var refs = documents.references(binding.documentRevisionId());
+        var indexed = List.of(json.read(chunk.evidence(), Evidence[].class));
+        var tables = new LinkedHashMap<String, Table>();
+        var indexedFields = new LinkedHashMap<String, Field>();
+        var facts = new LinkedHashMap<String, GovernanceFactVO>();
+        for (var evidence : indexed) {
+            // 模型不能扩大索引和固定正文共同证明的范围。
+            var ref = refs.stream()
+                    .filter(r -> Ids.text(r.targetId()).equals(evidence.targetId())
+                            && r.kind().equals(evidence.kind())
+                            && Ids.text(r.objectId()).equals(evidence.objectId())
+                            && Ids.text(r.factRevisionId()).equals(evidence.factRevisionId()))
+                    .findFirst()
+                    .orElseThrow(QueryFailure::technical);
+            var entry = catalog.current(source, ref.objectId());
+            if (entry == null || entry.retired() || entry.generation() != ref.generation()) {
+                throw QueryFailure.knowledge();
+            }
+            var fact = governance.require(
+                    source, new GovernanceTarget(sourceId, ref.objectId(), ref.kind(), ref.targetId()));
+            if (!fact.getRevisionId().equals(evidence.factRevisionId())) {
+                throw QueryFailure.knowledge();
+            }
+            facts.put(evidence.targetId(), fact);
+            String name = entry.observation().structure().object().name();
+            if ("TABLE".equals(ref.kind())) {
+                // 同名不同模式必须有明确指代，首条链路按逻辑表名做唯一定位。
+                if (tables.putIfAbsent(name, new Table(entry, new LinkedHashMap<>())) != null) {
+                    throw QueryFailure.knowledge();
+                }
+            }
+            if ("COLUMN".equals(ref.kind())) {
+                var column = entry.column(ref.targetId());
+                if (column == null) {
+                    throw QueryFailure.knowledge();
+                }
+                indexedFields.put(evidence.targetId(), new Field(name, column.name()));
+            }
+        }
+        var labels = new LinkedHashMap<Field, String>();
+        indexedFields.forEach((id, field) -> {
+            var table = tables.get(field.table());
+            if (table != null) {
+                // 提供业务含义及源字段名，用于语义和输出权限核对。
+                var fact = facts.get(id);
+                String label = fact.getContent().path("meaning").asText(fact.getLabel());
+                table.columns().put(field.column(), label);
+                labels.put(field, label);
+            }
+        });
+        return new Basis(source, binding, chunk.ordinal(), chunk.body(), tables, indexedFields, facts, labels);
+    }
+
+    /** 已确认目录与当前片段允许引用的字段。 */
+    record Table(GovernanceCatalog.Entry entry, Map<String, String> columns) {}
+
+    /** Java 唯一可信的片段结构，模型不能回填 SQL 标识。 */
+    record Basis(
+            Source source,
+            Binding binding,
+            int ordinal,
+            String text,
+            Map<String, Table> tables,
+            Map<String, Field> fields,
+            Map<String, GovernanceFactVO> facts,
+            Map<Field, String> labels) {
+
+        /** 模型上下文仅含已授权确认内容及逻辑表列。 */
+        Snippet snippet() {
+            var columns = new LinkedHashMap<String, Map<String, String>>();
+            tables.forEach((name, table) -> {
+                var typed = new LinkedHashMap<String, String>();
+                table.columns().forEach((column, label) -> {
+                    // 编码与外键含义可能相似，规划时仍需要知道实际绑定类型。
+                    typed.put(
+                            column,
+                            label + "（字段类型 " + table.entry().named(column).nativeType() + "）");
+                });
+                columns.put(name, typed);
+            });
+            var metrics = facts.values().stream()
+                    .filter(fact -> "METRIC".equals(fact.getTarget().getKind()))
+                    .map(fact -> new Metric(
+                            fact.getLabel(), fact.getContent().path("meaning").asText(),
+                            fact.getContent().path("rule").asText(),
+                                    fact.getContent().path("usage").asText()))
+                    .toList();
+            return new Snippet(Ids.text(binding.id()), text, columns, metrics);
+        }
+
+        /** 页面仅展示正式依据身份，不外发完整正文或索引字段。 */
+        QueryProtocol.Evidence evidence() {
+            return new QueryProtocol.Evidence(
+                    binding.title(), binding.revision(), Ids.text(binding.documentRevisionId()), ordinal);
+        }
+    }
+
+    /** 模型可用的确认计算口径。 */
+    record Metric(String name, String meaning, String rule, String usage) {}
+
+    /** 检索后的实际同版内容。 */
+    record Snippet(String binding, String text, Map<String, Map<String, String>> tables, List<Metric> metrics) {}
+}
