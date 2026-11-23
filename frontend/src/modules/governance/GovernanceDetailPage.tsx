@@ -3,6 +3,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { workspaceParent } from '../../app/workspaceParent';
 import { api, queryString } from '../../shared/api';
 import { displayTime, ReadState } from '../../shared/Records';
 import { useReturnFocus } from '../../shared/useReturnFocus';
@@ -21,9 +22,11 @@ import './governance.css';
 export function GovernanceDetailPage() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
-  const { state } = useLocation();
+  const location = useLocation();
+  const { state } = location;
   const navigate = useNavigate();
   const session = useSession();
+  const parent = workspaceParent('/governance/:id', location, session.permissionCodes);
   const source = params.get('source');
   const base = '/governance/sources/' + source + '/objects/' + id;
   const object = useQuery({
@@ -91,27 +94,10 @@ export function GovernanceDetailPage() {
   }, [tab, choice, columns.data, object.data?.pendingImpacts]);
 
   /**
-   * 返回位置由工作台的原筛选和实际对象定位。
+   * 底部返回与面包屑使用相同的原列表或统计位置。
    */
   function back() {
-    const catalog = state as { catalogSearch?: string; catalogRow?: string } | null;
-    if (catalog?.catalogSearch && allowed(session, 'catalog.view')) {
-      // 从目录治理回到原来源的同一筛选和对象位置。
-      navigate('/catalog' + catalog.catalogSearch, {
-        state: { catalogReturnTo: catalog.catalogRow },
-      });
-      return;
-    }
-    const previous = (state as { listSearch?: string } | null)?.listSearch;
-    const fallback = new URLSearchParams(params);
-    fallback.delete('entry');
-    fallback.delete('section');
-    fallback.delete('field');
-    fallback.delete('candidate');
-    fallback.delete('candidatePage');
-    navigate('/governance' + (previous ?? '?' + fallback.toString()), {
-      state: { returnObject: id },
-    });
+    navigate(parent?.url ?? '/governance', { state: parent?.state });
   }
 
   /**
@@ -210,7 +196,11 @@ export function GovernanceDetailPage() {
       <Alert
         type="warning"
         title="请先选择治理数据源"
-        action={<Button onClick={back}>返回工作台</Button>}
+        action={
+          <Button onClick={back}>
+            {parent?.label === '治理概览' ? '返回治理概览' : '返回工作台'}
+          </Button>
+        }
       />
     );
   }

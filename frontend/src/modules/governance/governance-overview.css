@@ -1,0 +1,100 @@
+/* 左侧高主图跨两行，关联与指标在下方通栏。 */
+.governance-overview .overview-grid {
+  grid-template-columns: minmax(0, 1.9fr) minmax(260px, 1fr);
+  grid-template-areas: 'hero ring' 'hero pending' 'relations relations';
+}
+
+/* 治理工作区的统计时效提示沿用绿色识别点。 */
+.governance-overview .overview-as-of::before {
+  background: #108577;
+}
+
+/* 高主图延伸到右列底边，图表页脚与下边距相邻。 */
+.governance-overview .overview-panel.is-hero {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  padding-right: 24px;
+  border-right: 1px solid var(--do-line);
+}
+
+/* 左侧主趋势保留原型的高图区。 */
+.governance-overview .overview-panel.is-hero .overview-plot {
+  height: 410px;
+}
+
+/* 即使右列打开数据表，工作台入口仍贴住跨行区域底边。 */
+.governance-overview .overview-panel.is-hero footer {
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+/* 期末进度与后续小趋势成组，保留紧凑的环图留白。 */
+.governance-overview .overview-ring {
+  margin-block: 8px;
+}
+
+/* 右上图在较宽桌面保持原型尺度。 */
+.governance-overview .overview-plot.is-ring {
+  height: 166px;
+}
+
+/* 右下变化趋势在左侧跨行区域的底边对齐。 */
+.governance-overview .overview-panel.is-pending {
+  grid-area: pending;
+  align-self: end;
+  padding-top: 16px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 复核存量使用适合右列的轴线高度。 */
+.governance-overview .overview-panel.is-pending .overview-plot {
+  height: 124px;
+}
+
+/* 关联与指标确认共享下方完整阅读宽度。 */
+.governance-overview .overview-panel.is-relations {
+  grid-area: relations;
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 辅助通栏保持原型的折线比例。 */
+.governance-overview .overview-panel.is-relations .overview-plot {
+  height: 176px;
+}
+
+/* 窄桌面按主图、治理进度、待核对、关联与指标顺序排布。 */
+@media (max-width: 1100px) {
+  .governance-overview .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero' 'ring' 'pending' 'relations';
+  }
+
+  /* 单列去掉横向分区线。 */
+  .governance-overview .overview-panel.is-hero {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  /* 窄桌面的环图独立占一行。 */
+  .governance-overview .overview-panel.is-ring {
+    padding-top: 24px;
+    border-top: 1px solid var(--do-line);
+  }
+
+  /* 单列恢复各类图形适合阅读的高度。 */
+  .governance-overview .overview-panel.is-hero .overview-plot {
+    height: 250px;
+  }
+
+  /* 环图单列规则与既有两类看板相同。 */
+  .governance-overview .overview-plot.is-ring {
+    height: 210px;
+  }
+
+  /* 次要图形恢复普通趋势高度。 */
+  .governance-overview .overview-panel:is(.is-pending, .is-relations) .overview-plot {
+    height: 196px;
+  }
+}

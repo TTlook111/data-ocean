@@ -35,7 +35,7 @@ export function OverviewPanel<M extends string>({
   /** 具备原模块明细权限时允许下钻。 */
   onDrill?: (measure: M, point: DashboardPoint<M>) => void;
   /** 原型中的通栏主图、辅助趋势或右侧环图。 */
-  layout: 'hero' | 'backlog' | 'ring' | 'duration' | 'pending';
+  layout: 'hero' | 'backlog' | 'ring' | 'duration' | 'pending' | 'relations';
   /** 图表的业务单位。 */
   unit: string;
   /** 没有有效样本时的反馈。 */

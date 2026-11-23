@@ -17,6 +17,15 @@ import org.apache.ibatis.annotations.Select;
 public interface GovernanceReadMapper {
 
     /**
+     * 工作台与期末概览使用相同的三类对象进度判定。
+     */
+    String OBJECT_PROGRESS =
+            """
+            IF(total_count>0 AND confirmed_count=total_count,'COMPLETE',
+                IF(started OR confirmed_count>0,'IN_PROGRESS','UNSTARTED'))
+            """;
+
+    /**
      * 与 B 批复用成功观察、核实身份和当前 Schema 条件。历史移除从来源入口查看。
      */
     String TABLES =
@@ -61,8 +70,10 @@ public interface GovernanceReadMapper {
                 SELECT scored.*,
                     NULLIF(JSON_UNQUOTE(JSON_EXTRACT(content,'$.businessName')),'null') AS business_name,
                     NULLIF(JSON_UNQUOTE(JSON_EXTRACT(content,'$.purpose')),'null') AS purpose,
-                    IF(total_count>0 AND confirmed_count=total_count,'COMPLETE',
-                        IF(started OR confirmed_count>0,'IN_PROGRESS','UNSTARTED')) AS progress
+            """
+                    + OBJECT_PROGRESS
+                    + """
+                    AS progress
                 FROM scored
             )
             SELECT observation_id,object_id,generation,namespace,name,object_type,source_comment,business_name,purpose,

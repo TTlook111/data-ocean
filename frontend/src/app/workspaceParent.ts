@@ -18,6 +18,7 @@ export function workspaceParent(
         catalogRow?: string;
         releaseReturn?: ReleaseRevisionReturn;
         feedbackOverviewSearch?: string;
+        governanceOverviewSearch?: string;
       } & EffectiveVersionOrigin)
     | null;
   // 仅剔除详情专用参数，避免回列表时丢失源、查询和分页。
@@ -56,6 +57,17 @@ export function workspaceParent(
     };
   }
   if (route === '/governance/:id') {
+    if (
+      origin?.governanceOverviewSearch?.startsWith('?') &&
+      permissions.includes('governance-dashboard.view')
+    ) {
+      // 下钻返回时恢复原截止时间、指标和来源。
+      return {
+        label: '治理概览',
+        current: '表治理',
+        url: '/governance-dashboard' + origin.governanceOverviewSearch,
+      };
+    }
     if (origin?.catalogSearch && permissions.includes('catalog.view')) {
       return {
         label: '元数据目录',

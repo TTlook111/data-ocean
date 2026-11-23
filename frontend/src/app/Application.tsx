@@ -65,6 +65,7 @@ const navigation = [
   },
   { key: '/catalog', label: '元数据目录', permission: 'catalog.view', icon: <DatabaseOutlined /> },
   { key: '/business-notes', label: '企业业务说明', permission: 'business-notes.view' },
+  { key: '/governance-dashboard', label: '治理概览', permission: 'governance-dashboard.view' },
   { key: '/governance', label: '治理工作台', permission: 'governance.view' },
   { key: '/knowledge', label: '知识文档', permission: 'knowledge.view' },
   { key: '/test-cases', label: '标准题单', permission: 'test-cases.view' },
@@ -149,6 +150,10 @@ const BusinessNotesPage = lazyPage(() =>
   import('../modules/datasource/BusinessNotesPage').then((m) => m.BusinessNotesPage),
 );
 // 工作台和条目详情按需加载，保留同一治理菜单归属。
+// 治理看板与工作台按各自页面权限加载。
+const GovernanceOverview = lazyPage(() =>
+  import('../modules/governance/GovernanceOverview').then((m) => m.GovernanceOverview),
+);
 const GovernancePage = lazyPage(() =>
   import('../modules/governance/GovernancePage').then((m) => m.GovernancePage),
 );
@@ -207,6 +212,7 @@ const workspaceRoutes = [
   { path: '/catalog/:id', element: <CatalogObjectPage /> },
   { path: '/business-notes', element: <BusinessNotesPage /> },
   // 表说明和字段治理的工作台与办理页。
+  { path: '/governance-dashboard', element: <GovernanceOverview /> },
   { path: '/governance', element: <GovernancePage /> },
   { path: '/governance/:id', element: <GovernanceDetailPage /> },
   // 知识文档列表及其草稿、当前确认和历史修订。
@@ -274,7 +280,9 @@ export function Application() {
 
   // 显式刷新概览恢复默认期间，应用内来回导航仍使用页面上下文。
   const resetOverview = useRef(
-    ['/feedback-dashboard', '/sources-dashboard'].includes(location.pathname) &&
+    ['/feedback-dashboard', '/sources-dashboard', '/governance-dashboard'].includes(
+      location.pathname,
+    ) &&
       Boolean(location.search) &&
       (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)
         ?.type === 'reload'
@@ -542,7 +550,7 @@ export function Application() {
           },
         ]
       : []),
-    // 保留治理概览预留位置，工作台使用真实目录和接口。
+    // 治理看板与办理工作台分别出现在授权可见的菜单中。
     ...(['governance-dashboard.view', 'governance.view'].some((code) =>
       session.permissionCodes.includes(code),
     )
@@ -552,11 +560,8 @@ export function Application() {
             label: '数据治理',
             icon: <DeploymentUnitOutlined />,
             children: [
-              ...(session.permissionCodes.includes('governance-dashboard.view')
-                ? [{ key: 'pending-governance-dashboard', label: '治理概览', disabled: true }]
-                : []),
               ...visible
-                .filter(({ key }) => key === '/governance')
+                .filter(({ key }) => ['/governance-dashboard', '/governance'].includes(key))
                 .map(({ key, label }) => ({ key, label })),
             ],
           },
