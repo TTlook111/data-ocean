@@ -3,15 +3,16 @@ package com.dataocean.module.query.service;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
+import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
+import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
+import com.dataocean.module.query.entity.vo.QueryExplanationTextVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryProtocol.Check;
-import com.dataocean.module.query.service.QueryProtocol.Data;
-import com.dataocean.module.query.service.QueryProtocol.ExplanationInput;
-import com.dataocean.module.query.service.QueryProtocol.ExplanationText;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
-import com.dataocean.module.query.service.QueryProtocol.ModelInput;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 
 import java.net.http.HttpClient;
@@ -116,7 +117,7 @@ class QueryModels {
             long revision,
             int seconds,
             String question,
-            List<QueryCorpus.Snippet> evidence,
+            List<QueryEvidenceSnippetDTO> evidence,
             List<OutputRuleVO> rules,
             Memory memory) {
         return step(run, "plan", revision, seconds, question, evidence, rules, null, memory, Plan.class);
@@ -128,7 +129,7 @@ class QueryModels {
             long revision,
             int seconds,
             String question,
-            List<QueryCorpus.Snippet> evidence,
+            List<QueryEvidenceSnippetDTO> evidence,
             List<OutputRuleVO> rules,
             Plan previous,
             Memory memory) {
@@ -143,7 +144,7 @@ class QueryModels {
             long revision,
             int seconds,
             String question,
-            List<QueryCorpus.Snippet> evidence,
+            List<QueryEvidenceSnippetDTO> evidence,
             List<OutputRuleVO> rules,
             Plan plan,
             Memory memory) {
@@ -152,12 +153,12 @@ class QueryModels {
     }
 
     /** 解释独立复用原结果，不构造 SQL 或访问业务数据库。 */
-    String explain(String id, int attempt, long revision, int seconds, String question, Data result) {
+    String explain(String id, int attempt, long revision, int seconds, String question, QueryDataVO result) {
         var step = "explanation-" + attempt;
         boolean lookup = steps.issueExplanation(id, attempt, step) != 1;
-        var input = new ExplanationInput(models.invocation(revision, seconds), question, result);
-        return call(id, step, lookup, "/explanation", input, ExplanationText.class)
-                .text();
+        var input = new QueryExplanationInputDTO(models.invocation(revision, seconds), question, result);
+        return call(id, step, lookup, "/explanation", input, QueryExplanationTextVO.class)
+                .getText();
     }
 
     /** 当前部署、版本和活动时间同时约束实际调用。 */
@@ -167,12 +168,12 @@ class QueryModels {
             long revision,
             int seconds,
             String question,
-            List<QueryCorpus.Snippet> evidence,
+            List<QueryEvidenceSnippetDTO> evidence,
             List<OutputRuleVO> rules,
             Plan plan,
             Memory memory,
             Class<T> type) {
-        var input = new ModelInput(
+        var input = new QueryModelInputDTO(
                 models.invocation(revision, Math.min(28, seconds)),
                 question,
                 evidence,

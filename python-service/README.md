@@ -19,6 +19,7 @@
 | [governance/table_description.py](src/dataocean_ai/governance/table_description.py) | 组织固定来源和输入预算，执行结构化生成并验证建议引用 |
 | [governance/field_agent.py](src/dataocean_ai/governance/field_agent.py) | 使用 LangChain `create_agent` 按需读取当次结构和资料，每轮调用前向 Java 核对权限 |
 | [adapters/chat.py](src/dataocean_ai/adapters/chat.py)、[probe.py](src/dataocean_ai/adapters/probe.py) | 双协议模型调用及受认证的合成连接测试 |
+| 向量存储连接 | [adapters/milvus.py](src/dataocean_ai/adapters/milvus.py) 统一读取部署配置并归还客户端，各业务入口自行确定操作超时与证据校验。 |
 | [test_foundation.py](tests/unit/test_foundation.py) | 验证健康接口、追踪标识、错误响应和配置校验 |
 | [pyproject.toml](pyproject.toml)、[uv.lock](uv.lock) | 声明正式包的构建、启动入口及工具配置，锁定实际依赖 |
 

@@ -67,10 +67,15 @@ class QuerySqlTest {
         assertThat(result.unit()).isEqualTo("箱");
         // 使用证据应来自最终表达式和实际筛选，保留确切列修订。
         var usage = result.usage();
-        assertThat(usage.objects()).containsExactly(new QueryUsage.ObjectRef("1", 1, "10", List.of(
-                new QueryUsage.ColumnRef("8", "9", List.of("COMPUTE")),
-                new QueryUsage.ColumnRef("10", "11", List.of("COMPUTE")),
-                new QueryUsage.ColumnRef("6", "7", List.of("FILTER")))));
+        assertThat(usage.objects())
+                .containsExactly(new QueryUsage.ObjectRef(
+                        "1",
+                        1,
+                        "10",
+                        List.of(
+                                new QueryUsage.ColumnRef("8", "9", List.of("COMPUTE")),
+                                new QueryUsage.ColumnRef("10", "11", List.of("COMPUTE")),
+                                new QueryUsage.ColumnRef("6", "7", List.of("FILTER")))));
         assertThat(usage.facts()).containsExactly(new QueryUsage.FactRef("METRIC", "1", "8", "9"));
         assertThatThrownBy(() ->
                         new QuerySql().compile(basis("VIEW", stock, locked, date, metric), plan, true, "warehouse"))
@@ -172,7 +177,7 @@ class QuerySqlTest {
         var chart = compiler.compile(evidence, trend, true, "warehouse");
         assertThat(chart.parameters()).containsExactly(today.minusDays(6), today);
         assertThat(chart.sql()).contains("BETWEEN ? AND ?", "GROUP BY", "ORDER BY");
-        assertThat(chart.series().start()).isEqualTo("2026-11-16");
+        assertThat(chart.series().getStart()).isEqualTo("2026-11-16");
 
         var specified = new Plan(
                 "READY",
@@ -205,18 +210,26 @@ class QuerySqlTest {
     @Test
     void acceptsPublishedButRejectsInventedProductCode() {
         var code = new Field("product", "code");
-        var evidence = new Basis(null, null, 0, "DEMO-1 是中杯柠檬茶。商品 DEMO-20 还有别的规格。",
-                Map.of(), Map.of(), Map.of(), Map.of(code, "SKU 编码"));
+        var evidence = new Basis(
+                null,
+                null,
+                0,
+                "DEMO-1 是中杯柠檬茶。商品 DEMO-20 还有别的规格。",
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(code, "SKU 编码"));
         var compiler = new QuerySql();
         var memory = new Memory("2026-11-22T00:00:00Z", List.of(), List.of());
-        var published = new Plan("READY", null, "1", "SUM", "库存", null, List.of(code),
-                List.of(new Condition(code, "DEMO-1")));
-        var guessed = new Plan("READY", null, "1", "SUM", "库存", null, List.of(code),
-                List.of(new Condition(code, "DEMO-2")));
+        var published =
+                new Plan("READY", null, "1", "SUM", "库存", null, List.of(code), List.of(new Condition(code, "DEMO-1")));
+        var guessed =
+                new Plan("READY", null, "1", "SUM", "库存", null, List.of(code), List.of(new Condition(code, "DEMO-2")));
         compiler.checkProductCodes(evidence, published, "中杯柠檬茶库存", memory);
         compiler.checkProductCodes(evidence, guessed, "查 DEMO-2 的库存", memory);
         assertThatThrownBy(() -> compiler.checkProductCodes(evidence, guessed, "大杯柠檬茶库存", memory))
-                .isInstanceOf(QueryFailure.class).hasMessage("KNOWLEDGE_INSUFFICIENT");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("KNOWLEDGE_INSUFFICIENT");
     }
 
     /**
@@ -229,14 +242,29 @@ class QuerySqlTest {
         var date = new Field("stock_snapshot", "business_date");
         var basis = basis("TABLE", stock, locked, date, null);
         var compiler = new QuerySql();
-        var fixed = new Plan("READY", null, "1", "SUM", "可售量", null, List.of(stock),
+        var fixed = new Plan(
+                "READY",
+                null,
+                "1",
+                "SUM",
+                "可售量",
+                null,
+                List.of(stock),
                 List.of(new Condition(stock, "5"), new Condition(date, "2026-11-01")));
         var shifted = compiler.followBusinessDay(basis, fixed, fixed, -1);
         assertThat(shifted.time()).isEqualTo(new TimeSelection(date, "DAY", "2026-10-31", "2026-10-31", false));
         assertThat(shifted.filters()).containsExactly(new Condition(stock, "5"));
         assertThat(compiler.keepsBusinessDay("换成另一个规格，其他条件照旧。")).isTrue();
         assertThat(compiler.keepsBusinessDay("其他条件照旧，但改成昨天。")).isFalse();
-        var series = new Plan("READY", null, "1", "SUM", "可售量", null, List.of(stock), List.of(),
+        var series = new Plan(
+                "READY",
+                null,
+                "1",
+                "SUM",
+                "可售量",
+                null,
+                List.of(stock),
+                List.of(),
                 new TimeSelection(date, "TREND", "2026-11-01", "2026-11-04", false));
         assertThat(compiler.followBusinessDay(basis, fixed, series, -1)).isNull();
     }
@@ -249,19 +277,34 @@ class QuerySqlTest {
         var stock = new Field("stock_snapshot", "on_hand");
         var locked = new Field("stock_snapshot", "locked");
         var date = new Field("stock_snapshot", "business_date");
-        var definition = JsonMapper.builder().build().readTree("""
+        var definition = JsonMapper.builder()
+                .build()
+                .readTree(
+                        """
                 {"rule":"COUNT(DISTINCT stock_snapshot.on_hand)",
                  "meaning":"统计有快照的唯一键。","usage":"跨日或跨仓出现的同一商品只计一次。"}
                 """);
-        var metric = new GovernanceFactVO(new GovernanceTargetVO("1", "METRIC", "8"),
-                "9", 1, "10", "有快照的商品数", definition,
+        var metric = new GovernanceFactVO(
+                new GovernanceTargetVO("1", "METRIC", "8"),
+                "9",
+                1,
+                "10",
+                "有快照的商品数",
+                definition,
                 List.of(new GovernanceTargetVO("1", "COLUMN", "6")));
         var basis = basis("TABLE", stock, locked, date, metric);
-        var plan = new Plan("READY", null, "1", "COUNT_DISTINCT", "有快照的商品数", null, List.of(stock),
+        var plan = new Plan(
+                "READY",
+                null,
+                "1",
+                "COUNT_DISTINCT",
+                "有快照的商品数",
+                null,
+                List.of(stock),
                 List.of(new Condition(date, "2026-11-20")),
                 new TimeSelection(date, "DAY", "2026-11-20", "2026-11-20", false));
-        var resolved = new QuerySql().resolveTime(basis, plan, LocalDate.of(2026, 11, 22),
-                "换个问题。常温饮料中，有库存快照的商品有多少种？", false);
+        var resolved =
+                new QuerySql().resolveTime(basis, plan, LocalDate.of(2026, 11, 22), "换个问题。常温饮料中，有库存快照的商品有多少种？", false);
         assertThat(resolved.filters()).isEmpty();
         assertThat(resolved.time()).isNull();
     }
@@ -277,13 +320,20 @@ class QuerySqlTest {
         var column = new Column(7, 8, field.column(), "character varying", false, "", 0);
         var observation = new Observation(1, 1, 1L, 10L, null, null, null, structure, null);
         var table = new Table(new Entry(1, 1, false, observation, List.of(column)), Map.of());
-        var basis = new Basis(null, null, 0, "", Map.of(field.table(), table), Map.of(),
-                Map.of(), Map.of(field, "线路"));
-        var plan = new Plan("READY", null, "7", "VALUES", null, null, List.of(field),
+        var basis = new Basis(null, null, 0, "", Map.of(field.table(), table), Map.of(), Map.of(), Map.of(field, "线路"));
+        var plan = new Plan(
+                "READY",
+                null,
+                "7",
+                "VALUES",
+                null,
+                null,
+                List.of(field),
                 List.of(new Condition(field, "North's route")));
         var compiled = new QuerySql().compile(basis, plan, false, "logistics");
         assertThat(compiled.sql())
-                .isEqualTo("SELECT t0.\"Route\"\"Key\" FROM \"delivery_2026\".\"Parcel Log\" t0 WHERE t0.\"Route\"\"Key\" = ?");
+                .isEqualTo(
+                        "SELECT t0.\"Route\"\"Key\" FROM \"delivery_2026\".\"Parcel Log\" t0 WHERE t0.\"Route\"\"Key\" = ?");
         assertThat(compiled.parameters()).containsExactly("North's route");
     }
 

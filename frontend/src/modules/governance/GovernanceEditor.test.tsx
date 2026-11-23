@@ -56,9 +56,7 @@ it.each([false, true])('重读并发版本时保护已有改动（同字段冲�
   const path = '/fixture/item';
   const writing = vi.mocked(mutation);
   writing.mockReset();
-  writing
-    .mockRejectedValueOnce(new ApiError(409001, '条目版本已变化'))
-    .mockResolvedValue(undefined);
+  writing.mockRejectedValueOnce(new ApiError(409001, '条目版本已变化')).mockResolvedValue({});
   vi.mocked(api).mockResolvedValue({
     ...original,
     version: 2,

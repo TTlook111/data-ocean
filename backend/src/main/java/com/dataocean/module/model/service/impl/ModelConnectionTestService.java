@@ -24,8 +24,8 @@ public class ModelConnectionTestService {
     /**
      * 仅接收 Python 已约定的诊断分类。
      */
-    private static final Set<String> FAILURES = Set.of(
-            "MODEL_AUTH", "MODEL_RATE_LIMIT", "MODEL_FORMAT", "MODEL_RESULT_UNKNOWN");
+    private static final Set<String> FAILURES =
+            Set.of("MODEL_AUTH", "MODEL_RATE_LIMIT", "MODEL_FORMAT", "MODEL_RESULT_UNKNOWN");
 
     /**
      * 当前模型修订与受控凭据入口。
@@ -45,8 +45,10 @@ public class ModelConnectionTestService {
     /**
      * 独立选择较长测试超时的内部连接，兼容 AI 服务尚未开启的部署。
      */
-    public ModelConnectionTestService(ModelRegistry registry, ModelMapper models,
-                                      @Qualifier("modelTestPythonClient") ObjectProvider<RestClient> clients) {
+    public ModelConnectionTestService(
+            ModelRegistry registry,
+            ModelMapper models,
+            @Qualifier("modelTestPythonClient") ObjectProvider<RestClient> clients) {
         this.registry = registry;
         this.models = models;
         this.clients = clients;
@@ -81,14 +83,19 @@ public class ModelConnectionTestService {
     private String testFailure(RestClient client, ModelInvocation invocation) {
         try {
             // 请求始终走已签名、固定基址的 Python 入口。
-            var result = client.post().uri("/internal/v1/models/connection-test")
-                    .body(invocation).retrieve().body(Probe.class);
+            var result = client.post()
+                    .uri("/internal/v1/models/connection-test")
+                    .body(invocation)
+                    .retrieve()
+                    .body(Probe.class);
             if (result != null && Boolean.TRUE.equals(result.passed()) && result.failureCode() == null) {
                 // 响应与成功约束一致才记录通过。
                 return null;
             }
-            if (result != null && Boolean.FALSE.equals(result.passed())
-                    && result.failureCode() != null && FAILURES.contains(result.failureCode())) {
+            if (result != null
+                    && Boolean.FALSE.equals(result.passed())
+                    && result.failureCode() != null
+                    && FAILURES.contains(result.failureCode())) {
                 // 失败原因必须在机器接口约定内。
                 return result.failureCode();
             }

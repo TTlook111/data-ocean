@@ -21,6 +21,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeVersionPauseMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeWithdrawalMapper;
 import com.dataocean.module.knowledge.service.KnowledgeDocumentLinks;
 import com.dataocean.module.knowledge.service.KnowledgeReferences;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.model.service.ModelRegistry;
 
 import java.util.Objects;
@@ -36,7 +37,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
-public class KnowledgeVersionUse {
+public class KnowledgeVersionUse implements KnowledgeVersionService {
     /**
      * 同一个来源锁序列化发布和使用控制。
      */
@@ -105,6 +106,7 @@ public class KnowledgeVersionUse {
     /**
      * 暂停整个当前单文档范围，保留原版本和索引。
      */
+    @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public MutationVO pause(long source, long id, String command, KnowledgeVersionPauseDTO input) {
         return commands.execute("versions.pause", command, target(source, id), input, null, false, false, () -> {
@@ -116,7 +118,7 @@ public class KnowledgeVersionUse {
                 throw BizIllegalException.state("该范围已暂停，请重新查看当前状态");
             }
             long pause = IdWorker.getId();
-            String reason = input.reason().strip();
+            String reason = input.getReason().strip();
             pauses.create(pause, binding.scopeId(), binding.id(), reason, UserContext.getUser());
             audit.record(AuditWriteDTO.builder()
                     .commandId(command)
@@ -135,6 +137,7 @@ public class KnowledgeVersionUse {
      * 正式问数使用绑定前及在途重新校验时通过同一权威入口。
      * 反馈回看会捕获旧绑定等业务拒绝并裁剪结果，拒绝仍向调用方抛出，不将外层事务标记为回滚。
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
     public Binding requireForQuery(long sourceId, long id) {
         permissions.require("query.view");
@@ -146,6 +149,7 @@ public class KnowledgeVersionUse {
     /**
      * 以反馈记录中的复验人复核查询资格，结案人的会话仅用于结案授权。
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
     public void requireForFeedbackReplay(long verifier, long sourceId, long id) {
         var codes = permissions.effective(verifier);
@@ -175,6 +179,7 @@ public class KnowledgeVersionUse {
     /**
      * 办理和续作检查路径来源及同一实际在用绑定。
      */
+    @Override
     public Binding current(long source, long id) {
         var binding = bindings.get(source, id);
         if (binding == null) {
@@ -196,6 +201,7 @@ public class KnowledgeVersionUse {
     /**
      * 恢复验证可以针对手动暂停的范围，其他治理禁止和结构或模型限制依然生效。
      */
+    @Override
     public void requireBasis(Source source, Binding binding) {
         requireOwnBasis(source, binding);
         requireDependencies(source, binding);
@@ -232,6 +238,7 @@ public class KnowledgeVersionUse {
     /**
      * 暂停随发布范围生效，即使同一范围切换正式版本也保持限制。
      */
+    @Override
     public boolean isPaused(long scope) {
         return pauses.isPaused(scope);
     }
@@ -239,6 +246,7 @@ public class KnowledgeVersionUse {
     /**
      * 已撤下只影响历史中确切的绑定。
      */
+    @Override
     public boolean isWithdrawn(long binding) {
         return withdrawals.withdrawn(binding);
     }
@@ -246,6 +254,7 @@ public class KnowledgeVersionUse {
     /**
      * 使用控制的表单和写操作同时核验页面、正文及源访问。
      */
+    @Override
     public void requireOperator(long source) {
         permissions.require("releases.view");
         permissions.require("knowledge.view");

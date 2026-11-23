@@ -52,9 +52,10 @@ public class GovernanceEntries {
         var entry = catalog.current(source, target.object());
         var field = entry == null || !target.isColumn() ? null : entry.column(target.target());
         boolean hasCurrent = entry != null && (!target.isColumn() || field != null);
-        boolean removed = item != null && impacts.exists(Wrappers.<GovernanceImpactPO>lambdaQuery()
-                .eq(GovernanceImpactPO::getItemId, item.getId())
-                .eq(GovernanceImpactPO::getImpactKind, "REMOVAL"));
+        boolean removed = item != null
+                && impacts.exists(Wrappers.<GovernanceImpactPO>lambdaQuery()
+                        .eq(GovernanceImpactPO::getItemId, item.getId())
+                        .eq(GovernanceImpactPO::getImpactKind, "REMOVAL"));
 
         if (!hasCurrent) {
             // 历史来源仍按原身份定位，无法读取的结构不办理业务修改。
@@ -176,8 +177,8 @@ public class GovernanceEntries {
      * 取固定结构的安全引用。
      */
     public GovernanceBasisVO basis(long snapshot, long object, Long column) {
-        return new GovernanceBasisVO(Long.toString(snapshot), Long.toString(object),
-                column == null ? null : Long.toString(column));
+        return new GovernanceBasisVO(
+                Long.toString(snapshot), Long.toString(object), column == null ? null : Long.toString(column));
     }
 
     /**
@@ -191,7 +192,11 @@ public class GovernanceEntries {
      * @param pending 当前对象尚未结束的技术事实数
      */
     public record Context(
-            GovernanceTarget target, Entry entry, Column field, GovernanceItemPO item, String availability,
+            GovernanceTarget target,
+            Entry entry,
+            Column field,
+            GovernanceItemPO item,
+            String availability,
             int pending) {
 
         /**

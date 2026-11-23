@@ -96,8 +96,10 @@ public class GovernanceController {
     @GetMapping(ITEM)
     @RequirePermission("governance.view")
     public Result<GovernanceItemVO> item(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId) {
         return Result.success(queries.item(target(sourceId, objectId, kind, targetId)));
     }
 
@@ -107,8 +109,11 @@ public class GovernanceController {
     @GetMapping(ITEM + "/history")
     @RequirePermission("governance.view")
     public Result<PageVO<GovernanceHistoryRowVO>> history(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId, GovernanceHistoryQuery query) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            GovernanceHistoryQuery query) {
         return Result.success(queries.history(target(sourceId, objectId, kind, targetId), query));
     }
 
@@ -118,9 +123,12 @@ public class GovernanceController {
     @PutMapping(ITEM + "/draft")
     @RequirePermission("governance.edit")
     public Result<GovernanceMutationVO> draft(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId,
-            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody GovernanceDraftDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceDraftDTO input) {
         return Result.success(commands.draft(target(sourceId, objectId, kind, targetId), command, input));
     }
 
@@ -130,9 +138,12 @@ public class GovernanceController {
     @PostMapping(ITEM + "/gaps")
     @RequirePermission("governance.supplement")
     public Result<GovernanceMutationVO> supplement(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId,
-            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody GovernanceGapDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceGapDTO input) {
         return Result.success(commands.supplement(target(sourceId, objectId, kind, targetId), command, input));
     }
 
@@ -142,9 +153,12 @@ public class GovernanceController {
     @PostMapping(ITEM + "/confirmations")
     @RequirePermission("governance.confirm")
     public Result<GovernanceMutationVO> confirm(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId,
-            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody GovernanceConfirmDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceConfirmDTO input) {
         return Result.success(commands.confirm(target(sourceId, objectId, kind, targetId), command, input));
     }
 
@@ -173,8 +187,10 @@ public class GovernanceController {
     @PostMapping("/unmapped-note-changes/{changeId}/targets")
     @RequirePermission({"governance.edit", "business-notes.view"})
     public Result<GovernanceNoteChangeVO> associate(
-            @PathVariable String sourceId, @PathVariable String changeId,
-            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody GovernanceImpactTargetsDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String changeId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceImpactTargetsDTO input) {
         return Result.success(commands.associate(Ids.parse(sourceId), Ids.parse(changeId), command, input));
     }
 
@@ -184,8 +200,11 @@ public class GovernanceController {
     @PostMapping(ITEM + "/impact-preview")
     @RequirePermission("governance.forbid")
     public Result<ImpactPreviewVO> preview(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId, @Valid @RequestBody GovernanceControlDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            @Valid @RequestBody GovernanceControlDTO input) {
         return Result.success(commands.preview(target(sourceId, objectId, kind, targetId), input));
     }
 
@@ -195,9 +214,12 @@ public class GovernanceController {
     @PostMapping(ITEM + "/usage-control")
     @RequirePermission("governance.forbid")
     public Result<GovernanceMutationVO> forbid(
-            @PathVariable String sourceId, @PathVariable String objectId,
-            @PathVariable String kind, @PathVariable String targetId,
-            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody GovernanceControlDTO input) {
+            @PathVariable String sourceId,
+            @PathVariable String objectId,
+            @PathVariable String kind,
+            @PathVariable String targetId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody GovernanceControlDTO input) {
         return Result.success(commands.forbid(target(sourceId, objectId, kind, targetId), command, input));
     }
 

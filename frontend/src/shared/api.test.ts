@@ -24,9 +24,12 @@ describe('请求失败边界', () => {
   });
 
   /**
-   * 业务提交后若会话保存失败返回 503，核实原命令能找回已提交事实，不能再次执行写入。
+   * 服务端故障或命令尚在处理时，核对原编号即可找回已经提交的事实。
    */
-  it('503 后查询已提交命令而不重放写入', async () => {
+  it.each([
+    { status: 503, code: 503001, message: '必要存储不可用' },
+    { status: 409, code: 409004, message: '命令仍在处理' },
+  ])('$status / $code 后查询已提交命令而不重放写入', async ({ status, code, message }) => {
     const request = vi
       .fn()
       .mockResolvedValueOnce(
@@ -36,9 +39,7 @@ describe('请求失败边界', () => {
           data: { headerName: 'X-CSRF-TOKEN', token: 'synthetic' },
         }),
       )
-      .mockResolvedValueOnce(
-        Response.json({ code: 503001, message: '必要存储不可用', data: null }, { status: 503 }),
-      )
+      .mockResolvedValueOnce(Response.json({ code, message, data: null }, { status }))
       .mockResolvedValueOnce(
         Response.json({
           code: 200,
@@ -47,13 +48,7 @@ describe('请求失败边界', () => {
         }),
       );
     vi.stubGlobal('fetch', request);
-    const result = await mutation<{ targetId: string; version: number }>(
-      '/iam/users',
-      'POST',
-      {},
-      'users.create',
-      'synthetic-command',
-    );
+    const result = await mutation('/iam/users', 'POST', {}, 'users.create', 'synthetic-command');
     expect(result).toMatchObject({ targetId: '12', version: 2 });
     expect(request).toHaveBeenCalledTimes(3);
     expect(request.mock.calls[2][0]).toContain(

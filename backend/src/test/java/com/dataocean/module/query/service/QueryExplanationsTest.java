@@ -19,13 +19,13 @@ import com.dataocean.module.access.entity.vo.AccessScopeVO;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.service.ServiceActorPermission;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.query.entity.vo.QueryColumnVO;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.mapper.QueryExplanationMapper;
 import com.dataocean.module.query.mapper.QueryExplanationMapper.Explanation;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
-import com.dataocean.module.query.service.QueryProtocol.Column;
-import com.dataocean.module.query.service.QueryProtocol.Data;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -53,6 +53,7 @@ import tools.jackson.databind.json.JsonMapper;
 class QueryExplanationsTest {
     /** 模拟权威平台状态和可控的模型响应。 */
     private final String id = UUID.randomUUID().toString();
+
     private final String command = UUID.randomUUID().toString();
     private final LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
     private final QueryRequestMapper queries = mock(QueryRequestMapper.class);
@@ -68,8 +69,9 @@ class QueryExplanationsTest {
      */
     @BeforeEach
     void setup() {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(new IamPrincipal(7, 1, "fixture", "能耗操作员"), null));
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        new UsernamePasswordAuthenticationToken(new IamPrincipal(7, 1, "fixture", "能耗操作员"), null));
         var actors = mock(ServiceActorPermission.class);
         var tx = mock(PlatformTransactionManager.class);
         when(tx.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus());
@@ -84,16 +86,30 @@ class QueryExplanationsTest {
         when(row.bindingId()).thenReturn(12L);
         when(row.question()).thenReturn("本日净能耗");
         when(row.ruleSignature()).thenReturn(new QueryOutput().signature(List.of()));
-        when(row.result()).thenReturn(json.write(new Data(
-                List.of(new Column("value", "净能耗")), List.of(List.of("-4.250")), false,
-                "kWh", "以实际能耗扣除回馈量", null, null)));
+        when(row.result())
+                .thenReturn(json.write(new QueryDataVO(
+                        List.of(new QueryColumnVO("value", "净能耗")),
+                        List.of(List.of("-4.250")),
+                        false,
+                        "kWh",
+                        "以实际能耗扣除回馈量",
+                        null,
+                        null)));
         when(row.remainingMillis()).thenReturn(28000);
         when(queries.lock(id)).thenReturn(row);
         when(queries.get(id)).thenReturn(row);
         when(queries.reserveExplanation(id, 22000)).thenReturn(1);
         when(models.revision("result-explanation")).thenReturn(5L);
-        service = new QueryExplanations(queries, revisions, actors, mock(KnowledgeVersionUse.class),
-                access, new TransactionTemplate(tx), mock(GuardMapper.class), models, json);
+        service = new QueryExplanations(
+                queries,
+                revisions,
+                actors,
+                mock(KnowledgeVersionService.class),
+                access,
+                new TransactionTemplate(tx),
+                mock(GuardMapper.class),
+                models,
+                json);
     }
 
     /**
@@ -108,10 +124,15 @@ class QueryExplanationsTest {
      * 等价小数可展示，变号、新数字和漏掉核心值不能生成说明。
      */
     @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "净能耗 -4.25 kWh|COMPLETED", "净能耗 4.250 kWh|FAILED",
-        "净能耗 -4.250 kWh，另有 99|FAILED", "当前处于净回馈状态|FAILED", "' '|FAILED"
-    })
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "净能耗 -4.25 kWh|COMPLETED",
+                "净能耗 4.250 kWh|FAILED",
+                "净能耗 -4.250 kWh，另有 99|FAILED",
+                "当前处于净回馈状态|FAILED",
+                "' '|FAILED"
+            })
     void explanationPreservesExactNumericValue(String text, String status) {
         queued();
         when(models.explain(eq(id), eq(1), eq(5L), eq(22), eq("本日净能耗"), any())).thenReturn(text);
@@ -150,10 +171,10 @@ class QueryExplanationsTest {
     @Test
     void explanationRetryIsIdempotentAndBounded() {
         when(revisions.latest(id)).thenReturn(revision("FAILED", 2));
-        assertThat(service.retry(id, command).revision()).isEqualTo(3);
+        assertThat(service.retry(id, command).getRevision()).isEqualTo(3);
         verify(revisions).add(id, 3, command);
         when(revisions.byCommand(id, command)).thenReturn(revision("QUEUED", 3));
-        assertThat(service.retry(id, command).status()).isEqualTo("QUEUED");
+        assertThat(service.retry(id, command).getStatus()).isEqualTo("QUEUED");
         when(revisions.byCommand(id, command)).thenReturn(null);
         when(revisions.latest(id)).thenReturn(revision("COMPLETED", 3), revision("FAILED", 4));
         assertThatThrownBy(() -> service.retry(id, command)).isInstanceOf(BizIllegalException.class);

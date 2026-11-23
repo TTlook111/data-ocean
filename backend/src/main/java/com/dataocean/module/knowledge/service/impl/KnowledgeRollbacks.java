@@ -183,11 +183,11 @@ public class KnowledgeRollbacks {
                 throw new BizIllegalException(ErrorCode.DEPENDENCY_STALE, issue);
             }
             var proof = checked.proof();
-            reviews.verify(ACTION, key(source, batch), null, proof, input.reviewToken());
+            reviews.verify(ACTION, key(source, batch), null, proof, input.getReviewToken());
             models.lockCurrentBinding("rag-embedding", proof.embedding());
             long id = IdWorker.getId();
             String key = UUID.fromString(command).toString();
-            String reason = input.reason().strip();
+            String reason = input.getReason().strip();
             batches.rollback(id, batch, UserContext.getUser(), key, reason);
             for (var transition : proof.transitions()) {
                 // 实际比较基础及代数，任一并发冲突由外层事务回滚全部成员。

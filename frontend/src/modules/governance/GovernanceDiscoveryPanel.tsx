@@ -27,7 +27,6 @@ import {
 } from './GovernanceDependencyDialog';
 import { GovernanceSourceDrawer } from './GovernanceSources';
 import type { SourcePeek } from './GovernanceSources';
-import type { Generation } from './types';
 import { useGenerationTask } from './useGenerationTask';
 
 /**
@@ -156,13 +155,7 @@ export function GovernanceDiscoveryPanel({
   }, [terminal, client, path, kind]);
   const launch = useMutation({
     mutationFn: (command: string) =>
-      mutation<Generation & { targetId?: string }>(
-        `${path}/discovery/${kind}`,
-        'POST',
-        undefined,
-        'governance.suggest',
-        command,
-      ),
+      mutation(`${path}/discovery/${kind}`, 'POST', undefined, 'governance.suggest', command),
     onSuccess: (result) => {
       // 已接收和成功产出分别由实际请求与回读表达。
       setRequest(result.requestId ?? result.targetId);
@@ -392,13 +385,17 @@ function CandidateEditor({
         if (createCommand.current?.payload !== payload) {
           createCommand.current = { payload, id: crypto.randomUUID() };
         }
-        const result = await mutation<{ targetId: string }>(
+        const result = await mutation(
           path + '?' + queryString({ kind }),
           'POST',
           body,
           'governance.edit',
           createCommand.current.id,
         );
+        if (!result.targetId) {
+          // 创建完成后的回读需要确切编号。
+          throw new Error('草稿已提交，暂时无法定位记录');
+        }
         return { createdId: result.targetId };
       }
       const saved = await api<Candidate>(path + '/' + candidate.id, {

@@ -4,15 +4,15 @@ import com.dataocean.common.Ids;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.security.RequirePermission;
+import com.dataocean.module.query.entity.dto.AskQueryDTO;
+import com.dataocean.module.query.entity.dto.ClarifyQueryDTO;
+import com.dataocean.module.query.entity.vo.QueryAcceptedVO;
+import com.dataocean.module.query.entity.vo.QueryConversationVO;
+import com.dataocean.module.query.entity.vo.QueryExplanationVO;
+import com.dataocean.module.query.entity.vo.QuerySnapshotVO;
+import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
+import com.dataocean.module.query.entity.vo.QueryTurnVO;
 import com.dataocean.module.query.service.QueryExplanations;
-import com.dataocean.module.query.service.QueryProtocol.Accepted;
-import com.dataocean.module.query.service.QueryProtocol.Ask;
-import com.dataocean.module.query.service.QueryProtocol.Clarification;
-import com.dataocean.module.query.service.QueryProtocol.Conversation;
-import com.dataocean.module.query.service.QueryProtocol.Explanation;
-import com.dataocean.module.query.service.QueryProtocol.Snapshot;
-import com.dataocean.module.query.service.QueryProtocol.SourceOption;
-import com.dataocean.module.query.service.QueryProtocol.Turn;
 import com.dataocean.module.query.service.QueryService;
 import com.dataocean.module.query.service.QueryStream;
 
@@ -53,28 +53,28 @@ public class QueryController {
     /** 返回本人当前可用的源选项。 */
     @GetMapping("/sources")
     @RequirePermission("query.view")
-    public Result<List<SourceOption>> sources() {
+    public Result<List<QuerySourceOptionVO>> sources() {
         return Result.success(queries.sources());
     }
 
     /** 列出当前源的本人查询轮次。 */
     @GetMapping("/requests")
     @RequirePermission("query.view")
-    public Result<List<Turn>> history(@RequestParam String sourceId) {
+    public Result<List<QueryTurnVO>> history(@RequestParam String sourceId) {
         return Result.success(queries.history(Ids.parse(sourceId)));
     }
 
     /** 按当前源定位本人会话，避免跨源上下文。 */
     @GetMapping("/conversations")
     @RequirePermission("query.view")
-    public Result<List<Conversation>> conversations(@RequestParam String sourceId) {
+    public Result<List<QueryConversationVO>> conversations(@RequestParam String sourceId) {
         return Result.success(queries.conversations(Ids.parse(sourceId)));
     }
 
     /** 实际会话的近期轮次可逐条回看。 */
     @GetMapping("/conversations/{id}/requests")
     @RequirePermission("query.view")
-    public Result<List<Turn>> turns(@PathVariable String id) {
+    public Result<List<QueryTurnVO>> turns(@PathVariable String id) {
         return Result.success(queries.turns(id));
     }
 
@@ -82,14 +82,15 @@ public class QueryController {
     @PostMapping("/requests")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RequirePermission("query.ask")
-    public Result<Accepted> ask(@RequestBody Ask input, @RequestHeader("Idempotency-Key") String command) {
+    public Result<QueryAcceptedVO> ask(
+            @RequestBody AskQueryDTO input, @RequestHeader("Idempotency-Key") String command) {
         return Result.success(queries.ask(input, command));
     }
 
     /** 回读状态及可披露结果和依据。 */
     @GetMapping("/requests/{id}")
     @RequirePermission("query.view")
-    public Result<Snapshot> read(@PathVariable String id) {
+    public Result<QuerySnapshotVO> read(@PathVariable String id) {
         return Result.success(queries.read(id));
     }
 
@@ -97,18 +98,18 @@ public class QueryController {
     @PostMapping("/requests/{id}/clarifications")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RequirePermission("query.ask")
-    public Result<Accepted> clarify(
+    public Result<QueryAcceptedVO> clarify(
             @PathVariable String id,
-            @RequestBody Clarification input,
+            @RequestBody ClarifyQueryDTO input,
             @RequestHeader("Idempotency-Key") String command) {
-        return Result.success(queries.answer(id, command, input.answer()));
+        return Result.success(queries.answer(id, command, input.getAnswer()));
     }
 
     /** 登记取消而不猜测源端停止状态。 */
     @PostMapping("/requests/{id}/cancel")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RequirePermission("query.ask")
-    public Result<Accepted> cancel(@PathVariable String id) {
+    public Result<QueryAcceptedVO> cancel(@PathVariable String id) {
         return Result.success(queries.cancel(id));
     }
 
@@ -116,7 +117,7 @@ public class QueryController {
     @PostMapping("/requests/{id}/explanations")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RequirePermission("query.ask")
-    public Result<Explanation> retryExplanation(
+    public Result<QueryExplanationVO> retryExplanation(
             @PathVariable String id, @RequestHeader("Idempotency-Key") String command) {
         return Result.success(explanations.retry(id, command));
     }

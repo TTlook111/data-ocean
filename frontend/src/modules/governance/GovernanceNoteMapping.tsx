@@ -192,7 +192,7 @@ function MappingDialog({
   });
   const save = useMutation({
     mutationFn: () =>
-      mutation<NoteChange>(
+      mutation(
         base + '/unmapped-note-changes/' + change.id + '/targets',
         'POST',
         { expectedVersion: change.version, targets: targets.map(({ target }) => target) },

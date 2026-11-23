@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Literal
 
@@ -16,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dataocean_ai.adapters.chat import ChatConfiguration, ModelConfiguration, ModelFailure, generate
 from dataocean_ai.adapters.embedding import embed
+from dataocean_ai.adapters.milvus import vector_client
 from dataocean_ai.governance.security import verify_java
 from dataocean_ai.knowledge.index import Verified
 from dataocean_ai.query.journal import journal
@@ -78,14 +78,8 @@ class Hit(BaseModel):
 
 def search(index: Index, vector: list[float]) -> list[tuple[float, Hit]]:
     """强一致读取指定的真实代次，并核对每条命中的完整身份。"""
-    os.environ["PYTHON_DOTENV_DISABLED"] = "1"
-    from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
-    uri = os.getenv("AI_MILVUS_URI")
-    if not uri:
-        # 未配置时不能使用本地正文假装完成召回。
-        raise ModelFailure("INDEX_UNAVAILABLE")
     identity = {
         "candidate": index.candidate,
         "revision": index.revision,
@@ -94,41 +88,39 @@ def search(index: Index, vector: list[float]) -> list[tuple[float, Hit]]:
         "generation": index.collection,
     }
     expected = {fragment.ordinal: fragment.digest for fragment in index.fragments}
-    client = None
     try:
-        client = MilvusClient(uri=uri, token=os.getenv("AI_MILVUS_TOKEN", ""), timeout=4)
-        groups = client.search(
-            index.collection,
-            data=[vector],
-            limit=min(4, len(expected)),
-            output_fields=[*identity, "digest"],
-            consistency_level="Strong",
-            timeout=5,
-        )
-        matches = []
-        for row in groups[0]:
-            # 跨代次结果和无法回读的摘要都必须停止。
-            value = row["entity"]
-            if (
-                row["id"] not in expected
-                or expected[row["id"]] != value.get("digest")
-                or any(value.get(key) != expected_value for key, expected_value in identity.items())
-            ):
-                raise ModelFailure("INDEX_MISMATCH")
-            matches.append(
-                (
-                    float(row["distance"]),
-                    Hit(binding=index.binding, ordinal=row["id"], digest=value["digest"]),
-                )
+        # 连接参数统一由适配器管理，超时仍由业务场景决定。
+        with vector_client(4) as client:
+            groups = client.search(
+                index.collection,
+                data=[vector],
+                limit=min(4, len(expected)),
+                output_fields=[*identity, "digest"],
+                consistency_level="Strong",
+                timeout=5,
             )
-        return matches
+            matches = []
+            for row in groups[0]:
+                # 跨代次结果和无法回读的摘要都必须停止。
+                value = row["entity"]
+                if (
+                    row["id"] not in expected
+                    or expected[row["id"]] != value.get("digest")
+                    or any(
+                        value.get(key) != expected_value for key, expected_value in identity.items()
+                    )
+                ):
+                    raise ModelFailure("INDEX_MISMATCH")
+                matches.append(
+                    (
+                        float(row["distance"]),
+                        Hit(binding=index.binding, ordinal=row["id"], digest=value["digest"]),
+                    )
+                )
+            return matches
     except (MilvusException, OSError, TimeoutError, ValueError, IndexError, KeyError):
         # 机器响应只报告失效类别。
         raise ModelFailure("INDEX_UNAVAILABLE") from None
-    finally:
-        # 每轮归还向量服务连接。
-        if client is not None:
-            client.close()
 
 
 @router.post("/retrieve")
@@ -143,9 +135,17 @@ async def recall(job: Retrieval) -> list[Hit]:
         with tracing_context(enabled=False):
             async with asyncio.timeout(min(19, job.remainingSeconds)):
                 models = {index.embedding.revision_id: index.embedding for index in job.indexes}
-                vectors = await asyncio.gather(
-                    *(embed(model, [job.question]) for model in models.values())
-                )
+                embedding_tasks = [
+                    asyncio.create_task(embed(model, [job.question])) for model in models.values()
+                ]
+                try:
+                    # 同批全部成功才进入索引查询，结果沿用模型修订顺序。
+                    vectors = await asyncio.gather(*embedding_tasks)
+                finally:
+                    # 失败或超时时取消同批剩余向量化，等待客户端释放连接后再返回。
+                    for task in embedding_tasks:
+                        task.cancel()
+                    await asyncio.gather(*embedding_tasks, return_exceptions=True)
                 by_revision = dict(zip(models, vectors, strict=True))
                 groups = await asyncio.gather(
                     *(

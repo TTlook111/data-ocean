@@ -7,8 +7,10 @@ import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.service.AccessScopeService;
-import com.dataocean.module.feedback.entity.FeedbackLifecycleVO.NoticeRound;
-import com.dataocean.module.feedback.entity.FeedbackNoticeVO;
+import com.dataocean.module.feedback.entity.vo.FeedbackClosurePreviewVO;
+import com.dataocean.module.feedback.entity.vo.FeedbackClosurePreviewVO.Recipient;
+import com.dataocean.module.feedback.entity.vo.FeedbackLifecycleVO.NoticeRound;
+import com.dataocean.module.feedback.entity.vo.FeedbackNoticeVO;
 import com.dataocean.module.feedback.mapper.FeedbackLifecycleMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Issue;
 import com.dataocean.module.feedback.mapper.FeedbackNoticeMapper;
@@ -72,26 +74,9 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     private final FeedbackLifecycleMapper lifecycle;
 
     /**
-     * 个人回告预览包含受控模板，而非内部结论。
-     */
-    public record RecipientPreview(String recipientId, String recipientName, String template, String message) {}
-
-    /**
-     * 合并后的多个原问同时确认全部接收人和模板。
-     */
-    public record Preview(
-            int version,
-            String recipientId,
-            String recipientName,
-            String template,
-            String message,
-            List<RecipientPreview> recipients,
-            String confirmation) {}
-
-    /**
      * 根据当前真实原问和收件资格生成各人的预览。
      */
-    Preview preview(Issue issue, String template) {
+    public FeedbackClosurePreviewVO preview(Issue issue, String template) {
         var affected = affected(issue);
         var recipients = affected.entrySet().stream()
                 .map(entry -> previewRecipient(
@@ -107,12 +92,12 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
                 ? UUID.nameUUIDFromBytes(json.write(recipients).getBytes(StandardCharsets.UTF_8))
                         .toString()
                 : null;
-        return new Preview(
+        return new FeedbackClosurePreviewVO(
                 issue.version(),
-                first.recipientId(),
-                first.recipientName(),
-                first.template(),
-                first.message(),
+                first.getRecipientId(),
+                first.getRecipientName(),
+                first.getTemplate(),
+                first.getMessage(),
                 grouped ? recipients : List.of(),
                 confirmation);
     }
@@ -138,14 +123,14 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     /**
      * 各人只按自己的账号和业务权限预览可公开通知。
      */
-    private RecipientPreview previewRecipient(long source, long recipient, List<String> requestIds, String template) {
+    private Recipient previewRecipient(long source, long recipient, List<String> requestIds, String template) {
         var user = users.selectById(recipient);
         if (!active(user)) {
-            return new RecipientPreview(
+            return new Recipient(
                     Ids.text(recipient), user == null ? "原提问人" : user.getDisplayName(), "SUPPRESSED", UNAVAILABLE);
         }
         var eligibility = eligibility(recipient, source, requestIds);
-        return new RecipientPreview(
+        return new Recipient(
                 Ids.text(recipient),
                 user.getDisplayName(),
                 eligibility.allowed() ? template + (eligibility.canAsk() ? "_ASK" : "") : "RESTRICTED",
@@ -155,7 +140,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     /**
      * 一次结案为每人及当前完成轮次持久化一条送达记录。
      */
-    void enqueue(Issue issue, String template, String command, int version) {
+    public void enqueue(Issue issue, String template, String command, int version) {
         affected(issue).forEach((recipient, requestIds) -> {
             // 各接收人的派发、失败、已读及定位独立。
             enqueue(issue, recipient, List.copyOf(requestIds), template, command, version);
@@ -279,14 +264,14 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     }
 
     /** 后台有权关闭的角色查看当前回告实际投递和阅读状态。 */
-    Notice status(long issue) {
+    public Notice status(long issue) {
         return notices.latest(issue);
     }
 
     /**
      * 回看同一主事项各轮的投递事实。
      */
-    List<NoticeRound> rounds(long issue) {
+    public List<NoticeRound> rounds(long issue) {
         return notices.rounds(issue);
     }
 

@@ -28,14 +28,16 @@ import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.iam.service.ServiceActorPermission;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.query.entity.dto.AskQueryDTO;
+import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
+import com.dataocean.module.query.entity.vo.QueryColumnVO;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
+import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
+import com.dataocean.module.query.entity.vo.QueryExplanationVO;
 import com.dataocean.module.query.mapper.QueryConversationMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
-import com.dataocean.module.query.service.QueryProtocol.Ask;
-import com.dataocean.module.query.service.QueryProtocol.Column;
-import com.dataocean.module.query.service.QueryProtocol.Data;
-import com.dataocean.module.query.service.QueryProtocol.Evidence;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
@@ -82,8 +84,8 @@ class QueryServiceTest {
     private final String command = UUID.randomUUID().toString();
     private final LocalDateTime time = LocalDateTime.now(ZoneOffset.UTC);
     private final Field label = new Field("deliveries", "route");
-    private final Data data =
-            new Data(List.of(new Column("route", "线路")), List.of(List.of("三号线")), false, "", "", null, null);
+    private final QueryDataVO data = new QueryDataVO(
+            List.of(new QueryColumnVO("route", "线路")), List.of(List.of("三号线")), false, "", "", null, null);
     private final Plan plan = new Plan("READY", null, "6", "VALUES", null, null, List.of(label), List.of());
     private final Source source = new Source(SOURCE, "物流", "ENABLED", 4L, 3L, 1, false, null, null, null, null);
 
@@ -97,14 +99,19 @@ class QueryServiceTest {
     private final ServiceActorPermission actors = mock(ServiceActorPermission.class);
     private final PermissionService permissions = mock(PermissionService.class);
     private final GovernanceCatalog catalog = mock(GovernanceCatalog.class);
-    private final KnowledgeVersionUse versions = mock(KnowledgeVersionUse.class);
+    private final KnowledgeVersionService versions = mock(KnowledgeVersionService.class);
     private final QueryCorpus corpus = mock(QueryCorpus.class);
     private final QueryModels models = mock(QueryModels.class);
     private final QueryJdbc jdbc = mock(QueryJdbc.class);
     private final JsonCodec json = new JsonCodec(JsonMapper.builder().build());
     private final Fingerprints fingerprints = mock(Fingerprints.class);
     private final AccessScopeVO grant = new AccessScopeVO(null, List.of(), List.of());
+    /** 提问和结果读取使用正式接口服务。 */
     private QueryService service;
+
+    /** 队列执行和过期处理使用独立工作者。 */
+    private QueryWorker worker;
+
     private Request row;
 
     /**
@@ -125,24 +132,27 @@ class QueryServiceTest {
         row = record("RETRIEVING");
         when(requests.get(id)).thenReturn(row);
         when(requests.lock(id)).thenReturn(row);
+        var guard = mock(GuardMapper.class);
+        var users = mock(UserMapper.class);
+        var tx = new TransactionTemplate(transactions);
+        var runAccess = new QueryRunAccess(requests, actors, access, catalog, versions);
         service = new QueryService(
-                mock(GuardMapper.class),
+                guard,
                 requests,
                 conversations,
-                mock(UserMapper.class),
-                context,
+                users,
+                runAccess,
                 explanations,
                 access,
                 actors,
                 permissions,
                 catalog,
                 versions,
-                corpus,
-                models,
-                jdbc,
-                new TransactionTemplate(transactions),
+                tx,
                 json,
                 fingerprints);
+        worker = new QueryWorker(
+                guard, requests, users, context, explanations, runAccess, corpus, models, jdbc, tx, json, fingerprints);
     }
 
     /**
@@ -184,23 +194,24 @@ class QueryServiceTest {
      */
     @Test
     void commandsHonorRequestIdentityAndSource() {
-        var first = service.ask(new Ask("72", "  物流状态  ", null, null, null), command);
-        verify(conversations).insert(first.id(), USER, SOURCE, "物流状态", first.id());
+        var first = service.ask(new AskQueryDTO("72", "  物流状态  ", null, null, null), command);
+        verify(conversations).insert(first.getId(), USER, SOURCE, "物流状态", first.getId());
         when(requests.byCommand(USER, command)).thenReturn(row);
         when(row.commandFingerprint()).thenReturn(new byte[] {1});
-        assertThat(service.ask(new Ask("72", "物流状态", null, null, null), command).id())
+        assertThat(service.ask(new AskQueryDTO("72", "物流状态", null, null, null), command)
+                        .getId())
                 .isEqualTo(id);
         when(row.commandFingerprint()).thenReturn(new byte[] {2});
-        assertThatThrownBy(() -> service.ask(new Ask("72", "新问题", null, null, null), command))
+        assertThatThrownBy(() -> service.ask(new AskQueryDTO("72", "新问题", null, null, null), command))
                 .isInstanceOf(BizIllegalException.class);
         when(requests.hasUnresolved(USER, SOURCE, "物流状态")).thenReturn(true);
         assertThatThrownBy(() -> service.ask(
-                        new Ask("72", "物流状态", null, null, null),
+                        new AskQueryDTO("72", "物流状态", null, null, null),
                         UUID.randomUUID().toString()))
                 .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.read("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"))
                 .isInstanceOf(BizIllegalException.class);
-        assertThatThrownBy(() -> service.ask(new Ask("72", "  ", null, null, null), command))
+        assertThatThrownBy(() -> service.ask(new AskQueryDTO("72", "  ", null, null, null), command))
                 .isInstanceOf(BizIllegalException.class);
     }
 
@@ -212,11 +223,11 @@ class QueryServiceTest {
         String conversation = row.conversationId();
         var entry = new QueryConversationMapper.Conversation(conversation, USER, SOURCE, "原对话", id, time, time);
         when(conversations.lock(conversation)).thenReturn(entry);
-        var accepted = service.ask(new Ask("72", "改看妥投状态", null, conversation, true), command);
-        verify(conversations).use(conversation, accepted.id());
+        var accepted = service.ask(new AskQueryDTO("72", "改看妥投状态", null, conversation, true), command);
+        verify(conversations).use(conversation, accepted.getId());
         verify(requests)
                 .insert(argThat(input -> id.equals(input.previous()) && conversation.equals(input.conversation())));
-        assertThatThrownBy(() -> service.ask(new Ask("73", "改看妥投状态", id, conversation, true), command))
+        assertThatThrownBy(() -> service.ask(new AskQueryDTO("73", "改看妥投状态", id, conversation, true), command))
                 .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.turns(conversation)).isInstanceOf(BizIllegalException.class);
     }
@@ -227,11 +238,11 @@ class QueryServiceTest {
     @Test
     void clarificationAndCancellationStayOnOriginalRequest() {
         when(requests.answer(id, command, "三号线")).thenReturn(1, 0);
-        assertThat(service.answer(id, command, "三号线").id()).isEqualTo(id);
+        assertThat(service.answer(id, command, "三号线").getId()).isEqualTo(id);
         assertThatThrownBy(() -> service.answer(id, command, "三号线")).isInstanceOf(BizIllegalException.class);
         when(row.clarificationCommand()).thenReturn(command);
         when(row.supplement()).thenReturn("三号线");
-        assertThat(service.answer(id, command, "三号线").id()).isEqualTo(id);
+        assertThat(service.answer(id, command, "三号线").getId()).isEqualTo(id);
         assertThatThrownBy(() -> service.answer(id, command, "四号线")).isInstanceOf(BizIllegalException.class);
         service.cancel(id);
         verify(requests).cancel(id);
@@ -247,19 +258,19 @@ class QueryServiceTest {
     void readsOnlyStillAuthorizedSnapshot() {
         delivered(row);
         when(permissions.effective(USER)).thenReturn(Set.of("query.view"), Set.of("query.view", "query.sql"));
-        when(explanations.view(id)).thenReturn(new QueryProtocol.Explanation(1, "QUEUED", null));
-        assertThat(service.read(id).sql()).isNull();
-        assertThat(service.read(id).sql()).isEqualTo("SELECT route");
+        when(explanations.view(id)).thenReturn(new QueryExplanationVO(1, "QUEUED", null));
+        assertThat(service.read(id).getSql()).isNull();
+        assertThat(service.read(id).getSql()).isEqualTo("SELECT route");
         assertThat(service.progress(id, USER).terminal()).isFalse();
         assertThat(service.progress(id, USER).explanationText()).isNull();
         assertThatThrownBy(() -> service.progress(id, USER + 1)).isInstanceOf(BizIllegalException.class);
-        when(explanations.view(id)).thenReturn(new QueryProtocol.Explanation(1, "COMPLETED", "妥投线路为三号线。"));
+        when(explanations.view(id)).thenReturn(new QueryExplanationVO(1, "COMPLETED", "妥投线路为三号线。"));
         assertThat(service.progress(id, USER).explanationText()).isEqualTo("妥投线路为三号线。");
         when(row.ruleSignature()).thenReturn("revoked");
         assertThatThrownBy(() -> service.read(id)).isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.progress(id, USER)).isInstanceOf(BizIllegalException.class);
         when(row.executedAt()).thenReturn(time.minusDays(2));
-        assertThat(service.read(id).result()).isNull();
+        assertThat(service.read(id).getResult()).isNull();
         assertThat(service.progress(id, USER).explanationText()).isNull();
     }
 
@@ -279,13 +290,13 @@ class QueryServiceTest {
             return 1;
         });
         when(requests.deliver(id, 2)).thenReturn(1);
-        service.work();
+        worker.work();
         verify(requests)
                 .permit(argThat(permit ->
                         BINDING == permit.binding() && permit.reasoning().contains("SELECT route")));
         verify(requests).deliver(id, 2);
         verify(explanations).initial(id);
-        service.expire();
+        worker.expire();
         verify(requests).expireResults();
         verify(explanations).expire();
     }
@@ -304,7 +315,7 @@ class QueryServiceTest {
         ready();
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                 .thenReturn(new Plan(decision, null, null, null, null, null, List.of(), List.of()));
-        service.work();
+        worker.work();
         verify(requests).stop(id, 2, state, "NOT_SUBMITTED", diagnostic(state), new QueryOutput().signature(List.of()));
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
     }
@@ -320,8 +331,8 @@ class QueryServiceTest {
                         new Plan("CLARIFY", "请输入线路名称", null, null, null, null, List.of(), List.of()),
                         new Plan("CLARIFY", " ", null, null, null, null, List.of(), List.of()));
         when(requests.waitForAnswer(id, 2, "请输入线路名称")).thenReturn(1);
-        service.work();
-        service.work();
+        worker.work();
+        worker.work();
         verify(requests).waitForAnswer(id, 2, "请输入线路名称");
         verify(requests)
                 .stop(
@@ -363,7 +374,7 @@ class QueryServiceTest {
                             null)));
             default -> throw new AssertionError(mode);
         }
-        service.work();
+        worker.work();
         if ("pending".equals(mode)) {
             verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString(), any(), any());
         } else {
@@ -391,7 +402,7 @@ class QueryServiceTest {
     void absentPublishedKnowledgeCreatesSourceLevelDiagnostic() throws SQLException {
         ready();
         when(corpus.bindings(SOURCE)).thenReturn(List.of());
-        service.work();
+        worker.work();
         verify(requests)
                 .stop(
                         id,
@@ -434,8 +445,8 @@ class QueryServiceTest {
         when(basis.binding()).thenReturn(binding);
         when(basis.source()).thenReturn(source);
         when(basis.labels()).thenReturn(Map.of(label, "线路"));
-        when(basis.snippet()).thenReturn(new QueryCorpus.Snippet("6", "", Map.of(), List.of()));
-        when(basis.evidence()).thenReturn(new Evidence("物流口径", 1, "4", 0));
+        when(basis.snippet()).thenReturn(new QueryEvidenceSnippetDTO("6", "", Map.of(), List.of()));
+        when(basis.evidence()).thenReturn(new QueryEvidenceVO("物流口径", 1, "4", 0));
         when(corpus.basis(SOURCE, hit)).thenReturn(basis);
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                 .thenReturn(plan);
@@ -443,7 +454,7 @@ class QueryServiceTest {
                 .thenReturn("ALLOW");
         var usage = new QueryUsage(1, List.of(), List.of(), List.of(), List.of());
         var compiled =
-                new Compiled("SELECT route", List.of(), data.columns(), List.of(label), "", "", false, null, usage);
+                new Compiled("SELECT route", List.of(), data.getColumns(), List.of(label), "", "", false, null, usage);
         when(jdbc.compile(eq(basis), any())).thenReturn(compiled);
         when(jdbc.execute(eq(source), eq(id), eq(compiled), any(), any())).thenAnswer(call -> {
             assertThat(call.<IntSupplier>getArgument(3).getAsInt()).isPositive();
@@ -486,6 +497,6 @@ class QueryServiceTest {
         when(request.result()).thenReturn(json.write(data));
         when(request.reasoning())
                 .thenReturn(json.write(new Reasoning(
-                        new Evidence("物流口径", 1, "4", 0), "SELECT route", List.of(label), List.of(), plan, 4L)));
+                        new QueryEvidenceVO("物流口径", 1, "4", 0), "SELECT route", List.of(label), List.of(), plan, 4L)));
     }
 }

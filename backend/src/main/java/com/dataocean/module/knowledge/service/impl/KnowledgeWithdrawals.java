@@ -23,6 +23,7 @@ import com.dataocean.module.knowledge.entity.vo.KnowledgeWithdrawalVO.Preview;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgeWithdrawalMapper;
+import com.dataocean.module.knowledge.service.KnowledgeWithdrawalService;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -41,7 +42,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
-public class KnowledgeWithdrawals {
+public class KnowledgeWithdrawals implements KnowledgeWithdrawalService {
 
     /**
      * 使用已定义的撤下动作权限。
@@ -106,6 +107,7 @@ public class KnowledgeWithdrawals {
     /**
      * 只读查询实际清单，并签发与本次显示完全一致的核对凭据。
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Preview preview(long source, long binding) {
         permissions.require(OPERATION);
@@ -119,6 +121,7 @@ public class KnowledgeWithdrawals {
     /**
      * 来源锁内重新核对完整范围，再保存同一撤下批次。
      */
+    @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public MutationVO withdraw(long source, long binding, String command, KnowledgeWithdrawalDTO input) {
         return commands.execute(OPERATION, command, target(source, binding), input, null, false, false, () -> {
@@ -128,7 +131,7 @@ public class KnowledgeWithdrawals {
             var members = closure(root);
             try {
                 // 依据变化后保留用户原输入并要求重新查看完整范围。
-                reviews.verify(OPERATION, target(source, binding), null, members, input.reviewToken());
+                reviews.verify(OPERATION, target(source, binding), null, members, input.getReviewToken());
             } catch (BizIllegalException changed) {
                 if (changed.getCode() != ErrorCode.REVIEW_STALE.getCode()) {
                     throw changed;
@@ -136,7 +139,7 @@ public class KnowledgeWithdrawals {
                 throw new BizIllegalException(ErrorCode.REVIEW_STALE, "撤下范围或核对依据已变化，请重新核对");
             }
             long batch = IdWorker.getId();
-            String reason = input.reason().strip();
+            String reason = input.getReason().strip();
             String key = UUID.fromString(command).toString();
             withdrawals.create(batch, source, binding, reason, UserContext.getUser(), key);
             members.forEach(member -> withdrawals.add(batch, Ids.parse(member.bindingId()), member.depth()));
@@ -178,6 +181,7 @@ public class KnowledgeWithdrawals {
     /**
      * 已撤下仍可读取历史批次和关闭时实际采用的范围。
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Detail history(long source, long binding) {
         versionUse.requireOperator(source);

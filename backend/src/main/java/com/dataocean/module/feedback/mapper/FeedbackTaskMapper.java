@@ -83,6 +83,43 @@ public interface FeedbackTaskMapper {
     List<Task> list(long issue, boolean lock);
 
     /**
+     * 从事项台账取得每条任务当期的跟进内容。
+     */
+    record Progress(
+            /**
+             * 当前事项内的任务编号。
+             */
+            int taskId,
+            /**
+             * 已做工作，证据受限时为空。
+             */
+            String workDone,
+            /**
+             * 下一步安排，证据受限时为空。
+             */
+            String nextStep) {}
+
+    /**
+     * 只在任务最新的非核查动作仍是跟进时返回正文。按本轮查找，与事项历史显示条数无关。
+     */
+    @Select(
+            """
+            SELECT a.task_id,CASE WHEN #{includeText} THEN a.note END AS work_done,
+                CASE WHEN #{includeText} THEN a.root_cause END AS next_step
+            FROM fb_issue_activity a
+            JOIN (
+                SELECT history.task_id,MAX(history.issue_version) AS issue_version
+                FROM fb_issue_activity history
+                JOIN fb_issue i ON i.id=history.issue_id AND i.completion_round=history.completion_round
+                WHERE history.issue_id=#{issue} AND history.task_id IS NOT NULL AND history.action<>'TASK_REVIEWED'
+                GROUP BY history.task_id
+            ) latest ON latest.issue_version=a.issue_version AND latest.task_id=a.task_id
+            WHERE a.issue_id=#{issue}
+                AND a.action IN ('SOURCE_FOLLOW_UP','SOURCE_WAITING','TECHNICAL_FOLLOW_UP','TECHNICAL_WAITING')
+            """)
+    List<Progress> currentProgress(long issue, boolean includeText);
+
+    /**
      * 建立独立任务，既有单任务的结果可按原版本带入。
      */
     @Insert(

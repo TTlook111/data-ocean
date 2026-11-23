@@ -96,7 +96,7 @@ export function ReviewDialog({
     setBusy(true);
     setError(null);
     try {
-      const result = await mutation<{ targetId: string } | { taskId: string }>(
+      const result = await mutation(
         submission.path,
         submission.method,
         { ...submission.body, reviewToken: submission.preview.reviewToken },
@@ -104,9 +104,13 @@ export function ReviewDialog({
         command,
       );
       await cache.invalidateQueries();
-      message.success(submission.successText ?? '已保存');
       // 采集接口返回任务编号。原命令核实时仍沿用通用目标编号。
-      const targetId = 'targetId' in result ? result.targetId : result.taskId;
+      const targetId = result.targetId ?? result.taskId;
+      if (!targetId) {
+        // 避免把空编号用于下一步定位。
+        throw new Error('操作已提交，暂时无法定位记录');
+      }
+      message.success(submission.successText ?? '已保存');
       submission.done(targetId, command);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作未完成');

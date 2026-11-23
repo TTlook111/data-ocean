@@ -104,7 +104,11 @@ public class DatasourceEvents {
                 source,
                 version,
                 null,
-                new BusinessNoteRef(Long.toString(source), Long.toString(note), revision, version,
+                new BusinessNoteRef(
+                        Long.toString(source),
+                        Long.toString(note),
+                        revision,
+                        version,
                         after == null ? "WITHDRAWN" : "CONTENT_CHANGED"));
     }
 

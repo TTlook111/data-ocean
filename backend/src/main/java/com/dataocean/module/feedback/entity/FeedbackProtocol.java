@@ -1,5 +1,6 @@
 package com.dataocean.module.feedback.entity;
 
+import com.dataocean.module.feedback.entity.vo.FeedbackNoticeVO;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;

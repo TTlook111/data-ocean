@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { api, ApiError, mutation } from '../../shared/api';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import { modelFailureLabels } from '../models/types';
-import type { Definition, Generation, Item, Suggestion, Target } from './types';
+import type { Definition, Item, Suggestion, Target } from './types';
 import { useGenerationTask } from './useGenerationTask';
 
 /**
@@ -111,7 +111,7 @@ export function GovernanceGeneration({
   });
   const launch = useMutation({
     mutationFn: () =>
-      mutation<Generation & { targetId?: string }>(
+      mutation(
         base + '/generations',
         'POST',
         { ...scope, reviewToken: preview.data?.reviewToken },

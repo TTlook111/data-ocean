@@ -110,6 +110,7 @@ const sourceTask: FeedbackTask = {
   canReview: false,
   canAssign: false,
   canChangeStatus: true,
+  progress: null,
   resolution: {
     ...detail.resolution!,
     canSaveSourceData: true,

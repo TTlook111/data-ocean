@@ -6,12 +6,12 @@ import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.service.ServiceActorPermission;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
+import com.dataocean.module.query.entity.vo.QueryExplanationVO;
 import com.dataocean.module.query.mapper.QueryExplanationMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
-import com.dataocean.module.query.service.QueryProtocol.Data;
-import com.dataocean.module.query.service.QueryProtocol.Explanation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -42,7 +42,7 @@ public class QueryExplanations {
     /** 出入阶段都按当前身份与源访问检查。 */
     private final ServiceActorPermission actors;
     /** 解释仍遵循同一发布许可与实际输出限制。 */
-    private final KnowledgeVersionUse knowledge;
+    private final KnowledgeVersionService knowledge;
     /** 当前输出限制来源。 */
     private final AccessScopeService access;
     /** 短小的权限、预算及接收事务。 */
@@ -66,13 +66,13 @@ public class QueryExplanations {
     }
 
     /** 当前已获结果权限才会回读解释。 */
-    Explanation view(String request) {
+    QueryExplanationVO view(String request) {
         var row = revisions.latest(request);
-        return row == null ? null : new Explanation(row.revision(), row.status(), row.text());
+        return row == null ? null : new QueryExplanationVO(row.revision(), row.status(), row.text());
     }
 
     /** 重试按实际请求、最新修订和剩余预算受控。 */
-    public Explanation retry(String id, String command) {
+    public QueryExplanationVO retry(String id, String command) {
         String request = uuid(id);
         String key = uuid(command);
         return tx.execute(status -> {
@@ -84,7 +84,7 @@ public class QueryExplanations {
             requireResult(row);
             var replay = revisions.byCommand(request, key);
             if (replay != null) {
-                return new Explanation(replay.revision(), replay.status(), replay.text());
+                return new QueryExplanationVO(replay.revision(), replay.status(), replay.text());
             }
             var previous = revisions.latest(request);
             if (previous != null && !Set.of("FAILED", "STOPPED").contains(previous.status())) {
@@ -95,7 +95,7 @@ public class QueryExplanations {
                 throw BizIllegalException.state("本次说明的可用处理预算已用完");
             }
             revisions.add(request, next, key);
-            return new Explanation(next, "QUEUED", null);
+            return new QueryExplanationVO(next, "QUEUED", null);
         });
     }
 
@@ -129,7 +129,9 @@ public class QueryExplanations {
                 models.requireExplanationScope(query.sourceId());
                 long model = models.revision("result-explanation");
                 int budget = Math.min(22000, query.remainingMillis());
-                if (data.rows().size() > 20 || budget < 2000 || queries.reserveExplanation(query.id(), budget) != 1) {
+                if (data.getRows().size() > 20
+                        || budget < 2000
+                        || queries.reserveExplanation(query.id(), budget) != 1) {
                     throw QueryFailure.resource();
                 }
                 revisions.claim(query.id(), job.revision(), model);
@@ -163,7 +165,7 @@ public class QueryExplanations {
     }
 
     /** 结果授权、留存、同版知识和原规则签名全部匹配时才能解释。 */
-    private Data requireResult(Request row) {
+    private QueryDataVO requireResult(Request row) {
         if (row == null
                 || !"RESULT_DELIVERED".equals(row.state())
                 || row.result() == null
@@ -181,34 +183,35 @@ public class QueryExplanations {
                         throw BizIllegalException.denied();
                     }
                     knowledge.requireForQuery(row.sourceId(), row.bindingId());
-                    return json.read(row.result(), Data.class);
+                    return json.read(row.result(), QueryDataVO.class);
                 },
                 "query.view",
                 "query.ask");
     }
 
     /** 解释不能添加快照外数字、隐含采购信息或更换核心结果。 */
-    private void verifyFacts(Request row, Data data, String text) {
+    private void verifyFacts(Request row, QueryDataVO data, String text) {
         if (text.isBlank() || text.length() > 1000) {
             throw QueryFailure.technical();
         }
         var allowed = new HashSet<BigDecimal>();
-        NUMBER.matcher(row.question() + " " + data.scope()).results()
+        NUMBER.matcher(row.question() + " " + data.getScope())
+                .results()
                 .forEach(match -> allowed.add(number(match.group())));
-        data.rows().stream()
+        data.getRows().stream()
                 .flatMap(java.util.Collection::stream)
                 .filter(Objects::nonNull)
-                .forEach(value -> NUMBER.matcher(value).results()
-                        .forEach(match -> allowed.add(number(match.group()))));
-        var described = NUMBER.matcher(text).results().map(match -> number(match.group())).toList();
+                .forEach(value -> NUMBER.matcher(value).results().forEach(match -> allowed.add(number(match.group()))));
+        var described = NUMBER.matcher(text)
+                .results()
+                .map(match -> number(match.group()))
+                .toList();
         if (!allowed.containsAll(described)) {
             throw QueryFailure.knowledge();
         }
-        if (data.rows().size() == 1 && data.columns().size() == 1) {
-            var value = data.rows().get(0).get(0);
-            if (value != null
-                    && NUMBER.matcher(value).matches()
-                    && !described.contains(number(value))) {
+        if (data.getRows().size() == 1 && data.getColumns().size() == 1) {
+            var value = data.getRows().get(0).get(0);
+            if (value != null && NUMBER.matcher(value).matches() && !described.contains(number(value))) {
                 throw QueryFailure.knowledge();
             }
         }
@@ -236,5 +239,5 @@ public class QueryExplanations {
     }
 
     /** 本次领取到的独立修订与额度。 */
-    private record Work(Request query, int revision, long model, int seconds, Data data) {}
+    private record Work(Request query, int revision, long model, int seconds, QueryDataVO data) {}
 }

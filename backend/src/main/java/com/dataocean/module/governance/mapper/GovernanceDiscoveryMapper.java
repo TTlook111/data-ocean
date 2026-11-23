@@ -83,7 +83,8 @@ public interface GovernanceDiscoveryMapper {
     /**
      * 供知识交接读取指定对象内的实际审核记录，读操作不占写锁。
      */
-    @Select(CURRENT + """
+    @Select(CURRENT
+            + """
             WHERE c.source_id=#{source} AND c.object_id=#{object} AND c.id=#{id}
             """)
     Candidate read(@Param("source") long source, @Param("object") long object, @Param("id") long id);

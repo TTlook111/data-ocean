@@ -69,19 +69,6 @@ export const followUpActions = new Set<Activity['action']>([
   'TECHNICAL_WAITING',
 ]);
 
-/**
- * 读取任务当前的跟进记录，重新分派或提交结果后不沿用旧进展。
- */
-export function currentTaskFollowUp(activities: Activity[], taskId: number | undefined) {
-  // 独立任务建立前没有可回填的跟进记录。
-  if (taskId === undefined) return undefined;
-  // 追加核查不覆盖任务当前的跟进进展。
-  const latest = activities.find(
-    (entry) => entry.taskId === taskId && entry.action !== 'TASK_REVIEWED',
-  );
-  return latest && followUpActions.has(latest.action) ? latest : undefined;
-}
-
 /** 详情由服务端决定可见证据和本次可执行操作。 */
 export type IssueDetail = {
   issue: Issue;
@@ -211,6 +198,13 @@ export type FeedbackTask = {
   canChangeStatus: boolean;
   /** 等待技术修复生效、源系统修正或同步期间继续保留跟进责任。 */
   waitingExternal?: boolean;
+  /** 本轮仍有效的进展，正文按原问证据权限裁剪。 */
+  progress: {
+    /** 已完成的排查、沟通或核对工作。 */
+    workDone: string | null;
+    /** 继续跟进的安排。 */
+    nextStep: string | null;
+  } | null;
   /** 本任务当前结果、复验和操作权限。 */
   resolution: Resolution;
 };

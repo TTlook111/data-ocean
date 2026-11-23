@@ -46,8 +46,8 @@ class DatasourceSchedulerWindowTest {
         var anchor = LocalDateTime.ofInstant(now.minus(2, ChronoUnit.HOURS), ZoneOffset.UTC);
         var plan = new ScheduleRow(false, anchor, 0, 1, null, null);
         var result = scheduler.status(source, revision, plan);
-        assertThat(result.state()).isEqualTo(state);
-        assertThat(result.nextScheduledAt()).isEqualTo(Instant.parse(expected));
+        assertThat(result.getState()).isEqualTo(state);
+        assertThat(result.getNextScheduledAt()).isEqualTo(Instant.parse(expected));
     }
 
     /**

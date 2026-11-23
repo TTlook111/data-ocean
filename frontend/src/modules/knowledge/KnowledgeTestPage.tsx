@@ -508,7 +508,7 @@ function TestForm({
         commandRef.current = { body: signature, id: crypto.randomUUID() };
       }
       const url = current ? path + '/' + current.test.id + (review ? '/reviews' : '/draft') : path;
-      return mutation<{ targetId: string }>(
+      return mutation(
         url,
         current && !review ? 'PUT' : 'POST',
         payload,
@@ -523,7 +523,10 @@ function TestForm({
         cache.invalidateQueries({ queryKey: ['knowledge-tests', source] }),
         cache.invalidateQueries({ queryKey: ['knowledge-test', source, response.targetId] }),
       ]);
-      opened(response.targetId);
+      if (response.targetId) {
+        // 正式写入或回查的明确编号用于定位题目。
+        opened(response.targetId);
+      }
       void message.success(input.action === 'review' ? '题目已审核' : '题目草稿已保存');
     },
     onError: (failure, input) => {

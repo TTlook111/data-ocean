@@ -2,8 +2,8 @@ package com.dataocean.module.knowledge.controller;
 
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.security.RequirePermission;
+import com.dataocean.module.knowledge.service.KnowledgeValidationService;
 import com.dataocean.module.knowledge.service.KnowledgeValidationWire.Input;
-import com.dataocean.module.knowledge.service.impl.KnowledgeValidations;
 
 import java.util.UUID;
 
@@ -30,7 +30,7 @@ public class KnowledgeValidationWorkerController {
     /**
      * 耐久执行记录和当次来源资格。
      */
-    private final KnowledgeValidations validations;
+    private final KnowledgeValidationService validations;
 
     /**
      * 一次性领取确切索引代次和模型调用许可。

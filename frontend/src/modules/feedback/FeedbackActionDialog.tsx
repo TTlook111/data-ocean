@@ -1,11 +1,12 @@
 import { Alert, App, Button, Checkbox, Descriptions, Form, Input, Modal, Select } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useRef, useState, type ComponentRef } from 'react';
-import { ApiError, api, mutation, queryString } from '../../shared/api';
+import { ApiError, api, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
 import { directions, type FeedbackTask, type IssueDetail } from './types';
+import { useFeedbackCommand } from './useFeedbackCommand';
 
 /**
  * 分派、核查和任务协调用同一组版本、回执与焦点处理。
@@ -54,13 +55,10 @@ export function FeedbackActionDialog({
   const [assignee, setAssignee] = useState<{ value: string; label: string }>();
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
+  const { uncertain, send, reset } = useFeedbackCommand(refresh);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const confirmButton = useRef<ComponentRef<typeof Button>>(null);
-  const attempt = useRef<{ key: string; body: Fields & { expectedVersion: number } } | undefined>(
-    undefined,
-  );
   const adding = kind === 'add-task';
   const assigningTask = kind === 'assign-task';
   const disposition = kind === 'task-status';
@@ -145,14 +143,11 @@ export function FeedbackActionDialog({
             basis: fields.basis?.trim(),
             rootCause: fields.rootCause?.trim(),
           };
-    const request =
-      uncertain && attempt.current ? attempt.current : { key: crypto.randomUUID(), body };
-    attempt.current = request;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
-      await mutation(path, 'POST', request.body, authority, request.key);
+      await send(path, body, authority);
       await refresh();
       message.success(
         disposition
@@ -171,11 +166,8 @@ export function FeedbackActionDialog({
         setConflict(true);
       } else if (failure instanceof ApiError) {
         setPreview(undefined);
-        setUncertain(false);
         setError(applyFormError(form, failure));
-        if (failure.code === 403003) void refresh();
       } else {
-        setUncertain(true);
         setError(failure instanceof Error ? failure.message : '暂时无法核实提交结果');
       }
     } finally {
@@ -193,7 +185,7 @@ export function FeedbackActionDialog({
       if (current) {
         setVersion(current.version);
         setConflict(false);
-        setUncertain(false);
+        reset();
       } else {
         setError('暂时无法读取当前事项');
       }
@@ -215,7 +207,7 @@ export function FeedbackActionDialog({
 
   /** 已核对的草稿和待确认回执沿用原输入，编辑阶段先通过表单校验。 */
   function confirm() {
-    if (uncertain && attempt.current) void submit(attempt.current.body);
+    if (uncertain) void submit({});
     else if (preview) void submit(preview);
     else form.submit();
   }

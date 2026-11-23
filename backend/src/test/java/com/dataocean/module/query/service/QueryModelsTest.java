@@ -6,9 +6,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryModels.Run;
-import com.dataocean.module.query.service.QueryProtocol.Data;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 
@@ -34,6 +34,7 @@ class QueryModelsTest {
 
     /** 当前节点分配与外发登记由测试明确给出。 */
     private final ModelRegistry registry = mock(ModelRegistry.class);
+
     private final QueryAiStepMapper steps = mock(QueryAiStepMapper.class);
     private final Run run = new Run("query-a", 3, false);
     private final Memory memory = new Memory("2026-11-22T00:00:00Z", List.of(), List.of());
@@ -64,20 +65,31 @@ class QueryModelsTest {
         when(steps.issueExplanation("query-a", 2, "explanation-2")).thenReturn(1);
         models.requireScope(10);
         models.requireExplanationScope(10);
-        assertThatThrownBy(() -> models.requireScope(12)).isInstanceOf(QueryFailure.class).hasMessage("TECHNICAL_FAILURE");
-        assertThatThrownBy(() -> models.requireExplanationScope(11)).isInstanceOf(QueryFailure.class).hasMessage("PERMISSION_DENIED");
+        assertThatThrownBy(() -> models.requireScope(12))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("TECHNICAL_FAILURE");
+        assertThatThrownBy(() -> models.requireExplanationScope(11))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("PERMISSION_DENIED");
         assertThat(models.revision("sql-generate")).isEqualTo(9);
         assertThat(models.retrieve(run, "净能耗", List.of(), 10).get(0).binding()).isEqualTo("6");
         Plan plan = models.plan(run, 9, 35, "净能耗", List.of(), List.of(), memory);
         assertThat(plan.decision()).isEqualTo("READY");
-        assertThat(models.repairParameter(new Run("query-a", 3, true), 9, 10,
-                "净能耗", List.of(), List.of(), plan, memory).decision()).isEqualTo("READY");
+        assertThat(models.repairParameter(new Run("query-a", 3, true), 9, 10, "净能耗", List.of(), List.of(), plan, memory)
+                        .decision())
+                .isEqualTo("READY");
         assertThat(models.check(run, "semantic", 11, 12, "净能耗", List.of(), List.of(), plan, memory))
                 .isEqualTo("ALLOW");
-        assertThat(models.explain("query-a", 2, 11, 8, "妥投量",
-                new Data(List.of(), List.of(), false, "件", "", null, null))).isEqualTo("妥投量 4");
-        assertThat(seen).containsExactly(
-                "retrieve:true", "plan:false", "repair-parameter-clarified:true", "semantic:true", "explanation-2:false");
+        assertThat(models.explain(
+                        "query-a", 2, 11, 8, "妥投量", new QueryDataVO(List.of(), List.of(), false, "件", "", null, null)))
+                .isEqualTo("妥投量 4");
+        assertThat(seen)
+                .containsExactly(
+                        "retrieve:true",
+                        "plan:false",
+                        "repair-parameter-clarified:true",
+                        "semantic:true",
+                        "explanation-2:false");
     }
 
     /**
@@ -98,12 +110,16 @@ class QueryModelsTest {
         assertThat(models.retrieve(run, "妥投量", List.of(), 9)).isEmpty();
         assertThat(calls).containsExactly("false", "true");
 
-        var interrupted = client((request, bytes, execution) -> { throw new ResourceAccessException("offline"); });
+        var interrupted = client((request, bytes, execution) -> {
+            throw new ResourceAccessException("offline");
+        });
         assertThatThrownBy(() -> interrupted.retrieve(run, "妥投量", List.of(), 9))
-                .isInstanceOf(QueryFailure.class).hasMessage("RECOVERY_PENDING");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("RECOVERY_PENDING");
         when(steps.issue("query-a", 3, "retrieve")).thenReturn(0);
         assertThatThrownBy(() -> interrupted.retrieve(run, "妥投量", List.of(), 9))
-                .isInstanceOf(QueryFailure.class).hasMessage("RECOVERY_PENDING");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("RECOVERY_PENDING");
     }
 
     /**
@@ -115,7 +131,9 @@ class QueryModelsTest {
         List<ClientHttpRequestInterceptor> failures = List.of(
                 (request, bytes, execution) -> response(HttpStatus.FORBIDDEN, "{}"),
                 (request, bytes, execution) -> response(HttpStatus.OK, ""),
-                (request, bytes, execution) -> { throw new RestClientException("invalid transport"); },
+                (request, bytes, execution) -> {
+                    throw new RestClientException("invalid transport");
+                },
                 (request, bytes, execution) -> {
                     if ("false".equals(request.getHeaders().getFirst("X-Query-Lookup"))) {
                         throw new ResourceAccessException("lost reply");
@@ -124,7 +142,8 @@ class QueryModelsTest {
                 });
         for (var handler : failures) {
             assertThatThrownBy(() -> client(handler).retrieve(run, "净能耗", List.of(), 1))
-                    .isInstanceOf(QueryFailure.class).hasMessage("TECHNICAL_FAILURE");
+                    .isInstanceOf(QueryFailure.class)
+                    .hasMessage("TECHNICAL_FAILURE");
         }
     }
 
@@ -133,9 +152,13 @@ class QueryModelsTest {
      */
     private QueryModels client(ClientHttpRequestInterceptor handler) {
         var beans = new StaticListableBeanFactory();
-        beans.addBean("test", RestClient.builder().baseUrl("http://127.0.0.1").requestInterceptor(handler).build());
-        return new QueryModels(beans.getBeanProvider(RestClient.class), registry, steps,
-                Set.of(10L, 11L), Set.of(10L));
+        beans.addBean(
+                "test",
+                RestClient.builder()
+                        .baseUrl("http://127.0.0.1")
+                        .requestInterceptor(handler)
+                        .build());
+        return new QueryModels(beans.getBeanProvider(RestClient.class), registry, steps, Set.of(10L, 11L), Set.of(10L));
     }
 
     /**

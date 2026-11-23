@@ -16,7 +16,8 @@ public interface GovernanceCatalogMapper {
     /**
      * 用不可变对象修订查出该版的实际字段身份。
      */
-    @Select("""
+    @Select(
+            """
             SELECT c.column_id,c.id AS revision_id,c.source_name AS name,c.native_type,c.nullable,
                    c.source_comment,f.ordinal
             FROM ds_object_column f JOIN ds_column_revision c ON c.id=f.column_revision_id
@@ -27,7 +28,8 @@ public interface GovernanceCatalogMapper {
     /**
      * 返回同源待核实总数，排除已有后继事实的记录。
      */
-    @Select("""
+    @Select(
+            """
             SELECT COUNT(*) FROM ds_change WHERE source_id=#{source} AND successor_change_id IS NULL
               AND fact_state='PENDING' AND (object_id=#{object} OR comparison_object_id=#{object})
             """)
@@ -36,7 +38,8 @@ public interface GovernanceCatalogMapper {
     /**
      * 保存本次发布已确定的事实集合，人工核实时使用指定 ID 精确读取。
      */
-    @Select("""
+    @Select(
+            """
             <script>
             SELECT c.id,c.change_type,c.target_kind,c.attribute_kind,c.object_id,c.comparison_object_id,
                    c.before_snapshot_id,c.after_snapshot_id,c.before_observation_id,c.after_observation_id,
@@ -50,13 +53,13 @@ public interface GovernanceCatalogMapper {
             ORDER BY c.id
             </script>
             """)
-    List<Fact> facts(
-            @Param("source") long source, @Param("task") String task, @Param("change") Long change);
+    List<Fact> facts(@Param("source") long source, @Param("task") String task, @Param("change") Long change);
 
     /**
      * 最后一次确认对象或字段的成功观察仅用于历史和办理移除。
      */
-    @Select("""
+    @Select(
+            """
             <script>
             SELECT o.id FROM ds_snapshot_object o JOIN ds_snapshot s ON s.id=o.snapshot_id
             LEFT JOIN ds_change_review r ON r.change_id=o.identity_change_id AND r.resolved_object_id IS NOT NULL
@@ -70,13 +73,13 @@ public interface GovernanceCatalogMapper {
             ORDER BY s.committed_at DESC,s.id DESC LIMIT 1
             </script>
             """)
-    Long lastObservation(
-            @Param("source") long source, @Param("object") long object, @Param("column") Long column);
+    Long lastObservation(@Param("source") long source, @Param("object") long object, @Param("column") Long column);
 
     /**
      * 写入所属模块可回读的稳定影响编号。
      */
-    @Insert("""
+    @Insert(
+            """
             INSERT INTO ds_change_impact_ref(change_id,ref_kind,ref_id,linked_at)
             VALUES(#{change},#{kind},#{ref},UTC_TIMESTAMP(3))
             ON DUPLICATE KEY UPDATE linked_at=linked_at
@@ -86,7 +89,8 @@ public interface GovernanceCatalogMapper {
     /**
      * 内容办理阶段独立于事实核实结论和核实版本。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE ds_change SET stage=#{stage},updated_at=UTC_TIMESTAMP(3)
             WHERE source_id=#{source} AND id=#{change} AND fact_state='CONFIRMED' AND stage!=#{stage}
             """)
@@ -104,8 +108,13 @@ public interface GovernanceCatalogMapper {
      * @param ordinal 来源字段顺序
      */
     record Column(
-            long columnId, long revisionId, String name, String nativeType, boolean nullable,
-            String sourceComment, int ordinal) {}
+            long columnId,
+            long revisionId,
+            String name,
+            String nativeType,
+            boolean nullable,
+            String sourceComment,
+            int ordinal) {}
 
     /**
      * 保留前后两侧原观察和值，供治理按各自快照定位。
@@ -125,7 +134,17 @@ public interface GovernanceCatalogMapper {
      * @param discoveredAt 发现时的 UTC 时间
      */
     record Fact(
-            long id, String changeType, String targetKind, String attributeKind, Long objectId,
-            Long comparisonObjectId, long beforeSnapshotId, long afterSnapshotId, Long beforeObservationId,
-            Long afterObservationId, String beforeValue, String afterValue, LocalDateTime discoveredAt) {}
+            long id,
+            String changeType,
+            String targetKind,
+            String attributeKind,
+            Long objectId,
+            Long comparisonObjectId,
+            long beforeSnapshotId,
+            long afterSnapshotId,
+            Long beforeObservationId,
+            Long afterObservationId,
+            String beforeValue,
+            String afterValue,
+            LocalDateTime discoveredAt) {}
 }

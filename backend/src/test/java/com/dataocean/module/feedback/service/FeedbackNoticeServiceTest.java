@@ -79,15 +79,15 @@ class FeedbackNoticeServiceTest {
                         new IamPrincipal(7L, 1L, "reader", "原提问人"), null, List.of()));
         try {
             var allowed = service.read(notice.id());
-            assertThat(allowed.requestId()).isEqualTo(notice.answerId());
-            assertThat(allowed.requestIds()).containsExactly(notice.answerId());
-            assertThat(allowed.message()).contains("通过复验");
+            assertThat(allowed.getRequestId()).isEqualTo(notice.answerId());
+            assertThat(allowed.getRequestIds()).containsExactly(notice.answerId());
+            assertThat(allowed.getMessage()).contains("通过复验");
             var restricted = service.read(notice.id());
-            assertThat(restricted.requestId()).isNull();
-            assertThat(restricted.sourceId()).isNull();
-            assertThat(restricted.requestIds()).isEmpty();
-            assertThat(restricted.message()).isEqualTo("该反馈已完成处理，详细结果受当前权限限制。");
-            assertThat(restricted.readAt()).isEqualTo(allowed.readAt());
+            assertThat(restricted.getRequestId()).isNull();
+            assertThat(restricted.getSourceId()).isNull();
+            assertThat(restricted.getRequestIds()).isEmpty();
+            assertThat(restricted.getMessage()).isEqualTo("该反馈已完成处理，详细结果受当前权限限制。");
+            assertThat(restricted.getReadAt()).isEqualTo(allowed.getReadAt());
         } finally {
             // 不把测试登录身份留在复用线程中。
             SecurityContextHolder.clearContext();

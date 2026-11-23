@@ -63,10 +63,20 @@ public class GovernanceCatalog {
         Long snapshotId = source.getCurrentSnapshotId();
         var snapshot = snapshotId == null ? null : snapshots.selectById(snapshotId);
         var at = snapshot == null ? null : snapshot.getCommittedAt();
-        boolean pending = at == null || source.getScopeChangedAt() != null
-                && source.getScopeChangedAt().isAfter(at);
-        return new Source(id, source.getName(), source.getLifecycle(), configuration, snapshotId,
-                source.getCatalogVersion(), pending, at, source.getStaleSince(), scope(id, configuration),
+        boolean pending = at == null
+                || source.getScopeChangedAt() != null
+                        && source.getScopeChangedAt().isAfter(at);
+        return new Source(
+                id,
+                source.getName(),
+                source.getLifecycle(),
+                configuration,
+                snapshotId,
+                source.getCatalogVersion(),
+                pending,
+                at,
+                source.getStaleSince(),
+                scope(id, configuration),
                 snapshot == null ? null : scope(id, snapshot.getConfigRevisionId()));
     }
 
@@ -78,8 +88,9 @@ public class GovernanceCatalog {
             // 没有成功快照就没有正式治理依据。
             return null;
         }
-        return entry(source.id(), catalog.object(
-                source.id(), source.snapshotId(), id, source.configurationId(), true, false));
+        return entry(
+                source.id(),
+                catalog.object(source.id(), source.snapshotId(), id, source.configurationId(), true, false));
     }
 
     /**
@@ -91,8 +102,11 @@ public class GovernanceCatalog {
             return List.of();
         }
         return catalog.members(source.snapshotId()).stream()
-                .map(Observation::objectId).filter(id -> id != null && id != anchor)
-                .distinct().sorted().limit(limit)
+                .map(Observation::objectId)
+                .filter(id -> id != null && id != anchor)
+                .distinct()
+                .sorted()
+                .limit(limit)
                 .map(id -> current(source, id))
                 .filter(entry -> entry != null && !entry.retired() && pending(source.id(), entry.id()) == 0)
                 .toList();
@@ -165,8 +179,12 @@ public class GovernanceCatalog {
             // 固定观察仍需要归属检查。
             throw BizIllegalException.missing();
         }
-        return new Entry(object.getId(), object.getGeneration(), object.getRetiredAt() != null,
-                observation, changes.columns(observation.revisionId()));
+        return new Entry(
+                object.getId(),
+                object.getGeneration(),
+                object.getRetiredAt() != null,
+                observation,
+                changes.columns(observation.revisionId()));
     }
 
     /**
@@ -185,8 +203,16 @@ public class GovernanceCatalog {
      * @param snapshotScope 实际成功快照范围
      */
     public record Source(
-            long id, String name, String lifecycle, Long configurationId, Long snapshotId, int catalogVersion,
-            boolean scopePending, LocalDateTime successfulAt, LocalDateTime staleSince, Scope effectiveScope,
+            long id,
+            String name,
+            String lifecycle,
+            Long configurationId,
+            Long snapshotId,
+            int catalogVersion,
+            boolean scopePending,
+            LocalDateTime successfulAt,
+            LocalDateTime staleSince,
+            Scope effectiveScope,
             Scope snapshotScope) {}
 
     /**
@@ -204,14 +230,20 @@ public class GovernanceCatalog {
          * 源端名称仅在该份确切结构中向前或向后定位字段。
          */
         public Column named(String name) {
-            return columns.stream().filter(column -> column.name().equals(name)).findFirst().orElse(null);
+            return columns.stream()
+                    .filter(column -> column.name().equals(name))
+                    .findFirst()
+                    .orElse(null);
         }
 
         /**
          * 当前字段必须是对象结构的实际成员。
          */
         public Column column(long id) {
-            return columns.stream().filter(column -> column.columnId() == id).findFirst().orElse(null);
+            return columns.stream()
+                    .filter(column -> column.columnId() == id)
+                    .findFirst()
+                    .orElse(null);
         }
     }
 }

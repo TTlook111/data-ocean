@@ -53,13 +53,7 @@ export function useReleaseCommand<T extends object>({
           throw error;
         }
       }
-      const receipt = await mutation<{ targetId: string }>(
-        path,
-        'POST',
-        attempt.body,
-        operationCode,
-        attempt.command,
-      );
+      const receipt = await mutation(path, 'POST', attempt.body, operationCode, attempt.command);
       return { state: 'COMMITTED', targetId: receipt.targetId };
     },
     /** 以实际提交回执推动页面更新。 */

@@ -210,7 +210,7 @@ public class CollectionServiceImpl {
                 command,
                 source.getId(),
                 revision,
-                Ids.nullable(actor.id()),
+                Ids.nullable(actor.getId()),
                 json.write(actor),
                 parent,
                 scheduleVersion,
@@ -574,8 +574,8 @@ public class CollectionServiceImpl {
      */
     private String scopeLabel(RevisionRow revision) {
         Scope scope = scope(revision);
-        return scope.databaseName() + (scope.schemas().isEmpty() ? "" : " / " + String.join("、", scope.schemas()))
-                + " · 全部可见对象";
+        return scope.getDatabaseName()
+                + (scope.getSchemas().isEmpty() ? "" : " / " + String.join("、", scope.getSchemas())) + " · 全部可见对象";
     }
 
     /**

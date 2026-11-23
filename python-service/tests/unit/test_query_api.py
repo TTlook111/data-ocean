@@ -159,6 +159,48 @@ def test_retrieval_reuses_only_same_embedding_revision(monkeypatch, http):
         asyncio.run(api.recall(query))
 
 
+def test_retrieval_cancels_sibling_embedding_before_returning_failure(monkeypatch):
+    """
+    一个模型失败后，仍在等待的同批模型须先完成取消清理。
+    """
+    query = api.Retrieval.model_validate(
+        {"remainingSeconds": 3, "question": "物流", "indexes": [index(), index("12", "24")]}
+    )
+    search = Mock()
+    monkeypatch.setattr(api, "search", search)
+
+    async def scenario():
+        """
+        让失败发生在另一个向量化请求启动后，检查返回时的清理事实。
+        """
+        started = asyncio.Event()
+        cleaned = asyncio.Event()
+
+        async def embed(model, _texts):
+            """
+            第一份配置在另一路挂起后失败，另一路只能通过取消结束。
+            """
+            if model.revision_id == "21":
+                # 先保证另一个请求已经启动。
+                await started.wait()
+                raise ModelFailure("MODEL_AUTH")
+            started.set()
+            try:
+                # 跟真实等待的 HTTP 调用一样，在取消前不返回。
+                await asyncio.Future()
+            finally:
+                # 以清理事件记录连接释放时机。
+                cleaned.set()
+
+        monkeypatch.setattr(api, "embed", embed)
+        with pytest.raises(ModelFailure, match="MODEL_AUTH"):
+            await api.recall(query)
+        assert cleaned.is_set()
+
+    asyncio.run(scenario())
+    search.assert_not_called()
+
+
 def test_index_search_checks_generation_and_releases_connection(monkeypatch):
     """缺失配置、跨代次行和向量服务故障均不得生成虚假的匹配。"""
     selected = api.Index.model_validate(index())

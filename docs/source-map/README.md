@@ -34,9 +34,9 @@
 
 表说明与字段治理已接入正式 [React 工作台](../../frontend/README.md#表说明与字段治理)与 [Java 治理模块](../../backend/README.md#表说明与字段治理)。Python 生成入口见[表说明和字段解释](../../python-service/README.md#表说明和字段解释)。当前实测范围见[C 批验收](../backend/governance/验收.md)。
 
-首个知识事项已接入正式 [React 知识页面](../../frontend/README.md#知识文档与发布准备)及 [Java 知识模块](../../backend/README.md#知识文档与发布准备)。实际范围见[D 批验收](../backend/knowledge/验收.md)。
+首个知识事项已接入正式 [React 知识页面](../../frontend/README.md#知识文档与发布准备)及 [Java 知识模块](../../backend/README.md#知识文档与发布准备)。正式版本的隔离恢复与解除限制由 [KnowledgeRecoveryService](../../backend/src/main/java/com/dataocean/module/knowledge/service/KnowledgeRecoveryService.java) 编排，并沿用候选验证的执行事实与证据校验。实际范围见[D 批验收](../backend/knowledge/验收.md)。
 
-正式问数首条链路由 [React 问数工作台](../../frontend/src/modules/query/QueryWorkbench.tsx)、[Java 问数接口](../../backend/src/main/java/com/dataocean/module/query/controller/QueryController.java)和 [Python 检索与模型入口](../../python-service/src/dataocean_ai/query/api.py)组成。当前覆盖见[问数首条链路验收](../backend/query/设计与验收.md)。
+正式问数首条链路由 [React 问数工作台](../../frontend/src/modules/query/QueryWorkbench.tsx)、[Java 问数接口](../../backend/src/main/java/com/dataocean/module/query/controller/QueryController.java)和 [Python 检索与模型入口](../../python-service/src/dataocean_ai/query/api.py)组成。Java 的请求和回看由 [QueryService](../../backend/src/main/java/com/dataocean/module/query/service/QueryService.java) 处理，后台领任务、执行和交付由 [QueryWorker](../../backend/src/main/java/com/dataocean/module/query/service/QueryWorker.java) 负责，两者通过 [QueryRunAccess](../../backend/src/main/java/com/dataocean/module/query/service/QueryRunAccess.java) 核对原发起人权限。当前覆盖见[问数首条链路验收](../backend/query/设计与验收.md)。
 
 F 批评价、入队和分派由 [React 回答评价](../../frontend/src/modules/query/AnswerRating.tsx)、[问题队列](../../frontend/src/modules/feedback/FeedbackQueue.tsx)、[事项详情](../../frontend/src/modules/feedback/FeedbackIssuePage.tsx)和 [Java 反馈接口](../../backend/src/main/java/com/dataocean/module/feedback/controller/FeedbackController.java)组成。问数的实际引用由 [QueryUsage](../../backend/src/main/java/com/dataocean/module/query/service/QueryUsage.java)生成，表结构见 [V38 入队迁移](../../backend/src/main/resources/db/migration/V38__feedback_rating_intake.sql)和 [V39 核查迁移](../../backend/src/main/resources/db/migration/V39__feedback_issue_triage.sql)。
 

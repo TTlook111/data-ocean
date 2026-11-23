@@ -1,10 +1,9 @@
 """在发布检查和切换后确认实际代次的内容及同版证据。"""
 
-import os
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from dataocean_ai.adapters.milvus import vector_client
 from dataocean_ai.governance.security import verify_java
 from dataocean_ai.knowledge.index import Fragment, index_identity, indexed_rows
 
@@ -36,14 +35,8 @@ class Readback(BaseModel):
 @router.post("/readback", response_model=Readback)
 def readback(snapshot: IndexSnapshot) -> Readback:
     """用 Strong 读取现有代次，不生成或修改索引。"""
-    os.environ["PYTHON_DOTENV_DISABLED"] = "1"
-    from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
-    uri = os.getenv("AI_MILVUS_URI")
-    if not uri:
-        # 缺少实际存储时无法认可切换证据。
-        raise HTTPException(status_code=503, detail="INDEX_UNAVAILABLE")
     identity = index_identity(
         snapshot.candidate,
         snapshot.revision,
@@ -55,29 +48,25 @@ def readback(snapshot: IndexSnapshot) -> Readback:
     if len(expected) != len(snapshot.fragments):
         # 重复片段编号无法证明完整性。
         raise HTTPException(status_code=409, detail="INDEX_READBACK_MISMATCH")
-    client = None
     try:
-        client = MilvusClient(uri=uri, token=os.getenv("AI_MILVUS_TOKEN", ""), timeout=3)
-        rows = client.query(
-            snapshot.collection,
-            filter="",
-            limit=len(expected) + 1,
-            output_fields=list(next(iter(expected.values()))),
-            consistency_level="Strong",
-            timeout=4,
-        )
-        if len(rows) != len(expected) or {row["id"]: row for row in rows} != expected:
-            # 正文、治理依据或身份有任一不一致，都不返回成功回执。
-            raise HTTPException(status_code=409, detail="INDEX_READBACK_MISMATCH")
-        return Readback(
-            collection=snapshot.collection, fingerprint=snapshot.fingerprint, verified=len(rows)
-        )
+        # 连接参数统一由适配器管理，超时仍由业务场景决定。
+        with vector_client(3) as client:
+            rows = client.query(
+                snapshot.collection,
+                filter="",
+                limit=len(expected) + 1,
+                output_fields=list(next(iter(expected.values()))),
+                consistency_level="Strong",
+                timeout=4,
+            )
+            if len(rows) != len(expected) or {row["id"]: row for row in rows} != expected:
+                # 正文、治理依据或身份有任一不一致，都不返回成功回执。
+                raise HTTPException(status_code=409, detail="INDEX_READBACK_MISMATCH")
+            return Readback(
+                collection=snapshot.collection, fingerprint=snapshot.fingerprint, verified=len(rows)
+            )
     except (MilvusException, OSError, TimeoutError):
         # 对外只保留稳定错误，连接和实际内容不外露。
         raise HTTPException(status_code=503, detail="INDEX_UNAVAILABLE") from None
     except (ValueError, KeyError):
         raise HTTPException(status_code=409, detail="INDEX_READBACK_MISMATCH") from None
-    finally:
-        # 收回内部客户端连接。
-        if client is not None:
-            client.close()

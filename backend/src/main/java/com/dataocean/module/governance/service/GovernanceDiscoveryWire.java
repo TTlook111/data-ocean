@@ -51,8 +51,14 @@ public final class GovernanceDiscoveryWire {
      * @param fields 指标使用的实际字段标识
      * @param evidence 模型明确采用的资料片段
      */
-    public record Proposal(String name, String meaning, String rule, String usage, List<Pair> pairs,
-                           List<String> fields, List<GovernanceGenerationWire.Evidence> evidence) {}
+    public record Proposal(
+            String name,
+            String meaning,
+            String rule,
+            String usage,
+            List<Pair> pairs,
+            List<String> fields,
+            List<GovernanceGenerationWire.Evidence> evidence) {}
 
     /**
      * @param objectId 稳定表身份
@@ -62,8 +68,8 @@ public final class GovernanceDiscoveryWire {
      * @param label 实际限定名
      * @param type 该字段的技术类型
      */
-    public record StructureRef(String objectId, String objectRevision, String fieldId, String fieldRevision,
-                               String label, String type) {}
+    public record StructureRef(
+            String objectId, String objectRevision, String fieldId, String fieldRevision, String label, String type) {}
 
     /**
      * @param noteId 资料身份
@@ -74,8 +80,14 @@ public final class GovernanceDiscoveryWire {
      * @param start 正文开头偏移
      * @param end 正文结束偏移
      */
-    public record NoteRef(String noteId, String revisionId, int revision, String title,
-                          String attachmentId, Integer start, Integer end) {}
+    public record NoteRef(
+            String noteId,
+            String revisionId,
+            int revision,
+            String title,
+            String attachmentId,
+            Integer start,
+            Integer end) {}
 
     /**
      * @param structures 所有确切引用的字段和对象

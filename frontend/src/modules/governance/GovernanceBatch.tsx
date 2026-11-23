@@ -6,7 +6,7 @@ import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
 import { modelFailureLabels } from '../models/types';
 import { GenerationNotes, generationTarget, type GenerationPreview } from './GovernanceGeneration';
-import type { ColumnRow, Generation, GenerationTarget, Item } from './types';
+import type { ColumnRow, GenerationTarget, Item } from './types';
 import { useGenerationTask } from './useGenerationTask';
 
 /**
@@ -99,7 +99,7 @@ export function GovernanceBatch({
   });
   const launch = useMutation({
     mutationFn: () =>
-      mutation<Generation & { targetId?: string }>(
+      mutation(
         base + '/generations',
         'POST',
         { ...preview.data?.scope, reviewToken: preview.data?.result.reviewToken },

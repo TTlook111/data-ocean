@@ -1,36 +1,32 @@
 package com.dataocean.module.query.service;
 
 import com.dataocean.module.model.service.ModelInvocation;
+import com.dataocean.module.query.entity.vo.QueryAnswerRefVO;
+import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
 
-import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 问数的业务回执、限量结果及经过验证的内部模型协议。
  */
 public final class QueryProtocol {
 
+    /**
+     * 完成、撤权、取消及失败后均不能继续当前问数轮次。
+     */
+    static final Set<String> TERMINAL = Set.of(
+            "RESULT_DELIVERED",
+            "PERMISSION_DENIED",
+            "OUT_OF_SCOPE",
+            "KNOWLEDGE_INSUFFICIENT",
+            "RESOURCE_EXCEEDED",
+            "TECHNICAL_FAILURE",
+            "USER_CANCELLED",
+            "WAIT_EXPIRED");
+
     /** 协议只通过明确的数据形状使用。 */
     private QueryProtocol() {}
-
-    /** 一轮请求的固定输入与原轮次关系。 */
-    public record Ask(
-            String sourceId, String question, String previousId, String conversationId, Boolean inheritContext) {}
-
-    /** 接受命令产生的稳定轮次身份。 */
-    public record Accepted(String id) {}
-
-    /** 等待时补充原问题缺少的业务条件。 */
-    public record Clarification(String answer) {}
-
-    /** 只使用权威来源标识和对当前用户可见的名称。 */
-    public record SourceOption(String id, String name) {}
-
-    /** 近期同源轮次只返回基本定位。 */
-    public record Turn(String id, String question, String state, Instant createdAt) {}
-
-    /** 最近对话定位到其实际最新轮次。 */
-    public record Conversation(String id, String title, String latestRequestId, Instant updatedAt) {}
 
     /** 先前已经核验的提问、补充与结构化口径。 */
     public record MemoryTurn(String requestId, String question, String supplement, Plan plan) {}
@@ -47,72 +43,15 @@ public final class QueryProtocol {
             long semanticRevision,
             Long outputRevision) {}
 
-    /** 展示中使用解释的确切修订，失败不改变查询结果。 */
-    public record Explanation(int revision, String status, String text) {}
-
-    /** 发布索引的实际命中定位，结果中不输出向量或内部连接信息。 */
-    public record Evidence(String title, int revision, String revisionId, int fragment) {}
-
-    /** 已交付结果的评价身份，与解释和执行代次独立。 */
-    public record AnswerRef(String answerId, int answerRevision) {}
-
-    /** 核查仅引用原问和实际执行依据，不复制查询结果行或绑定参数。 */
-    public record FeedbackQuestion(
-            String answerId,
-            String question,
-            String supplement,
-            Instant executedAt,
-            Evidence evidence,
-            String scope,
-            String sql,
-            boolean incomplete) {}
-
     /** 当前已获权的内部证据引用，不包含结果行及 SQL 参数。 */
     public record RatingAnswer(
-            AnswerRef ref,
+            QueryAnswerRefVO ref,
             long userId,
             long sourceId,
             String executionId,
             Long bindingId,
-            Evidence evidence,
+            QueryEvidenceVO evidence,
             String usageRefs) {}
-
-    /** 与实际执行 SQL 对应的结果列，数值仍保留数据库精度。 */
-    public record Column(String name, String label) {}
-
-    /** 限量数据表，数据更新时间无可信水位时为空。 */
-    public record Data(
-            List<Column> columns,
-            List<List<String>> rows,
-            boolean truncated,
-            String unit,
-            String scope,
-            Instant dataUpdatedAt,
-            SeriesWindow series) {}
-
-    /** 真实日序列覆盖的业务日期，缺少记录的日期保持空值。 */
-    public record SeriesWindow(String start, String end) {}
-
-    /** 单次回读仍核验当前源和输出权限。 */
-    public record Snapshot(
-            String id,
-            String sourceId,
-            String question,
-            String supplement,
-            String state,
-            String executionState,
-            boolean cancelRequested,
-            String clarification,
-            Data result,
-            Evidence evidence,
-            String sql,
-            Instant createdAt,
-            Instant executedAt,
-            Instant updatedAt,
-            String conversationId,
-            int runVersion,
-            Explanation explanation,
-            AnswerRef answerRef) {}
 
     /** 模型只传受控目录的逻辑标识。 */
     public record Field(String table, String column) {}
@@ -153,7 +92,7 @@ public final class QueryProtocol {
 
     /** 持久化的完整执行关联和列血缘用于结果复检。 */
     public record Reasoning(
-            Evidence evidence,
+            QueryEvidenceVO evidence,
             String sql,
             List<Field> projection,
             List<String> modelRevisions,
@@ -175,19 +114,4 @@ public final class QueryProtocol {
 
     /** 索引只回已核验的编号及摘要。 */
     public record Hit(String binding, int ordinal, String digest) {}
-
-    /** 外发模型调用的有界输入。 */
-    public record ModelInput(
-            ModelInvocation model,
-            String question,
-            List<QueryCorpus.Snippet> evidence,
-            List<String> rules,
-            Plan plan,
-            Memory memory) {}
-
-    /** 解释只接受本次已交付且授权的有限快照。 */
-    public record ExplanationInput(ModelInvocation model, String question, Data result) {}
-
-    /** 模型生成的解释须再经过 Java 的事实核对与输出门禁。 */
-    public record ExplanationText(String text) {}
 }

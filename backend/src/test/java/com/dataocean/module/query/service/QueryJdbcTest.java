@@ -18,7 +18,7 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper.RevisionRow;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.source.SourceJdbc;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
-import com.dataocean.module.query.service.QueryProtocol.Column;
+import com.dataocean.module.query.entity.vo.QueryColumnVO;
 import com.dataocean.module.query.service.QuerySql.Compiled;
 
 import java.sql.Connection;
@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 class QueryJdbcTest {
     /** 使用同一来源和可核对的已编译计划。 */
     private final Source source = new Source(71, "工业能耗", "ENABLED", 5L, 1L, 1, false, null, null, null, null);
+
     private final SourceJdbc sourceJdbc = mock(SourceJdbc.class);
     private final Connection connection = mock(Connection.class);
     private final PreparedStatement statement = mock(PreparedStatement.class);
@@ -60,7 +61,7 @@ class QueryJdbcTest {
         var limits = new RuntimePolicyDTO();
         limits.setQueryTimeoutSeconds(10);
         when(sources.revision(71, 5)).thenReturn(new RevisionRow(5, 1, 3L, config, limits, null));
-        when(sources.credential(71, 5)).thenReturn(new CredentialRow("fixture", new byte[]{1}));
+        when(sources.credential(71, 5)).thenReturn(new CredentialRow("fixture", new byte[] {1}));
         when(sourceJdbc.open(any(), any(), eq("do-query-x"))).thenReturn(connection);
         when(connection.prepareStatement("SELECT value FROM energy")).thenReturn(statement);
         when(sourceJdbc.readOnlySafety(eq(connection), any())).thenReturn(true);
@@ -78,8 +79,8 @@ class QueryJdbcTest {
         when(rows.getString(1)).thenReturn("1");
         doThrow(new SQLException("already idle")).when(statement).cancel();
         var data = query.execute(source, "x", plan(false), () -> 2, () -> query.cancel("x"));
-        assertThat(data.rows()).hasSize(2000);
-        assertThat(data.truncated()).isTrue();
+        assertThat(data.getRows()).hasSize(2000);
+        assertThat(data.isTruncated()).isTrue();
         query.cancel("x");
         verify(statement).cancel();
         verify(statement).setMaxRows(2001);
@@ -95,7 +96,8 @@ class QueryJdbcTest {
     void failedReadOnlyProbeStopsBeforeExecution() throws SQLException {
         when(sourceJdbc.readOnlySafety(eq(connection), any())).thenReturn(false);
         assertThatThrownBy(() -> query.execute(source, "x", plan(false), () -> 2, permit))
-                .isInstanceOf(QueryFailure.class).hasMessage("PERMISSION_DENIED");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("PERMISSION_DENIED");
         verify(permit, never()).run();
         verify(statement, never()).executeQuery();
     }
@@ -108,21 +110,31 @@ class QueryJdbcTest {
         when(rows.next()).thenReturn(true, false);
         when(rows.getString(1)).thenReturn("x".repeat(201));
         assertThatThrownBy(() -> query.execute(source, "x", plan(false), () -> 2, permit))
-                .isInstanceOf(QueryFailure.class).hasMessage("RESOURCE_EXCEEDED");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("RESOURCE_EXCEEDED");
         when(rows.next()).thenReturn(true, true, false);
         when(rows.getString(1)).thenReturn("4.0");
         when(rows.getString(2)).thenReturn("kWh", "MWh");
         when(rows.getString(3)).thenReturn("kWh", "MWh");
         when(rows.getBoolean(4)).thenReturn(true);
         assertThatThrownBy(() -> query.execute(source, "x", plan(true), () -> 2, permit))
-                .isInstanceOf(QueryFailure.class).hasMessage("KNOWLEDGE_INSUFFICIENT");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("KNOWLEDGE_INSUFFICIENT");
     }
 
     /**
      * 构造有绑定参数的限量输出，与正式编译的执行协议一致。
      */
     private Compiled plan(boolean verifyUnit) {
-        return new Compiled("SELECT value FROM energy", List.of("zone-a"), List.of(new Column("value", "读数")),
-                List.of(), "kWh", "", verifyUnit, null, null);
+        return new Compiled(
+                "SELECT value FROM energy",
+                List.of("zone-a"),
+                List.of(new QueryColumnVO("value", "读数")),
+                List.of(),
+                "kWh",
+                "",
+                verifyUnit,
+                null,
+                null);
     }
 }

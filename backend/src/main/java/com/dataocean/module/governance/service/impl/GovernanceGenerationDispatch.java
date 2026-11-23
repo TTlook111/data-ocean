@@ -32,8 +32,8 @@ public class GovernanceGenerationDispatch {
     /**
      * 仅使用治理机器连接，避免复用其他上游请求。
      */
-    public GovernanceGenerationDispatch(@Qualifier("governancePythonClient") RestClient worker,
-            GovernanceGenerationTasks tasks) {
+    public GovernanceGenerationDispatch(
+            @Qualifier("governancePythonClient") RestClient worker, GovernanceGenerationTasks tasks) {
         this.worker = worker;
         this.tasks = tasks;
     }
@@ -53,7 +53,8 @@ public class GovernanceGenerationDispatch {
             // 幂等接收返回已存在的当前状态，丢失回包不会重新入队。
             state = worker.put()
                     .uri("/internal/v1/tasks/governance/{request}/{run}", task.getRequestId(), task.getRunVersion())
-                    .retrieve().body(Status.class);
+                    .retrieve()
+                    .body(Status.class);
         } catch (RestClientException unavailable) {
             // 保留原请求定位和有界重试，避免输出原始 HTTP 内容。
             log.info("治理任务暂无法核实 Python 状态，taskId={}", task.getRequestId());

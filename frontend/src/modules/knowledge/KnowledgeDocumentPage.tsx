@@ -255,7 +255,7 @@ function DocumentEditor({
         // 相同输入的网络重试保持原命令。
         commandRef.current = { payload, command: crypto.randomUUID() };
       }
-      return mutation<{ targetId: string }>(
+      return mutation(
         action === 'confirm' ? path + '/confirmations' : current ? path + '/draft' : path,
         current && action === 'save' ? 'PUT' : 'POST',
         body,

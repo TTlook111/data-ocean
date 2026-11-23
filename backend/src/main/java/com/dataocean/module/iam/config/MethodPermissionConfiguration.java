@@ -112,8 +112,9 @@ public class MethodPermissionConfiguration {
                     throw new IllegalStateException("接口缺少可执行的权限声明：" + handler);
                 }
                 boolean publicAccess = requirement.access() == RequirePermission.Access.PUBLIC;
-                if (mapping.getPatternValues().stream().anyMatch(path ->
-                        path.startsWith("/internal/v1/") != (requirement.access() == RequirePermission.Access.SERVICE))) {
+                if (mapping.getPatternValues().stream()
+                        .anyMatch(path -> path.startsWith("/internal/v1/")
+                                != (requirement.access() == RequirePermission.Access.SERVICE))) {
                     // 内部服务入口与浏览器功能权限不可共用路径。
                     throw new IllegalStateException("控制器服务身份声明与路径不一致：" + handler);
                 }

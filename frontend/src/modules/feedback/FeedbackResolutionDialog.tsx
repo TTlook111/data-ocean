@@ -13,18 +13,13 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { Link } from 'react-router';
-import { api, ApiError, mutation, queryString } from '../../shared/api';
+import { api, ApiError, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
-import {
-  closeReasons,
-  currentTaskFollowUp,
-  statusLabels,
-  type FeedbackTask,
-  type IssueDetail,
-} from './types';
+import { closeReasons, statusLabels, type FeedbackTask, type IssueDetail } from './types';
+import { useFeedbackCommand } from './useFeedbackCommand';
 
 /** 后台只开放当前服务端确认的工作动作。 */
 export type ResolutionAction = 'result' | 'knowledge' | 'source' | 'verify' | 'resolve' | 'explain';
@@ -174,11 +169,10 @@ export function FeedbackResolutionDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
+  const { uncertain, send } = useFeedbackCommand(refresh);
   const [launched, setLaunched] = useState<string>();
   const replayCommand = useRef<string | undefined>(undefined);
   const inFlight = useRef(false);
-  const attempt = useRef<{ key: string; path: string; body: object } | undefined>(undefined);
   const confirm = useRef<ComponentRef<typeof Button>>(null);
   const action = actions[kind];
   const resolution = task?.resolution ?? detail.resolution;
@@ -188,7 +182,7 @@ export function FeedbackResolutionDialog({
   const sourceVerification = kind === 'verify' && resolution?.result?.impact === 'SOURCE_DATA';
   const tracksProgress = kind === 'result' || kind === 'source';
   const lastResult = resolution?.result;
-  const followUp = currentTaskFollowUp(detail.activities, task?.id);
+  const progress = task?.progress;
   const initialStage = task?.waitingExternal ? 'WAITING' : lastResult ? 'EFFECTIVE' : 'WORKING';
   const progressStage = Form.useWatch('progressStage', form) ?? initialStage;
   const isFollowingUp = progressStage !== 'EFFECTIVE';
@@ -234,7 +228,6 @@ export function FeedbackResolutionDialog({
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    let writing = false;
     try {
       if (closing && !preview && !uncertain) {
         const notice = await api<Preview>(
@@ -292,21 +285,15 @@ export function FeedbackResolutionDialog({
           effectiveConfirmed: values.effectiveConfirmed,
         };
       }
-      const request =
-        uncertain && attempt.current
-          ? attempt.current
-          : { key: crypto.randomUUID(), path: target, body };
-      attempt.current = request;
-      writing = true;
-      await mutation(request.path, 'POST', request.body, action.permission, request.key);
+      const submittedPath = await send(target, body, action.permission);
       await refresh();
       message.success(
         closing
           ? '已结案，回告已接收'
           : kind === 'verify'
             ? '已登记复验'
-            : request.path.includes('/technical-progress') ||
-                request.path.endsWith('/source-progress')
+            : submittedPath.includes('/technical-progress') ||
+                submittedPath.endsWith('/source-progress')
               ? '已保存进展'
               : '已提交处理结果',
       );
@@ -314,12 +301,9 @@ export function FeedbackResolutionDialog({
     } catch (failure) {
       if (failure instanceof ApiError) {
         setPreview(undefined);
-        setUncertain(false);
         if (failure.code === 409001) setStale(true);
         else setError(applyFormError(form, failure));
-        if (failure.code === 403003) void refresh();
       } else {
-        setUncertain(writing);
         setError(failure instanceof Error ? failure.message : '操作暂时无法完成');
       }
     } finally {
@@ -513,8 +497,8 @@ export function FeedbackResolutionDialog({
           tracksProgress
             ? {
                 progressStage: initialStage,
-                workDone: followUp?.note ?? undefined,
-                nextStep: followUp?.rootCause ?? undefined,
+                workDone: progress?.workDone ?? undefined,
+                nextStep: progress?.nextStep ?? undefined,
                 impact: kind === 'result' ? lastResult?.impact : undefined,
                 repairer: lastResult?.sourceRepairer ?? undefined,
                 summary: lastResult?.summary ?? undefined,

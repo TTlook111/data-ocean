@@ -14,7 +14,6 @@ import {
 } from './FeedbackResolutionDialog';
 import {
   closeReasons,
-  currentTaskFollowUp,
   directions,
   followUpActions,
   isSupplementPending,
@@ -473,10 +472,10 @@ function TaskWork({
           {work.map((task) => {
             // 每个任务只展示当前账号可用的动作。
             const resolution = task.resolution;
-            const followUp = currentTaskFollowUp(detail.activities, task.id);
+            const progress = task.progress;
             const processLabel = resolution.result
               ? '修订处理结果'
-              : followUp
+              : progress
                 ? '更新进展'
                 : '记录处理进展';
             const actions: { kind: WorkAction['kind']; label: string }[] = [
@@ -546,18 +545,18 @@ function TaskWork({
                 </div>
                 {task.scope && <div className="feedback-text">{task.scope}</div>}
                 {/* 已做工作与下一步并排展示，只使用各自可见的正文。 */}
-                {(followUp?.note || followUp?.rootCause) && (
+                {(progress?.workDone || progress?.nextStep) && (
                   <dl className="feedback-task-progress">
-                    {followUp.note && (
+                    {progress.workDone && (
                       <div>
                         <dt>已做工作</dt>
-                        <dd className="feedback-text">{followUp.note}</dd>
+                        <dd className="feedback-text">{progress.workDone}</dd>
                       </div>
                     )}
-                    {followUp.rootCause && (
+                    {progress.nextStep && (
                       <div>
                         <dt>下一步安排</dt>
-                        <dd className="feedback-text">{followUp.rootCause}</dd>
+                        <dd className="feedback-text">{progress.nextStep}</dd>
                       </div>
                     )}
                   </dl>

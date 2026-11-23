@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 from typing import TypedDict
 
 import httpx
@@ -13,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
 from dataocean_ai.adapters.embedding import embed
+from dataocean_ai.adapters.milvus import vector_client
 from dataocean_ai.governance.security import worker_token
 
 # 单批有界。换批和写索引之前再次从 Java 核查当前任务资格。
@@ -172,15 +172,8 @@ def indexed_rows(identity: dict[str, str], fragments: list[Fragment]) -> dict[in
 
 def _persist(job: IndexInput, vectors: list[list[float]]) -> IndexReceipt:
     """在不可变候选代次内回读每个片段和实际向量搜索结果。"""
-    # PyMilvus 导入时会尝试加载 .env；正式工作者只使用启动时注入的配置。
-    os.environ["PYTHON_DOTENV_DISABLED"] = "1"
-    from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
-    uri = os.getenv("AI_MILVUS_URI")
-    if not uri:
-        # 健康 API 可独立运行，实际构建必须有部署指定的存储。
-        raise ModelFailure("INDEX_UNAVAILABLE")
     name = job.collection
     # 每条记录都包含独立归属，不依赖会变化的 Milvus 别名。
     identity = index_identity(
@@ -190,73 +183,70 @@ def _persist(job: IndexInput, vectors: list[list[float]]) -> IndexReceipt:
     if len(payload) != len(job.fragments):
         # 重复编号是输入错误，不能覆盖其他必要章节。
         raise ModelFailure("INPUT_STALE")
-    client = None
     try:
-        # 存储 URI 和令牌均由同一部署提供。命名由 Java 分配。
-        client = MilvusClient(uri=uri, token=os.getenv("AI_MILVUS_TOKEN", ""), timeout=8)
-        if client.has_collection(name, timeout=8):
-            raise ModelFailure("INDEX_READBACK_MISMATCH")
-        client.create_collection(
-            name,
-            dimension=len(vectors[0]),
-            metric_type="COSINE",
-            consistency_level="Strong",
-            enable_dynamic_field=True,
-            timeout=12,
-        )
-        client.insert(
-            name,
-            [
-                {**payload[fragment.ordinal], "vector": vector}
-                for fragment, vector in zip(job.fragments, vectors[:-1], strict=True)
-            ],
-            timeout=12,
-        )
-        stored = client.query(
-            name,
-            filter="",
-            limit=len(payload) + 1,
-            output_fields=list(next(iter(payload.values()))),
-            consistency_level="Strong",
-            timeout=10,
-        )
-        readback = {row["id"]: row for row in stored}
-        if len(stored) != len(payload) or readback != payload:
-            # 写入回执不能代替 Strong 读取到的实际完整正文和依据。
-            raise ModelFailure("INDEX_READBACK_MISMATCH")
-        matches = client.search(
-            name,
-            data=[vectors[-1]],
-            limit=min(3, len(payload)),
-            output_fields=[*identity, "digest"],
-            consistency_level="Strong",
-            timeout=10,
-        )[0]
-        if not matches or any(
-            hit["id"] not in readback
-            or any(hit["entity"].get(key) != value for key, value in identity.items())
-            or hit["entity"].get("digest") != readback[hit["id"]]["digest"]
-            for hit in matches
-        ):
-            # 代表性查询必须实际命中同代次、同正文和同治理依据。
-            raise ModelFailure("INDEX_READBACK_MISMATCH")
-        return IndexReceipt(
-            collection=name,
-            fingerprint=job.fingerprint,
-            dimension=len(vectors[0]),
-            observed=[Verified(ordinal=i, digest=readback[i]["digest"]) for i in sorted(readback)],
-            hits=[hit["id"] for hit in matches],
-        )
+        # 连接参数统一由适配器管理，超时仍由业务场景决定。
+        with vector_client(8) as client:
+            if client.has_collection(name, timeout=8):
+                raise ModelFailure("INDEX_READBACK_MISMATCH")
+            client.create_collection(
+                name,
+                dimension=len(vectors[0]),
+                metric_type="COSINE",
+                consistency_level="Strong",
+                enable_dynamic_field=True,
+                timeout=12,
+            )
+            client.insert(
+                name,
+                [
+                    {**payload[fragment.ordinal], "vector": vector}
+                    for fragment, vector in zip(job.fragments, vectors[:-1], strict=True)
+                ],
+                timeout=12,
+            )
+            stored = client.query(
+                name,
+                filter="",
+                limit=len(payload) + 1,
+                output_fields=list(next(iter(payload.values()))),
+                consistency_level="Strong",
+                timeout=10,
+            )
+            readback = {row["id"]: row for row in stored}
+            if len(stored) != len(payload) or readback != payload:
+                # 写入回执不能代替 Strong 读取到的实际完整正文和依据。
+                raise ModelFailure("INDEX_READBACK_MISMATCH")
+            matches = client.search(
+                name,
+                data=[vectors[-1]],
+                limit=min(3, len(payload)),
+                output_fields=[*identity, "digest"],
+                consistency_level="Strong",
+                timeout=10,
+            )[0]
+            if not matches or any(
+                hit["id"] not in readback
+                or any(hit["entity"].get(key) != value for key, value in identity.items())
+                or hit["entity"].get("digest") != readback[hit["id"]]["digest"]
+                for hit in matches
+            ):
+                # 代表性查询必须实际命中同代次、同正文和同治理依据。
+                raise ModelFailure("INDEX_READBACK_MISMATCH")
+            return IndexReceipt(
+                collection=name,
+                fingerprint=job.fingerprint,
+                dimension=len(vectors[0]),
+                observed=[
+                    Verified(ordinal=i, digest=readback[i]["digest"]) for i in sorted(readback)
+                ],
+                hits=[hit["id"] for hit in matches],
+            )
     except (MilvusException, OSError, TimeoutError):
         # 依赖故障保留稳定编码，不把连接及原始数据打进日志。
         raise ModelFailure("INDEX_UNAVAILABLE") from None
     except (KeyError, ValueError, IndexError):
         # 不完整或不兼容的回读不形成成功证据。
         raise ModelFailure("INDEX_READBACK_MISMATCH") from None
-    finally:
-        # 关闭客户端；产物处理与正式入口无关，失败也不删除任何历史代次。
-        if client is not None:
-            client.close()
 
 
 def _graph():

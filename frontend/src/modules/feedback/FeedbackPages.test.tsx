@@ -530,6 +530,7 @@ it('区分治理和技术的任务操作及历史归属', async () => {
     canReview: false,
     canAssign: true,
     canChangeStatus: true,
+    progress: null,
     resolution: { ...unresolved, canSubmitKnowledge: true },
   };
   const technical: FeedbackTask = {
@@ -612,6 +613,7 @@ it('等待生效的任务回填进展并保留阶段切换前的内容', async (
         canAssign: false,
         canChangeStatus: false,
         waitingExternal: true,
+        progress: { workDone: '变更已完成核对', nextStep: '发布后检查原问题' },
         resolution: {
           canSubmitResult: true,
           canResolve: false,
@@ -623,15 +625,11 @@ it('等待生效的任务回填进展并保留阶段切换前的内容', async (
         },
       } satisfies FeedbackTask,
     ],
-    activities: [
-      {
-        ...assigned.activities[0],
-        action: 'TECHNICAL_WAITING',
-        taskId: 2,
-        note: '变更已完成核对',
-        rootCause: '发布后检查原问题',
-      },
-    ],
+    // 其他任务的二十条更新已经把原进展挤出事项历史。
+    activities: Array.from({ length: 20 }, (_, index) => {
+      // 给其他任务独立的核查版本，当前任务没有留在历史窗口中。
+      return { ...assigned.activities[0], version: 23 - index, action: 'TASK_REVIEWED', taskId: 3 };
+    }),
   };
   vi.mocked(api).mockResolvedValue(waiting);
   const { cache } = mount('/feedback/21');
@@ -657,7 +655,10 @@ it('等待生效的任务回填进展并保留阶段切换前的内容', async (
   vi.mocked(api).mockResolvedValue({
     ...waiting,
     evidenceRestricted: true,
-    activities: waiting.activities.map((entry) => ({ ...entry, note: null, rootCause: null })),
+    tasks: waiting.tasks?.map((item) => {
+      // 仍保留进展存在的事实，只将受限正文置空。
+      return { ...item, progress: { workDone: null, nextStep: null } };
+    }),
   });
   await act(() => cache.invalidateQueries({ queryKey: ['feedback-issue'] }));
   await waitFor(() => {

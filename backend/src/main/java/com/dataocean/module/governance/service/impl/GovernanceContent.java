@@ -20,11 +20,11 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import lombok.RequiredArgsConstructor;
-
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
+
+import lombok.RequiredArgsConstructor;
 
 /**
  * 解析明确的表说明和字段类型，并对保存与确认采用一致的业务字段定位。
@@ -93,7 +93,8 @@ public class GovernanceContent {
     public void requirePath(boolean column, String path) {
         Class<?> type = column ? ColumnDefinitionDTO.class : TableDefinitionDTO.class;
         boolean known = Arrays.stream(type.getDeclaredFields())
-                .anyMatch(field -> !Modifier.isStatic(field.getModifiers()) && field.getName().equals(path));
+                .anyMatch(field -> !Modifier.isStatic(field.getModifiers())
+                        && field.getName().equals(path));
         if (!known) {
             // 证据及核对问题只能关联当前定义的真实字段。
             throw BizIllegalException.invalid("来源或核对项对应的业务字段不存在");
@@ -124,14 +125,16 @@ public class GovernanceContent {
      */
     private void validateField(String nativeType, JsonNode content, String comment, List<FieldErrorVO> errors) {
         require(content, "meaning", "请填写业务含义", errors);
-        String meaning = (content.path("meaning").asText("") + " " + content.path("businessName").asText("")
-                + " " + (comment == null ? "" : comment)).toLowerCase(Locale.ROOT);
+        String meaning = (content.path("meaning").asText("") + " "
+                        + content.path("businessName").asText("") + " " + (comment == null ? "" : comment))
+                .toLowerCase(Locale.ROOT);
         if (meaning.matches("(?s).*(金额|数量|单价|重量|库存量|\\bamount\\b|\\bquantity\\b).*")) {
             // 金额及数量的定义应说明单位，也可说明所依据的单位字段。
             require(content, "unit", "请明确金额或数量的业务单位", errors);
         }
         if (meaning.matches("(?s).*(状态|编码|\\bstatus\\b|\\benum\\b).*")
-                && !content.has("valueMappings") && !known(content.path("valueDescription").asText(""))) {
+                && !content.has("valueMappings")
+                && !known(content.path("valueDescription").asText(""))) {
             // 编码可用逐行映射或明确取值说明表达。
             errors.add(error("valueDescription", "请说明实际适用的编码和取值"));
         }
@@ -174,15 +177,19 @@ public class GovernanceContent {
             // 字符串比较保留原编码形式，定位到首个实际错误。
             var mapping = mappings.get(index);
             String path = "valueMappings[" + index + "]";
-            if (mapping == null || !raw.get(index).path("code").isString()
+            if (mapping == null
+                    || !raw.get(index).path("code").isString()
                     || !raw.get(index).path("meaning").isString()
-                    || mapping.getCode().isBlank() || mapping.getMeaning().isBlank()
+                    || mapping.getCode().isBlank()
+                    || mapping.getMeaning().isBlank()
                     || !codes.add(mapping.getCode().strip())) {
                 throw invalid(path, "请填写唯一编码及对应含义");
             }
             checkLength(path + ".code", mapping.getCode().strip(), 160);
             checkLength(path + ".meaning", mapping.getMeaning().strip(), 400);
-            values.addObject().put("code", mapping.getCode().strip()).put("meaning", mapping.getMeaning().strip());
+            values.addObject()
+                    .put("code", mapping.getCode().strip())
+                    .put("meaning", mapping.getMeaning().strip());
         }
     }
 

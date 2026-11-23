@@ -303,14 +303,22 @@ public class GovernanceDiscovery {
         if ("REJECT".equals(input.getAction())) {
             throw BizIllegalException.invalid("新增候选只能保存或确认");
         }
-        return commands.execute("governance.edit", command, "governance-candidate:" + source + "/" + object + "/" + kind,
-                input, null, false, false, () -> createLocked(source, object, kind, command, input));
+        return commands.execute(
+                "governance.edit",
+                command,
+                "governance-candidate:" + source + "/" + object + "/" + kind,
+                input,
+                null,
+                false,
+                false,
+                () -> createLocked(source, object, kind, command, input));
     }
 
     /**
      * 按当前成功目录保存人工内容；只填了部分定义时允许先提交草稿。
      */
-    private MutationVO createLocked(long source, long object, String kind, String command, GovernanceCandidateDraftDTO input) {
+    private MutationVO createLocked(
+            long source, long object, String kind, String command, GovernanceCandidateDraftDTO input) {
         var origin = catalog.source(source, true);
         var anchor = entries.get(origin, GovernanceTarget.table(source, object));
         if (!"AVAILABLE".equals(anchor.availability())) {
@@ -335,13 +343,28 @@ public class GovernanceDiscovery {
         candidates.add(id, null, source, object, kind, digest("manual:" + id), origin.snapshotId(), evidence);
         // 不完整的人工草稿仍归当前表，选定依赖后也能从实际涉及的表找到。
         candidates.attach(id, object);
-        basis.structures().stream().map(StructureRef::objectId).distinct().map(Ids::parse)
-                .filter(related -> related != object).forEach(related -> candidates.attach(id, related));
-        candidates.revise(IdWorker.getId(), id, 1, confirm ? "CONFIRMED" : "DRAFT", json.write(definition),
-                json.write(dependencies), UserContext.getUser(), evidence);
-        audit.record(AuditWriteDTO.builder().actionCode("governance.edit").targetType("governance_candidate")
-                .targetId(target).targetName(definition.getName().isBlank() ? kind : definition.getName())
-                .securityVersion(commands.auditSecurityVersion(false)).commandId(UUID.fromString(command).toString())
+        basis.structures().stream()
+                .map(StructureRef::objectId)
+                .distinct()
+                .map(Ids::parse)
+                .filter(related -> related != object)
+                .forEach(related -> candidates.attach(id, related));
+        candidates.revise(
+                IdWorker.getId(),
+                id,
+                1,
+                confirm ? "CONFIRMED" : "DRAFT",
+                json.write(definition),
+                json.write(dependencies),
+                UserContext.getUser(),
+                evidence);
+        audit.record(AuditWriteDTO.builder()
+                .actionCode("governance.edit")
+                .targetType("governance_candidate")
+                .targetId(target)
+                .targetName(definition.getName().isBlank() ? kind : definition.getName())
+                .securityVersion(commands.auditSecurityVersion(false))
+                .commandId(UUID.fromString(command).toString())
                 .build());
         return new MutationVO(command, "governance_candidate", target, 1);
     }
@@ -426,9 +449,10 @@ public class GovernanceDiscovery {
     /**
      * 审核复用业务字段、实际引用和依赖确认校验。
      */
-    private List<Dependency> confirmDefinition(Source origin, Definition definition,
-            Basis basis, boolean manual) {
-        if (definition.getName().isBlank() || definition.getMeaning().isBlank() || definition.getRule().isBlank()) {
+    private List<Dependency> confirmDefinition(Source origin, Definition definition, Basis basis, boolean manual) {
+        if (definition.getName().isBlank()
+                || definition.getMeaning().isBlank()
+                || definition.getRule().isBlank()) {
             throw BizIllegalException.invalid("请填写业务名称、含义和完整规则，再确认治理");
         }
         if (definition.isDefaultMetric() && definition.getUsage().isBlank()) {
@@ -803,9 +827,14 @@ public class GovernanceDiscovery {
         var refs = List.of(json.read(row.dependencies(), Dependency[].class)).stream()
                 .map(ref -> new GovernanceTarget(source.id(), ref.object(), ref.kind(), ref.target()).view())
                 .toList();
-        return new GovernanceFactVO(target.view(), Ids.text(candidates.revisionId(row.id(), row.version())),
-                anchor.entry().generation(), Long.toString(anchor.structureRevision()), candidate.getDefinition().getName(),
-                json.mapper().valueToTree(candidate.getDefinition()), refs);
+        return new GovernanceFactVO(
+                target.view(),
+                Ids.text(candidates.revisionId(row.id(), row.version())),
+                anchor.entry().generation(),
+                Long.toString(anchor.structureRevision()),
+                candidate.getDefinition().getName(),
+                json.mapper().valueToTree(candidate.getDefinition()),
+                refs);
     }
 
     /**

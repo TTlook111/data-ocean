@@ -761,7 +761,7 @@ export function saveAccess(
   operation: string,
   command: string,
 ) {
-  return mutation<{ targetId: string }>(`${accessPath}${path}`, method, body, operation, command);
+  return mutation(`${accessPath}${path}`, method, body, operation, command);
 }
 
 /**

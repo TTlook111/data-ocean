@@ -1,7 +1,7 @@
 import { Alert, App, Button, Descriptions, Form, Input, Modal, Select } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useRef, useState, type ComponentRef } from 'react';
-import { api, ApiError, mutation, queryString } from '../../shared/api';
+import { api, ApiError, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
@@ -11,6 +11,7 @@ import {
   type Issue,
   type IssueDetail,
 } from './types';
+import { useFeedbackCommand } from './useFeedbackCommand';
 
 /**
  * 原事项及主事项的人工办理动作。
@@ -90,7 +91,7 @@ export function FeedbackLifecycleDialog({
   const [version, setVersion] = useState(detail.version);
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
+  const { uncertain, send } = useFeedbackCommand(refresh);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
   const search = useDeferredValue(keyword.trim());
@@ -99,7 +100,7 @@ export function FeedbackLifecycleDialog({
     targetVersion: number;
     targetTitle: string;
   }>();
-  const attempt = useRef<{ key: string; body: object } | null>(null);
+  const inFlight = useRef(false);
   const confirmButton = useRef<ComponentRef<typeof Button>>(null);
   const lifecycle = detail.lifecycle;
   const targets = lifecycle?.supplementTargets ?? [];
@@ -145,8 +146,9 @@ export function FeedbackLifecycleDialog({
    * 确认后的动作沿用固定的两端版本，回包不明时使用原编号和原提案。
    */
   async function submit(fields: Fields) {
-    if (busy || stale || (!allows && !uncertain)) return;
-    if (merge && !proposal && !attempt.current) {
+    if (inFlight.current || stale || (!allows && !uncertain)) return;
+    inFlight.current = true;
+    if (merge && !proposal && !uncertain) {
       setError(null);
       setBusy(true);
       try {
@@ -160,6 +162,7 @@ export function FeedbackLifecycleDialog({
       } catch {
         setError('暂时无法核对主事项');
       } finally {
+        inFlight.current = false;
         setBusy(false);
       }
       return;
@@ -180,20 +183,15 @@ export function FeedbackLifecycleDialog({
               ? { targetId: reviewed.targetId, targetVersion: proposal.targetVersion }
               : {}),
           };
-    const request = attempt.current ?? { key: crypto.randomUUID(), body };
-    attempt.current = request;
     setBusy(true);
     setError(null);
     try {
-      await mutation(
+      await send(
         `/feedback/issues/${detail.issue.id}/${action.path}${disposing ? `/${supplementId}/dispositions` : ''}`,
-        'POST',
-        request.body,
+        body,
         action.operation,
-        request.key,
       );
       await refresh();
-      setUncertain(false);
       message.success(
         kind === 'supplement'
           ? '已请求补充'
@@ -209,16 +207,14 @@ export function FeedbackLifecycleDialog({
     } catch (failure) {
       if (failure instanceof ApiError) {
         // 业务冲突需要用户重新读取所见版本，再决定本次提案。
-        attempt.current = null;
-        setUncertain(false);
         setProposal(undefined);
         if (failure.code === 409001) setStale(true);
         else setError(applyFormError(form, failure));
       } else {
-        setUncertain(true);
         setError('提交结果暂未确认，可使用原编号核对并重试');
       }
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }

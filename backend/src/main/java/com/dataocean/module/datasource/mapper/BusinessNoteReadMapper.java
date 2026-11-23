@@ -77,7 +77,8 @@ public interface BusinessNoteReadMapper {
     /**
      * 在源写锁下保存实际取用或定义引用，防止历史修订被误删。
      */
-    @Insert("""
+    @Insert(
+            """
             INSERT INTO ds_business_note_reference(note_id,revision_id,target_kind,target_id)
             VALUES(#{note},#{revision},#{kind},#{target})
             ON DUPLICATE KEY UPDATE recorded_at=recorded_at

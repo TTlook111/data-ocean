@@ -7,7 +7,7 @@ import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Judgment;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeValidationDTO.Start;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeValidationVO;
-import com.dataocean.module.knowledge.service.impl.KnowledgeValidations;
+import com.dataocean.module.knowledge.service.KnowledgeValidationService;
 
 import java.util.UUID;
 
@@ -37,7 +37,7 @@ public class KnowledgeValidationController {
     /**
      * 同一候选运行及实际技术结果的业务边界。
      */
-    private final KnowledgeValidations validations;
+    private final KnowledgeValidationService validations;
 
     /**
      * 回读当前运行或指定旧运行，由服务按读者权限裁剪。

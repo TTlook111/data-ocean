@@ -5,7 +5,7 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.source.SourceConnection;
 import com.dataocean.module.datasource.source.SourceJdbc;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
-import com.dataocean.module.query.service.QueryProtocol.Data;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QuerySql.Compiled;
 
@@ -45,7 +45,7 @@ class QueryJdbc {
     }
 
     /** 执行一次真实源端读，SQL 派发前由调用方登记许可。 */
-    Data execute(Source source, String request, Compiled compiled, IntSupplier remaining, Runnable permit)
+    QueryDataVO execute(Source source, String request, Compiled compiled, IntSupplier remaining, Runnable permit)
             throws SQLException {
         var revision = sources.revision(source.id(), source.configurationId());
         var config = revision.configuration();
@@ -82,7 +82,7 @@ class QueryJdbc {
                     String measuredUnit = null;
                     while (result.next()) {
                         if (rows.size() == 2000) {
-                            return new Data(
+                            return new QueryDataVO(
                                     compiled.columns(),
                                     rows,
                                     true,
@@ -111,7 +111,7 @@ class QueryJdbc {
                             displayUnit = current;
                         }
                     }
-                    return new Data(
+                    return new QueryDataVO(
                             compiled.columns(), rows, false, displayUnit, compiled.scope(), null, compiled.series());
                 }
             } finally {

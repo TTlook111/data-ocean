@@ -2,7 +2,7 @@ package com.dataocean.module.feedback.mapper;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.feedback.entity.FeedbackLifecycleVO.NoticeRound;
+import com.dataocean.module.feedback.entity.vo.FeedbackLifecycleVO.NoticeRound;
 
 import java.time.LocalDateTime;
 import java.util.List;

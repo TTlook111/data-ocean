@@ -7,8 +7,8 @@ import com.dataocean.module.feedback.mapper.FeedbackMapper.Event;
 import com.dataocean.module.iam.entity.po.OutboxPO;
 import com.dataocean.module.iam.mapper.OutboxMapper;
 import com.dataocean.module.iam.service.OutboxLocalConsumer;
+import com.dataocean.module.query.entity.vo.QueryAnswerRefVO;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
-import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
 
 import java.util.Map;
 import java.util.Objects;
@@ -100,7 +100,7 @@ public class FeedbackIntake implements OutboxLocalConsumer {
                 // 旧租约不能提交或确认后继领取的副作用。
                 return false;
             }
-            var ref = new AnswerRef(event.answerId(), event.answerRevision());
+            var ref = new QueryAnswerRefVO(event.answerId(), event.answerRevision());
             if (request == null || request.userId() != event.userId()) {
                 // 归属异常留待核对，不能生成错误事项。
                 throw inconsistent();

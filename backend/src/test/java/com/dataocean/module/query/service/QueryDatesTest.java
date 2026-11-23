@@ -18,7 +18,8 @@ class QueryDatesTest {
     void resolvesUnambiguousCalendarLanguage() {
         var sunday = LocalDate.of(2026, 11, 22);
         assertThat(QueryDates.singleRelativeDay("前天的库存", sunday)).isEqualTo(LocalDate.of(2026, 11, 20));
-        assertThat(QueryDates.singleRelativeDay("the day before yesterday", sunday)).isEqualTo(LocalDate.of(2026, 11, 20));
+        assertThat(QueryDates.singleRelativeDay("the day before yesterday", sunday))
+                .isEqualTo(LocalDate.of(2026, 11, 20));
         assertThat(QueryDates.singleRelativeDay("这周五", sunday)).isEqualTo(LocalDate.of(2026, 11, 20));
         assertThat(QueryDates.singleRelativeDay("上周五", sunday)).isEqualTo(LocalDate.of(2026, 11, 13));
         assertThat(QueryDates.singleRelativeDay("前天到今天", sunday)).isNull();
@@ -37,6 +38,7 @@ class QueryDatesTest {
         assertThat(QueryDates.needsMonth("查 2026-11-20 日末库存")).isFalse();
         assertThat(QueryDates.singleRelativeDay("20号的库存\n补充：这个月", LocalDate.of(2026, 11, 22)))
                 .isEqualTo(LocalDate.of(2026, 11, 20));
-        assertThat(QueryDates.singleRelativeDay("这个月 20 号仓的库存", LocalDate.of(2026, 11, 22))).isNull();
+        assertThat(QueryDates.singleRelativeDay("这个月 20 号仓的库存", LocalDate.of(2026, 11, 22)))
+                .isNull();
     }
 }

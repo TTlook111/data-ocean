@@ -31,18 +31,32 @@ public class GovernanceEvents {
     /**
      * 发布一次真实治理确认。
      */
-    public void confirmed(long source, long item, int version, long confirm, Long revision, List<String> impacts,
-            String command) {
-        append("governance.item.confirmed", "governance_item", Long.toString(item), version, command,
-                new Confirmed(Long.toString(source), Long.toString(item), Long.toString(confirm),
-                        revision == null ? null : Long.toString(revision), impacts));
+    public void confirmed(
+            long source, long item, int version, long confirm, Long revision, List<String> impacts, String command) {
+        append(
+                "governance.item.confirmed",
+                "governance_item",
+                Long.toString(item),
+                version,
+                command,
+                new Confirmed(
+                        Long.toString(source),
+                        Long.toString(item),
+                        Long.toString(confirm),
+                        revision == null ? null : Long.toString(revision),
+                        impacts));
     }
 
     /**
      * 通知已经同步落库的使用禁止。
      */
     public void usage(long source, long item, int version, String command) {
-        append("governance.usage.changed", "governance_item", Long.toString(item), version, command,
+        append(
+                "governance.usage.changed",
+                "governance_item",
+                Long.toString(item),
+                version,
+                command,
                 new Usage(Long.toString(source), Long.toString(item), version, true));
     }
 
@@ -50,7 +64,12 @@ public class GovernanceEvents {
      * 通知任务已被业务事务接收。
      */
     public void requested(long source, String request, String command) {
-        append("governance.generation.requested", "governance_generation", request, 1, command,
+        append(
+                "governance.generation.requested",
+                "governance_generation",
+                request,
+                1,
+                command,
                 new Requested(Long.toString(source), request));
     }
 
@@ -58,8 +77,23 @@ public class GovernanceEvents {
      * 落库事件，调用方保持实际业务事务开启。
      */
     private void append(String type, String aggregate, String id, int version, String command, Object payload) {
-        outbox.append(new OutboxPO(UUID.randomUUID().toString(), type, 1, aggregate, id, version, command,
-                json.write(payload), "PENDING", 0, null, null, null, null, null, null));
+        outbox.append(new OutboxPO(
+                UUID.randomUUID().toString(),
+                type,
+                1,
+                aggregate,
+                id,
+                version,
+                command,
+                json.write(payload),
+                "PENDING",
+                0,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     }
 
     /**

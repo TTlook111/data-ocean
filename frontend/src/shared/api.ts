@@ -130,20 +130,36 @@ export function queryString(values: Record<string, string | number | boolean | u
 }
 
 /**
+ * 写接口及其命令回查可以提供的稳定定位字段。
+ */
+export type MutationReceipt = {
+  /** 本次提交编号。 */
+  commandId?: string;
+  /** 普通写接口或通用回执指向的业务对象。 */
+  targetId?: string;
+  /** 采集入口返回的任务编号。 */
+  taskId?: string;
+  /** 治理生成入口返回的请求编号。 */
+  requestId?: string;
+  /** 可用于后续状态核对的业务版本。 */
+  version?: number;
+};
+
+/**
  * 回包不明时核实原命令的提交事实，不将网络错误当作失败后重放。
  */
-export async function mutation<T>(
+export async function mutation(
   path: string,
   method: string,
   body: unknown,
   operation: string,
   command: string,
-): Promise<T> {
+): Promise<MutationReceipt> {
   try {
-    return await api<T>(path, { method, body, command });
+    return (await api<MutationReceipt | null>(path, { method, body, command })) ?? {};
   } catch (error) {
-    // 明确业务拒绝直接反馈；网络或服务端故障均先查询原命令，避免误判已提交操作。
-    if (error instanceof ApiError && error.code < 500000) {
+    // 明确拒绝直接反馈，命令仍在处理或响应未知时先查同一编号。
+    if (error instanceof ApiError && error.code < 500000 && error.code !== 409004) {
       throw error;
     }
     const status = await api<{ state: string; target: { id: string; version: number } | null }>(
@@ -154,7 +170,7 @@ export async function mutation<T>(
         commandId: command,
         targetId: status.target?.id,
         version: status.target?.version,
-      } as T;
+      };
     }
     throw new Error('暂时无法核实提交结果，请恢复连接后再次核实此操作');
   }

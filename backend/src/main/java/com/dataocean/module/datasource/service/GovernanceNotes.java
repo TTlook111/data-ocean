@@ -48,11 +48,14 @@ public class GovernanceNotes {
      * 为预览或受控任务列出当前同源的有效修订，按资料身份稳定排序。
      */
     public List<Note> active(long source) {
-        return notes.selectList(Wrappers.<BusinessNotePO>lambdaQuery()
+        return notes
+                .selectList(Wrappers.<BusinessNotePO>lambdaQuery()
                         .eq(BusinessNotePO::getSourceId, source)
                         .eq(BusinessNotePO::getState, "ACTIVE")
                         .orderByAsc(BusinessNotePO::getId))
-                .stream().map(note -> current(source, note.getId())).toList();
+                .stream()
+                .map(note -> current(source, note.getId()))
+                .toList();
     }
 
     /**
@@ -127,9 +130,15 @@ public class GovernanceNotes {
             throw BizIllegalException.missing();
         }
         var attachments = reads.attachments(revision.getId()).stream()
-                .map(file -> new File(file.getId(), file.getName(), file.getDigest(), file.getByteSize())).toList();
-        return new Note(revision.getNoteId(), revision.getId(), revision.getRevision(),
-                revision.getTitle(), revision.getBody(), attachments);
+                .map(file -> new File(file.getId(), file.getName(), file.getDigest(), file.getByteSize()))
+                .toList();
+        return new Note(
+                revision.getNoteId(),
+                revision.getId(),
+                revision.getRevision(),
+                revision.getTitle(),
+                revision.getBody(),
+                attachments);
     }
 
     /**
@@ -166,8 +175,14 @@ public class GovernanceNotes {
          */
         public boolean equivalent(Note other) {
             return body.equals(other.body)
-                    && files.stream().map(File::digest).sorted().toList()
-                            .equals(other.files.stream().map(File::digest).sorted().toList());
+                    && files.stream()
+                            .map(File::digest)
+                            .sorted()
+                            .toList()
+                            .equals(other.files.stream()
+                                    .map(File::digest)
+                                    .sorted()
+                                    .toList());
         }
     }
 }

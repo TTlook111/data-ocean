@@ -2,11 +2,11 @@ package com.dataocean.module.query.service;
 
 import com.dataocean.common.Ids;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
+import com.dataocean.module.query.entity.vo.QueryColumnVO;
+import com.dataocean.module.query.entity.vo.QuerySeriesWindowVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
-import com.dataocean.module.query.service.QueryProtocol.Column;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
-import com.dataocean.module.query.service.QueryProtocol.SeriesWindow;
 import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
 
 import java.math.BigDecimal;
@@ -35,12 +35,12 @@ final class QuerySql {
     record Compiled(
             String sql,
             List<Object> parameters,
-            List<Column> columns,
+            List<QueryColumnVO> columns,
             List<Field> projection,
             String unit,
             String scope,
             boolean verifiesUnit,
-            SeriesWindow series,
+            QuerySeriesWindowVO series,
             QueryUsage usage) {}
 
     /** 关联由同版治理的确切字段对提供。 */
@@ -465,7 +465,7 @@ final class QuerySql {
                         .thenComparing(QueryProtocol.Condition::value))
                 .toList();
         filters.forEach(filter -> required.add(filter.field().table()));
-        var columns = new ArrayList<Column>();
+        var columns = new ArrayList<QueryColumnVO>();
         var projection = new ArrayList<>(plan.fields());
         var unit = "";
         var meaning = "";
@@ -515,10 +515,10 @@ final class QuerySql {
                 unit = plan.unit();
             }
             meaning = metric.getContent().path("meaning").asText() + metricUsage;
-            columns.add(new Column("value", metric.getLabel()));
+            columns.add(new QueryColumnVO("value", metric.getLabel()));
         } else {
             // 明细由确切的已确认字段集合决定，禁止星号和模型别名。
-            plan.fields().forEach(f -> columns.add(new Column(f.column(), f.column())));
+            plan.fields().forEach(f -> columns.add(new QueryColumnVO(f.column(), f.column())));
         }
 
         var time = plan.time();
@@ -544,7 +544,7 @@ final class QuerySql {
         String select = arity == null ? String.join(", ", selected) : aggregate(plan.operation(), selected);
         String date = time == null ? null : sqlField(time.field(), aliases, mysql);
         if (trend) {
-            columns.add(0, new Column("date", "业务日期"));
+            columns.add(0, new QueryColumnVO("date", "业务日期"));
             select = date + ", " + select;
         }
         if (unitField != null) {
@@ -596,7 +596,7 @@ final class QuerySql {
                 unit,
                 scopeText,
                 unitField != null,
-                trend ? new SeriesWindow(time.start(), time.end()) : null,
+                trend ? new QuerySeriesWindowVO(time.start(), time.end()) : null,
                 usage.finish(required));
     }
 

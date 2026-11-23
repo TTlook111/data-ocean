@@ -100,15 +100,15 @@ public class FeedbackService {
         var issue = feedback.issueId(ref);
         String queue = issue != null ? "QUEUED" : feedback.received(answer.userId(), ref) ? "RECEIVED" : "NONE";
         return new Rating(
-                ref.answerId(),
-                ref.answerRevision(),
+                ref.getAnswerId(),
+                ref.getAnswerRevision(),
                 current == null ? "NONE" : current.rating(),
                 current == null ? null : current.reason(),
                 current == null ? null : current.version(),
                 current == null ? null : instant(current.updatedAt()),
                 queue,
                 Ids.text(issue),
-                notices.answer(answer.userId(), ref.answerId()));
+                notices.answer(answer.userId(), ref.getAnswerId()));
     }
 
     /** 当前核权后在原回答锁下原子追加、推进摘要和登记待派发。 */
@@ -119,7 +119,7 @@ public class FeedbackService {
         var command = commandId(key);
         var normalized = normalize(input);
         long user = answer.userId();
-        var fingerprint = fingerprints.command(OPERATION, ref.answerId() + ":" + revision, normalized);
+        var fingerprint = fingerprints.command(OPERATION, ref.getAnswerId() + ":" + revision, normalized);
         var known = commands.find(Ids.text(user), OPERATION, command);
         if (known != null) {
             // 回放先确认同一内容，原版本之后变化也能查回旧回执。
@@ -148,8 +148,8 @@ public class FeedbackService {
         var event = new Event(
                 UUID.randomUUID().toString(),
                 user,
-                ref.answerId(),
-                ref.answerRevision(),
+                ref.getAnswerId(),
+                ref.getAnswerRevision(),
                 version == null ? 1 : version + 1,
                 current == null ? null : current.eventId(),
                 normalized.action(),
@@ -177,8 +177,8 @@ public class FeedbackService {
         var receipt = new Receipt(
                 command,
                 event.id(),
-                ref.answerId(),
-                ref.answerRevision(),
+                ref.getAnswerId(),
+                ref.getAnswerRevision(),
                 event.sequence(),
                 instant(event.occurredAt()));
         commands.complete(user, OPERATION, command, json.write(receipt));
@@ -195,7 +195,7 @@ public class FeedbackService {
             throw BizIllegalException.missing();
         }
         var receipt = committed(original.getState(), original.getResultRef());
-        if (!answer.ref().answerId().equals(receipt.answerId()) || revision != receipt.answerRevision()) {
+        if (!answer.ref().getAnswerId().equals(receipt.answerId()) || revision != receipt.answerRevision()) {
             // 命令只可通过它原来所属的回答访问。
             throw BizIllegalException.missing();
         }

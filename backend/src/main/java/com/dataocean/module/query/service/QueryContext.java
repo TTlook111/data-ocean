@@ -2,7 +2,7 @@ package com.dataocean.module.query.service;
 
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
@@ -43,7 +43,7 @@ class QueryContext {
     /** 原始轮次只从权威库回读。 */
     private final QueryRequestMapper requests;
     /** 历史绑定仍须满足当前使用资格。 */
-    private final KnowledgeVersionUse versions;
+    private final KnowledgeVersionService versions;
     /** 固化的实际执行计划用于还原条件。 */
     private final JsonCodec json;
 

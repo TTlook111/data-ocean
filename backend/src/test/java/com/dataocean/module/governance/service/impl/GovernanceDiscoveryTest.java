@@ -81,10 +81,15 @@ class GovernanceDiscoveryTest {
     /**
      * 使用真实候选验证逻辑。
      */
-    private final GovernanceDiscovery discovery =
-            new GovernanceDiscovery(mapper, catalog, entries, mock(GovernanceNotes.class), permissions, json,
-                    mock(MutationService.class),
-                    mock(AuditService.class));
+    private final GovernanceDiscovery discovery = new GovernanceDiscovery(
+            mapper,
+            catalog,
+            entries,
+            mock(GovernanceNotes.class),
+            permissions,
+            json,
+            mock(MutationService.class),
+            mock(AuditService.class));
 
     /**
      * 只有同名字段的关系建议不能进入业务记录。

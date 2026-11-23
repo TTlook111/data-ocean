@@ -1,7 +1,6 @@
 """按当前候选证据逐题召回，并返回确切代次的可核查命中。"""
 
 import asyncio
-import os
 from typing import TypedDict
 
 import httpx
@@ -12,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
 from dataocean_ai.adapters.embedding import embed
+from dataocean_ai.adapters.milvus import vector_client
 from dataocean_ai.knowledge.index import BATCH_SIZE, Verified, authority
 
 
@@ -89,14 +89,8 @@ async def _vectors(_state: ValidationState, runtime: Runtime[ValidationContext])
 
 def _search(job: ValidationInput, vectors: list[list[float]]) -> ValidationReceipt:
     """使用 Strong 实际查询既有索引并逐条确认归属。"""
-    os.environ["PYTHON_DOTENV_DISABLED"] = "1"
-    from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
-    uri = os.getenv("AI_MILVUS_URI")
-    if not uri:
-        # 未配置服务时保留可诊断的技术失败。
-        raise ModelFailure("INDEX_UNAVAILABLE")
     identity = {
         "candidate": job.candidateId,
         "revision": job.documentRevisionId,
@@ -106,47 +100,43 @@ def _search(job: ValidationInput, vectors: list[list[float]]) -> ValidationRecei
     }
     expected = {fragment.ordinal: fragment.digest for fragment in job.fragments}
     matches: list[Hit] = []
-    connection = None
     try:
-        connection = MilvusClient(uri=uri, token=os.getenv("AI_MILVUS_TOKEN", ""), timeout=8)
-        for offset in range(0, len(vectors), BATCH_SIZE):
-            # 相似度结果必须绑定该题向量，保留搜索返回顺序。
-            results = connection.search(
-                job.collection,
-                data=vectors[offset : offset + BATCH_SIZE],
-                limit=min(3, len(expected)),
-                output_fields=[*identity, "digest"],
-                consistency_level="Strong",
-                timeout=10,
+        # 连接参数统一由适配器管理，超时仍由业务场景决定。
+        with vector_client(8) as connection:
+            for offset in range(0, len(vectors), BATCH_SIZE):
+                # 相似度结果必须绑定该题向量，保留搜索返回顺序。
+                results = connection.search(
+                    job.collection,
+                    data=vectors[offset : offset + BATCH_SIZE],
+                    limit=min(3, len(expected)),
+                    output_fields=[*identity, "digest"],
+                    consistency_level="Strong",
+                    timeout=10,
+                )
+                for group in results:
+                    fragments = []
+                    for hit in group:
+                        found = hit["entity"]
+                        ordinal = hit["id"]
+                        if (
+                            ordinal not in expected
+                            or found.get("digest") != expected[ordinal]
+                            or any(found.get(key) != value for key, value in identity.items())
+                        ):
+                            # 不允许其他代次或不同治理片段参与验证。
+                            raise ModelFailure("INDEX_READBACK_MISMATCH")
+                        fragments.append(Verified(ordinal=ordinal, digest=found["digest"]))
+                    matches.append(Hit(id=job.questions[len(matches)].id, fragments=fragments))
+            if len(matches) != len(job.questions):
+                # 不完整的批次不能伪造每题结果。
+                raise ModelFailure("INDEX_READBACK_MISMATCH")
+            return ValidationReceipt(
+                collection=job.collection, fingerprint=job.fingerprint, matches=matches
             )
-            for group in results:
-                fragments = []
-                for hit in group:
-                    found = hit["entity"]
-                    ordinal = hit["id"]
-                    if (
-                        ordinal not in expected
-                        or found.get("digest") != expected[ordinal]
-                        or any(found.get(key) != value for key, value in identity.items())
-                    ):
-                        # 不允许其他代次或不同治理片段参与验证。
-                        raise ModelFailure("INDEX_READBACK_MISMATCH")
-                    fragments.append(Verified(ordinal=ordinal, digest=found["digest"]))
-                matches.append(Hit(id=job.questions[len(matches)].id, fragments=fragments))
-        if len(matches) != len(job.questions):
-            # 不完整的批次不能伪造每题结果。
-            raise ModelFailure("INDEX_READBACK_MISMATCH")
-        return ValidationReceipt(
-            collection=job.collection, fingerprint=job.fingerprint, matches=matches
-        )
     except (MilvusException, OSError, TimeoutError):
         raise ModelFailure("INDEX_UNAVAILABLE") from None
     except (KeyError, ValueError, IndexError):
         raise ModelFailure("INDEX_READBACK_MISMATCH") from None
-    finally:
-        # 关闭索引客户端，验证始终只读。
-        if connection is not None:
-            connection.close()
 
 
 async def _recall(state: ValidationState, runtime: Runtime[ValidationContext]):

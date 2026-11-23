@@ -161,13 +161,13 @@ public class StructureReviewService {
         validate(current, view, input.getExpectedVersion(), input.getProposal());
         return reviews.preview(
                 "REVIEW_STRUCTURE_CHANGE",
-                view.changeId(),
-                view.version(),
+                view.getChangeId(),
+                view.getVersion(),
                 input.getProposal(),
                 List.of(new ChangeVO(
                         "decision",
                         "核实结论",
-                        view.factState(),
+                        view.getFactState(),
                         input.getProposal().getDecision())),
                 List.of(),
                 List.of());
@@ -194,8 +194,8 @@ public class StructureReviewService {
                     validate(current, view, input.getExpectedVersion(), proposal);
                     reviews.verify(
                             "REVIEW_STRUCTURE_CHANGE",
-                            view.changeId(),
-                            view.version(),
+                            view.getChangeId(),
+                            view.getVersion(),
                             proposal,
                             input.getReviewToken());
 
@@ -232,7 +232,7 @@ public class StructureReviewService {
                     events.structure(source, null, id);
                     events.catalog(source, current.getCurrentSnapshotId(), records.catalogVersion(source));
                     auditChange(current, view, proposal, command);
-                    return new MutationVO(command, "structure_change", view.changeId(), view.version() + 1);
+                    return new MutationVO(command, "structure_change", view.getChangeId(), view.getVersion() + 1);
                 });
         return detail(source, id);
     }
@@ -297,10 +297,10 @@ public class StructureReviewService {
             DatasourcePO source, StructureChangeVO view, ChangeReviewProposalDTO proposal, String command) {
         sources.recordStructureChange(
                 source,
-                view.changeId(),
+                view.getChangeId(),
                 command,
                 proposal.getEvidence().strip(),
-                view.factState(),
+                view.getFactState(),
                 proposal.getDecision());
     }
 
@@ -308,14 +308,14 @@ public class StructureReviewService {
      * 校验实质可办、当前版本和规定的事实结论。
      */
     private void validate(DatasourcePO source, StructureChangeVO view, int version, ChangeReviewProposalDTO proposal) {
-        if (version != view.version()) {
+        if (version != view.getVersion()) {
             throw BizIllegalException.conflict();
         }
-        if (!"PENDING".equals(view.factState()) || view.successorChangeId() != null) {
+        if (!"PENDING".equals(view.getFactState()) || view.getSuccessorChangeId() != null) {
             throw new CommonException(409507, 409, "此变化已有结论或已转给后续记录", null);
         }
         List<String> decisions =
-                switch (view.changeType()) {
+                switch (view.getChangeType()) {
                     case "ACCESS_LOST" -> List.of("REMOVED", "STILL_EXISTS");
                     case "IDENTITY_UNCERTAIN" -> List.of("SAME_OBJECT", "REBUILT");
                     default -> List.of("CONFIRM", "EXCLUDE");
@@ -324,10 +324,12 @@ public class StructureReviewService {
                 || proposal.getEvidence().strip().isEmpty()) {
             throw BizIllegalException.invalid("请选择适用的核实结论并填写依据");
         }
-        if ("IDENTITY_UNCERTAIN".equals(view.changeType())
+        if ("IDENTITY_UNCERTAIN".equals(view.getChangeType())
                 && (source.getCurrentSnapshotId() == null
                         || catalog.currentIdentityObservation(
-                                        source.getId(), source.getCurrentSnapshotId(), Long.parseLong(view.changeId()))
+                                        source.getId(),
+                                        source.getCurrentSnapshotId(),
+                                        Long.parseLong(view.getChangeId()))
                                 == null)) {
             throw new CommonException(409507, 409, "该观察已有更新的成功快照，请打开最新记录", null);
         }

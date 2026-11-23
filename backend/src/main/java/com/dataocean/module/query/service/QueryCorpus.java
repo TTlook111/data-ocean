@@ -15,8 +15,11 @@ import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
 import com.dataocean.module.knowledge.mapper.KnowledgeReleaseCandidateMapper;
 import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Evidence;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
+import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO.Metric;
+import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Fragment;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
@@ -42,7 +45,7 @@ public class QueryCorpus {
     /** 同源正式版本及确认历史。 */
     private final KnowledgePublicationMapper publications;
     /** 复用当前治理禁止及正式知识使用控制。 */
-    private final KnowledgeVersionUse versions;
+    private final KnowledgeVersionService versions;
     /** 取发布候选内容指纹而非最新草稿。 */
     private final KnowledgeReleaseCandidateMapper candidates;
     /** 查阅固定片段及实际代次。 */
@@ -191,7 +194,7 @@ public class QueryCorpus {
         }
 
         /** 模型上下文仅含已授权确认内容及逻辑表列。 */
-        Snippet snippet() {
+        QueryEvidenceSnippetDTO snippet() {
             var columns = new LinkedHashMap<String, Map<String, String>>();
             tables.forEach((name, table) -> {
                 var typed = new LinkedHashMap<String, String>();
@@ -210,19 +213,13 @@ public class QueryCorpus {
                             fact.getContent().path("rule").asText(),
                                     fact.getContent().path("usage").asText()))
                     .toList();
-            return new Snippet(Ids.text(binding.id()), text, columns, metrics);
+            return new QueryEvidenceSnippetDTO(Ids.text(binding.id()), text, columns, metrics);
         }
 
         /** 页面仅展示正式依据身份，不外发完整正文或索引字段。 */
-        QueryProtocol.Evidence evidence() {
-            return new QueryProtocol.Evidence(
+        QueryEvidenceVO evidence() {
+            return new QueryEvidenceVO(
                     binding.title(), binding.revision(), Ids.text(binding.documentRevisionId()), ordinal);
         }
     }
-
-    /** 模型可用的确认计算口径。 */
-    record Metric(String name, String meaning, String rule, String usage) {}
-
-    /** 检索后的实际同版内容。 */
-    record Snippet(String binding, String text, Map<String, Map<String, String>> tables, List<Metric> metrics) {}
 }

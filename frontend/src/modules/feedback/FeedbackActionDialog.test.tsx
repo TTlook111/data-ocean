@@ -77,6 +77,7 @@ const technicalTask: FeedbackTask = {
   canReview: true,
   canAssign: true,
   canChangeStatus: true,
+  progress: null,
   resolution: {
     canSubmitResult: false,
     canVerify: false,

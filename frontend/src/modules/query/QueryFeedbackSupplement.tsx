@@ -1,10 +1,11 @@
 import { Alert, App, Button, Form, Input, Modal } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
-import { api, ApiError, mutation } from '../../shared/api';
+import { useState } from 'react';
+import { api, ApiError } from '../../shared/api';
 import { displayTime } from '../../shared/Records';
 import { isSupplementPending, statusLabels, type FeedbackSupplementEntry } from '../feedback/types';
 import styles from './query.module.css';
+import { useFeedbackCommand } from '../feedback/useFeedbackCommand';
 
 /**
  * 当前原问题上本人可见的补充和处理进度。
@@ -38,9 +39,7 @@ export function QueryFeedbackSupplement({
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
-  const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const attempt = useRef<{ command: string; body: object } | null>(null);
   const state = useQuery({
     queryKey: key,
     queryFn: () => api<SupplementState | null>(path),
@@ -58,6 +57,7 @@ export function QueryFeedbackSupplement({
           : false;
     },
   });
+  const { uncertain, send } = useFeedbackCommand(state.refetch);
   const value = state.data;
   if (state.isError || !value || !Array.isArray(value.entries)) return null;
   const pending = value.entries.find(isSupplementPending);
@@ -69,34 +69,25 @@ export function QueryFeedbackSupplement({
    */
   async function submit() {
     if (!draft || busy || stale || (!canSubmit && !uncertain) || !answer.trim()) return;
-    const request = attempt.current ?? {
-      command: crypto.randomUUID(),
-      body: {
-        expectedVersion: draft.version,
-        supplementId: draft.pending?.id,
-        answer: answer.trim(),
-      },
+    const body = {
+      expectedVersion: draft.version,
+      supplementId: draft.pending?.id,
+      answer: answer.trim(),
     };
-    attempt.current = request;
     setError(null);
     setBusy(true);
     try {
-      await mutation(path, 'POST', request.body, 'query.view', request.command);
+      await send(path, body, 'query.view');
       await cache.invalidateQueries({ queryKey: key });
-      attempt.current = null;
-      setUncertain(false);
       setDraft(undefined);
       setAnswer('');
       message.success('已提交补充');
     } catch (failure) {
       if (failure instanceof ApiError) {
         // 明确失败可改草稿，版本冲突则保留原文重新读取。
-        attempt.current = null;
-        setUncertain(false);
         if (failure.code === 409001) setStale(true);
         setError(failure.message);
       } else {
-        setUncertain(true);
         setError('提交结果暂未确认，可核对并重试');
       }
     } finally {

@@ -58,7 +58,7 @@ public class CollectionEventStream {
         }
         String key = UUID.randomUUID().toString();
         SseEmitter emitter = new SseEmitter(45_000L);
-        var subscriber = new Subscriber(emitter, sessionId, UserContext.current(), snapshot.taskId());
+        var subscriber = new Subscriber(emitter, sessionId, UserContext.current(), snapshot.getTaskId());
         subscribers.put(key, subscriber);
         emitter.onCompletion(() -> subscribers.remove(key));
         emitter.onTimeout(() -> subscribers.remove(key));
@@ -88,29 +88,30 @@ public class CollectionEventStream {
      * 只在状态变更时发送业务事件，终态收到后可通过原任务回读。
      */
     private void send(String key, Subscriber subscriber, CollectionDetailVO snapshot) {
-        boolean first = subscriber.version < 0 || !snapshot.streamEpoch().equals(subscriber.epoch);
-        boolean terminal = Set.of("SUCCEEDED", "FAILED", "CANCELLED").contains(snapshot.state());
-        if (!first && subscriber.version == snapshot.version()) {
+        boolean first = subscriber.version < 0 || !snapshot.getStreamEpoch().equals(subscriber.epoch);
+        boolean terminal = Set.of("SUCCEEDED", "FAILED", "CANCELLED").contains(snapshot.getState());
+        if (!first && subscriber.version == snapshot.getVersion()) {
             return;
         }
         String name;
         Object content;
-        String eventId = snapshot.streamEpoch() + ":" + snapshot.version();
+        String eventId = snapshot.getStreamEpoch() + ":" + snapshot.getVersion();
         if (first) {
             name = "collection.snapshot";
-            content = new Snapshot(snapshot, snapshot.streamEpoch(), eventId);
+            content = new Snapshot(snapshot, snapshot.getStreamEpoch(), eventId);
         } else if (terminal) {
             name = "collection.finished";
-            content = new Finished(snapshot.state(), snapshot.content());
-        } else if (snapshot.stopProgress() != null) {
+            content = new Finished(snapshot.getState(), snapshot.getContent());
+        } else if (snapshot.getStopProgress() != null) {
             name = "task.cancellation";
             content = new Cancellation(
-                    "UNKNOWN".equals(snapshot.executionState()) ? "VERIFYING" : "REQUESTED", snapshot.executionState());
+                    "UNKNOWN".equals(snapshot.getExecutionState()) ? "VERIFYING" : "REQUESTED",
+                    snapshot.getExecutionState());
         } else {
             name = "collection.progress";
             content = new Progress(
-                    snapshot.content() == null ? null : snapshot.content().phase(),
-                    snapshot.content() == null ? null : snapshot.content().counts());
+                    snapshot.getContent() == null ? null : snapshot.getContent().getPhase(),
+                    snapshot.getContent() == null ? null : snapshot.getContent().getCounts());
         }
         try {
             // 显式事件名和值与 HTTP JSON 共享同一序列化规则。
@@ -118,14 +119,14 @@ public class CollectionEventStream {
                     .id(eventId)
                     .name(name)
                     .data(new Envelope(
-                            snapshot.taskId(),
-                            snapshot.streamEpoch(),
-                            snapshot.version(),
+                            snapshot.getTaskId(),
+                            snapshot.getStreamEpoch(),
+                            snapshot.getVersion(),
                             clock.instant(),
                             name,
                             content)));
-            subscriber.version = snapshot.version();
-            subscriber.epoch = snapshot.streamEpoch();
+            subscriber.version = snapshot.getVersion();
+            subscriber.epoch = snapshot.getStreamEpoch();
             if (terminal) {
                 close(key, subscriber);
             }

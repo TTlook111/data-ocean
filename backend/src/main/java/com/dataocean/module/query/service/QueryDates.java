@@ -14,8 +14,8 @@ final class QueryDates {
     /**
      * 已经声明了日历日期或月份时，不用相对词覆盖该日期。
      */
-    private static final Pattern CALENDAR_DATE = Pattern.compile(
-            "(?:[0-9]{4}[-/.][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}(?![0-9])|"
+    private static final Pattern CALENDAR_DATE =
+            Pattern.compile("(?:[0-9]{4}[-/.][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}(?![0-9])|"
                     + "[0-9一二三四五六七八九十]{1,3}\\s*月(?!奶)|[本上这下](?:个)?月)");
 
     /**
@@ -27,8 +27,7 @@ final class QueryDates {
      * 只有日号时如果缺少月份和对话依据，需要澄清；仓库等序号不属于日期。
      */
     private static final Pattern DAY_ONLY = Pattern.compile(
-            "(?<![\\w-])(?:[1-9]|[12][0-9]|3[01]|[一二三]?十[一二三四五六七八九]?|[一二三四五六七八九])"
-                    + "\\s*" + DAY_SUFFIX);
+            "(?<![\\w-])(?:[1-9]|[12][0-9]|3[01]|[一二三]?十[一二三四五六七八九]?|[一二三四五六七八九])" + "\\s*" + DAY_SUFFIX);
 
     /**
      * 澄清答“这个月”后，用原日号绑定具体日期。
@@ -38,34 +37,36 @@ final class QueryDates {
     /**
      * 原问明确给出的阿拉伯数字日号。
      */
-    private static final Pattern NUMBERED_DAY =
-            Pattern.compile("(?<![\\w-])([1-9]|[12][0-9]|3[01])\\s*" + DAY_SUFFIX);
+    private static final Pattern NUMBERED_DAY = Pattern.compile("(?<![\\w-])([1-9]|[12][0-9]|3[01])\\s*" + DAY_SUFFIX);
 
     /**
      * 优先匹配较长的相对日表达，星期分支使用明确的自然周。
      */
-    private static final Pattern RELATIVE_DAY = Pattern.compile(
-            "(?iu)大前天|前天|昨天|昨日|今天|今日|明天|明日|后天|\\b(?:the\\s+)?day before yesterday\\b|"
+    private static final Pattern RELATIVE_DAY =
+            Pattern.compile("(?iu)大前天|前天|昨天|昨日|今天|今日|明天|明日|后天|\\b(?:the\\s+)?day before yesterday\\b|"
                     + "\\btwo days ago\\b|\\b(?:yesterday|today|tomorrow)\\b|"
                     + "(?:上|本|这)(?:周|星期)[一二三四五六日天]");
 
     /**
      * “截至”及“从某天到某天”表达的是区间或边界，不能当作单日结果。
      */
-    private static final Pattern PERIOD = Pattern.compile("截至|从.{0,32}(?:至|到)|同比|环比|对比|比较|相比|(?i:\\b(?:since|until|through)\\b)");
+    private static final Pattern PERIOD =
+            Pattern.compile("截至|从.{0,32}(?:至|到)|同比|环比|对比|比较|相比|(?i:\\b(?:since|until|through)\\b)");
 
     /**
      * 仅含日号，没有判断月份的用户表达。
      */
     static boolean needsMonth(String question) {
-        return DAY_ONLY.matcher(question).find() && !CALENDAR_DATE.matcher(question).find();
+        return DAY_ONLY.matcher(question).find()
+                && !CALENDAR_DATE.matcher(question).find();
     }
 
     /**
      * 通用规划负责其余日期表达，短路径只使用可以唯一确定的日期。
      */
     static boolean mentionsSpecificDate(String question) {
-        return CALENDAR_DATE.matcher(question).find() || DAY_ONLY.matcher(question).find();
+        return CALENDAR_DATE.matcher(question).find()
+                || DAY_ONLY.matcher(question).find();
     }
 
     /**
@@ -77,7 +78,10 @@ final class QueryDates {
             return null;
         }
         var dayNumber = NUMBERED_DAY.matcher(question);
-        if (THIS_MONTH.matcher(question).find() && !CALENDAR_DATE.matcher(THIS_MONTH.matcher(question).replaceAll("")).find()
+        if (THIS_MONTH.matcher(question).find()
+                && !CALENDAR_DATE
+                        .matcher(THIS_MONTH.matcher(question).replaceAll(""))
+                        .find()
                 && dayNumber.find()) {
             int day = Integer.parseInt(dayNumber.group(1));
             if (!dayNumber.find() && day <= anchor.lengthOfMonth()) {
@@ -86,9 +90,7 @@ final class QueryDates {
             }
         }
         var match = RELATIVE_DAY.matcher(question);
-        if (CALENDAR_DATE.matcher(question).find()
-                || DAY_ONLY.matcher(question).find()
-                || !match.find()) {
+        if (CALENDAR_DATE.matcher(question).find() || DAY_ONLY.matcher(question).find() || !match.find()) {
             // 无日期或已有具体日期时不加入新的时间条件。
             return null;
         }

@@ -11,9 +11,9 @@ import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeVersionControlVO.RunDetail;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeWithdrawalVO.Detail;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeWithdrawalVO.Preview;
-import com.dataocean.module.knowledge.service.impl.KnowledgeValidations;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
-import com.dataocean.module.knowledge.service.impl.KnowledgeWithdrawals;
+import com.dataocean.module.knowledge.service.KnowledgeRecoveryService;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.KnowledgeWithdrawalService;
 
 import java.util.UUID;
 
@@ -42,17 +42,17 @@ public class KnowledgeVersionControlController {
     /**
      * 当前限制和问数使用规则。
      */
-    private final KnowledgeVersionUse versionUse;
+    private final KnowledgeVersionService versionUse;
 
     /**
      * 共享实际验证及裁定结果。
      */
-    private final KnowledgeValidations validations;
+    private final KnowledgeRecoveryService recovery;
 
     /**
      * 知识撤下的影响核对及持久办理。
      */
-    private final KnowledgeWithdrawals withdrawals;
+    private final KnowledgeWithdrawalService withdrawals;
 
     /**
      * 展示确切目标、直接和间接引用方。
@@ -91,7 +91,7 @@ public class KnowledgeVersionControlController {
     @GetMapping("/controls")
     @RequirePermission("releases.view")
     public Result<KnowledgeVersionControlVO> detail(@PathVariable String source, @PathVariable String id) {
-        return Result.success(validations.controls(Ids.parse(source), Ids.parse(id)));
+        return Result.success(recovery.controls(Ids.parse(source), Ids.parse(id)));
     }
 
     /**
@@ -118,7 +118,7 @@ public class KnowledgeVersionControlController {
             @PathVariable String id,
             @PathVariable String pause,
             @RequestHeader("Idempotency-Key") String command) {
-        return Result.success(validations.startRecovery(Ids.parse(source), Ids.parse(id), Ids.parse(pause), command));
+        return Result.success(recovery.startRecovery(Ids.parse(source), Ids.parse(id), Ids.parse(pause), command));
     }
 
     /**
@@ -127,7 +127,7 @@ public class KnowledgeVersionControlController {
     @GetMapping("/recovery/{run}")
     @RequirePermission("releases.view")
     public Result<RunDetail> run(@PathVariable String source, @PathVariable String id, @PathVariable UUID run) {
-        return Result.success(validations.recoveryDetail(Ids.parse(source), Ids.parse(id), run.toString()));
+        return Result.success(recovery.recoveryDetail(Ids.parse(source), Ids.parse(id), run.toString()));
     }
 
     /**
@@ -141,7 +141,7 @@ public class KnowledgeVersionControlController {
             @PathVariable String pause,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody KnowledgeVersionRestoreDTO input) {
-        return Result.success(validations.restore(Ids.parse(source), Ids.parse(id), Ids.parse(pause), command, input));
+        return Result.success(recovery.restore(Ids.parse(source), Ids.parse(id), Ids.parse(pause), command, input));
     }
 
     /**

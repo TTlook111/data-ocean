@@ -652,16 +652,18 @@ export interface GenerationTarget {
   /**
    * 当前有源访问权限时可见的实际辅助读取摘要。
    */
-  samples?: {
-    /** 真实尝试顺序。 */
-    attempt: number;
-    /** 查询结果的稳定状态。 */
-    status: string;
-    /** 源库实际返回行数。 */
-    returnedRows: number;
-    /** 有诊断权时回看的固定只读语句。 */
-    statement?: string | null;
-  }[] | null;
+  samples?:
+    | {
+        /** 真实尝试顺序。 */
+        attempt: number;
+        /** 查询结果的稳定状态。 */
+        status: string;
+        /** 源库实际返回行数。 */
+        returnedRows: number;
+        /** 有诊断权时回看的固定只读语句。 */
+        statement?: string | null;
+      }[]
+    | null;
 }
 
 /**

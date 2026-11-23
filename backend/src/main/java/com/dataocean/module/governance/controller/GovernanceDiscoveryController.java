@@ -14,7 +14,7 @@ import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.security.RequirePermission;
 
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import lombok.RequiredArgsConstructor;
 
 /**
  * 表治理详情内进行发现、依据回看和人工审核。
@@ -47,8 +49,11 @@ public class GovernanceDiscoveryController {
     @PostMapping("/discovery/{kind}")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RequirePermission("governance.suggest")
-    public Result<GenerationAcceptedVO> discover(@PathVariable String source, @PathVariable String object,
-            @PathVariable String kind, @RequestHeader("Idempotency-Key") String command) {
+    public Result<GenerationAcceptedVO> discover(
+            @PathVariable String source,
+            @PathVariable String object,
+            @PathVariable String kind,
+            @RequestHeader("Idempotency-Key") String command) {
         return Result.success(tasks.discover(Ids.parse(source), Ids.parse(object), kind, command));
     }
 
@@ -57,8 +62,8 @@ public class GovernanceDiscoveryController {
      */
     @GetMapping
     @RequirePermission("governance.view")
-    public Result<PageVO<GovernanceCandidateVO>> list(@PathVariable String source, @PathVariable String object,
-            @RequestParam String kind, PageQuery query) {
+    public Result<PageVO<GovernanceCandidateVO>> list(
+            @PathVariable String source, @PathVariable String object, @RequestParam String kind, PageQuery query) {
         return Result.success(discovery.list(Ids.parse(source), Ids.parse(object), kind, query));
     }
 
@@ -68,8 +73,11 @@ public class GovernanceDiscoveryController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @RequirePermission("governance.view")
-    public Result<MutationVO> create(@PathVariable String source, @PathVariable String object,
-            @RequestParam String kind, @RequestHeader("Idempotency-Key") String command,
+    public Result<MutationVO> create(
+            @PathVariable String source,
+            @PathVariable String object,
+            @RequestParam String kind,
+            @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody GovernanceCandidateDraftDTO data) {
         return Result.success(discovery.create(Ids.parse(source), Ids.parse(object), kind, command, data));
     }
@@ -79,8 +87,11 @@ public class GovernanceDiscoveryController {
      */
     @PutMapping("/{candidate}")
     @RequirePermission("governance.view")
-    public Result<GovernanceCandidateVO> review(@PathVariable String source, @PathVariable String object,
-            @PathVariable String candidate, @Valid @RequestBody GovernanceCandidateReviewDTO data) {
+    public Result<GovernanceCandidateVO> review(
+            @PathVariable String source,
+            @PathVariable String object,
+            @PathVariable String candidate,
+            @Valid @RequestBody GovernanceCandidateReviewDTO data) {
         return Result.success(discovery.review(Ids.parse(source), Ids.parse(object), Ids.parse(candidate), data));
     }
 }

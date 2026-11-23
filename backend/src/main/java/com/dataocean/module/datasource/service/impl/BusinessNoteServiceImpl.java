@@ -279,8 +279,13 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                     long afterRevision = writeRevision(note, body, kept, commandFiles);
                     if (beforeRevision != null && substantive && reads.references(id) > 0) {
                         // 发布受引用的实际内容修订变化，后续按原依赖只更新受影响条目。
-                        events.businessNote(note.getSourceId(), id, note.getRevision(), note.getVersion(),
-                                beforeRevision, afterRevision);
+                        events.businessNote(
+                                note.getSourceId(),
+                                id,
+                                note.getRevision(),
+                                note.getVersion(),
+                                beforeRevision,
+                                afterRevision);
                     }
                     return record(
                             note,
@@ -385,7 +390,8 @@ public class BusinessNoteServiceImpl implements BusinessNoteService {
                     if ("WITHDRAWN".equals(next) && references > 0) {
                         // 确切资料状态及同版本治理影响在原写事务内生效。
                         long revision = requireRevision(id, note.getRevision()).getId();
-                        events.businessNote(note.getSourceId(), id, note.getRevision(), note.getVersion(), revision, null);
+                        events.businessNote(
+                                note.getSourceId(), id, note.getRevision(), note.getVersion(), revision, null);
                     }
                     return record(
                             note,

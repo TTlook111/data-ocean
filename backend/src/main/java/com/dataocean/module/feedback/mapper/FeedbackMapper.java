@@ -3,8 +3,8 @@ package com.dataocean.module.feedback.mapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.iam.entity.po.UserPO;
-import com.dataocean.module.query.service.QueryProtocol.AnswerRef;
-import com.dataocean.module.query.service.QueryProtocol.SourceOption;
+import com.dataocean.module.query.entity.vo.QueryAnswerRefVO;
+import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -152,7 +152,7 @@ public interface FeedbackMapper {
             WHERE EXISTS(SELECT 1 FROM fb_issue i WHERE i.source_id=s.id)
             ORDER BY s.name,s.id
             """)
-    List<SourceOption> issueSources();
+    List<QuerySourceOptionVO> issueSources();
 
     /** 历史正文可为空，基础查看只需要同版操作元数据。 */
     String ACTIVITY_SELECT =
@@ -186,7 +186,7 @@ public interface FeedbackMapper {
             FROM fb_current_rating c JOIN fb_event e ON e.id=c.last_event_id
             WHERE c.user_id=#{user} AND c.answer_id=#{ref.answerId} AND c.answer_revision=#{ref.answerRevision}
             """)
-    Current current(long user, AnswerRef ref);
+    Current current(long user, QueryAnswerRefVO ref);
 
     /** 以原始点踩事实判断是否已受理。 */
     @Select(
@@ -195,7 +195,7 @@ public interface FeedbackMapper {
             WHERE user_id=#{user} AND answer_id=#{ref.answerId} AND answer_revision=#{ref.answerRevision}
             AND action='DISLIKE')
             """)
-    boolean received(long user, AnswerRef ref);
+    boolean received(long user, QueryAnswerRefVO ref);
 
     /** 同一个回答版本始终关联原事项。 */
     @Select(
@@ -204,7 +204,7 @@ public interface FeedbackMapper {
             WHERE origin='USER_DISLIKE' AND origin_request_id=#{ref.answerId}
             AND origin_answer_revision=#{ref.answerRevision}
             """)
-    Long issueId(@Param("ref") AnswerRef ref);
+    Long issueId(@Param("ref") QueryAnswerRefVO ref);
 
     /** 提交时追加事件，不覆盖已经收到的评价历史。 */
     @Insert(
@@ -248,7 +248,7 @@ public interface FeedbackMapper {
             INSERT INTO fb_issue(source_id,origin,origin_request_id,origin_answer_revision,status,version)
             VALUES(#{source},'USER_DISLIKE',#{ref.answerId},#{ref.answerRevision},'PENDING_ASSIGNMENT',1)
             """)
-    void createIssue(long source, AnswerRef ref);
+    void createIssue(long source, QueryAnswerRefVO ref);
 
     /** 关联存在即可用原始事项核对入队回执。 */
     @Select("SELECT issue_id FROM fb_issue_evidence WHERE feedback_event_id=#{event}")
@@ -262,11 +262,11 @@ public interface FeedbackMapper {
     @Update("UPDATE fb_issue SET version=version+1,updated_at=UTC_TIMESTAMP(3) WHERE id=#{issue}")
     void touchIssue(long issue);
 
-    /** 查询条件共同用于分页计数，排序由服务端固定。 */
-    @Select(
-            "<script>" + ISSUE_SELECT
-                    + """
-            <where>
+    /**
+     * 候选筛查和最终列表共用队列查询条件。
+     */
+    String ISSUE_FILTERS =
+            """
                 <if test="source != null">i.source_id=#{source}</if>
                 <if test="issue != null">AND i.id=#{issue}</if>
                 <if test="origin != null">AND i.origin=#{origin}</if>
@@ -284,6 +284,45 @@ public interface FeedbackMapper {
                     + """
                     ) LIKE #{keyword} ESCAPE '!')
                 </if>
+            """;
+
+    /**
+     * 先找出所有可能需要复验或结案的事项。实时资格在服务层核对后才进入真正的列表分页。
+     */
+    @Select(
+            "<script>" + ISSUE_SELECT
+                    + "<where>" + ISSUE_FILTERS
+                    + """
+                AND i.status='PENDING_VERIFICATION' AND NOT
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
+                AND (i.result_version IS NOT NULL OR EXISTS(SELECT 1 FROM fb_issue_task t
+                    WHERE t.issue_id=i.id AND t.status='SUBMITTED'))
+                <if test="!canClose">
+                    AND i.source_id IN
+                    <foreach collection="verifySources" item="id" open="(" separator="," close=")">#{id}</foreach>
+                </if>
+            </where>
+            </script>
+            """)
+    List<Issue> verificationCandidates(
+            Long source,
+            Long issue,
+            String origin,
+            String keyword,
+            String status,
+            String assignee,
+            List<Long> verifySources,
+            boolean canClose);
+
+    /**
+     * 正式列表的计数和取数使用同一范围，排序由服务端固定。
+     */
+    @Select(
+            "<script>" + ISSUE_SELECT
+                    + "<where>" + ISSUE_FILTERS
+                    + """
                 <if test="scope == 'OWNED'">
                     AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION') AND (i.assignee_id=#{actor}
                         OR EXISTS(SELECT 1 FROM fb_issue_task t WHERE t.issue_id=i.id AND t.assignee_id=#{actor}
@@ -291,18 +330,6 @@ public interface FeedbackMapper {
                 </if>
                 <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER','MERGED')</if>
                 <if test="scope == 'MERGE'">AND i.status IN ('PENDING_ASSIGNMENT','IN_PROGRESS','PENDING_VERIFICATION')</if>
-                <if test="scope == 'VERIFY_CANDIDATES'">
-                    AND i.status='PENDING_VERIFICATION' AND NOT
-            """
-                    + WAITING_SUPPLEMENT
-                    + """
-                    AND (i.result_version IS NOT NULL OR EXISTS(SELECT 1 FROM fb_issue_task t
-                        WHERE t.issue_id=i.id AND t.status='SUBMITTED'))
-                    <if test="!canClose">
-                        AND i.source_id IN
-                        <foreach collection="verifySources" item="id" open="(" separator="," close=")">#{id}</foreach>
-                    </if>
-                </if>
                 <if test="scope == 'MINE'">
                     AND NOT
             """
@@ -348,7 +375,6 @@ public interface FeedbackMapper {
             long actor,
             boolean canAssign,
             boolean canReview,
-            List<Long> verifySources,
             List<Long> verificationTodoIds,
             boolean canClose);
 

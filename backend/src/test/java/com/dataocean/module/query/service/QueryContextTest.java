@@ -7,7 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
-import com.dataocean.module.knowledge.service.impl.KnowledgeVersionUse;
+import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
@@ -31,7 +31,7 @@ class QueryContextTest {
     @Test
     void keepsFiveRecentTurnsAndSummarizesEarlierAllowedPlans() {
         var rows = mock(QueryRequestMapper.class);
-        var versions = mock(KnowledgeVersionUse.class);
+        var versions = mock(KnowledgeVersionService.class);
         var json = new JsonCodec(JsonMapper.builder().build());
         var anchor = LocalDateTime.now(ZoneOffset.UTC);
         var reasoning = json.write(new Reasoning(
@@ -67,7 +67,7 @@ class QueryContextTest {
     @Test
     void rejectsHistoryOutsideTheExactSource() {
         var rows = mock(QueryRequestMapper.class);
-        var versions = mock(KnowledgeVersionUse.class);
+        var versions = mock(KnowledgeVersionService.class);
         var json = new JsonCodec(JsonMapper.builder().build());
         var anchor = LocalDateTime.now(ZoneOffset.UTC);
         var current = request("now", "older", "scope", 1, anchor, "{}");
@@ -85,20 +85,25 @@ class QueryContextTest {
     @Test
     void stopsReadingHistoryAtExplicitTopicChanges() {
         var rows = mock(QueryRequestMapper.class);
-        var versions = mock(KnowledgeVersionUse.class);
+        var versions = mock(KnowledgeVersionService.class);
         var json = new JsonCodec(JsonMapper.builder().build());
         var anchor = LocalDateTime.now(ZoneOffset.UTC);
         var context = new QueryContext(rows, versions, json);
         var reasoning = json.write(new Reasoning(
-                null, "", List.of(), List.of(),
-                new Plan("READY", null, "1", "SUM", "合计", null, List.of(), List.of()), null));
+                null,
+                "",
+                List.of(),
+                List.of(),
+                new Plan("READY", null, "1", "SUM", "合计", null, List.of(), List.of()),
+                null));
         var newTopic = request("new", "old", "scope", 1, anchor, reasoning);
         when(newTopic.question()).thenReturn("换个问题。常温饮料有多少种？");
         when(rows.get("new")).thenReturn(newTopic);
         var followup = request("followup", "new", "scope", 1, anchor, "{}");
 
         assertThat(context.capture(newTopic, "scope").recent()).isEmpty();
-        assertThat(context.capture(followup, "scope").recent()).extracting(MemoryTurn::requestId)
+        assertThat(context.capture(followup, "scope").recent())
+                .extracting(MemoryTurn::requestId)
                 .containsExactly("new");
         assertThat(context.adjacentDay("那前一天呢？")).isEqualTo(-1);
         assertThat(context.adjacentDay("再后1天呢")).isEqualTo(1);

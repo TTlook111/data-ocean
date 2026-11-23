@@ -3,35 +3,39 @@ package com.dataocean.module.feedback.controller;
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
-import com.dataocean.module.feedback.entity.AssignIssueDTO;
-import com.dataocean.module.feedback.entity.ChangeFeedbackTaskDTO;
-import com.dataocean.module.feedback.entity.CloseIssueDTO;
-import com.dataocean.module.feedback.entity.DisposeFeedbackSupplementDTO;
-import com.dataocean.module.feedback.entity.FeedbackIssueDetailVO;
-import com.dataocean.module.feedback.entity.FeedbackIssueReasonDTO;
-import com.dataocean.module.feedback.entity.FeedbackNoticeVO;
-import com.dataocean.module.feedback.entity.FeedbackProgressDTO;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.IssueRow;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Rating;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
-import com.dataocean.module.feedback.entity.FeedbackSupplementVO;
-import com.dataocean.module.feedback.entity.MergeFeedbackIssueDTO;
-import com.dataocean.module.feedback.entity.RequestFeedbackSupplementDTO;
-import com.dataocean.module.feedback.entity.ReviewIssueDTO;
-import com.dataocean.module.feedback.entity.SourceDataResultDTO;
-import com.dataocean.module.feedback.entity.SubmitFeedbackSupplementDTO;
-import com.dataocean.module.feedback.entity.SubmitIssueResultDTO;
-import com.dataocean.module.feedback.entity.SubmitKnowledgeResultDTO;
-import com.dataocean.module.feedback.entity.VerifyIssueDTO;
+import com.dataocean.module.feedback.entity.dto.AssignIssueDTO;
+import com.dataocean.module.feedback.entity.dto.ChangeFeedbackTaskDTO;
+import com.dataocean.module.feedback.entity.dto.CloseIssueDTO;
+import com.dataocean.module.feedback.entity.dto.DisposeFeedbackSupplementDTO;
+import com.dataocean.module.feedback.entity.dto.FeedbackIssueReasonDTO;
+import com.dataocean.module.feedback.entity.dto.FeedbackProgressDTO;
+import com.dataocean.module.feedback.entity.dto.MergeFeedbackIssueDTO;
+import com.dataocean.module.feedback.entity.dto.RequestFeedbackSupplementDTO;
+import com.dataocean.module.feedback.entity.dto.ReviewIssueDTO;
+import com.dataocean.module.feedback.entity.dto.SourceDataResultDTO;
+import com.dataocean.module.feedback.entity.dto.SubmitFeedbackSupplementDTO;
+import com.dataocean.module.feedback.entity.dto.SubmitIssueResultDTO;
+import com.dataocean.module.feedback.entity.dto.SubmitKnowledgeResultDTO;
+import com.dataocean.module.feedback.entity.dto.VerifyIssueDTO;
+import com.dataocean.module.feedback.entity.query.FeedbackIssueQuery;
+import com.dataocean.module.feedback.entity.vo.FeedbackClosurePreviewVO;
+import com.dataocean.module.feedback.entity.vo.FeedbackIssueDetailVO;
+import com.dataocean.module.feedback.entity.vo.FeedbackNoticeVO;
+import com.dataocean.module.feedback.entity.vo.FeedbackSupplementVO;
+import com.dataocean.module.feedback.service.FeedbackIssueLifecycleService;
+import com.dataocean.module.feedback.service.FeedbackIssueQueryService;
 import com.dataocean.module.feedback.service.FeedbackNoticeService;
 import com.dataocean.module.feedback.service.FeedbackService;
 import com.dataocean.module.feedback.service.FeedbackWorkService;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.entity.vo.UserOptionVO;
 import com.dataocean.module.iam.security.RequirePermission;
-import com.dataocean.module.query.service.QueryProtocol.Accepted;
-import com.dataocean.module.query.service.QueryProtocol.SourceOption;
+import com.dataocean.module.query.entity.vo.QueryAcceptedVO;
+import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
 
 import java.util.List;
 
@@ -70,8 +74,21 @@ public class FeedbackController {
     /** 反馈服务维护独立的资格、提交及队列状态。 */
     private final FeedbackService feedback;
 
-    /** 队列分派、核查及证据回看由事项工作区服务维护。 */
+    /**
+     * 队列筛选、负责人候选和详情证据读取。
+     */
+    private final FeedbackIssueQueryService issueQuery;
+
+    /**
+     * 原问题补充、重复事项关系和结案重开。
+     */
+    private final FeedbackIssueLifecycleService lifecycle;
+
+    /**
+     * 分派、核查、结果和复验结案。
+     */
     private final FeedbackWorkService work;
+
     /** 站内回告从同一本人收件箱读取。 */
     private final FeedbackNoticeService notices;
 
@@ -106,30 +123,22 @@ public class FeedbackController {
     /** 后台列表按本人的实际办理资格或负责人范围查询。 */
     @GetMapping("/api/v1/feedback/issues")
     @RequirePermission("feedback.view")
-    public Result<PageVO<IssueRow>> issues(
-            @ModelAttribute PageQuery page,
-            @RequestParam(required = false) String sourceId,
-            @RequestParam(required = false) String issueId,
-            @RequestParam(defaultValue = "ALL") String scope,
-            @RequestParam(required = false) String origin,
-            @RequestParam(required = false) @Size(max = 80) String keyword,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) @Size(max = 80) String assignee) {
-        return Result.success(work.issues(page, sourceId, issueId, scope, origin, keyword, status, assignee));
+    public Result<PageVO<IssueRow>> issues(@Valid @ModelAttribute FeedbackIssueQuery query) {
+        return Result.success(issueQuery.issues(query));
     }
 
     /** 队列与筛选选项共用后台事项查看权限。 */
     @GetMapping("/api/v1/feedback/sources")
     @RequirePermission("feedback.view")
-    public Result<List<SourceOption>> sources() {
-        return Result.success(work.sources());
+    public Result<List<QuerySourceOptionVO>> sources() {
+        return Result.success(issueQuery.sources());
     }
 
     /** 详情只向当前有权查看的人提供对应业务投影。 */
     @GetMapping("/api/v1/feedback/issues/{id}")
     @RequirePermission("feedback.view")
     public Result<FeedbackIssueDetailVO> detail(@PathVariable String id) {
-        return Result.success(work.detail(id));
+        return Result.success(issueQuery.detail(id));
     }
 
     /**
@@ -141,7 +150,7 @@ public class FeedbackController {
             @PathVariable String id,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody RequestFeedbackSupplementDTO input) {
-        return Result.success(work.askSupplement(id, command, input));
+        return Result.success(lifecycle.askSupplement(id, command, input));
     }
 
     /**
@@ -154,7 +163,7 @@ public class FeedbackController {
             @PathVariable String supplementId,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody DisposeFeedbackSupplementDTO input) {
-        return Result.success(work.disposeSupplement(id, supplementId, command, input));
+        return Result.success(lifecycle.disposeSupplement(id, supplementId, command, input));
     }
 
     /**
@@ -163,7 +172,7 @@ public class FeedbackController {
     @GetMapping(QUESTIONS_SUPPLEMENT)
     @RequirePermission("query.view")
     public Result<FeedbackSupplementVO> ownSupplement(@PathVariable String id) {
-        return Result.success(work.ownSupplement(id));
+        return Result.success(lifecycle.ownSupplement(id));
     }
 
     /**
@@ -175,7 +184,7 @@ public class FeedbackController {
             @PathVariable String id,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody SubmitFeedbackSupplementDTO input) {
-        return Result.success(work.submitSupplement(id, command, input));
+        return Result.success(lifecycle.submitSupplement(id, command, input));
     }
 
     /**
@@ -187,7 +196,7 @@ public class FeedbackController {
             @PathVariable String id,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody MergeFeedbackIssueDTO input) {
-        return Result.success(work.merge(id, command, input));
+        return Result.success(lifecycle.merge(id, command, input));
     }
 
     /**
@@ -199,7 +208,7 @@ public class FeedbackController {
             @PathVariable String id,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody FeedbackIssueReasonDTO input) {
-        return Result.success(work.unmerge(id, command, input));
+        return Result.success(lifecycle.unmerge(id, command, input));
     }
 
     /**
@@ -211,7 +220,7 @@ public class FeedbackController {
             @PathVariable String id,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody FeedbackIssueReasonDTO input) {
-        return Result.success(work.reopen(id, command, input));
+        return Result.success(lifecycle.reopen(id, command, input));
     }
 
     /** 可交接的负责人由实际角色决定，支持标准分页和搜索。 */
@@ -219,7 +228,7 @@ public class FeedbackController {
     @RequirePermission("feedback.assign")
     public Result<PageVO<UserOptionVO>> candidates(
             @ModelAttribute PageQuery page, @RequestParam(required = false) @Size(max = 80) String keyword) {
-        return Result.success(work.candidates(page, keyword));
+        return Result.success(issueQuery.candidates(page, keyword));
     }
 
     /** 分派时将事项目标和原命令身份一起提交。 */
@@ -345,7 +354,7 @@ public class FeedbackController {
     /** 同一原问题按当前复验人的权限实际派发。 */
     @PostMapping("/api/v1/feedback/issues/{id}/rechecks")
     @RequirePermission("feedback.verify")
-    public Result<Accepted> replayQuestion(
+    public Result<QueryAcceptedVO> replayQuestion(
             @PathVariable String id,
             @RequestParam(required = false) @Positive Integer task,
             @RequestHeader("Idempotency-Key") String command) {
@@ -366,7 +375,7 @@ public class FeedbackController {
     /** 结案前只读核对受控回告和原接收人。 */
     @GetMapping("/api/v1/feedback/issues/{id}/closure-preview")
     @RequirePermission("feedback.close")
-    public Result<FeedbackNoticeService.Preview> closurePreview(
+    public Result<FeedbackClosurePreviewVO> closurePreview(
             @PathVariable String id, @RequestParam String outcome, @RequestParam(required = false) String reason) {
         return Result.success(work.closurePreview(id, outcome, reason));
     }
