@@ -165,7 +165,7 @@ public class KnowledgeVersionUse implements KnowledgeVersionService {
     /**
      * 正式问数和源数据复验共用当前发布、暂停及依赖检查。
      */
-    private Binding requireQueryableBinding(long sourceId, long id) {
+    Binding requireQueryableBinding(long sourceId, long id) {
         var source = catalog.source(sourceId, false);
         var binding = current(sourceId, id);
         if (isPaused(binding.scopeId())) {
@@ -224,14 +224,31 @@ public class KnowledgeVersionUse implements KnowledgeVersionService {
      * 复核这一固定版本的模型和治理事实。
      */
     private void requireOwnBasis(Source source, Binding binding) {
-        if (batches.rollbackPending(binding.scopeId())
-                || !"ENABLED".equals(source.lifecycle())
+        if (batches.rollbackPending(binding.scopeId())) {
+            // 当前回退仍待核实时保留范围限制。
+            throw BizIllegalException.state("当前来源不可用或治理范围尚未核实");
+        }
+        requireSourceBasis(source);
+        models.verifyActive(binding.embeddingRevisionId());
+        requireGovernanceBasis(source, binding);
+    }
+
+    /**
+     * 核对当前目录的可用条件，由正式使用和已证明的历史读取共用。
+     */
+    void requireSourceBasis(Source source) {
+        if (!"ENABLED".equals(source.lifecycle())
                 || source.scopePending()
                 || source.snapshotId() == null
                 || source.configurationId() == null) {
             throw BizIllegalException.state("当前来源不可用或治理范围尚未核实");
         }
-        models.verifyActive(binding.embeddingRevisionId());
+    }
+
+    /**
+     * 复核绑定的冻结引用，历史统计只在相同治理事实仍可证明时复用。
+     */
+    void requireGovernanceBasis(Source source, Binding binding) {
         references.verify(source, documents.references(binding.documentRevisionId()));
     }
 

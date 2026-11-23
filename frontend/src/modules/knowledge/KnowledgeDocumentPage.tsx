@@ -3,6 +3,7 @@ import { ArrowRightOutlined, PlusOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { workspaceParent } from '../../app/workspaceParent';
 import { api, mutation, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { ReadState, displayTime, readErrorMessage } from '../../shared/Records';
@@ -130,6 +131,7 @@ function DocumentEditor({
   showRevision?: (revision?: string) => void;
 }) {
   const session = useSession();
+  const location = useLocation();
   const cache = useQueryClient();
   const navigate = useNavigate();
   const { message, modal } = App.useApp();
@@ -295,6 +297,12 @@ function DocumentEditor({
 
   /** 返回原列表时让查询与入口按钮一并恢复。 */
   function back() {
+    const parent = workspaceParent('/knowledge/:id', location, session.permissionCodes);
+    if (parent?.label === '知识概览') {
+      // 从期末对账打开的原修订返回原统计期间。
+      navigate(parent.url);
+      return;
+    }
     navigate('/knowledge' + listSearch, {
       state: { focusDocument: current?.document.id ?? 'new' },
     });

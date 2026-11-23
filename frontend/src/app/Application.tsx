@@ -67,6 +67,7 @@ const navigation = [
   { key: '/business-notes', label: '企业业务说明', permission: 'business-notes.view' },
   { key: '/governance-dashboard', label: '治理概览', permission: 'governance-dashboard.view' },
   { key: '/governance', label: '治理工作台', permission: 'governance.view' },
+  { key: '/knowledge-dashboard', label: '知识概览', permission: 'knowledge-dashboard.view' },
   { key: '/knowledge', label: '知识文档', permission: 'knowledge.view' },
   { key: '/test-cases', label: '标准题单', permission: 'test-cases.view' },
   { key: '/releases', label: '发布与版本', permission: 'releases.view' },
@@ -161,6 +162,10 @@ const GovernanceDetailPage = lazyPage(() =>
   import('../modules/governance/GovernanceDetailPage').then((m) => m.GovernanceDetailPage),
 );
 // 知识列表和正文属于同一源内的文档流程。
+// 知识概览单独加载，不依赖原文档或任务的页面权限。
+const KnowledgeOverview = lazyPage(() =>
+  import('../modules/knowledge/KnowledgeOverview').then((m) => m.KnowledgeOverview),
+);
 const KnowledgePage = lazyPage(() =>
   import('../modules/knowledge/KnowledgePage').then((m) => m.KnowledgePage),
 );
@@ -216,6 +221,7 @@ const workspaceRoutes = [
   { path: '/governance', element: <GovernancePage /> },
   { path: '/governance/:id', element: <GovernanceDetailPage /> },
   // 知识文档列表及其草稿、当前确认和历史修订。
+  { path: '/knowledge-dashboard', element: <KnowledgeOverview /> },
   { path: '/knowledge', element: <KnowledgePage /> },
   { path: '/knowledge/:id', element: <KnowledgeDocumentPage /> },
   { path: '/test-cases', element: <KnowledgeTestPage /> },
@@ -280,9 +286,12 @@ export function Application() {
 
   // 显式刷新概览恢复默认期间，应用内来回导航仍使用页面上下文。
   const resetOverview = useRef(
-    ['/feedback-dashboard', '/sources-dashboard', '/governance-dashboard'].includes(
-      location.pathname,
-    ) &&
+    [
+      '/feedback-dashboard',
+      '/sources-dashboard',
+      '/governance-dashboard',
+      '/knowledge-dashboard',
+    ].includes(location.pathname) &&
       Boolean(location.search) &&
       (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)
         ?.type === 'reload'

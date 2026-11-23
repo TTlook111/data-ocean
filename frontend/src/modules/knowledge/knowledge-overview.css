@@ -1,0 +1,129 @@
+/* 主图通栏，下方按原型分为相同宽度的三列。 */
+.knowledge-overview .overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas: 'hero hero hero' 'publishing validation attention';
+}
+
+/* 来源时效使用知识模块的靛蓝识别点。 */
+.knowledge-overview .overview-as-of::before {
+  background: #5366ae;
+}
+
+/* 横线区分正式趋势与下方三个运营区。 */
+.knowledge-overview .overview-panel.is-hero {
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 主趋势保持原型的阶梯图尺度。 */
+.knowledge-overview .overview-panel.is-hero .overview-plot {
+  height: 224px;
+}
+
+/* 三列在同一行伸展，即使打开数据表仍共享上下边界。 */
+.knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+/* 成功发布放在第一列。 */
+.knowledge-overview .overview-panel.is-publishing {
+  grid-area: publishing;
+}
+
+/* 验证异常在中列，与发布区用细线区分。 */
+.knowledge-overview .overview-panel.is-validation {
+  grid-area: validation;
+  padding-left: 24px;
+  border-left: 1px solid var(--do-line);
+}
+
+/* 可重叠的维护状态占据右列。 */
+.knowledge-overview .overview-panel.is-dots {
+  grid-area: attention;
+  padding-left: 24px;
+  border-left: 1px solid var(--do-line);
+}
+
+/* 三列图形有相同的纵向读数空间。 */
+.knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) .overview-plot {
+  height: 185px;
+}
+
+/* 标题和图例贴齐顶边，窄列可换行。 */
+.knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) > header {
+  align-items: start;
+}
+
+/* 展开任一列的数据时，两个原业务入口仍贴齐三列底边。 */
+.knowledge-overview .overview-panel:is(.is-publishing, .is-validation) > footer {
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+/* 为总量读数预留同一高度，避免可点击数字与零值的行高差影响图形位置。 */
+@media (min-width: 1101px) {
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) {
+    --knowledge-headline-height: 34px;
+    --knowledge-headline-gap: 8px;
+  }
+
+  /* 三列标题为换行时的图例和查看入口保留相同空间。 */
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) > header {
+    min-height: 56px;
+  }
+
+  /* 总量及其上下间距沿用共用图表版式。 */
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation) .overview-headlines {
+    min-height: var(--knowledge-headline-height);
+    margin-bottom: var(--knowledge-headline-gap);
+  }
+
+  /* 点图由分类轴展示读数，绘图区与另外两列上下对齐。 */
+  .knowledge-overview .overview-panel.is-dots .overview-plot {
+    margin-top: calc(var(--knowledge-headline-height) + 4px + var(--knowledge-headline-gap));
+  }
+}
+
+/* 图例在同一行时让总量靠近标题，绘图区保持与紧凑三列相同的起点。 */
+@media (min-width: 1360px) {
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) {
+    --knowledge-headline-gap: 36px;
+  }
+
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) > header {
+    min-height: 28px;
+  }
+}
+
+/* 浏览器变窄时保持入口顺序和可读图区。 */
+@media (max-width: 1100px) {
+  .knowledge-overview .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero' 'publishing' 'validation' 'attention';
+  }
+
+  /* 堆叠时改用水平分隔线。 */
+  .knowledge-overview .overview-panel:is(.is-publishing, .is-validation, .is-dots) {
+    padding: 24px 0 0;
+    border-top: 1px solid var(--do-line);
+    border-left: 0;
+  }
+
+  /* 单列由发布区顶部的横线分隔。 */
+  .knowledge-overview .overview-panel.is-hero {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  /* 单列主趋势恢复标准概览高度。 */
+  .knowledge-overview .overview-panel.is-hero .overview-plot {
+    height: 250px;
+  }
+
+  /* 点图在单列时紧随标题。 */
+  .knowledge-overview .overview-panel.is-dots .overview-plot {
+    margin-top: 16px;
+  }
+}

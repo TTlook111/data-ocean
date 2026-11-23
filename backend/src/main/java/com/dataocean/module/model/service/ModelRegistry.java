@@ -172,6 +172,9 @@ public class ModelRegistry {
         if (current != null) {
             // 原任务仍引用原修订，新任务读取新修订。
             models.publish(id, revisionId);
+        } else {
+            // 初次启用与首次配置一同成为可回看的状态。
+            models.recordUse(id, 1, true);
         }
         return view(next);
     }
@@ -184,7 +187,11 @@ public class ModelRegistry {
         var current = checkedModel(id, input.getVersion());
         if (input.getEnabled() != current.enabled()) {
             // 用户的当前版本与服务端匹配才改变状态。
-            models.setEnabled(id, input.getEnabled());
+            if (models.setEnabled(id, current.version(), input.getEnabled()) != 1) {
+                // 避免并行维护写出同一模型版本的两条状态。
+                throw BizIllegalException.conflict();
+            }
+            models.recordUse(id, current.version() + 1, input.getEnabled());
         }
     }
 

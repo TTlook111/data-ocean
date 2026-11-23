@@ -35,7 +35,16 @@ export function OverviewPanel<M extends string>({
   /** 具备原模块明细权限时允许下钻。 */
   onDrill?: (measure: M, point: DashboardPoint<M>) => void;
   /** 原型中的通栏主图、辅助趋势或右侧环图。 */
-  layout: 'hero' | 'backlog' | 'ring' | 'duration' | 'pending' | 'relations';
+  layout:
+    | 'hero'
+    | 'backlog'
+    | 'ring'
+    | 'duration'
+    | 'pending'
+    | 'relations'
+    | 'dots'
+    | 'publishing'
+    | 'validation';
   /** 图表的业务单位。 */
   unit: string;
   /** 没有有效样本时的反馈。 */
@@ -52,7 +61,12 @@ export function OverviewPanel<M extends string>({
   const [expanded, setExpanded] = useState(false);
   const id = useId();
   const ring = layout === 'ring';
-  const seriesPoints = useMemo(() => (ring ? [total] : points), [ring, total, points]);
+  const dots = layout === 'dots';
+  const distribution = ring || dots;
+  const seriesPoints = useMemo(
+    () => (distribution ? [total] : points),
+    [distribution, total, points],
+  );
   const ringCount = ring ? series.reduce((sum, item) => sum + (total[item.measure] ?? 0), 0) : 0;
   const noSamples = emptyText && series.every((item) => total[item.measure] === null);
 
@@ -98,7 +112,7 @@ export function OverviewPanel<M extends string>({
           )}
         </div>
         <div className="overview-panel-actions">
-          {!ring && (
+          {!distribution && (
             <ul className="overview-legend" aria-label="图例">
               {series.map((item) => (
                 <li key={item.measure}>
@@ -123,7 +137,7 @@ export function OverviewPanel<M extends string>({
       </header>
 
       {/* 重要读数贴近对应图形，日期缺口和无解决样本保留不同语义。 */}
-      {!ring && !noSamples && (
+      {!distribution && !noSamples && (
         <ul className="overview-headlines">
           {series.map((item) => (
             <li key={item.measure}>
@@ -142,6 +156,7 @@ export function OverviewPanel<M extends string>({
             points={seriesPoints}
             series={series}
             ring={ring}
+            dots={dots}
             ringSurface={ringSurface}
           />
           {ring && (

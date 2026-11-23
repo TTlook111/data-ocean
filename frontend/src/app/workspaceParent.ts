@@ -19,6 +19,7 @@ export function workspaceParent(
         releaseReturn?: ReleaseRevisionReturn;
         feedbackOverviewSearch?: string;
         governanceOverviewSearch?: string;
+        knowledgeOverviewSearch?: string;
       } & EffectiveVersionOrigin)
     | null;
   // 仅剔除详情专用参数，避免回列表时丢失源、查询和分页。
@@ -84,6 +85,18 @@ export function workspaceParent(
         (origin?.listSearch ??
           searchWithout('entry', 'section', 'field', 'candidate', 'candidatePage')),
       state: { returnObject: id },
+    };
+  }
+  if (
+    (route === '/knowledge/:id' || route === '/releases/:id') &&
+    origin?.knowledgeOverviewSearch?.startsWith('?') &&
+    permissions.includes('knowledge-dashboard.view')
+  ) {
+    // 原修订和验证任务回到同一份期末或期间对账。
+    return {
+      label: '知识概览',
+      current: route === '/knowledge/:id' ? '文档修订' : '发布任务',
+      url: '/knowledge-dashboard' + origin.knowledgeOverviewSearch,
     };
   }
   if (route === '/knowledge/:id') {

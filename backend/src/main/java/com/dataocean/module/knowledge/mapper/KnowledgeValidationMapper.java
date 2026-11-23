@@ -105,10 +105,10 @@ public interface KnowledgeValidationMapper {
     @Insert(
             """
             INSERT INTO kn_release_validation_result
-            (id,run_id,test_revision_id,authentication_version,access_digest,state,failure_code)
+            (id,run_id,test_revision_id,authentication_version,access_digest,state,failure_code,observed_at)
             VALUES(#{id},#{run},#{test},#{auth},#{access},
                 IF(#{auth} IS NULL,'CONDITIONS_INVALID','PENDING'),
-                IF(#{auth} IS NULL,'ACCESS_CHANGED',NULL))
+                IF(#{auth} IS NULL,'ACCESS_CHANGED',NULL),IF(#{auth} IS NULL,UTC_TIMESTAMP(3),NULL))
             """)
     void addQuestion(
             @Param("id") long id,
@@ -205,7 +205,7 @@ public interface KnowledgeValidationMapper {
     @Update(
             """
             UPDATE kn_release_validation_result SET state=#{state},actual_count=#{count},observed_chunks=#{hits},
-                statement_text=#{statement},failure_code=#{failure}
+                statement_text=#{statement},failure_code=#{failure},observed_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND state='PENDING'
             """)
     void result(

@@ -16,7 +16,7 @@ E 批已接入正式问数。库存 r1 的两道标准题已通过实际检索�
 
 F 批反馈已接入本人回答评价、点踩和问数自动线索入队、后台事项核查与分派。同一事项可分派独立的技术、治理与源数据任务，统一复验、结案和站内回告。源数据由源系统负责人修正，平台记录跟进和只读复验。原提问人可补充业务信息，后台可人工合并与纠正重复事项，结案后可凭新证据重开。实现范围见[评价与入队](backend/feedback/评价与入队.md)、[问数自动线索](backend/feedback/问数自动线索.md)和[核查与分派](backend/feedback/核查与分派.md)。三类任务联合办理、结案回告和桌面浏览器操作已在隔离环境实测，范围见[反馈验收](backend/feedback/处理结果复验与回告.md)及[页面验收](frontend/pages/feedback.md)。
 
-F 批看板已接入[反馈概览](frontend/pages/dashboard.md#正式反馈概览)、[接入概览](frontend/pages/dashboard.md#正式接入概览)和[治理概览](frontend/pages/dashboard.md#正式治理概览)。各页读取归属模块的真实台账，按来源、期间和截止时刻下钻对账。知识概览及总览继续分步实施。
+F 批看板已接入[反馈概览](frontend/pages/dashboard.md#正式反馈概览)、[接入概览](frontend/pages/dashboard.md#正式接入概览)、[治理概览](frontend/pages/dashboard.md#正式治理概览)和[知识概览](frontend/pages/dashboard.md#正式知识概览)。各页读取归属模块的真实台账，按来源、期间和截止时刻下钻对账。总览继续分步实施。
 
 工程组织见[工程基线](engineering/工程组织与版本基线.md)，选型与版本分别由[前端设计](frontend/README.md#前端技术选型)和[后端设计](backend/README.md#版本基线与验证边界)维护，跨端职责与协议见[系统架构](architecture/README.md)。界面承接现有原型，布局与打磨边界见[设计约定](frontend/设计约定.md#原型基准与界面打磨)。
 

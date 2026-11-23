@@ -177,8 +177,21 @@ public interface ModelMapper {
     /**
      * 修改当前可执行性，内容修订保持历史事实。
      */
-    @Update("UPDATE mdl_model SET enabled = #{enabled}, version = version + 1 WHERE id = #{id}")
-    void setEnabled(@Param("id") long id, @Param("enabled") boolean enabled);
+    @Update(
+            """
+            UPDATE mdl_model SET enabled=#{enabled},version=version+1 WHERE id=#{id} AND version=#{version}
+            """)
+    int setEnabled(@Param("id") long id, @Param("version") int version, @Param("enabled") boolean enabled);
+
+    /**
+     * 保存实际启停状态及该次生效时刻。
+     */
+    @Insert(
+            """
+            INSERT INTO mdl_model_use_event(model_id,model_version,enabled,effective_at)
+            VALUES(#{id},#{version},#{enabled},UTC_TIMESTAMP(3))
+            """)
+    void recordUse(@Param("id") long id, @Param("version") int version, @Param("enabled") boolean enabled);
 
     /**
      * 读取已接入的业务节点及选择。

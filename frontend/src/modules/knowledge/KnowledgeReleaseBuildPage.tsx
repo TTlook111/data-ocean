@@ -2,6 +2,7 @@ import { Alert, Button, Collapse, Form, Grid, Input, Modal, Steps, Table, Tag } 
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { workspaceParent } from '../../app/workspaceParent';
 import { api, queryString } from '../../shared/api';
 import { LoadingIndicator } from '../../shared/LoadingIndicator';
 import { displayTime, ReadState } from '../../shared/Records';
@@ -113,6 +114,7 @@ export function KnowledgeReleaseBuildPage() {
   const [params] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const session = useSession();
   const source = params.get('source');
   const path = `/knowledge/sources/${source}/releases/${id}`;
   const [connected, setConnected] = useState<string>();
@@ -163,6 +165,12 @@ export function KnowledgeReleaseBuildPage() {
 
   /** 返回后恢复原列表范围、页码和触发位置。 */
   function back() {
+    const parent = workspaceParent('/releases/:id', location, session.permissionCodes);
+    if (parent?.label === '知识概览') {
+      // 从概览打开的任务保留原统计详情。
+      navigate(parent.url);
+      return;
+    }
     navigate(
       '/releases?' +
         queryString({
@@ -228,6 +236,7 @@ export function KnowledgeReleaseBuildPage() {
               openRevision={revision}
               openTests={() => openTests(detail.data!)}
               focus={focus}
+              initialRun={params.get('runId') ?? undefined}
               checking={detail.isFetching}
               refresh={async () => {
                 // 只有实际回读成功，范围核对才可以采纳新的任务版本。
@@ -250,6 +259,7 @@ function BuildWorkspace({
   openRevision,
   openTests,
   focus,
+  initialRun,
   checking,
   refresh,
 }: {
@@ -265,6 +275,8 @@ function BuildWorkspace({
   openTests: () => void;
   /** 旧修订返回时恢复展开的候选及焦点。 */
   focus?: string;
+  /** 从验证异常对账进入时选中原轮次。 */
+  initialRun?: string;
   /** 正在重新检查首建输入，避免从缓存直接提交。 */
   checking: boolean;
   /** 回读候选并返回实际任务版本，失败时保留原版本。 */
@@ -283,7 +295,7 @@ function BuildWorkspace({
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [selectedRun, selectRun] = useState<string>();
+  const [selectedRun, selectRun] = useState(initialRun);
   const [questionDialog, openQuestion] = useState<{
     row: ValidationQuestion;
     run: ValidationRun;
@@ -560,6 +572,7 @@ function BuildWorkspace({
         <ReleaseProcess
           folded={released}
           initiallyOpen={
+            Boolean(initialRun) ||
             focus === 'build-document-revision' ||
             Boolean(focus?.startsWith('release-history-document-'))
           }
