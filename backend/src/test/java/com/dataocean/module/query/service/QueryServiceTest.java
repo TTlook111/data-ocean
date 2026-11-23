@@ -75,19 +75,21 @@ import tools.jackson.databind.json.JsonMapper;
 class QueryServiceTest {
     /** 固定为业务测试身份，并使测试后续可模拟重试及连接改绑。 */
     private static final long USER = 7L;
+
     private static final long SOURCE = 72L;
     private static final long BINDING = 6L;
     private final String id = UUID.randomUUID().toString();
     private final String command = UUID.randomUUID().toString();
     private final LocalDateTime time = LocalDateTime.now(ZoneOffset.UTC);
     private final Field label = new Field("deliveries", "route");
-    private final Data data = new Data(List.of(new Column("route", "线路")), List.of(List.of("三号线")),
-            false, "", "", null, null);
+    private final Data data =
+            new Data(List.of(new Column("route", "线路")), List.of(List.of("三号线")), false, "", "", null, null);
     private final Plan plan = new Plan("READY", null, "6", "VALUES", null, null, List.of(label), List.of());
     private final Source source = new Source(SOURCE, "物流", "ENABLED", 4L, 3L, 1, false, null, null, null, null);
 
     /** 保留真实控制逻辑，替换平台数据库及外部系统输入。 */
     private final QueryRequestMapper requests = mock(QueryRequestMapper.class);
+
     private final QueryConversationMapper conversations = mock(QueryConversationMapper.class);
     private final QueryContext context = mock(QueryContext.class);
     private final QueryExplanations explanations = mock(QueryExplanations.class);
@@ -110,21 +112,37 @@ class QueryServiceTest {
      */
     @BeforeEach
     void setup() {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(new IamPrincipal(USER, 1L, "fixture", "物流操作员"), null));
+        SecurityContextHolder.getContext()
+                .setAuthentication(
+                        new UsernamePasswordAuthenticationToken(new IamPrincipal(USER, 1L, "fixture", "物流操作员"), null));
         var transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus());
         when(actors.asActor(anyLong(), anyLong(), any(), anyString(), anyString()))
                 .thenAnswer(call -> call.<Supplier<?>>getArgument(2).get());
         when(access.requireSource(USER, SOURCE)).thenReturn(grant);
         when(catalog.source(SOURCE, true)).thenReturn(source);
-        when(fingerprints.command(anyString(), anyString(), any())).thenReturn(new byte[]{1});
+        when(fingerprints.command(anyString(), anyString(), any())).thenReturn(new byte[] {1});
         row = record("RETRIEVING");
         when(requests.get(id)).thenReturn(row);
         when(requests.lock(id)).thenReturn(row);
-        service = new QueryService(mock(GuardMapper.class), requests, conversations, mock(UserMapper.class),
-                context, explanations, access, actors, permissions, catalog, versions, corpus, models,
-                jdbc, new TransactionTemplate(transactions), json, fingerprints);
+        service = new QueryService(
+                mock(GuardMapper.class),
+                requests,
+                conversations,
+                mock(UserMapper.class),
+                context,
+                explanations,
+                access,
+                actors,
+                permissions,
+                catalog,
+                versions,
+                corpus,
+                models,
+                jdbc,
+                new TransactionTemplate(transactions),
+                json,
+                fingerprints);
     }
 
     /**
@@ -136,6 +154,32 @@ class QueryServiceTest {
     }
 
     /**
+     * 数据同步修正可沿用原发布，但复验必须是本次修正后、同一授权下真正交付的轮次。
+     */
+    @Test
+    void sourceReplayAcceptsActualDeliveryOnTheOriginalBinding() {
+        delivered(row);
+        var originId = UUID.randomUUID().toString();
+        var original = record("RESULT_DELIVERED");
+        when(original.bindingId()).thenReturn(BINDING);
+        when(row.recheckOriginId()).thenReturn(originId);
+        when(requests.get(originId)).thenReturn(original);
+        String rules = row.ruleSignature();
+
+        assertThat(service.sourceFeedbackReplayMatches(id, originId, USER, SOURCE, time.minusSeconds(1), rules, true))
+                .isTrue();
+        verify(versions).requireForFeedbackReplay(USER, SOURCE, BINDING);
+        assertThat(service.sourceFeedbackReplayMatches(id, originId, USER, SOURCE, time.plusSeconds(1), rules, true))
+                .isFalse();
+        assertThat(service.sourceFeedbackReplayMatches(id, originId, USER + 1, SOURCE, time, rules, true))
+                .isFalse();
+        assertThat(service.sourceFeedbackReplayMatches(id, originId, USER, SOURCE, time, "不同输出规则", true))
+                .isFalse();
+        assertThat(service.feedbackReplayMatches(id, originId, USER, SOURCE, BINDING, time, rules, true))
+                .isFalse();
+    }
+
+    /**
      * 新命令开启会话，重放只返回原回执，未知执行不能再派发。
      */
     @Test
@@ -143,14 +187,17 @@ class QueryServiceTest {
         var first = service.ask(new Ask("72", "  物流状态  ", null, null, null), command);
         verify(conversations).insert(first.id(), USER, SOURCE, "物流状态", first.id());
         when(requests.byCommand(USER, command)).thenReturn(row);
-        when(row.commandFingerprint()).thenReturn(new byte[]{1});
-        assertThat(service.ask(new Ask("72", "物流状态", null, null, null), command).id()).isEqualTo(id);
-        when(row.commandFingerprint()).thenReturn(new byte[]{2});
+        when(row.commandFingerprint()).thenReturn(new byte[] {1});
+        assertThat(service.ask(new Ask("72", "物流状态", null, null, null), command).id())
+                .isEqualTo(id);
+        when(row.commandFingerprint()).thenReturn(new byte[] {2});
         assertThatThrownBy(() -> service.ask(new Ask("72", "新问题", null, null, null), command))
                 .isInstanceOf(BizIllegalException.class);
         when(requests.hasUnresolved(USER, SOURCE, "物流状态")).thenReturn(true);
-        assertThatThrownBy(() -> service.ask(new Ask("72", "物流状态", null, null, null),
-                UUID.randomUUID().toString())).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> service.ask(
+                        new Ask("72", "物流状态", null, null, null),
+                        UUID.randomUUID().toString()))
+                .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.read("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"))
                 .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.ask(new Ask("72", "  ", null, null, null), command))
@@ -167,7 +214,8 @@ class QueryServiceTest {
         when(conversations.lock(conversation)).thenReturn(entry);
         var accepted = service.ask(new Ask("72", "改看妥投状态", null, conversation, true), command);
         verify(conversations).use(conversation, accepted.id());
-        verify(requests).insert(argThat(input -> id.equals(input.previous()) && conversation.equals(input.conversation())));
+        verify(requests)
+                .insert(argThat(input -> id.equals(input.previous()) && conversation.equals(input.conversation())));
         assertThatThrownBy(() -> service.ask(new Ask("73", "改看妥投状态", id, conversation, true), command))
                 .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.turns(conversation)).isInstanceOf(BizIllegalException.class);
@@ -232,8 +280,9 @@ class QueryServiceTest {
         });
         when(requests.deliver(id, 2)).thenReturn(1);
         service.work();
-        verify(requests).permit(argThat(permit -> BINDING == permit.binding()
-                && permit.reasoning().contains("SELECT route")));
+        verify(requests)
+                .permit(argThat(permit ->
+                        BINDING == permit.binding() && permit.reasoning().contains("SELECT route")));
         verify(requests).deliver(id, 2);
         verify(explanations).initial(id);
         service.expire();
@@ -245,8 +294,12 @@ class QueryServiceTest {
      * 各规划判定必须转成封闭的任务状态，并且不能触发 JDBC。
      */
     @ParameterizedTest
-    @CsvSource({"DENIED,PERMISSION_DENIED", "NO_KNOWLEDGE,KNOWLEDGE_INSUFFICIENT",
-        "OUT_OF_SCOPE,OUT_OF_SCOPE", "UNRECOGNIZED,TECHNICAL_FAILURE"})
+    @CsvSource({
+        "DENIED,PERMISSION_DENIED",
+        "NO_KNOWLEDGE,KNOWLEDGE_INSUFFICIENT",
+        "OUT_OF_SCOPE,OUT_OF_SCOPE",
+        "UNRECOGNIZED,TECHNICAL_FAILURE"
+    })
     void rejectsNonExecutablePlan(String decision, String state) throws SQLException {
         ready();
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
@@ -263,14 +316,21 @@ class QueryServiceTest {
     void pausesOnlyWhenClarificationIsPresent() throws SQLException {
         ready();
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
-                .thenReturn(new Plan("CLARIFY", "请输入线路名称", null, null, null, null, List.of(), List.of()),
+                .thenReturn(
+                        new Plan("CLARIFY", "请输入线路名称", null, null, null, null, List.of(), List.of()),
                         new Plan("CLARIFY", " ", null, null, null, null, List.of(), List.of()));
         when(requests.waitForAnswer(id, 2, "请输入线路名称")).thenReturn(1);
         service.work();
         service.work();
         verify(requests).waitForAnswer(id, 2, "请输入线路名称");
-        verify(requests).stop(id, 2, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED",
-                "INSUFFICIENT_KNOWLEDGE", new QueryOutput().signature(List.of()));
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "INSUFFICIENT_KNOWLEDGE",
+                        new QueryOutput().signature(List.of()));
     }
 
     /**
@@ -289,27 +349,40 @@ class QueryServiceTest {
                     .thenThrow(new IllegalStateException("internal"));
             case "pending" -> when(models.retrieve(any(), anyString(), anyList(), anyInt()))
                     .thenThrow(new QueryFailure("RECOVERY_PENDING"));
-            case "input" -> when(corpus.indexes(eq(SOURCE), anyList(), anyInt())).thenReturn(List.of());
+            case "input" -> when(corpus.indexes(eq(SOURCE), anyList(), anyInt()))
+                    .thenReturn(List.of());
             case "cancel" -> when(row.cancelRequested()).thenReturn(true);
             case "expired" -> when(row.remainingMillis()).thenReturn(100);
-            case "moved" -> when(row.runInput()).thenReturn(json.write(new RunInput("stale",
-                    new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING), 1, 2, null)));
+            case "moved" -> when(row.runInput())
+                    .thenReturn(json.write(new RunInput(
+                            "stale",
+                            new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()),
+                            List.of(BINDING),
+                            1,
+                            2,
+                            null)));
             default -> throw new AssertionError(mode);
         }
         service.work();
         if ("pending".equals(mode)) {
             verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString(), any(), any());
         } else {
-            String expected = switch (mode) {
-                case "input" -> "KNOWLEDGE_INSUFFICIENT";
-                case "cancel" -> "USER_CANCELLED";
-                case "expired" -> "RESOURCE_EXCEEDED";
-                case "moved" -> "PERMISSION_DENIED";
-                default -> "TECHNICAL_FAILURE";
-            };
-            verify(requests).stop(id, 2, expected, "sql".equals(mode) ? "UNKNOWN" : "NOT_SUBMITTED",
-                    "sql".equals(mode) ? "SOURCE_EXECUTION_UNCERTAIN" : diagnostic(expected),
-                    "cancel".equals(mode) ? null : new QueryOutput().signature(List.of()));
+            String expected =
+                    switch (mode) {
+                        case "input" -> "KNOWLEDGE_INSUFFICIENT";
+                        case "cancel" -> "USER_CANCELLED";
+                        case "expired" -> "RESOURCE_EXCEEDED";
+                        case "moved" -> "PERMISSION_DENIED";
+                        default -> "TECHNICAL_FAILURE";
+                    };
+            verify(requests)
+                    .stop(
+                            id,
+                            2,
+                            expected,
+                            "sql".equals(mode) ? "UNKNOWN" : "NOT_SUBMITTED",
+                            "sql".equals(mode) ? "SOURCE_EXECUTION_UNCERTAIN" : diagnostic(expected),
+                            "cancel".equals(mode) ? null : new QueryOutput().signature(List.of()));
         }
     }
 
@@ -319,8 +392,14 @@ class QueryServiceTest {
         ready();
         when(corpus.bindings(SOURCE)).thenReturn(List.of());
         service.work();
-        verify(requests).stop(id, 2, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED",
-                "NO_PUBLISHED_KNOWLEDGE", new QueryOutput().signature(List.of()));
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "NO_PUBLISHED_KNOWLEDGE",
+                        new QueryOutput().signature(List.of()));
         verify(models, never()).retrieve(any(), anyString(), anyList(), anyInt());
     }
 
@@ -342,8 +421,8 @@ class QueryServiceTest {
         when(requests.claim(id, 2)).thenReturn(1);
         when(requests.freeze(eq(id), eq(2), anyString())).thenReturn(1);
         when(requests.stage(eq(id), eq(2), anyString())).thenReturn(1);
-        when(context.capture(eq(row), anyString())).thenReturn(new Memory(
-                time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()));
+        when(context.capture(eq(row), anyString()))
+                .thenReturn(new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()));
         when(corpus.bindings(SOURCE)).thenReturn(List.of(BINDING));
         when(corpus.indexes(eq(SOURCE), anyList(), anyInt())).thenReturn(List.of(mock(Index.class)));
         var hit = new Hit("6", 0, "digest");
@@ -358,12 +437,13 @@ class QueryServiceTest {
         when(basis.snippet()).thenReturn(new QueryCorpus.Snippet("6", "", Map.of(), List.of()));
         when(basis.evidence()).thenReturn(new Evidence("物流口径", 1, "4", 0));
         when(corpus.basis(SOURCE, hit)).thenReturn(basis);
-        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any())).thenReturn(plan);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(plan);
         when(models.check(any(), anyString(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
                 .thenReturn("ALLOW");
         var usage = new QueryUsage(1, List.of(), List.of(), List.of(), List.of());
-        var compiled = new Compiled(
-                "SELECT route", List.of(), data.columns(), List.of(label), "", "", false, null, usage);
+        var compiled =
+                new Compiled("SELECT route", List.of(), data.columns(), List.of(label), "", "", false, null, usage);
         when(jdbc.compile(eq(basis), any())).thenReturn(compiled);
         when(jdbc.execute(eq(source), eq(id), eq(compiled), any(), any())).thenAnswer(call -> {
             assertThat(call.<IntSupplier>getArgument(3).getAsInt()).isPositive();
@@ -404,7 +484,8 @@ class QueryServiceTest {
         when(request.bindingId()).thenReturn(BINDING);
         when(request.ruleSignature()).thenReturn(new QueryOutput().signature(List.<OutputRuleVO>of()));
         when(request.result()).thenReturn(json.write(data));
-        when(request.reasoning()).thenReturn(json.write(new Reasoning(
-                new Evidence("物流口径", 1, "4", 0), "SELECT route", List.of(label), List.of(), plan, 4L)));
+        when(request.reasoning())
+                .thenReturn(json.write(new Reasoning(
+                        new Evidence("物流口径", 1, "4", 0), "SELECT route", List.of(label), List.of(), plan, 4L)));
     }
 }

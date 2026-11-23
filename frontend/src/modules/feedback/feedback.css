@@ -135,6 +135,95 @@
 }
 
 /* 警示与详情正文之间保留可扫读的空间。 */
+/* 任务标题与当前动作在窄工作区自然换行。 */
+.feedback-task-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 整组只承载选择关系，阶段框之间保留页面底色。 */
+.feedback-progress-stages[role='radiogroup'] {
+  padding: 0;
+  background: transparent;
+}
+
+/* 每个阶段自带边框和背景，点击区域随文字宽度排列。 */
+.feedback-progress-stages .feedback-progress-stage {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--do-control-height);
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-panel);
+}
+
+/* 选中状态只突出当前所处的独立阶段框。 */
+.feedback-progress-stages .feedback-progress-stage:has(:checked) {
+  border-color: var(--do-primary);
+  background: var(--do-selected);
+  box-shadow: none;
+}
+
+/* 切换时也保留框间留白，选中背景由各阶段框绘制。 */
+.feedback-progress-stages .ant-segmented-thumb {
+  visibility: hidden;
+}
+
+/* 阶段之间预留箭头及两侧留白，焦点轮廓不挤占间隔。 */
+.feedback-progress-stage:not(:last-child) {
+  margin-inline-end: 32px;
+}
+
+/* 箭头只提示办理顺序，显示在两个阶段之间。 */
+.feedback-progress-stage:not(:last-child)::before {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: -23px;
+  inline-size: 14px;
+  block-size: 12px;
+  transform: translateY(-50%);
+  background: var(--do-muted);
+  clip-path: polygon(0 42%, 68% 42%, 45% 17%, 54% 7%, 100% 50%, 54% 93%, 45% 83%, 68% 58%, 0 58%);
+  content: '';
+  pointer-events: none;
+}
+
+/* 当前阶段通往下一阶段的箭头使用主色。 */
+.feedback-progress-stage:not(:last-child):has(:checked)::before {
+  background: var(--do-primary);
+}
+
+/* 进度记录和下一步并排，长文本在各自字段内换行。 */
+.feedback-task-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 8px 0 12px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--do-subtle);
+}
+
+/* 只有一段正文有权展示时，使用完整阅读宽度。 */
+.feedback-task-progress > div:only-child {
+  grid-column: 1 / -1;
+}
+
+/* 标签置于正文上方，两个字段各自保持左侧阅读轴。 */
+.feedback-task-progress dt {
+  margin-block-end: 4px;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+/* 移除定义列表的默认缩进，正文与标签对齐。 */
+.feedback-task-progress dd {
+  margin: 0;
+}
+
 .feedback-work-section > .ant-alert {
   margin-block: 8px;
 }

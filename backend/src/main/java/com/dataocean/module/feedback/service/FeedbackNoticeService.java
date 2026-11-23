@@ -7,7 +7,9 @@ import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.service.AccessScopeService;
+import com.dataocean.module.feedback.entity.FeedbackLifecycleVO.NoticeRound;
 import com.dataocean.module.feedback.entity.FeedbackNoticeVO;
+import com.dataocean.module.feedback.mapper.FeedbackLifecycleMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Issue;
 import com.dataocean.module.feedback.mapper.FeedbackNoticeMapper;
 import com.dataocean.module.feedback.mapper.FeedbackNoticeMapper.Notice;
@@ -21,9 +23,12 @@ import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.service.QueryService;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -61,56 +66,131 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
     private final JsonCodec json;
     private final TransactionTemplate transactions;
 
-    /** 结案人只核对需要公开的模板与原接收人。 */
-    public record Preview(int version, String recipientId, String recipientName, String template, String message) {}
+    /**
+     * 按结案时的主从关系取所有原问。
+     */
+    private final FeedbackLifecycleMapper lifecycle;
 
-    /** 根据当前真实原问和收件资格生成预览，正文永远来自模板。 */
+    /**
+     * 个人回告预览包含受控模板，而非内部结论。
+     */
+    public record RecipientPreview(String recipientId, String recipientName, String template, String message) {}
+
+    /**
+     * 合并后的多个原问同时确认全部接收人和模板。
+     */
+    public record Preview(
+            int version,
+            String recipientId,
+            String recipientName,
+            String template,
+            String message,
+            List<RecipientPreview> recipients,
+            String confirmation) {}
+
+    /**
+     * 根据当前真实原问和收件资格生成各人的预览。
+     */
     Preview preview(Issue issue, String template) {
+        var affected = affected(issue);
+        var recipients = affected.entrySet().stream()
+                .map(entry -> previewRecipient(
+                        issue.sourceId(),
+                        entry.getKey(),
+                        entry.getValue().stream().toList(),
+                        template))
+                .toList();
+        var first = recipients.get(0);
+        boolean grouped =
+                affected.values().stream().mapToInt(java.util.Set::size).sum() > 1;
+        String confirmation = grouped
+                ? UUID.nameUUIDFromBytes(json.write(recipients).getBytes(StandardCharsets.UTF_8))
+                        .toString()
+                : null;
+        return new Preview(
+                issue.version(),
+                first.recipientId(),
+                first.recipientName(),
+                first.template(),
+                first.message(),
+                grouped ? recipients : List.of(),
+                confirmation);
+    }
+
+    /**
+     * 主事项原问排在首位，合并及自动缺口关联的问数按原提问人分组。
+     */
+    private Map<Long, LinkedHashSet<String>> affected(Issue issue) {
         var request = requests.get(issue.requestId());
         if (request == null || request.sourceId() != issue.sourceId()) {
             throw BizIllegalException.state("无法核对原回答的接收人");
         }
-        var user = users.selectById(request.userId());
-        if (!active(user)) {
-            return new Preview(
-                    issue.version(),
-                    Ids.text(request.userId()),
-                    user == null ? "原提问人" : user.getDisplayName(),
-                    "SUPPRESSED",
-                    UNAVAILABLE);
+        var group = new LinkedHashMap<Long, LinkedHashSet<String>>();
+        group.put(request.userId(), new LinkedHashSet<>(List.of(request.id())));
+        for (var origin : lifecycle.origins(issue.id())) {
+            // 去重维度使用提问人与原问，保留该接收人的全部定位。
+            group.computeIfAbsent(origin.recipientId(), ignored -> new LinkedHashSet<>())
+                    .add(origin.requestId());
         }
-        var eligibility = eligibility(request.userId(), issue.sourceId(), issue.requestId());
-        return new Preview(
-                issue.version(),
-                Ids.text(request.userId()),
+        return group;
+    }
+
+    /**
+     * 各人只按自己的账号和业务权限预览可公开通知。
+     */
+    private RecipientPreview previewRecipient(long source, long recipient, List<String> requestIds, String template) {
+        var user = users.selectById(recipient);
+        if (!active(user)) {
+            return new RecipientPreview(
+                    Ids.text(recipient), user == null ? "原提问人" : user.getDisplayName(), "SUPPRESSED", UNAVAILABLE);
+        }
+        var eligibility = eligibility(recipient, source, requestIds);
+        return new RecipientPreview(
+                Ids.text(recipient),
                 user.getDisplayName(),
                 eligibility.allowed() ? template + (eligibility.canAsk() ? "_ASK" : "") : "RESTRICTED",
                 eligibility.allowed() ? message(template, eligibility.canAsk()) : LIMITED);
     }
 
-    /** 结案事务同时接收回告与 Outbox，用户已读不能改变结案状态。 */
-    void enqueue(Issue issue, String previewRecipient, String template, String command, int version) {
+    /**
+     * 一次结案为每人及当前完成轮次持久化一条送达记录。
+     */
+    void enqueue(Issue issue, String template, String command, int version) {
+        affected(issue).forEach((recipient, requestIds) -> {
+            // 各接收人的派发、失败、已读及定位独立。
+            enqueue(issue, recipient, List.copyOf(requestIds), template, command, version);
+        });
+    }
+
+    /**
+     * 单次派发事件和单个接收人的待投递状态同事务保存。
+     */
+    private void enqueue(
+            Issue issue, long recipient, List<String> requestIds, String template, String command, int version) {
         String eventId = UUID.randomUUID().toString();
-        long actor = Ids.parse(previewRecipient);
         notices.append(new Notice(
                 eventId,
                 issue.id(),
-                1,
-                actor,
-                issue.requestId(),
+                issue.completionRound(),
+                recipient,
+                requestIds.get(0),
                 issue.sourceId(),
                 template,
                 "QUEUED",
                 null,
                 null,
                 null));
+        for (String request : requestIds) {
+            // 该回告只引用目标接收人自己的原问题。
+            notices.linkRequest(eventId, request);
+        }
         var payload = json.write(Map.of(
                 "issueId",
                 Ids.text(issue.id()),
                 "completionRound",
-                1,
+                issue.completionRound(),
                 "recipientUserIds",
-                List.of(previewRecipient),
+                List.of(Ids.text(recipient)),
                 "conclusionRevision",
                 version));
         outbox.appendAt(new OutboxPO(
@@ -161,7 +241,7 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
                 var recipient = users.selectById(notice.recipientId());
                 var next = !active(recipient)
                         ? "SUPPRESSED"
-                        : eligibility(notice.recipientId(), notice.sourceId(), notice.answerId())
+                        : eligibility(notice.recipientId(), notice.sourceId(), requestIds(notice))
                                         .allowed()
                                 ? "DELIVERED"
                                 : "RESTRICTED";
@@ -203,32 +283,59 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
         return notices.latest(issue);
     }
 
+    /**
+     * 回看同一主事项各轮的投递事实。
+     */
+    List<NoticeRound> rounds(long issue) {
+        return notices.rounds(issue);
+    }
+
     /** 停用和待改密账号不发送通知。 */
     private boolean active(UserPO user) {
         return user != null && "ENABLED".equals(user.getLifecycle()) && !user.isMustChangePassword();
     }
 
-    /** 原问的业务授权不是收件箱资格，失权者仍有通用反馈状态。 */
-    private Eligibility eligibility(long recipient, long source, String answer) {
+    /**
+     * 无权读取原问仍可收到通用模板，每条定位继续核对本人及来源权限。
+     */
+    private Eligibility eligibility(long recipient, long source, List<String> requestIds) {
         var codes = permissions.effective(recipient);
         var scope = codes.contains("query.view")
                 ? access.findSource(recipient, source).orElse(null)
                 : null;
         return new Eligibility(
-                scope != null && queries.canOpenFeedbackAnswer(answer, recipient, scope), codes.contains("query.ask"));
+                scope == null
+                        ? List.of()
+                        : requestIds.stream()
+                                .filter(request -> queries.canOpenFeedbackAnswer(request, recipient, scope))
+                                .toList(),
+                codes.contains("query.ask"));
     }
 
-    /** 送达与查看双重核权，已有受限回告仍按送达时披露口径呈现。 */
+    /**
+     * 顺序保留原先的首条定位，其他定位按快照逐条返回。
+     */
+    private List<String> requestIds(Notice notice) {
+        var requestsForNotice = new LinkedHashSet<String>();
+        requestsForNotice.add(notice.answerId());
+        requestsForNotice.addAll(notices.requests(notice.id()));
+        return List.copyOf(requestsForNotice);
+    }
+
+    /**
+     * 送达和查看分别核权，通用模板不携带原问题编号。
+     */
     private FeedbackNoticeVO view(Notice notice) {
-        var eligibility = eligibility(notice.recipientId(), notice.sourceId(), notice.answerId());
+        var eligibility = eligibility(notice.recipientId(), notice.sourceId(), requestIds(notice));
         boolean allowed = "DELIVERED".equals(notice.state()) && eligibility.allowed();
         return new FeedbackNoticeVO(
                 notice.id(),
                 allowed ? message(notice.template(), eligibility.canAsk()) : LIMITED,
                 allowed ? Ids.text(notice.sourceId()) : null,
-                allowed ? notice.answerId() : null,
+                allowed ? eligibility.requestIds().get(0) : null,
                 instant(notice.sentAt()),
-                instant(notice.readAt()));
+                instant(notice.readAt()),
+                allowed ? eligibility.requestIds() : List.of());
     }
 
     /** 产品内模板只来自固定枚举，内部结论和自由文本不参与。 */
@@ -248,6 +355,15 @@ public class FeedbackNoticeService implements OutboxLocalConsumer {
         return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
 
-    /** 区分当前可看原问和具备重新查询资格。 */
-    private record Eligibility(boolean allowed, boolean canAsk) {}
+    /**
+     * 区分逐条可见的原问及当前重新查询资格。
+     */
+    private record Eligibility(List<String> requestIds, boolean canAsk) {
+        /**
+         * 至少一条原问可见时才使用该接收人的完整受控模板。
+         */
+        private boolean allowed() {
+            return !requestIds.isEmpty();
+        }
+    }
 }

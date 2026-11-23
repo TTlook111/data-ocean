@@ -9,7 +9,9 @@ import org.apache.ibatis.annotations.Update;
 /** 处理结果与复验保存各自的不可变版本。 */
 public interface FeedbackResolutionMapper {
 
-    /** 已提交的处理结果，知识治理保留精确的发布绑定。 */
+    /**
+     * 已提交的处理结果，按处理路径保留适用的发布或实际修正责任。
+     */
     record ResultRecord(
             long issueId,
             int version,
@@ -20,7 +22,11 @@ public interface FeedbackResolutionMapper {
             String referenceText,
             String regression,
             LocalDateTime submittedAt,
-            Long knowledgeBindingId) {}
+            Long knowledgeBindingId,
+            /**
+             * 源系统实际修正人或团队，其他处理路径为空。
+             */
+            String sourceRepairer) {}
 
     /** 人工复验绑定当次处理结果、本人身份及有效授权摘要。 */
     record Verification(
@@ -49,9 +55,9 @@ public interface FeedbackResolutionMapper {
     @Insert(
             """
             INSERT INTO fb_issue_result(issue_id,version,author_id,impact,summary,check_method,reference_text,regression,
-                knowledge_binding_id)
+                knowledge_binding_id,source_repairer)
             VALUES(#{issueId},#{version},#{authorId},#{impact},#{summary},#{checkMethod},#{referenceText},#{regression},
-                #{knowledgeBindingId})
+                #{knowledgeBindingId},#{sourceRepairer})
             """)
     void appendResult(ResultRecord record);
 

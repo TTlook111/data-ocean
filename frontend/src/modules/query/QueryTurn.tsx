@@ -4,6 +4,7 @@ import type { ComponentProps } from 'react';
 import { api, ApiError } from '../../shared/api';
 import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { QueryAnswer, activeState, explaining, statusText } from './QueryAnswer';
+import { QueryFeedbackSupplement } from './QueryFeedbackSupplement';
 import type { Snapshot } from './types';
 import styles from './query.module.css';
 
@@ -30,6 +31,8 @@ export function QueryTurn({
 }) {
   const waiting = row.state === 'WAITING';
   const running = activeState(row.state);
+  const awaitsFeedback =
+    row.state === 'KNOWLEDGE_INSUFFICIENT' || row.state === 'TECHNICAL_FAILURE';
   return (
     <section className={styles.turn} aria-label={onSelect ? '历史问答' : '当前轮次'}>
       {/* 历史问题保留定位入口，正文仍显示对应的真实答案。 */}
@@ -60,6 +63,10 @@ export function QueryTurn({
       )}
       {!running && !waiting && (
         <QueryAnswer row={row} {...actions} historical={Boolean(onSelect)} />
+      )}
+      {/* 补充与问数澄清分别保存，入口随原问题的终态出现。 */}
+      {(awaitsFeedback || row.state === 'RESULT_DELIVERED') && (
+        <QueryFeedbackSupplement key={row.id} requestId={row.id} awaitIntake={awaitsFeedback} />
       )}
     </section>
   );

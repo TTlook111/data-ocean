@@ -98,6 +98,12 @@ export function AnswerRating({
     }
   }, [answerId, cache, restricted, sourceId]);
 
+  const linkedIssue = data?.issueId;
+  useEffect(() => {
+    // 点踩异步入队后，唤醒同一原问题上的反馈进度与补充入口。
+    if (linkedIssue) void cache.invalidateQueries({ queryKey: ['feedback-supplement', answerId] });
+  }, [answerId, cache, linkedIssue]);
+
   /** 退出编辑，焦点回到原回答的点踩入口。 */
   function close() {
     setEditor(null);

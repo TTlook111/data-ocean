@@ -19,7 +19,15 @@ public record FeedbackIssueDetailVO(
         List<QueryIncident> incidents,
         Activity latestReview,
         List<Activity> activities,
-        Resolution resolution) {
+        Resolution resolution,
+        /**
+         * 当前事项内的独立处理任务，单任务旧流程使用事项本身办理。
+         */
+        List<FeedbackTaskVO> tasks,
+        /**
+         * 用户补充、合并与重开的当前事实。
+         */
+        FeedbackLifecycleVO lifecycle) {
 
     /** 附于原事项的点踩历史，原因到期时只保留时间和引用。 */
     public record Report(String id, String reason, Instant occurredAt) {}
@@ -38,7 +46,23 @@ public record FeedbackIssueDetailVO(
             String note,
             String rootCause,
             String conclusion,
-            Instant occurredAt) {}
+            Instant occurredAt,
+            /**
+             * 有关联任务时展示事项内的稳定任务编号。
+             */
+            Integer taskId,
+            /**
+             * 合并或纠正时的关系另一端。
+             */
+            String relatedIssueId,
+            /**
+             * 写入事件时的完成轮次。
+             */
+            int completionRound,
+            /**
+             * 本轮结案的结构化结果，沿用结案时固定的原始模板编码。
+             */
+            String closureCode) {}
 
     /** 当前工作结果、复验有效性和允许继续办理的权限。 */
     public record Resolution(
@@ -51,9 +75,15 @@ public record FeedbackIssueDetailVO(
             NoticeStatus notice,
             boolean canSubmitKnowledge,
             boolean canReplayQuestion,
-            String recheckRequestId) {}
+            String recheckRequestId,
+            /**
+             * 当前源数据任务跟进人可保存进展或已生效的修正结果。
+             */
+            boolean canSaveSourceData) {}
 
-    /** 已提交结果与实际修复影响范围。 */
+    /**
+     * 已提交结果及当时适用的发布、实际修正责任和影响范围。
+     */
     public record ProcessingResult(
             int version,
             String impact,
@@ -62,7 +92,11 @@ public record FeedbackIssueDetailVO(
             String reference,
             String regression,
             Instant submittedAt,
-            String knowledgeBindingId) {}
+            String knowledgeBindingId,
+            /**
+             * 源系统修正人或团队，按来源证据权限裁剪。
+             */
+            String sourceRepairer) {}
 
     /** 人工登记的检查与当前版本、测试授权上下文的对应关系。 */
     public record Recheck(
@@ -74,7 +108,11 @@ public record FeedbackIssueDetailVO(
             String actual,
             String dataBasis,
             Instant verifiedAt,
-            String recheckRequestId) {}
+            String recheckRequestId,
+            /**
+             * 是否关联了实际问数，问数编号仍仅向该轮执行人披露。
+             */
+            boolean questionReplay) {}
 
     /** 回告的收件与阅读状态与事项结案分开。 */
     public record NoticeStatus(String state, Instant sentAt, Instant readAt) {}

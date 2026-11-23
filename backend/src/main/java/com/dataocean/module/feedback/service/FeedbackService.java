@@ -14,6 +14,7 @@ import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Rating;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
+import com.dataocean.module.feedback.mapper.FeedbackLifecycleMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper;
 import com.dataocean.module.feedback.mapper.FeedbackMapper.Event;
 import com.dataocean.module.iam.entity.vo.ChangeVO;
@@ -84,6 +85,11 @@ public class FeedbackService {
 
     /** 本机明确设置的原因保留配置。 */
     private final DataOceanProperties properties;
+
+    /**
+     * 原问的补充正文与反馈原因采用相同留存窗口。
+     */
+    private final FeedbackLifecycleMapper lifecycle;
 
     /** 原提问人只读取本人当前评价及关联事项。 */
     @Transactional
@@ -201,7 +207,9 @@ public class FeedbackService {
     public void purgeReasons() {
         if (retentionConfigured()) {
             // 清除正文后仍保留原事件和去重引用。
-            feedback.purgeReasons(feedback.now().minus(properties.getFeedbackReasonRetention()));
+            var cutoff = feedback.now().minus(properties.getFeedbackReasonRetention());
+            feedback.purgeReasons(cutoff);
+            lifecycle.purgeSupplements(cutoff);
         }
     }
 

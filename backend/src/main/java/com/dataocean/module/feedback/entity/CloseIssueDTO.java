@@ -12,4 +12,8 @@ public record CloseIssueDTO(
         @NotBlank @Size(max = 1000) String conclusion,
         @NotBlank @Size(max = 1000) String basis,
         @NotBlank String recipientId,
-        @NotBlank String confirmedTemplate) {}
+        @NotBlank String confirmedTemplate,
+        /**
+         * 多原问预览的接收人及模板确认值，单原问仍采用上面的字段。
+         */
+        @Size(max = 36) String confirmedRecipients) {}

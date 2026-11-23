@@ -10,6 +10,20 @@ import type { Page } from '../iam/types';
 import { originLabels, statusLabels, type Issue } from './types';
 import './feedback.css';
 
+/**
+ * 结案回看包含独立结束及合并，但待办不包含等待补充。
+ */
+const closedStatuses = new Set(['RESOLVED', 'CLOSED_OTHER', 'MERGED']);
+
+/**
+ * 各分组只提供实际能出现的筛选状态。
+ */
+function statusInScope(scope: string, status: string) {
+  if (scope === 'CLOSED') return closedStatuses.has(status);
+  if (scope === 'MINE') return !closedStatuses.has(status) && status !== 'PENDING_SUPPLEMENT';
+  return scope !== 'OWNED' || !closedStatuses.has(status);
+}
+
 /** 常用条件与收起的条件统一保存在队列地址中。 */
 type Criteria = {
   keyword?: string;
@@ -124,7 +138,9 @@ export function FeedbackQueue() {
               virtual={false}
               aria-label="事项状态"
               placeholder="全部状态"
-              options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+              options={Object.entries(statusLabels)
+                .filter(([value]) => statusInScope(scope, value))
+                .map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
           {/* 低频条件按用户应用的组数标记，收起后仍与队列查询一致。 */}
@@ -170,9 +186,12 @@ export function FeedbackQueue() {
           size="small"
           tabBarGutter={40}
           activeKey={scope}
-          onChange={(value) =>
-            setParams(queryString({ issueId, ...filters, pageSize, scope: value }))
-          }
+          onChange={(value) => {
+            // 切换分组时清除在目标分组不可出现的已应用状态。
+            const status =
+              filters.status && statusInScope(value, filters.status) ? filters.status : undefined;
+            setParams(queryString({ issueId, ...filters, status, pageSize, scope: value }));
+          }}
           items={[
             { key: 'MINE', label: '待我处理' },
             { key: 'OWNED', label: '我负责的' },
@@ -258,7 +277,11 @@ export function FeedbackQueue() {
                   aria-label={'查看事项 #' + row.id}
                   onClick={() => openIssue(row)}
                 >
-                  {['RESOLVED', 'CLOSED_OTHER'].includes(row.status) ? '查看结果' : '进入办理'}
+                  {row.status === 'MERGED'
+                    ? '查看合并'
+                    : closedStatuses.has(row.status)
+                      ? '查看结果'
+                      : '进入办理'}
                 </Button>
               ),
             },

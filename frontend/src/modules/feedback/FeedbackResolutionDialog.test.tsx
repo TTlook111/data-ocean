@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api, ApiError, mutation } from '../../shared/api';
 import { FeedbackResolutionDialog, type ResolutionAction } from './FeedbackResolutionDialog';
-import type { IssueDetail } from './types';
+import type { FeedbackTask, IssueDetail } from './types';
 
 // 只替换传输，与正式弹窗共用实际校验、预览及焦点行为。
 vi.mock('../../shared/api', async (original) => ({
@@ -59,7 +59,7 @@ beforeEach(() => {
 });
 
 /** 为每次实际表单打开独立缓存和可观察父级回调。 */
-async function mount(kind: ResolutionAction, issue = detail) {
+async function mount(kind: ResolutionAction, issue = detail, task?: FeedbackTask) {
   const close = vi.fn();
   const refresh = vi.fn<() => Promise<IssueDetail | undefined>>().mockResolvedValue(issue);
   const cache = new QueryClient();
@@ -68,7 +68,13 @@ async function mount(kind: ResolutionAction, issue = detail) {
       <App>
         <QueryClientProvider client={cache}>
           <MemoryRouter>
-            <FeedbackResolutionDialog detail={issue} kind={kind} close={close} refresh={refresh} />
+            <FeedbackResolutionDialog
+              detail={issue}
+              kind={kind}
+              task={task}
+              close={close}
+              refresh={refresh}
+            />
           </MemoryRouter>
         </QueryClientProvider>
       </App>
@@ -80,8 +86,9 @@ async function mount(kind: ResolutionAction, issue = detail) {
 
 /** 通过实际下拉操作选择当前字段的选项。 */
 async function select(label: string, value: string) {
-  fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
+  fireEvent.mouseDown(await screen.findByRole('combobox', { name: label }));
   const dropdown = await screen.findByText(value, { selector: '.ant-select-item-option-content' });
+  await waitFor(() => expect(dropdown).toBeVisible());
   fireEvent.click(dropdown);
 }
 
@@ -89,6 +96,142 @@ async function select(label: string, value: string) {
 function fill(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
+
+/**
+ * 源数据任务固定是否已提交、等待和当前实际结果，便于验证交互切换。
+ */
+const sourceTask: FeedbackTask = {
+  id: 2,
+  direction: 'SOURCE_DATA',
+  assigneeId: '7',
+  assigneeName: '跟进人',
+  scope: '样例库存',
+  status: 'SUBMITTED',
+  canReview: false,
+  canAssign: false,
+  canChangeStatus: true,
+  resolution: {
+    ...detail.resolution!,
+    canSaveSourceData: true,
+    canReplayQuestion: true,
+    result: {
+      version: 3,
+      impact: 'SOURCE_DATA',
+      summary: '调整样例库存数量',
+      sourceRepairer: '库存运维组',
+      checkMethod: '授权查询显示八箱',
+      regression: null,
+      reference: null,
+      submittedAt: '2026-11-22T10:00:00Z',
+    },
+  },
+};
+
+/**
+ * 从完成改回等待时只发跟进字段，显式提醒撤回原待验证结果。
+ */
+it('源数据任务改回等待同步时只提交跟进', async () => {
+  const { dialog, close } = await mount('source', detail, sourceTask);
+  expect(dialog.getByLabelText('实际修正人或团队')).toHaveValue('库存运维组');
+  fireEvent.click(dialog.getByRole('radio', { name: '等待修正或同步' }));
+  await waitFor(() => expect(dialog.getByText('改为跟进会撤回当前待验证结果')).toBeVisible());
+  fill('已做工作', '已联系负责人重跑同步');
+  fill('下一步安排', '同步后查询目标记录');
+  fireEvent.click(dialog.getByRole('button', { name: '保存进展' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/tasks/2/source-progress',
+    'POST',
+    {
+      expectedVersion: 4,
+      waitingExternal: true,
+      workDone: '已联系负责人重跑同步',
+      nextStep: '同步后查询目标记录',
+    },
+    'feedback.process',
+    expect.any(String),
+  );
+});
+
+/**
+ * 已生效路径需要实际修正人、范围和只读结果，工单仍可选。
+ */
+it('提交源数据修正须确认生效和必要同步', async () => {
+  const { dialog, close } = await mount('source', detail, {
+    ...sourceTask,
+    status: 'IN_PROGRESS',
+    waitingExternal: true,
+    resolution: { ...sourceTask.resolution, result: null },
+  });
+  fireEvent.click(dialog.getByRole('radio', { name: '已修正并生效' }));
+  await waitFor(() => expect(dialog.getByLabelText('实际修正人或团队')).toBeVisible());
+  fill('实际修正人或团队', '库存运维组');
+  fill('修正的数据范围与内容', '补齐一条库存记录');
+  fill('只读复查方式与实际结果', '查询确认八箱');
+  fireEvent.click(dialog.getByRole('button', { name: '提交处理结果' }));
+  expect(await dialog.findByText('请确认修正及必要同步已经生效')).toBeVisible();
+  expect(mutation).not.toHaveBeenCalled();
+  fireEvent.click(dialog.getByRole('checkbox', { name: '已确认源系统修正及必要同步已生效' }));
+  fireEvent.click(dialog.getByRole('button', { name: '提交处理结果' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/tasks/2/source-results',
+    'POST',
+    {
+      expectedVersion: 4,
+      repairer: '库存运维组',
+      summary: '补齐一条库存记录',
+      checkMethod: '查询确认八箱',
+      effectiveConfirmed: true,
+    },
+    'feedback.process',
+    expect.any(String),
+  );
+});
+
+/**
+ * 只有选择原问实测时才关联实际执行编号，人工核对仍以实际案例证据登记。
+ */
+it.each([false, true])('区分只读人工核对和原问复验 %s', async (replay) => {
+  vi.mocked(api)
+    .mockResolvedValueOnce({ id: 'source-recheck-1' })
+    .mockResolvedValue({ state: 'RESULT_DELIVERED' });
+  const { dialog, close } = await mount('verify', detail, sourceTask);
+  const submit = dialog.getByRole('button', { name: '登记复验结论' });
+  if (replay) {
+    // 真实轮次返回前不能登记问数复验。
+    await select('复验方式', '用原问题只读复验');
+    await waitFor(() => expect(submit).toBeDisabled());
+    fireEvent.click(dialog.getByRole('button', { name: '发起只读问数' }));
+    expect(await dialog.findByText('已返回结果')).toBeVisible();
+    expect(api).toHaveBeenCalledWith('/feedback/issues/8/rechecks?task=2', {
+      method: 'POST',
+      command: expect.any(String),
+    });
+  }
+  await select('复验结论', '通过');
+  fill('复验场景', '样例商品');
+  fill('期望结果', '八箱');
+  fill('实际结果', '八箱');
+  fill('数据与复验依据', '授权查询对账');
+  fireEvent.click(submit);
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/verifications?task=2',
+    'POST',
+    {
+      expectedVersion: 4,
+      decision: 'PASSED',
+      testScope: '样例商品',
+      expected: '八箱',
+      actual: '八箱',
+      dataBasis: '授权查询对账',
+      ...(replay ? { recheckRequestId: 'source-recheck-1' } : {}),
+    },
+    'feedback.verify',
+    expect.any(String),
+  );
+});
 
 /** 治理结果必须选择可用的正式版本，提交后保留确切绑定。 */
 it('提交知识治理结果时仅可选择可用正式版本', async () => {
@@ -170,6 +313,8 @@ it('治理复验关联原问题的实际查询并核对结果', async () => {
 /** 结果只有确认生效后才会开始待验证流程。 */
 it('提交展示修复前要求生效确认', async () => {
   const { dialog, close } = await mount('result');
+  expect(dialog.getByRole('radio', { name: '排查跟进' })).toBeChecked();
+  fireEvent.click(dialog.getByRole('radio', { name: '已修复并生效' }));
   await select('修复影响范围', '展示与表述');
   fill('修正说明', '合并重复的单值结果');
   fill('复查方式与结果', '回看同一答案只显示一句');
@@ -192,10 +337,37 @@ it('提交展示修复前要求生效确认', async () => {
   );
 });
 
+/** 技术跟进的两个阶段都提交实际进展，并按当前选择决定是否等待生效。 */
+it.each([
+  ['等待修复生效', true],
+  ['排查跟进', false],
+])('技术任务处于%s时只提交跟进记录', async (stage, waitingExternal) => {
+  const { dialog, close } = await mount('result');
+  fireEvent.click(dialog.getByRole('radio', { name: stage }));
+  await waitFor(() => expect(dialog.queryByLabelText('修复影响范围')).not.toBeInTheDocument());
+  fill('已做工作', '已完成变更，等待发布');
+  fill('下一步安排', '部署后回看原问题');
+  fireEvent.click(dialog.getByRole('button', { name: '保存进展' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(mutation).toHaveBeenCalledWith(
+    '/feedback/issues/8/technical-progress',
+    'POST',
+    {
+      expectedVersion: 4,
+      waitingExternal,
+      workDone: '已完成变更，等待发布',
+      nextStep: '部署后回看原问题',
+    },
+    'feedback.process',
+    expect.any(String),
+  );
+});
+
 /** 涉及查询安全必须记录复测，回包不明时只重用本次提交。 */
 it('安全修复要求回归记录，重试复用同一命令', async () => {
   vi.mocked(mutation).mockRejectedValueOnce(new Error('暂时无法核实提交结果'));
   const { dialog, close } = await mount('result');
+  fireEvent.click(dialog.getByRole('radio', { name: '已修复并生效' }));
   await select('修复影响范围', '查询与安全');
   fill('修正说明', '核查当前筛选');
   fill('复查方式与结果', '原问题从受控页面复查');

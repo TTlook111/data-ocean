@@ -202,12 +202,7 @@ public class QueryService {
             String ruleSignature,
             boolean passed) {
         var row = requests.get(uuid(id));
-        if (row == null
-                || row.userId() != actor
-                || row.sourceId() != source
-                || !origin.equals(row.recheckOriginId())
-                || row.createdAt().isBefore(publishedAt)
-                || !Objects.equals(ruleSignature, evidenceRuleSignature(row))) {
+        if (!matchesFeedbackReplay(row, origin, actor, source, publishedAt, ruleSignature)) {
             return false;
         }
         var original = requests.get(origin);
@@ -220,6 +215,52 @@ public class QueryService {
                         && Objects.equals(row.supplement(), original.supplement())
                 : Set.of("RESULT_DELIVERED", "KNOWLEDGE_INSUFFICIENT", "TECHNICAL_FAILURE")
                         .contains(row.state());
+    }
+
+    /**
+     * 源数据复验允许沿用当前可用的原知识版本，成功须有实际只读交付结果。
+     */
+    public boolean sourceFeedbackReplayMatches(
+            String id,
+            String origin,
+            long actor,
+            long source,
+            LocalDateTime effectiveAfter,
+            String ruleSignature,
+            boolean passed) {
+        var row = requests.get(uuid(id));
+        if (!matchesFeedbackReplay(row, origin, actor, source, effectiveAfter, ruleSignature)) {
+            return false;
+        }
+        // 问数未交付可登记未通过，但不能作为修正已经生效的依据。
+        if (!passed) {
+            return Set.of("RESULT_DELIVERED", "KNOWLEDGE_INSUFFICIENT", "TECHNICAL_FAILURE")
+                    .contains(row.state());
+        }
+        var original = requests.get(origin);
+        if (original == null
+                || !"RESULT_DELIVERED".equals(row.state())
+                || !"SUCCEEDED".equals(row.executionState())
+                || row.executedAt() == null
+                || row.bindingId() == null
+                || !Objects.equals(original.supplement(), row.supplement())) {
+            return false;
+        }
+        versions.requireForFeedbackReplay(actor, source, row.bindingId());
+        return true;
+    }
+
+    /**
+     * 核对原问复验的归属、来源、起点时间和当前输出规则。
+     */
+    private boolean matchesFeedbackReplay(
+            Request row, String origin, long actor, long source, LocalDateTime after, String ruleSignature) {
+        return row != null
+                && row.userId() == actor
+                && row.sourceId() == source
+                && origin.equals(row.recheckOriginId())
+                && !row.createdAt().isBefore(after)
+                && Objects.equals(ruleSignature, evidenceRuleSignature(row));
     }
 
     /** 普通问数和治理复验共用命令防重、认证、排队及真实执行路径。 */

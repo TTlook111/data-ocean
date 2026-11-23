@@ -3,8 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App, ConfigProvider } from 'antd';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api, ApiError, mutation } from '../../shared/api';
-import { FeedbackActionDialog } from './FeedbackActionDialog';
-import type { IssueDetail } from './types';
+import { FeedbackActionDialog, type FeedbackAction } from './FeedbackActionDialog';
+import type { FeedbackTask, IssueDetail } from './types';
 
 // 只隔离后端，表单校验、弹窗焦点和按钮状态用真实组件验证。
 vi.mock('../../shared/api', async (importOriginal) => ({
@@ -39,7 +39,7 @@ const issue: IssueDetail = {
 };
 
 /** 弹窗作为正式详情的一部分渲染，保留真实关闭、刷新和命令参数。 */
-async function openDialog(kind: 'assign' | 'review', detail = issue) {
+async function openDialog(kind: FeedbackAction, detail = issue, task?: FeedbackTask) {
   const cache = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
@@ -49,7 +49,13 @@ async function openDialog(kind: 'assign' | 'review', detail = issue) {
     <ConfigProvider theme={{ token: { motion: false } }}>
       <App>
         <QueryClientProvider client={cache}>
-          <FeedbackActionDialog kind={kind} detail={detail} close={close} refresh={refresh} />
+          <FeedbackActionDialog
+            kind={kind}
+            detail={detail}
+            task={task}
+            close={close}
+            refresh={refresh}
+          />
         </QueryClientProvider>
       </App>
     </ConfigProvider>,
@@ -57,6 +63,30 @@ async function openDialog(kind: 'assign' | 'review', detail = issue) {
   await waitFor(() => expect(screen.getByRole('dialog')).toBeVisible());
   return { close, refresh, ...view };
 }
+
+/**
+ * 复用正式表单验证新增、转派和退出时实际传递的任务版本。
+ */
+const technicalTask: FeedbackTask = {
+  id: 6,
+  direction: 'TECHNICAL',
+  assigneeId: '8',
+  assigneeName: '技术员',
+  scope: '修正库存展示',
+  status: 'IN_PROGRESS',
+  canReview: true,
+  canAssign: true,
+  canChangeStatus: true,
+  resolution: {
+    canSubmitResult: false,
+    canVerify: false,
+    canResolve: false,
+    canCloseOther: false,
+    result: null,
+    verification: null,
+    notice: null,
+  },
+};
 
 /** 通过真实下拉搜索和候选选项填写分派人。 */
 async function chooseAssignee() {
@@ -75,6 +105,111 @@ function fillReason(value = '  核对库存展示  ') {
 beforeEach(() => {
   vi.mocked(api).mockReset().mockResolvedValue(result);
   vi.mocked(mutation).mockReset().mockResolvedValue({ targetId: '21', version: 3 });
+});
+
+/**
+ * 新增任务的类型只包含当前已实现的办理方向，输入随确认提交。
+ */
+it('为主事项添加独立治理任务', async () => {
+  await openDialog('add-task');
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: '任务类型' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: '业务知识' })).toBeVisible());
+  expect(screen.getByRole('option', { name: '源数据' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('option', { name: '业务知识' }));
+  await chooseAssignee();
+  fireEvent.change(screen.getByLabelText('任务范围'), { target: { value: '口径修正' } });
+  fireEvent.click(screen.getByRole('button', { name: '核对分派' }));
+  fireEvent.click(await screen.findByRole('button', { name: '确认分派' }));
+  await waitFor(() =>
+    expect(mutation).toHaveBeenCalledWith(
+      '/feedback/issues/21/tasks',
+      'POST',
+      { expectedVersion: 2, assigneeId: '7', direction: 'KNOWLEDGE', reason: '口径修正' },
+      'feedback.assign',
+      expect.any(String),
+    ),
+  );
+});
+
+/**
+ * 同一方向的转派仅修改该任务的负责人。
+ */
+it('转派已创建的技术任务', async () => {
+  await openDialog('assign-task', issue, technicalTask);
+  expect(screen.getByRole('combobox', { name: '任务类型' })).toBeDisabled();
+  await chooseAssignee();
+  fillReason('交接库存展示');
+  fireEvent.click(screen.getByRole('button', { name: '核对分派' }));
+  fireEvent.click(await screen.findByRole('button', { name: '确认分派' }));
+  await waitFor(() =>
+    expect(mutation).toHaveBeenCalledWith(
+      '/feedback/issues/21/tasks/6/assignments',
+      'POST',
+      { expectedVersion: 2, assigneeId: '7', direction: 'TECHNICAL', reason: '交接库存展示' },
+      'feedback.assign',
+      expect.any(String),
+    ),
+  );
+});
+
+/**
+ * 退出需说明剩余影响，恢复只提交新的办理依据。
+ */
+it('退出任务时核对剩余影响', async () => {
+  await openDialog('task-status', issue, technicalTask);
+  fireEvent.change(screen.getByLabelText('办理依据'), { target: { value: '重复安排' } });
+  fireEvent.change(screen.getByLabelText('剩余影响及安排'), { target: { value: '原任务已覆盖' } });
+  fireEvent.click(screen.getByRole('button', { name: '确认退出' }));
+  expect(await screen.findByText('请先确认没有未覆盖的影响')).toBeVisible();
+  expect(mutation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox', { name: '已确认没有未覆盖的影响' }));
+  fireEvent.click(screen.getByRole('button', { name: '确认退出' }));
+  await waitFor(() =>
+    expect(mutation).toHaveBeenCalledWith(
+      '/feedback/issues/21/tasks/6/dispositions',
+      'POST',
+      {
+        expectedVersion: 2,
+        status: 'NO_CHANGE',
+        reason: '重复安排',
+        remainingImpact: '原任务已覆盖',
+        remainingImpactCovered: true,
+      },
+      'feedback.assign',
+      expect.any(String),
+    ),
+  );
+});
+
+/**
+ * 没有分派权的主负责人可以恢复获准的任务。
+ */
+it('主负责人恢复已退出任务', async () => {
+  await openDialog(
+    'task-status',
+    { ...issue, canAssign: false },
+    {
+      ...technicalTask,
+      status: 'CANCELLED',
+      canAssign: false,
+    },
+  );
+  fireEvent.change(screen.getByLabelText('办理依据'), { target: { value: '发现新影响' } });
+  fireEvent.click(screen.getByRole('button', { name: '恢复办理' }));
+  await waitFor(() =>
+    expect(mutation).toHaveBeenCalledWith(
+      '/feedback/issues/21/tasks/6/dispositions',
+      'POST',
+      {
+        expectedVersion: 2,
+        status: 'IN_PROGRESS',
+        reason: '发现新影响',
+        remainingImpactCovered: false,
+      },
+      'feedback.process',
+      expect.any(String),
+    ),
+  );
 });
 
 /** 核对、返回和确认使用同一份提案，提交进行中阻止再发一条命令。 */

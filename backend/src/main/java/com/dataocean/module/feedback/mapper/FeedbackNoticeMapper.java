@@ -2,8 +2,10 @@ package com.dataocean.module.feedback.mapper;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.module.feedback.entity.FeedbackLifecycleVO.NoticeRound;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
@@ -34,9 +36,35 @@ public interface FeedbackNoticeMapper {
             """)
     void append(Notice notice);
 
+    /**
+     * 固定本次回告涵盖的原问，后续纠正合并不会重写已送达历史。
+     */
+    @Insert("INSERT INTO fb_notice_request(notice_id,request_id) VALUES(#{notice},#{request})")
+    void linkRequest(String notice, String request);
+
+    /**
+     * 同一回告在查看和投递时逐条核对该接收人的原问。
+     */
+    @Select("SELECT request_id FROM fb_notice_request WHERE notice_id=#{notice} ORDER BY request_id")
+    List<String> requests(String notice);
+
     /** 回告记录用当期完成轮次，后续办理不改写既往消息。 */
     @Select("SELECT * FROM fb_notice WHERE issue_id=#{issue} ORDER BY completion_round DESC LIMIT 1")
     Notice latest(long issue);
+
+    /**
+     * 重开后继续显示此前各轮的实际送达和已读状态。
+     */
+    @Select(
+            """
+            SELECT completion_round AS round,COUNT(*) AS total,
+                SUM(state='QUEUED') AS pending,SUM(state IN ('DELIVERED','RESTRICTED')) AS delivered,
+                SUM(state='RESTRICTED') AS restricted,SUM(state='SUPPRESSED') AS suppressed,
+                SUM(read_at IS NOT NULL) AS read_count
+            FROM fb_notice WHERE issue_id=#{issue}
+            GROUP BY completion_round ORDER BY completion_round DESC
+            """)
+    List<NoticeRound> rounds(long issue);
 
     /** 按派发事件的安全编号串行化站内副作用。 */
     @Select("SELECT * FROM fb_notice WHERE id=#{id} FOR UPDATE")
@@ -62,8 +90,10 @@ public interface FeedbackNoticeMapper {
     /** 原回答快速定位只返回仍可读取的最新回告。 */
     @Select(
             """
-            SELECT * FROM fb_notice WHERE recipient_id=#{recipient} AND answer_id=#{answer}
-                AND state IN ('DELIVERED','RESTRICTED') ORDER BY sent_at DESC,id DESC LIMIT 1
+            SELECT n.* FROM fb_notice n WHERE n.recipient_id=#{recipient}
+                AND (n.answer_id=#{answer} OR EXISTS(
+                    SELECT 1 FROM fb_notice_request r WHERE r.notice_id=n.id AND r.request_id=#{answer}))
+                AND n.state IN ('DELIVERED','RESTRICTED') ORDER BY n.sent_at DESC,n.id DESC LIMIT 1
             """)
     Notice forAnswer(long recipient, String answer);
 

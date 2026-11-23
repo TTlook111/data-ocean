@@ -52,7 +52,19 @@ public interface FeedbackMapper {
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
             String summary,
-            int referenceCount) {}
+            int referenceCount,
+            /**
+             * 当前主事项编号，独立事项为空。
+             */
+            Long mergedInto,
+            /**
+             * 当前完成轮次，重开后递增。
+             */
+            int completionRound,
+            /**
+             * 当前主事项组是否还存在必要的用户补充。
+             */
+            boolean pendingSupplement) {}
 
     /** 写操作按确定的下一版本保存操作与必要核查依据。 */
     record Activity(
@@ -76,7 +88,11 @@ public interface FeedbackMapper {
             String note,
             String rootCause,
             String conclusion,
-            LocalDateTime occurredAt) {}
+            LocalDateTime occurredAt,
+            Integer taskId,
+            Long relatedIssueId,
+            int completionRound,
+            String closureCode) {}
 
     /** 搜索仅使用可公开给队列角色的固定摘要，不从原问或反馈原文推断。 */
     String ISSUE_SUMMARY =
@@ -90,18 +106,41 @@ public interface FeedbackMapper {
             END
             """;
 
-    /** 基础事项查询统一返回同一组列。 */
+    /**
+     * 待补充覆盖办理进度，任务写入继续保留实际办理阶段。
+     */
+    String WAITING_SUPPLEMENT =
+            """
+            (i.merged_into IS NULL AND EXISTS(SELECT 1 FROM fb_issue_supplement followup
+                JOIN fb_issue origin_issue ON origin_issue.id=followup.issue_id
+                WHERE (origin_issue.id=i.id OR origin_issue.merged_into=i.id) AND followup.pending_request IS NOT NULL))
+            """;
+
+    /**
+     * 主从事项共用基础投影，等待补充独立于实际处理进度。
+     */
     String ISSUE_SELECT =
             """
             SELECT i.id,i.source_id,s.name AS source_name,i.origin,i.origin_request_id AS request_id,
                 i.status,i.assignee_id,u.display_name AS assignee_name,i.version,i.direction,
-                i.result_version,i.verification_version,i.created_at,i.updated_at,
-                CASE WHEN i.origin='USER_DISLIKE' THEN 1 ELSE
-                    (SELECT COUNT(*) FROM fb_issue_query_evidence e WHERE e.issue_id=i.id) END AS reference_count,
+                i.result_version,COALESCE(i.verification_version,(
+                    SELECT MAX(t.verification_version) FROM fb_issue_task t
+                    WHERE t.issue_id=i.id AND t.status='SUBMITTED'
+                        AND NOT EXISTS(SELECT 1 FROM fb_issue_task waiting WHERE waiting.issue_id=i.id
+                            AND waiting.status='SUBMITTED' AND waiting.verification_version IS NULL)
+                )) AS verification_version,i.created_at,i.updated_at,
+                GREATEST(1,(SELECT COUNT(*) FROM fb_issue_query_evidence e WHERE e.issue_id=i.id))
+                    + COALESCE((SELECT SUM(GREATEST(1,(SELECT COUNT(*) FROM fb_issue_query_evidence linked
+                        WHERE linked.issue_id=member.id))) FROM fb_issue member WHERE member.merged_into=i.id),0)
+                    AS reference_count,
             """
                     + ISSUE_SUMMARY
                     + """
-                AS summary
+                AS summary,i.merged_into,i.completion_round,
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
+                AS pending_supplement
             FROM fb_issue i JOIN ds_source s ON s.id=i.source_id LEFT JOIN iam_user u ON u.id=i.assignee_id
             JOIN qry_request q ON q.id=i.origin_request_id
             """;
@@ -122,7 +161,10 @@ public interface FeedbackMapper {
                 a.direction,
                 CASE WHEN #{includeText} THEN COALESCE(r.summary,vf.actual,a.note) ELSE NULL END AS note,
                 CASE WHEN #{includeText} THEN a.root_cause ELSE NULL END AS root_cause,
-                CASE WHEN #{includeText} THEN a.conclusion ELSE NULL END AS conclusion,a.occurred_at
+                CASE WHEN #{includeText} THEN a.conclusion ELSE NULL END AS conclusion,
+                a.occurred_at,a.task_id,a.related_issue_id,a.completion_round,
+                CASE WHEN a.action='CLOSED' THEN (SELECT MIN(n.template) FROM fb_notice n
+                    WHERE n.issue_id=a.issue_id AND n.completion_round=a.completion_round) END AS closure_code
             FROM fb_issue_activity a JOIN iam_user u ON u.id=a.actor_id
             LEFT JOIN iam_user v ON v.id=a.assignee_id
             LEFT JOIN fb_issue_result r ON r.issue_id=a.issue_id AND r.version=a.issue_version
@@ -228,7 +270,12 @@ public interface FeedbackMapper {
                 <if test="source != null">i.source_id=#{source}</if>
                 <if test="issue != null">AND i.id=#{issue}</if>
                 <if test="origin != null">AND i.origin=#{origin}</if>
-                <if test="status != null">AND i.status=#{status}</if>
+                <if test="status != null">AND (CASE WHEN
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
+                    THEN 'PENDING_SUPPLEMENT' ELSE i.status END)=#{status}
+                </if>
                 <if test="assignee != null">AND u.display_name LIKE #{assignee} ESCAPE '!'</if>
                 <if test="keyword != null">
                     AND (CONCAT('#',i.id) LIKE #{keyword} ESCAPE '!' OR (
@@ -237,20 +284,53 @@ public interface FeedbackMapper {
                     + """
                     ) LIKE #{keyword} ESCAPE '!')
                 </if>
-                <if test="scope == 'OWNED'">AND i.assignee_id=#{actor} AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION')</if>
-                <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER')</if>
+                <if test="scope == 'OWNED'">
+                    AND i.status IN ('IN_PROGRESS','PENDING_VERIFICATION') AND (i.assignee_id=#{actor}
+                        OR EXISTS(SELECT 1 FROM fb_issue_task t WHERE t.issue_id=i.id AND t.assignee_id=#{actor}
+                            AND t.status IN ('IN_PROGRESS','SUBMITTED')))
+                </if>
+                <if test="scope == 'CLOSED'">AND i.status IN ('RESOLVED','CLOSED_OTHER','MERGED')</if>
+                <if test="scope == 'MERGE'">AND i.status IN ('PENDING_ASSIGNMENT','IN_PROGRESS','PENDING_VERIFICATION')</if>
+                <if test="scope == 'VERIFY_CANDIDATES'">
+                    AND i.status='PENDING_VERIFICATION' AND NOT
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
+                    AND (i.result_version IS NOT NULL OR EXISTS(SELECT 1 FROM fb_issue_task t
+                        WHERE t.issue_id=i.id AND t.status='SUBMITTED'))
+                    <if test="!canClose">
+                        AND i.source_id IN
+                        <foreach collection="verifySources" item="id" open="(" separator="," close=")">#{id}</foreach>
+                    </if>
+                </if>
                 <if test="scope == 'MINE'">
+                    AND NOT
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
                     AND ((#{canAssign} AND i.status='PENDING_ASSIGNMENT')
-                        OR (#{canReview} AND i.assignee_id=#{actor} AND i.status='IN_PROGRESS')
-                        <if test="verifySources.size() &gt; 0">
-                          OR (i.status='PENDING_VERIFICATION' AND i.result_version IS NOT NULL AND i.source_id IN
-                            <foreach collection="verifySources" item="id" open="(" separator="," close=")">#{id}</foreach>)
+                        OR (#{canReview} AND i.assignee_id=#{actor} AND i.status='IN_PROGRESS'
+                            AND NOT EXISTS(SELECT 1 FROM fb_issue_task t WHERE t.issue_id=i.id
+                                AND t.assignee_id=#{actor} AND t.waiting_external=TRUE)
+                            AND (NOT EXISTS(SELECT 1 FROM fb_issue_task t WHERE t.issue_id=i.id)
+                                OR NOT EXISTS(SELECT 1 FROM fb_issue_activity a
+                                    WHERE a.issue_id=i.id AND a.action='REVIEWED' AND a.actor_id=#{actor}
+                                    AND a.issue_version &gt; COALESCE((SELECT MAX(b.issue_version)
+                                        FROM fb_issue_activity b WHERE b.issue_id=i.id
+                                            AND b.action IN ('ASSIGNED','REOPENED','UNMERGED')),0))))
+                        OR (#{canReview} AND i.status='IN_PROGRESS' AND EXISTS(SELECT 1 FROM fb_issue_task t
+                            WHERE t.issue_id=i.id AND t.assignee_id=#{actor} AND t.status='IN_PROGRESS'
+                                AND t.waiting_external=FALSE))
+                        <if test="verificationTodoIds.size() &gt; 0">
+                            OR i.id IN
+                            <foreach collection="verificationTodoIds" item="id" open="(" separator="," close=")">#{id}</foreach>
                         </if>
-                        OR (#{canClose} AND ((i.status='PENDING_VERIFICATION' AND i.verification_version IS NOT NULL)
-                            OR (i.status='IN_PROGRESS' AND EXISTS(SELECT 1 FROM fb_issue_activity a
+                        OR (#{canClose} AND i.status='IN_PROGRESS' AND NOT EXISTS(SELECT 1 FROM fb_issue_task t
+                                WHERE t.issue_id=i.id AND t.status IN ('IN_PROGRESS','SUBMITTED'))
+                                AND EXISTS(SELECT 1 FROM fb_issue_activity a
                                 WHERE a.issue_id=i.id AND a.actor_id=i.assignee_id AND a.action='REVIEWED'
                                 AND a.issue_version &gt; COALESCE((SELECT MAX(b.issue_version) FROM fb_issue_activity b
-                                    WHERE b.issue_id=i.id AND b.action='ASSIGNED'),0))))))
+                                    WHERE b.issue_id=i.id AND b.action IN ('ASSIGNED','REOPENED','UNMERGED')),0))))
                 </if>
             </where>
             ORDER BY i.updated_at DESC,i.id DESC
@@ -269,30 +349,37 @@ public interface FeedbackMapper {
             boolean canAssign,
             boolean canReview,
             List<Long> verifySources,
+            List<Long> verificationTodoIds,
             boolean canClose);
 
     /** 独立打开事项使用同一基础投影。 */
     @Select(ISSUE_SELECT + " WHERE i.id=#{id}")
     Issue issue(long id);
 
-    /** 业务写锁只锁事项行，避免分派写入与人员读取互相加锁。 */
+    /**
+     * 业务写锁只锁当前事项，主从并发操作由服务层按编号顺序取锁。
+     */
     @Select(
             """
-            SELECT id,source_id,NULL AS source_name,origin,origin_request_id AS request_id,
-                status,assignee_id,NULL AS assignee_name,version,direction,result_version,verification_version,
-                created_at,updated_at,NULL AS summary,0 AS reference_count
-            FROM fb_issue WHERE id=#{id} FOR UPDATE
+            SELECT i.id,i.source_id,NULL AS source_name,i.origin,i.origin_request_id AS request_id,
+                i.status,i.assignee_id,NULL AS assignee_name,i.version,i.direction,i.result_version,i.verification_version,
+                i.created_at,i.updated_at,NULL AS summary,0 AS reference_count,i.merged_into,i.completion_round,
+            """
+                    + WAITING_SUPPLEMENT
+                    + """
+                AS pending_supplement
+            FROM fb_issue i WHERE i.id=#{id} FOR UPDATE OF i
             """)
     Issue lockIssue(long id);
 
     /** 分派和转派原子推进版本，仅更新本动作确实改变的责任字段。 */
     @Update(
             """
-            UPDATE fb_issue SET assignee_id=#{assignee},direction=#{direction},status='IN_PROGRESS',
+            UPDATE fb_issue SET assignee_id=#{assignee},direction=#{direction},status=#{status},
                 result_version=NULL,verification_version=NULL,version=version+1,updated_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND version=#{version} AND status IN ('PENDING_ASSIGNMENT','IN_PROGRESS','PENDING_VERIFICATION')
             """)
-    int assign(long id, int version, long assignee, String direction);
+    int assign(long id, int version, long assignee, String direction, String status);
 
     /** 当前负责人核查不改变事项主状态，但推进聚合版本。 */
     @Update(
@@ -305,8 +392,10 @@ public interface FeedbackMapper {
     /** 审计和责任变更同事务追加业务历史。 */
     @Insert(
             """
-            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause,conclusion)
-            VALUES(#{issueId},#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause},#{conclusion})
+            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause,
+                conclusion,completion_round)
+            SELECT i.id,#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause},#{conclusion},
+                i.completion_round FROM fb_issue i WHERE i.id=#{issueId}
             """)
     void appendActivity(Activity event);
 
@@ -323,7 +412,7 @@ public interface FeedbackMapper {
             """
             SELECT EXISTS (SELECT 1 FROM fb_issue_activity a WHERE a.issue_id=#{id} AND a.actor_id=#{actor}
                 AND a.action='REVIEWED' AND a.issue_version > COALESCE((SELECT MAX(b.issue_version)
-                  FROM fb_issue_activity b WHERE b.issue_id=#{id} AND b.action='ASSIGNED'),0))
+                  FROM fb_issue_activity b WHERE b.issue_id=#{id} AND b.action IN ('ASSIGNED','REOPENED','UNMERGED')),0))
             """)
     boolean hasCurrentReview(long id, long actor);
 

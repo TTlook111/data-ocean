@@ -4,14 +4,23 @@ import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.feedback.entity.AssignIssueDTO;
+import com.dataocean.module.feedback.entity.ChangeFeedbackTaskDTO;
 import com.dataocean.module.feedback.entity.CloseIssueDTO;
+import com.dataocean.module.feedback.entity.DisposeFeedbackSupplementDTO;
 import com.dataocean.module.feedback.entity.FeedbackIssueDetailVO;
+import com.dataocean.module.feedback.entity.FeedbackIssueReasonDTO;
 import com.dataocean.module.feedback.entity.FeedbackNoticeVO;
+import com.dataocean.module.feedback.entity.FeedbackProgressDTO;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.IssueRow;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Rating;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.RatingCommand;
 import com.dataocean.module.feedback.entity.FeedbackProtocol.Receipt;
+import com.dataocean.module.feedback.entity.FeedbackSupplementVO;
+import com.dataocean.module.feedback.entity.MergeFeedbackIssueDTO;
+import com.dataocean.module.feedback.entity.RequestFeedbackSupplementDTO;
 import com.dataocean.module.feedback.entity.ReviewIssueDTO;
+import com.dataocean.module.feedback.entity.SourceDataResultDTO;
+import com.dataocean.module.feedback.entity.SubmitFeedbackSupplementDTO;
 import com.dataocean.module.feedback.entity.SubmitIssueResultDTO;
 import com.dataocean.module.feedback.entity.SubmitKnowledgeResultDTO;
 import com.dataocean.module.feedback.entity.VerifyIssueDTO;
@@ -27,6 +36,7 @@ import com.dataocean.module.query.service.QueryProtocol.SourceOption;
 import java.util.List;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.ResponseEntity;
@@ -51,6 +61,11 @@ public class FeedbackController {
 
     /** 按回答和原命令回查评价资源。 */
     private static final String RATING = "/api/v1/query/requests/{answerId}/answers/{answerRevision}/rating";
+
+    /**
+     * 用户补充从原问打开，只读取该原问本人的反馈事实。
+     */
+    private static final String QUESTIONS_SUPPLEMENT = "/api/v1/query/requests/{id}/feedback-supplements";
 
     /** 反馈服务维护独立的资格、提交及队列状态。 */
     private final FeedbackService feedback;
@@ -117,6 +132,88 @@ public class FeedbackController {
         return Result.success(work.detail(id));
     }
 
+    /**
+     * 主负责人请求原提问人补充具体信息。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/supplement-requests")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> askSupplement(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody RequestFeedbackSupplementDTO input) {
+        return Result.success(work.askSupplement(id, command, input));
+    }
+
+    /**
+     * 主负责人撤回不再需要的请求，或按实际原因结束等待。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/supplement-requests/{supplementId}/dispositions")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> disposeSupplement(
+            @PathVariable String id,
+            @PathVariable String supplementId,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody DisposeFeedbackSupplementDTO input) {
+        return Result.success(work.disposeSupplement(id, supplementId, command, input));
+    }
+
+    /**
+     * 从本人原问读取当前补充能力和已有说明。
+     */
+    @GetMapping(QUESTIONS_SUPPLEMENT)
+    @RequirePermission("query.view")
+    public Result<FeedbackSupplementVO> ownSupplement(@PathVariable String id) {
+        return Result.success(work.ownSupplement(id));
+    }
+
+    /**
+     * 用户回复的正文回写原事项证据。
+     */
+    @PostMapping(QUESTIONS_SUPPLEMENT)
+    @RequirePermission("query.view")
+    public Result<MutationVO> submitSupplement(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody SubmitFeedbackSupplementDTO input) {
+        return Result.success(work.submitSupplement(id, command, input));
+    }
+
+    /**
+     * 对当前确认的同源重复事项建立主从关系。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/merges")
+    @RequirePermission("feedback.assign")
+    public Result<MutationVO> merge(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody MergeFeedbackIssueDTO input) {
+        return Result.success(work.merge(id, command, input));
+    }
+
+    /**
+     * 已关联的原事项可凭依据纠正合并。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/merge-corrections")
+    @RequirePermission("feedback.assign")
+    public Result<MutationVO> unmerge(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody FeedbackIssueReasonDTO input) {
+        return Result.success(work.unmerge(id, command, input));
+    }
+
+    /**
+     * 按新证据为已结案事项开启下一轮处理。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/reopens")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> reopen(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody FeedbackIssueReasonDTO input) {
+        return Result.success(work.reopen(id, command, input));
+    }
+
     /** 可交接的负责人由实际角色决定，支持标准分页和搜索。 */
     @GetMapping("/api/v1/feedback/assignees")
     @RequirePermission("feedback.assign")
@@ -135,14 +232,92 @@ public class FeedbackController {
         return Result.success(work.assign(id, command, input));
     }
 
+    /**
+     * 在当前主事项下添加独立的治理、技术或源数据任务。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/tasks")
+    @RequirePermission("feedback.assign")
+    public Result<MutationVO> addTask(
+            @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody AssignIssueDTO input) {
+        return Result.success(work.assignTask(id, null, command, input));
+    }
+
+    /**
+     * 按任务交接办理责任，主事项负责人沿用原入口维护。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/tasks/{task}/assignments")
+    @RequirePermission("feedback.assign")
+    public Result<MutationVO> assignTask(
+            @PathVariable String id,
+            @PathVariable @Positive int task,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody AssignIssueDTO input) {
+        return Result.success(work.assignTask(id, task, command, input));
+    }
+
+    /**
+     * 退出或恢复任务时由服务端再确认协调权限和事项责任。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/tasks/{task}/dispositions")
+    @RequirePermission(anyOf = {"feedback.assign", "feedback.process"})
+    public Result<MutationVO> changeTaskStatus(
+            @PathVariable String id,
+            @PathVariable @Positive int task,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody ChangeFeedbackTaskDTO input) {
+        return Result.success(work.changeTaskStatus(id, task, command, input));
+    }
+
+    /**
+     * 保存源数据跟进进展和下一步，任务继续在办。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/tasks/{task}/source-progress")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> followUpSourceData(
+            @PathVariable String id,
+            @PathVariable @Positive int task,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody FeedbackProgressDTO input) {
+        return Result.success(work.followUpSourceData(id, task, command, input));
+    }
+
+    /**
+     * 技术负责人记录实际排查或等待修复生效，可撤回当前待验证结果继续跟进。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/technical-progress")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> followUpTechnical(
+            @PathVariable String id,
+            @RequestParam(required = false) Integer task,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody FeedbackProgressDTO input) {
+        return Result.success(work.followUpTechnical(id, task, command, input));
+    }
+
+    /**
+     * 记录已生效的源数据修正和只读复查依据，交由有权人员复验。
+     */
+    @PostMapping("/api/v1/feedback/issues/{id}/tasks/{task}/source-results")
+    @RequirePermission("feedback.process")
+    public Result<MutationVO> submitSourceData(
+            @PathVariable String id,
+            @PathVariable @Positive int task,
+            @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody SourceDataResultDTO input) {
+        return Result.success(work.submitSourceData(id, task, command, input));
+    }
+
     /** 负责人提交核查依据，事务内重新确认当前责任。 */
     @PostMapping("/api/v1/feedback/issues/{id}/reviews")
     @RequirePermission("feedback.process")
     public Result<MutationVO> review(
             @PathVariable String id,
+            @RequestParam(required = false) @Positive Integer task,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody ReviewIssueDTO input) {
-        return Result.success(work.review(id, command, input));
+        return Result.success(work.review(id, task, command, input));
     }
 
     /** 从当前分派和核查提交实际技术处理结果。 */
@@ -150,9 +325,10 @@ public class FeedbackController {
     @RequirePermission("feedback.process")
     public Result<MutationVO> submitResult(
             @PathVariable String id,
+            @RequestParam(required = false) @Positive Integer task,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody SubmitIssueResultDTO input) {
-        return Result.success(work.submitResult(id, command, input));
+        return Result.success(work.submitResult(id, task, command, input));
     }
 
     /** 关联已经正式上线的治理结果，不在反馈模块另行发布知识。 */
@@ -160,16 +336,20 @@ public class FeedbackController {
     @RequirePermission("feedback.process")
     public Result<MutationVO> submitKnowledge(
             @PathVariable String id,
+            @RequestParam(required = false) @Positive Integer task,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody SubmitKnowledgeResultDTO input) {
-        return Result.success(work.submitKnowledge(id, command, input));
+        return Result.success(work.submitKnowledge(id, task, command, input));
     }
 
     /** 同一原问题按当前复验人的权限实际派发。 */
     @PostMapping("/api/v1/feedback/issues/{id}/rechecks")
     @RequirePermission("feedback.verify")
-    public Result<Accepted> replayQuestion(@PathVariable String id, @RequestHeader("Idempotency-Key") String command) {
-        return Result.success(work.replayQuestion(id, command));
+    public Result<Accepted> replayQuestion(
+            @PathVariable String id,
+            @RequestParam(required = false) @Positive Integer task,
+            @RequestHeader("Idempotency-Key") String command) {
+        return Result.success(work.replayQuestion(id, task, command));
     }
 
     /** 人工复验固定实际操作人、来源权限和当前结果版本。 */
@@ -177,9 +357,10 @@ public class FeedbackController {
     @RequirePermission("feedback.verify")
     public Result<MutationVO> verify(
             @PathVariable String id,
+            @RequestParam(required = false) @Positive Integer task,
             @RequestHeader("Idempotency-Key") String command,
             @Valid @RequestBody VerifyIssueDTO input) {
-        return Result.success(work.verify(id, command, input));
+        return Result.success(work.verify(id, task, command, input));
     }
 
     /** 结案前只读核对受控回告和原接收人。 */

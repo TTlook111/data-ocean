@@ -1,4 +1,15 @@
-import { Alert, App, Button, Checkbox, Descriptions, Form, Input, Modal, Select } from 'antd';
+import {
+  Alert,
+  App,
+  Button,
+  Checkbox,
+  Descriptions,
+  Form,
+  Input,
+  Modal,
+  Segmented,
+  Select,
+} from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { Link } from 'react-router';
@@ -7,15 +18,21 @@ import { applyFormError } from '../../shared/formErrors';
 import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
-import { statusLabels, type IssueDetail } from './types';
+import {
+  closeReasons,
+  currentTaskFollowUp,
+  statusLabels,
+  type FeedbackTask,
+  type IssueDetail,
+} from './types';
 
 /** 后台只开放当前服务端确认的工作动作。 */
-export type ResolutionAction = 'result' | 'knowledge' | 'verify' | 'resolve' | 'explain';
+export type ResolutionAction = 'result' | 'knowledge' | 'source' | 'verify' | 'resolve' | 'explain';
 
 /** 配置明确共用动作权限、行文和接口地址。 */
 const actions = {
   result: {
-    title: '提交处理结果',
+    title: '技术处理',
     path: 'results',
     permission: 'feedback.process',
     flag: 'canSubmitResult',
@@ -25,6 +42,12 @@ const actions = {
     path: 'knowledge-results',
     permission: 'feedback.process',
     flag: 'canSubmitKnowledge',
+  },
+  source: {
+    title: '源数据处理',
+    path: 'source-results',
+    permission: 'feedback.process',
+    flag: 'canSaveSourceData',
   },
   verify: {
     title: '登记人工复验',
@@ -52,12 +75,7 @@ export const impactLabels: Record<string, string> = {
   CONNECTION: '连接与配置',
   QUERY_SAFETY: '查询与安全',
   KNOWLEDGE: '业务知识',
-};
-const closeReasons = {
-  NOT_REPRODUCED: '未复现',
-  DEFINITION_CONFIRMED: '按现有口径确认无误',
-  CANCELLED: '取消',
-  OTHER: '其他',
+  SOURCE_DATA: '源数据修正',
 };
 
 /** 表单仅发送选中动作所需字段，隐藏的回归内容不参与写入。 */
@@ -78,6 +96,16 @@ type Values = {
   reason?: string;
   conclusion?: string;
   basis?: string;
+  /** 源系统目前所处的跟进、等待或已生效阶段。 */
+  progressStage?: 'WORKING' | 'WAITING' | 'EFFECTIVE';
+  /** 本次排查、沟通和核对所完成的工作。 */
+  workDone?: string;
+  /** 待源系统或记录人继续办理的动作。 */
+  nextStep?: string;
+  /** 实际修正源数据的人员或团队。 */
+  repairer?: string;
+  /** 区分人工核对和实际运行的问数复验。 */
+  sourceRecheckMode?: 'MANUAL' | 'QUESTION';
 };
 
 /** 结案预览只含受控模板和确切接收人。 */
@@ -87,6 +115,10 @@ type Preview = {
   recipientName: string;
   template: string;
   message: string;
+  /** 合并事项按原提问人分别确认回告。 */
+  recipients?: { recipientId: string; recipientName: string; template: string; message: string }[];
+  /** 核对全组接收人及模板的确认值。 */
+  confirmation?: string | null;
 };
 
 /** 澄清、取消和失败都停止等待，可以重新发起问数。 */
@@ -124,11 +156,13 @@ function TextField({
 export function FeedbackResolutionDialog({
   kind,
   detail,
+  task,
   refresh,
   close,
 }: {
   kind: ResolutionAction;
   detail: IssueDetail;
+  task?: FeedbackTask;
   refresh: () => Promise<IssueDetail | undefined>;
   close: () => void;
 }) {
@@ -144,16 +178,27 @@ export function FeedbackResolutionDialog({
   const [launched, setLaunched] = useState<string>();
   const replayCommand = useRef<string | undefined>(undefined);
   const inFlight = useRef(false);
-  const attempt = useRef<{ key: string; body: object } | undefined>(undefined);
+  const attempt = useRef<{ key: string; path: string; body: object } | undefined>(undefined);
   const confirm = useRef<ComponentRef<typeof Button>>(null);
   const action = actions[kind];
-  const enabled = Boolean(detail.resolution?.[action.flag]);
+  const resolution = task?.resolution ?? detail.resolution;
+  const enabled = Boolean(resolution?.[action.flag]);
   const source = detail.issue.sourceId;
-  const knowledgeReplay = kind === 'verify' && detail.resolution?.result?.impact === 'KNOWLEDGE';
-  const recheck = launched ?? detail.resolution?.recheckRequestId ?? undefined;
+  const knowledgeReplay = kind === 'verify' && resolution?.result?.impact === 'KNOWLEDGE';
+  const sourceVerification = kind === 'verify' && resolution?.result?.impact === 'SOURCE_DATA';
+  const tracksProgress = kind === 'result' || kind === 'source';
+  const lastResult = resolution?.result;
+  const followUp = currentTaskFollowUp(detail.activities, task?.id);
+  const initialStage = task?.waitingExternal ? 'WAITING' : lastResult ? 'EFFECTIVE' : 'WORKING';
+  const progressStage = Form.useWatch('progressStage', form) ?? initialStage;
+  const isFollowingUp = progressStage !== 'EFFECTIVE';
+  const sourceRecheckMode = Form.useWatch('sourceRecheckMode', form);
+  const needsReplay = knowledgeReplay || (sourceVerification && sourceRecheckMode === 'QUESTION');
+  const recheck = needsReplay ? (launched ?? resolution?.recheckRequestId ?? undefined) : undefined;
   const closing = kind === 'resolve' || kind === 'explain';
   const outcome = kind === 'resolve' ? 'RESOLVED' : 'CLOSED_OTHER';
   const path = `/feedback/issues/${detail.issue.id}`;
+  const taskQuery = task ? `?task=${task.id}` : '';
   const impact = Form.useWatch('impact', form);
   const bindings = useQuery({
     queryKey: ['feedback-published-bindings', source],
@@ -202,36 +247,68 @@ export function FeedbackResolutionDialog({
         setPreview({ notice, values });
         return;
       }
-      const body = preview
+      let body: object = preview
         ? {
             ...preview.values,
             outcome,
             expectedVersion: version,
             recipientId: preview.notice.recipientId,
             confirmedTemplate: preview.notice.template,
+            confirmedRecipients: preview.notice.confirmation ?? undefined,
           }
         : {
             ...values,
+            progressStage: undefined,
+            sourceRecheckMode: undefined,
             expectedVersion: version,
-            ...(knowledgeReplay ? { recheckRequestId: recheck } : {}),
+            ...(needsReplay ? { recheckRequestId: recheck } : {}),
             ...(kind === 'result' && impact !== 'QUERY_SAFETY'
               ? { regression: undefined, regressionPassed: undefined }
               : {}),
           };
+      let target = path + '/' + action.path + taskQuery;
+      // 按当前阶段构造独立入参，隐藏字段既不参加校验也不写入。
+      if (tracksProgress && values.progressStage !== 'EFFECTIVE') {
+        // 跟进只写实际工作、等待状态和下一步。
+        target =
+          kind === 'source'
+            ? `${path}/tasks/${task?.id}/source-progress`
+            : `${path}/technical-progress${taskQuery}`;
+        body = {
+          expectedVersion: version,
+          waitingExternal: values.progressStage === 'WAITING',
+          workDone: values.workDone,
+          nextStep: values.nextStep,
+        };
+      } else if (kind === 'source') {
+        // 源系统修正结果额外保存实际修正人。
+        target = `${path}/tasks/${task?.id}/${action.path}`;
+        body = {
+          expectedVersion: version,
+          repairer: values.repairer,
+          summary: values.summary,
+          checkMethod: values.checkMethod,
+          reference: values.reference,
+          effectiveConfirmed: values.effectiveConfirmed,
+        };
+      }
       const request =
-        uncertain && attempt.current ? attempt.current : { key: crypto.randomUUID(), body };
+        uncertain && attempt.current
+          ? attempt.current
+          : { key: crypto.randomUUID(), path: target, body };
       attempt.current = request;
       writing = true;
-      await mutation(
-        path + '/' + action.path,
-        'POST',
-        request.body,
-        action.permission,
-        request.key,
-      );
+      await mutation(request.path, 'POST', request.body, action.permission, request.key);
       await refresh();
       message.success(
-        closing ? '已结案，回告已接收' : kind === 'verify' ? '已登记复验' : '已提交处理结果',
+        closing
+          ? '已结案，回告已接收'
+          : kind === 'verify'
+            ? '已登记复验'
+            : request.path.includes('/technical-progress') ||
+                request.path.endsWith('/source-progress')
+              ? '已保存进展'
+              : '已提交处理结果',
       );
       close();
     } catch (failure) {
@@ -259,7 +336,7 @@ export function FeedbackResolutionDialog({
     setError(null);
     replayCommand.current ??= crypto.randomUUID();
     try {
-      const accepted = await api<{ id: string }>(path + '/rechecks', {
+      const accepted = await api<{ id: string }>(path + '/rechecks' + taskQuery, {
         method: 'POST',
         command: replayCommand.current,
       });
@@ -305,7 +382,15 @@ export function FeedbackResolutionDialog({
       className="operation-dialog"
       mask={{ closable: false }}
       closable={!busy}
-      title={preview ? '核对结案与回告' : knowledgeReplay ? '用原问题复验' : action.title}
+      title={
+        preview
+          ? '核对结案与回告'
+          : (knowledgeReplay
+              ? '用原问题复验'
+              : sourceVerification
+                ? '登记只读复验'
+                : action.title) + (task ? ` · 任务 #${task.id}` : '')
+      }
       onCancel={cancel}
       footer={[
         <Button key="cancel" disabled={busy} onClick={cancel}>
@@ -316,7 +401,7 @@ export function FeedbackResolutionDialog({
           type="primary"
           ref={confirm}
           loading={busy}
-          disabled={stale || !enabled || (knowledgeReplay && !replayFinished && !uncertain)}
+          disabled={stale || !enabled || (needsReplay && !replayFinished && !uncertain)}
           onClick={() => {
             if (uncertain || preview) void submit(preview?.values ?? {});
             else form.submit();
@@ -328,9 +413,13 @@ export function FeedbackResolutionDialog({
               ? '结案并确认回告'
               : closing
                 ? '核对结案与回告'
-                : knowledgeReplay
+                : knowledgeReplay || sourceVerification
                   ? '登记复验结论'
-                  : action.title}
+                  : tracksProgress
+                    ? isFollowingUp
+                      ? '保存进展'
+                      : '提交处理结果'
+                    : action.title}
         </Button>,
       ]}
     >
@@ -352,17 +441,17 @@ export function FeedbackResolutionDialog({
         <Alert className="form-alert" type="warning" showIcon title="当前事项已无法执行此操作" />
       )}
       {error && <Alert className="form-alert" type="error" showIcon title={error} />}
-      {knowledgeReplay && (
+      {needsReplay && (
         <div className="feedback-recheck-controls">
           <Button
             loading={busy}
             disabled={
-              !detail.resolution?.canReplayQuestion ||
+              !resolution?.canReplayQuestion ||
               Boolean(recheck && !completed.isError && isRunning(replayState))
             }
             onClick={() => void runRecheck()}
           >
-            {recheck ? '重新问数' : '发起问数'}
+            {recheck ? '重新问数' : sourceVerification ? '发起只读问数' : '发起问数'}
           </Button>
           {recheck && (
             <Link
@@ -385,7 +474,7 @@ export function FeedbackResolutionDialog({
               )}
             </span>
           )}
-          {!detail.resolution?.canReplayQuestion && (
+          {!resolution?.canReplayQuestion && (
             <Alert type="warning" showIcon title="原问题条件或复验权限不可用" />
           )}
         </div>
@@ -396,8 +485,16 @@ export function FeedbackResolutionDialog({
           column={1}
           items={[
             { key: 'state', label: '结案状态', children: statusLabels[outcome] },
-            { key: 'recipient', label: '接收人', children: preview.notice.recipientName },
-            { key: 'notice', label: '产品内回告', children: preview.notice.message },
+            ...(preview.notice.recipients?.length
+              ? preview.notice.recipients.map((recipient) => ({
+                  key: recipient.recipientId,
+                  label: recipient.recipientName,
+                  children: recipient.message,
+                }))
+              : [
+                  { key: 'recipient', label: '接收人', children: preview.notice.recipientName },
+                  { key: 'notice', label: '产品内回告', children: preview.notice.message },
+                ]),
             {
               key: 'basis',
               label: '结案依据',
@@ -412,10 +509,57 @@ export function FeedbackResolutionDialog({
         scrollToFirstError={{ focus: true }}
         hidden={Boolean(preview) || Boolean(knowledgeReplay && !replayFinished)}
         disabled={busy || uncertain || !enabled}
+        initialValues={
+          tracksProgress
+            ? {
+                progressStage: initialStage,
+                workDone: followUp?.note ?? undefined,
+                nextStep: followUp?.rootCause ?? undefined,
+                impact: kind === 'result' ? lastResult?.impact : undefined,
+                repairer: lastResult?.sourceRepairer ?? undefined,
+                summary: lastResult?.summary ?? undefined,
+                checkMethod: lastResult?.checkMethod ?? undefined,
+                reference: lastResult?.reference ?? undefined,
+                regression: lastResult?.regression ?? undefined,
+              }
+            : sourceVerification
+              ? { sourceRecheckMode: 'MANUAL' }
+              : undefined
+        }
         onFinish={(values) => void submit(values)}
       >
+        {/* 进展决定当前只能保存跟进，还是已具备提交修复结果的条件。 */}
+        {tracksProgress && (
+          <Form.Item name="progressStage" label="目前进展" rules={[{ required: true }]}>
+            <Segmented
+              className="feedback-progress-stages"
+              name="feedback-progress-stage"
+              aria-label="目前进展"
+              tabIndex={-1}
+              classNames={{ item: 'feedback-progress-stage' }}
+              options={[
+                { value: 'WORKING', label: '排查跟进' },
+                {
+                  value: 'WAITING',
+                  label: kind === 'source' ? '等待修正或同步' : '等待修复生效',
+                },
+                { value: 'EFFECTIVE', label: kind === 'source' ? '已修正并生效' : '已修复并生效' },
+              ]}
+            />
+          </Form.Item>
+        )}
+        {/* 改回跟进时提醒当前待验证结果将被撤回。 */}
+        {tracksProgress && isFollowingUp && (
+          <>
+            {resolution?.result && (
+              <Alert type="warning" showIcon title="改为跟进会撤回当前待验证结果" />
+            )}
+            <TextField name="workDone" label="已做工作" />
+            <TextField name="nextStep" label="下一步安排" />
+          </>
+        )}
         {/* 提交修复确认生效，查询安全影响需要对应真实回归。 */}
-        {kind === 'result' && (
+        {kind === 'result' && !isFollowingUp && (
           <>
             <Form.Item
               name="impact"
@@ -425,7 +569,7 @@ export function FeedbackResolutionDialog({
               <Select
                 virtual={false}
                 options={Object.entries(impactLabels)
-                  .filter(([value]) => value !== 'KNOWLEDGE')
+                  .filter(([value]) => value !== 'KNOWLEDGE' && value !== 'SOURCE_DATA')
                   .map(([value, label]) => ({ value, label }))}
               />
             </Form.Item>
@@ -465,6 +609,29 @@ export function FeedbackResolutionDialog({
             </Form.Item>
           </>
         )}
+        {/* 源系统实际修正信息只用于生效后的结果记录。 */}
+        {kind === 'source' && progressStage === 'EFFECTIVE' && (
+          <>
+            <TextField name="repairer" label="实际修正人或团队" max={120} />
+            <TextField name="summary" label="修正的数据范围与内容" />
+            <TextField name="checkMethod" label="只读复查方式与实际结果" />
+            <TextField name="reference" label="相关处理记录" max={500} optional />
+            <Form.Item
+              name="effectiveConfirmed"
+              valuePropName="checked"
+              rules={[
+                {
+                  validator: async (_, value) => {
+                    // 未生效的修正应继续保存为跟进。
+                    if (!value) throw new Error('请确认修正及必要同步已经生效');
+                  },
+                },
+              ]}
+            >
+              <Checkbox>已确认源系统修正及必要同步已生效</Checkbox>
+            </Form.Item>
+          </>
+        )}
         {kind === 'knowledge' && (
           <>
             <Form.Item
@@ -491,6 +658,22 @@ export function FeedbackResolutionDialog({
         {/* 复验是本人实际登记，使用该登录身份的真实来源权限。 */}
         {kind === 'verify' && (
           <>
+            {/* 源数据复验可登记代表性案例，也可关联本人实际执行的问数。 */}
+            {sourceVerification && (
+              <Form.Item name="sourceRecheckMode" label="复验方式">
+                <Select
+                  virtual={false}
+                  options={[
+                    { value: 'MANUAL', label: '人工只读核对' },
+                    {
+                      value: 'QUESTION',
+                      label: '用原问题只读复验',
+                      disabled: !resolution?.canReplayQuestion,
+                    },
+                  ]}
+                />
+              </Form.Item>
+            )}
             <Form.Item
               name="decision"
               label="复验结论"

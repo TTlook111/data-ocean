@@ -20,9 +20,10 @@ export function FeedbackNoticeLine({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { message } = App.useApp();
+  const targets = notice.requestIds ?? (notice.requestId ? [notice.requestId] : []);
 
   /** 用已核权的最新响应选择原回答，不用屏幕上的旧链接导航。 */
-  async function read() {
+  async function read(request?: string) {
     setBusy(true);
     setError(null);
     try {
@@ -31,8 +32,12 @@ export function FeedbackNoticeLine({
       });
       await cache.invalidateQueries({ queryKey: ['feedback-notices'] });
       await cache.invalidateQueries({ queryKey: ['answer-rating'] });
-      if (open && current.sourceId && current.requestId) open(current.sourceId, current.requestId);
-      else message.success('已读');
+      const visible = current.requestIds ?? (current.requestId ? [current.requestId] : []);
+      if (open && current.sourceId && request && visible.includes(request)) {
+        open(current.sourceId, request);
+      } else {
+        message.success('已读');
+      }
     } catch {
       // 原记录仍可读，阅读状态保持在最近一次已确认的事实。
       setError('暂时无法记录已读');
@@ -48,17 +53,23 @@ export function FeedbackNoticeLine({
       <div className={styles.noticeMeta}>
         <time dateTime={notice.sentAt}>{displayTime(notice.sentAt)}</time>
         {notice.readAt && <span>已读</span>}
-        {open && notice.requestId ? (
-          <Button type="link" size="small" loading={busy} onClick={() => void read()}>
-            查看原回答
-          </Button>
-        ) : (
-          !notice.readAt && (
-            <Button type="link" size="small" loading={busy} onClick={() => void read()}>
-              标为已读
-            </Button>
-          )
-        )}
+        {open && targets.length
+          ? targets.map((request, index) => (
+              <Button
+                key={request}
+                type="link"
+                size="small"
+                loading={busy}
+                onClick={() => void read(request)}
+              >
+                {targets.length === 1 ? '查看原回答' : `查看原回答 ${index + 1}`}
+              </Button>
+            ))
+          : !notice.readAt && (
+              <Button type="link" size="small" loading={busy} onClick={() => void read()}>
+                标为已读
+              </Button>
+            )}
       </div>
       {error && <Alert type="error" title={error} showIcon />}
     </section>

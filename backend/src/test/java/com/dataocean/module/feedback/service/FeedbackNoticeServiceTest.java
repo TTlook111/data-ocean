@@ -9,6 +9,7 @@ import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.entity.vo.AccessScopeVO;
 import com.dataocean.module.access.entity.vo.AccessSourceOptionVO;
 import com.dataocean.module.access.service.AccessScopeService;
+import com.dataocean.module.feedback.mapper.FeedbackLifecycleMapper;
 import com.dataocean.module.feedback.mapper.FeedbackNoticeMapper;
 import com.dataocean.module.feedback.mapper.FeedbackNoticeMapper.Notice;
 import com.dataocean.module.iam.mapper.GuardMapper;
@@ -50,7 +51,8 @@ class FeedbackNoticeServiceTest {
                 mock(GuardMapper.class),
                 mock(OutboxMapper.class),
                 mock(JsonCodec.class),
-                mock(TransactionTemplate.class));
+                mock(TransactionTemplate.class),
+                mock(FeedbackLifecycleMapper.class));
         var now = LocalDateTime.now(ZoneOffset.UTC);
         var notice = new Notice(
                 UUID.randomUUID().toString(),
@@ -66,6 +68,8 @@ class FeedbackNoticeServiceTest {
                 now);
         var scope = new AccessScopeVO(new AccessSourceOptionVO("1", "验收库"), List.of(), List.of());
         when(mapper.own(notice.id(), 7)).thenReturn(notice);
+        var otherRequest = UUID.randomUUID().toString();
+        when(mapper.requests(notice.id())).thenReturn(List.of(notice.answerId(), otherRequest));
         when(permissions.effective(7)).thenReturn(Set.of("query.view", "query.ask"));
         when(access.findSource(7, 1)).thenReturn(Optional.of(scope), Optional.empty());
         when(queries.canOpenFeedbackAnswer(notice.answerId(), 7, scope)).thenReturn(true);
@@ -76,10 +80,12 @@ class FeedbackNoticeServiceTest {
         try {
             var allowed = service.read(notice.id());
             assertThat(allowed.requestId()).isEqualTo(notice.answerId());
+            assertThat(allowed.requestIds()).containsExactly(notice.answerId());
             assertThat(allowed.message()).contains("通过复验");
             var restricted = service.read(notice.id());
             assertThat(restricted.requestId()).isNull();
             assertThat(restricted.sourceId()).isNull();
+            assertThat(restricted.requestIds()).isEmpty();
             assertThat(restricted.message()).isEqualTo("该反馈已完成处理，详细结果受当前权限限制。");
             assertThat(restricted.readAt()).isEqualTo(allowed.readAt());
         } finally {

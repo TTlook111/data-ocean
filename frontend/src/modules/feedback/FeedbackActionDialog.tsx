@@ -1,11 +1,16 @@
-import { Alert, App, Button, Descriptions, Form, Input, Modal, Select } from 'antd';
+import { Alert, App, Button, Checkbox, Descriptions, Form, Input, Modal, Select } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ApiError, api, mutation, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
 import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
-import { directions, type IssueDetail } from './types';
+import { directions, type FeedbackTask, type IssueDetail } from './types';
+
+/**
+ * 分派、核查和任务协调用同一组版本、回执与焦点处理。
+ */
+export type FeedbackAction = 'assign' | 'review' | 'add-task' | 'assign-task' | 'task-status';
 
 /** 候选只包含空闲筛选和分派所需的公开身份。 */
 type Candidate = { id: string; displayName: string; username: string };
@@ -17,17 +22,25 @@ type Fields = {
   reason?: string;
   basis?: string;
   rootCause?: string;
+  /** 退出类型或恢复后的在办状态。 */
+  status?: FeedbackTask['status'];
+  /** 退出后剩余影响及跟进安排。 */
+  remainingImpact?: string;
+  /** 本次退出已确认无未覆盖影响。 */
+  remainingImpactCovered?: boolean;
 };
 
 /** 分派先核对所选人员和依据，核查记录可直接保存。 */
 export function FeedbackActionDialog({
   kind,
   detail,
+  task,
   refresh,
   close,
 }: {
-  kind: 'assign' | 'review';
+  kind: FeedbackAction;
   detail: IssueDetail;
+  task?: FeedbackTask;
   refresh: () => Promise<IssueDetail | undefined>;
   close: () => void;
 }) {
@@ -48,9 +61,43 @@ export function FeedbackActionDialog({
   const attempt = useRef<{ key: string; body: Fields & { expectedVersion: number } } | undefined>(
     undefined,
   );
-  const assigning = kind === 'assign';
-  const reassigning = assigning && Boolean(detail.issue.assigneeId);
-  const canSave = assigning ? detail.canAssign : detail.canReview;
+  const adding = kind === 'add-task';
+  const assigningTask = kind === 'assign-task';
+  const disposition = kind === 'task-status';
+  const assigning = kind === 'assign' || adding || assigningTask;
+  const reassigning = assigningTask || (kind === 'assign' && Boolean(detail.issue.assigneeId));
+  const exited = task?.status === 'NO_CHANGE' || task?.status === 'CANCELLED';
+  const [restoring] = useState(exited);
+  const dispositionLabel = restoring ? '恢复办理' : '退出任务';
+  const reasonLabel = adding ? '任务范围' : disposition ? '办理依据' : '分派依据';
+  const directionLabel = adding || assigningTask ? '任务类型' : '初步方向';
+  const canSave = disposition
+    ? Boolean(task?.canChangeStatus && exited === restoring)
+    : assigningTask
+      ? Boolean(task?.canAssign)
+      : assigning
+        ? detail.canAssign
+        : (task?.canReview ?? detail.canReview);
+  const base = `/feedback/issues/${detail.issue.id}`;
+  const taskBase = task ? `${base}/tasks/${task.id}` : base;
+  const path = disposition
+    ? taskBase + '/dispositions'
+    : adding
+      ? base + '/tasks'
+      : assigning
+        ? taskBase + '/assignments'
+        : base + '/reviews' + (task ? `?task=${task.id}` : '');
+  const authority =
+    assigning || (disposition && detail.canAssign) ? 'feedback.assign' : 'feedback.process';
+  const title = adding
+    ? '新增处理任务'
+    : disposition
+      ? dispositionLabel
+      : reassigning
+        ? '重新分派'
+        : assigning
+          ? '分派事项'
+          : '记录核查';
   const candidates = useQuery({
     queryKey: ['feedback-assignees', search],
     enabled: assigning && canSave,
@@ -59,10 +106,12 @@ export function FeedbackActionDialog({
       api<Page<Candidate>>('/feedback/assignees?' + queryString({ keyword: search, pageSize: 30 })),
   });
   const options =
-    candidates.data?.items.map((person) => ({
-      value: person.id,
-      label: `${person.displayName}（${person.username}）`,
-    })) ?? [];
+    candidates.data?.items
+      .map((person) => ({
+        value: person.id,
+        label: `${person.displayName}（${person.username}）`,
+      }))
+      .filter((option) => !assigningTask || option.value !== task?.assigneeId) ?? [];
   if (assignee && !options.some((option) => option.value === assignee.value)) {
     // 搜索其他人员时保留当前已选人员的显示名称。
     options.unshift(assignee);
@@ -76,18 +125,26 @@ export function FeedbackActionDialog({
   /** 当前失败可修正，回包丢失复用原编号和原命令。 */
   async function submit(fields: Fields) {
     if (inFlight.current || conflict || !canSave) return;
-    const body = assigning
+    const body = disposition
       ? {
           expectedVersion: version,
-          assigneeId: fields.assigneeId,
-          direction: fields.direction,
+          status: restoring ? 'IN_PROGRESS' : fields.status,
           reason: fields.reason?.trim(),
+          remainingImpact: restoring ? undefined : fields.remainingImpact?.trim(),
+          remainingImpactCovered: !restoring && fields.remainingImpactCovered,
         }
-      : {
-          expectedVersion: version,
-          basis: fields.basis?.trim(),
-          rootCause: fields.rootCause?.trim(),
-        };
+      : assigning
+        ? {
+            expectedVersion: version,
+            assigneeId: fields.assigneeId,
+            direction: fields.direction,
+            reason: fields.reason?.trim(),
+          }
+        : {
+            expectedVersion: version,
+            basis: fields.basis?.trim(),
+            rootCause: fields.rootCause?.trim(),
+          };
     const request =
       uncertain && attempt.current ? attempt.current : { key: crypto.randomUUID(), body };
     attempt.current = request;
@@ -95,15 +152,17 @@ export function FeedbackActionDialog({
     setBusy(true);
     setError(null);
     try {
-      await mutation(
-        `/feedback/issues/${detail.issue.id}/${assigning ? 'assignments' : 'reviews'}`,
-        'POST',
-        request.body,
-        assigning ? 'feedback.assign' : 'feedback.process',
-        request.key,
-      );
+      await mutation(path, 'POST', request.body, authority, request.key);
       await refresh();
-      message.success(assigning ? '已分派' : '已保存核查记录');
+      message.success(
+        disposition
+          ? restoring
+            ? '任务已恢复'
+            : '任务已退出'
+          : assigning
+            ? '已分派'
+            : '已保存核查记录',
+      );
       close();
     } catch (failure) {
       if (failure instanceof ApiError && failure.code === 409001) {
@@ -167,7 +226,7 @@ export function FeedbackActionDialog({
       open
       width={620}
       className="operation-dialog"
-      title={preview ? '核对分派' : reassigning ? '重新分派' : assigning ? '分派事项' : '记录核查'}
+      title={preview ? '核对分派' : title + (task ? ` · 任务 #${task.id}` : '')}
       closable={!busy}
       mask={{ closable: false }}
       onCancel={cancel}
@@ -183,7 +242,17 @@ export function FeedbackActionDialog({
           disabled={conflict || !canSave}
           onClick={confirm}
         >
-          {uncertain ? '核对并重试' : preview ? '确认分派' : assigning ? '核对分派' : '保存核查'}
+          {uncertain
+            ? '核对并重试'
+            : preview
+              ? '确认分派'
+              : assigning
+                ? '核对分派'
+                : disposition
+                  ? restoring
+                    ? '恢复办理'
+                    : '确认退出'
+                  : '保存核查'}
         </Button>,
       ]}
     >
@@ -216,12 +285,12 @@ export function FeedbackActionDialog({
             { key: 'owner', label: '负责人', children: assignee?.label ?? preview.assigneeId },
             {
               key: 'direction',
-              label: '初步方向',
+              label: directionLabel,
               children: preview.direction && directions[preview.direction],
             },
             {
               key: 'reason',
-              label: '分派依据',
+              label: reasonLabel,
               children: <span className="feedback-text">{preview.reason}</span>,
             },
           ]}
@@ -233,7 +302,10 @@ export function FeedbackActionDialog({
         hidden={Boolean(preview)}
         disabled={busy || uncertain || !canSave}
         scrollToFirstError={{ focus: true }}
-        initialValues={assigning ? { direction: detail.direction } : undefined}
+        initialValues={{
+          direction: task?.direction ?? (adding ? undefined : detail.direction),
+          status: 'NO_CHANGE',
+        }}
         onFinish={(fields) => {
           // 表单只展示动作需要的字段，分派保留单独确认。
           setError(null);
@@ -246,13 +318,19 @@ export function FeedbackActionDialog({
           <>
             <div className="feedback-assignment-fields">
               <Form.Item
-                label="初步方向"
+                label={directionLabel}
                 name="direction"
-                rules={[{ required: true, message: '请选择初步方向' }]}
+                rules={[{ required: true, message: `请选择${directionLabel}` }]}
               >
                 <Select
                   virtual={false}
-                  options={Object.entries(directions).map(([value, label]) => ({ value, label }))}
+                  disabled={assigningTask}
+                  options={Object.entries(directions)
+                    .filter(
+                      ([value]) =>
+                        !adding || ['KNOWLEDGE', 'TECHNICAL', 'SOURCE_DATA'].includes(value),
+                    )
+                    .map(([value, label]) => ({ value, label }))}
                 />
               </Form.Item>
               <Form.Item
@@ -285,12 +363,65 @@ export function FeedbackActionDialog({
               </Button>
             )}
             <Form.Item
-              label="分派依据"
+              label={reasonLabel}
               name="reason"
-              rules={[{ required: true, whitespace: true, message: '请填写分派依据' }]}
+              rules={[{ required: true, whitespace: true, message: `请填写${reasonLabel}` }]}
             >
               <Input.TextArea rows={3} maxLength={1000} />
             </Form.Item>
+          </>
+        ) : disposition ? (
+          <>
+            {/* 任务退出影响结案资格，保留具体影响核对和处置依据。 */}
+            <Alert
+              className="form-alert"
+              type="warning"
+              showIcon
+              title={restoring ? '恢复后需要重新处理和复验' : '退出会使已有复验失效'}
+            />
+            {!restoring && (
+              <Form.Item label="退出类型" name="status">
+                <Select
+                  virtual={false}
+                  options={[
+                    { value: 'NO_CHANGE', label: '无需变更' },
+                    { value: 'CANCELLED', label: '取消任务' },
+                  ]}
+                />
+              </Form.Item>
+            )}
+            <Form.Item
+              label={reasonLabel}
+              name="reason"
+              rules={[{ required: true, whitespace: true, message: `请填写${reasonLabel}` }]}
+            >
+              <Input.TextArea rows={3} maxLength={1000} />
+            </Form.Item>
+            {!restoring && (
+              <>
+                <Form.Item
+                  label="剩余影响及安排"
+                  name="remainingImpact"
+                  rules={[{ required: true, whitespace: true, message: '请说明剩余影响及安排' }]}
+                >
+                  <Input.TextArea rows={2} maxLength={1000} />
+                </Form.Item>
+                <Form.Item
+                  name="remainingImpactCovered"
+                  valuePropName="checked"
+                  rules={[
+                    {
+                      validator: async (_, value) => {
+                        // 未覆盖影响需保留在办任务。
+                        if (!value) throw new Error('请先确认没有未覆盖的影响');
+                      },
+                    },
+                  ]}
+                >
+                  <Checkbox>已确认没有未覆盖的影响</Checkbox>
+                </Form.Item>
+              </>
+            )}
           </>
         ) : (
           <>

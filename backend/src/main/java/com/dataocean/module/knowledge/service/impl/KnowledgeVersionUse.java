@@ -133,12 +133,35 @@ public class KnowledgeVersionUse {
 
     /**
      * 正式问数使用绑定前及在途重新校验时通过同一权威入口。
+     * 反馈回看会捕获旧绑定等业务拒绝并裁剪结果，拒绝仍向调用方抛出，不将外层事务标记为回滚。
      */
-    @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
+    @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
     public Binding requireForQuery(long sourceId, long id) {
         permissions.require("query.view");
         permissions.require("query.ask");
         access.requireSource(UserContext.getUser(), sourceId);
+        return requireQueryableBinding(sourceId, id);
+    }
+
+    /**
+     * 以反馈记录中的复验人复核查询资格，结案人的会话仅用于结案授权。
+     */
+    @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
+    public void requireForFeedbackReplay(long verifier, long sourceId, long id) {
+        var codes = permissions.effective(verifier);
+        if (!codes.contains("query.view")
+                || !codes.contains("query.ask")
+                || access.findSource(verifier, sourceId).isEmpty()) {
+            // 撤权后旧的只读问数不能继续作为结案依据。
+            throw BizIllegalException.denied();
+        }
+        requireQueryableBinding(sourceId, id);
+    }
+
+    /**
+     * 正式问数和源数据复验共用当前发布、暂停及依赖检查。
+     */
+    private Binding requireQueryableBinding(long sourceId, long id) {
         var source = catalog.source(sourceId, false);
         var binding = current(sourceId, id);
         if (isPaused(binding.scopeId())) {
