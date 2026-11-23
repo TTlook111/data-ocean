@@ -245,9 +245,10 @@ public interface FeedbackLifecycleMapper {
      */
     @Insert(
             """
-            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,note,related_issue_id,completion_round)
-            SELECT i.id,#{version},#{actor},#{action},#{note},#{related},i.completion_round
-            FROM fb_issue i WHERE i.id=#{issue}
-            """)
+            INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,note,related_issue_id,
+                completion_round,status_after)
+            SELECT i.id,#{version},#{actor},#{action},#{note},#{related},i.completion_round,
+            """
+                    + FeedbackMapper.ACTIVITY_STATUS + " FROM fb_issue i WHERE i.id=#{issue}")
     void activity(long issue, int version, long actor, String action, String note, Long related);
 }

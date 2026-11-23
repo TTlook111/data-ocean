@@ -1,10 +1,12 @@
 import { Alert, Button, Descriptions, Empty, Space, Tabs } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { workspaceParent } from '../../app/workspaceParent';
 import { api } from '../../shared/api';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
 import { displayTime, ReadState, Status } from '../../shared/Records';
+import { SessionContext } from '../../shared/session';
 import { FeedbackActionDialog, type FeedbackAction } from './FeedbackActionDialog';
 import { FeedbackLifecycleDialog, type LifecycleAction } from './FeedbackLifecycleDialog';
 import {
@@ -751,6 +753,9 @@ export function FeedbackIssuePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const cache = useQueryClient();
+  const session = useContext(SessionContext);
+  const parent = workspaceParent('/feedback/:id', location, session?.permissionCodes ?? []);
+  const backLabel = parent?.label === '反馈概览' ? '返回概览' : '返回队列';
   const [action, setAction] = useState<WorkAction>();
   const [lifecycleAction, setLifecycleAction] = useState<{
     kind: LifecycleAction;
@@ -776,7 +781,7 @@ export function FeedbackIssuePage() {
 
   /** 返回列表延续筛选与页码，定位原事项。 */
   function back() {
-    navigate('/feedback' + location.search, { state: { feedbackFocus: id } });
+    navigate(parent?.url ?? '/feedback', { state: parent?.state });
   }
 
   /** 保存或因权限变化重读时同步后台列表的实际状态。 */
@@ -792,7 +797,7 @@ export function FeedbackIssuePage() {
         <ReadState loading={detail.isPending} error={detail.error} retry={detail.refetch}>
           {null}
         </ReadState>
-        <Button onClick={back}>返回队列</Button>
+        <Button onClick={back}>{backLabel}</Button>
       </section>
     );
   }
@@ -916,7 +921,7 @@ export function FeedbackIssuePage() {
       />
       {/* 分派资格与主负责人办理权由详情明确返回，动作始终可从底栏找到。 */}
       <footer className="feedback-detail-footer">
-        <Button onClick={back}>返回队列</Button>
+        <Button onClick={back}>{backLabel}</Button>
         <div className="feedback-detail-actions">
           {next && secondary.length > 1 ? (
             <ActionMenuButton

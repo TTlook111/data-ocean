@@ -40,6 +40,8 @@
 
 F 批评价、入队和分派由 [React 回答评价](../../frontend/src/modules/query/AnswerRating.tsx)、[问题队列](../../frontend/src/modules/feedback/FeedbackQueue.tsx)、[事项详情](../../frontend/src/modules/feedback/FeedbackIssuePage.tsx)和 [Java 反馈接口](../../backend/src/main/java/com/dataocean/module/feedback/controller/FeedbackController.java)组成。问数的实际引用由 [QueryUsage](../../backend/src/main/java/com/dataocean/module/query/service/QueryUsage.java)生成，表结构见 [V38 入队迁移](../../backend/src/main/resources/db/migration/V38__feedback_rating_intake.sql)和 [V39 核查迁移](../../backend/src/main/resources/db/migration/V39__feedback_issue_triage.sql)。
 
+反馈概览由 [React 反馈概览](../../frontend/src/modules/feedback-overview/FeedbackOverview.tsx)、[概览接口](../../backend/src/main/java/com/dataocean/module/feedback/controller/FeedbackOverviewController.java)及[统计 SQL](../../backend/src/main/java/com/dataocean/module/feedback/mapper/FeedbackOverviewMapper.java)组成。[V49 迁移](../../backend/src/main/resources/db/migration/V49__feedback_overview_history.sql)记录状态覆盖起点，详见[反馈运营统计](../backend/feedback/运营统计.md)。
+
 001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
 
 | 模块 |

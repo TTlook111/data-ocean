@@ -1,0 +1,214 @@
+import { LineChart, PieChart } from 'echarts/charts';
+import type { LineSeriesOption, PieSeriesOption } from 'echarts/charts';
+import { GridComponent, TooltipComponent } from 'echarts/components';
+import type { GridComponentOption, TooltipComponentOption } from 'echarts/components';
+import { init, use as registerCharts } from 'echarts/core';
+import type { ComposeOption, EChartsType } from 'echarts/core';
+import { SVGRenderer } from 'echarts/renderers';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
+import { periodLabel, valueText } from './types';
+import type { Point, Series } from './types';
+
+// 懒加载页面只注册趋势和分类图需要的渲染组件。
+registerCharts([LineChart, PieChart, GridComponent, TooltipComponent, SVGRenderer]);
+
+/**
+ * 限制图表选项为此页面实际使用的组件。
+ */
+type Options = ComposeOption<
+  LineSeriesOption | PieSeriesOption | GridComponentOption | TooltipComponentOption
+>;
+
+/**
+ * 在一个焦点内读取各图的数据点，完整数值另有可展开数据表。
+ */
+export function FeedbackChart({
+  title,
+  points,
+  series,
+  ring = false,
+}: {
+  /** 图表的可访问名称。 */
+  title: string;
+  /** 趋势点或环图对应的全期统计。 */
+  points: Point[];
+  /** 保持顺序的指标图例。 */
+  series: Series[];
+  /** 结案分布使用环图。 */
+  ring?: boolean;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  const chart = useRef<EChartsType>(null);
+  const [active, setActive] = useState<number | null>(null);
+  const width = ring ? series.length : points.length;
+  const position = active === null ? null : Math.min(active, width - 1);
+  const options = useMemo<Options>(() => {
+    // 环图使用全期的互斥结案分类，与历史状态趋势分开。
+    if (ring) {
+      return {
+        animation: false,
+        tooltip: { trigger: 'item', confine: true, renderMode: 'richText' },
+        series: [
+          {
+            type: 'pie',
+            radius: ['66%', '86%'],
+            label: { show: false },
+            stillShowZeroSum: false,
+            showEmptyCircle: true,
+            emptyCircleStyle: { color: '#e7e2d8' },
+            itemStyle: { borderWidth: 2, borderColor: '#faf8f3', borderRadius: 1 },
+            data: series.map((item) => ({
+              name: item.label,
+              value: points[0]?.[item.measure] ?? 0,
+              itemStyle: { color: item.color },
+            })),
+          },
+        ],
+      };
+    }
+    return {
+      animation: false,
+      grid: { left: 4, right: 16, top: 14, bottom: 4, outerBoundsMode: 'same' },
+      tooltip: {
+        trigger: 'axis',
+        confine: true,
+        renderMode: 'richText',
+        axisPointer: { type: 'line' },
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: points.map((point) => point.toDate),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#526279',
+          hideOverlap: true,
+          showMinLabel: true,
+          showMaxLabel: true,
+          formatter: (date: string) => date.slice(5).replace('-', '/'),
+        },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        minInterval: series[0].measure === 'averageResolutionHours' ? undefined : 1,
+        splitNumber: 4,
+        axisLabel: { color: '#526279' },
+        splitLine: { lineStyle: { color: '#e8edf2' } },
+      },
+      series: series.map((item): LineSeriesOption => {
+        // 少量真实发生日用圆点标示，连续趋势维持原型的纯线条。
+        const values = points.map((point) => point[item.measure]);
+        const duration = item.measure === 'averageResolutionHours';
+        const sparse = values.filter((value) => value !== null && value > 0).length <= 4;
+        return {
+          name: item.label,
+          type: 'line',
+          data: values,
+          connectNulls: false,
+          symbol: 'circle',
+          showSymbol: duration || sparse,
+          symbolSize: (_value, { dataIndex }) => {
+            // 连续零值无需逐点标记，单日和耗时仍可识别。
+            return duration || points.length === 1 || (values[dataIndex] ?? 0) > 0 ? 6 : 0;
+          },
+          itemStyle: { color: item.color },
+          lineStyle: { color: item.color, type: item.dashed ? 'dashed' : 'solid', width: 2 },
+          areaStyle: item.fill
+            ? { color: item.color, opacity: item.measure === 'open' ? 0.055 : 0.075 }
+            : undefined,
+        };
+      }),
+    };
+  }, [points, ring, series]);
+
+  useEffect(() => {
+    // 容器宽度随侧栏和工作区变化，图表随容器重排。
+    if (!host.current) return;
+    const instance = init(host.current, null, { renderer: 'svg' });
+    chart.current = instance;
+    const observer = new ResizeObserver(() => instance.resize());
+    observer.observe(host.current);
+    return () => {
+      // 路由离开后释放图表以及观察者。
+      observer.disconnect();
+      instance.dispose();
+      chart.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    // 后台统计刷新时用完整选项替换数据，保留组件与键盘入口。
+    chart.current?.setOption(options, { notMerge: true });
+  }, [options]);
+
+  /**
+   * 方向键移动一格，Home 和 End 定位端点，Esc 关闭提示。
+   */
+  function readPoint(event: KeyboardEvent<HTMLDivElement>) {
+    if (!width) return;
+    if (event.key === 'Escape') {
+      // 关闭当前提示并保留键盘焦点。
+      event.preventDefault();
+      clearPoint();
+      return;
+    }
+    const next = {
+      ArrowLeft: position === null ? width - 1 : Math.max(0, position - 1),
+      ArrowRight: position === null ? 0 : Math.min(width - 1, position + 1),
+      Home: 0,
+      End: width - 1,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    setActive(next);
+    if (ring) {
+      // 环图键盘读数同时将焦点落在相应结案分类。
+      chart.current?.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+      chart.current?.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: next });
+    }
+    chart.current?.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: next });
+  }
+
+  /**
+   * 结束读数时清理提示与对读屏器的临时播报。
+   */
+  function clearPoint() {
+    setActive(null);
+    chart.current?.dispatchAction({ type: 'hideTip' });
+    if (ring) {
+      // 环图关闭读数后恢复所有分类的常态。
+      chart.current?.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+    } else {
+      // 趋势图的轴线提示独立于提示框，离开读数时一并关闭。
+      chart.current?.dispatchAction({ type: 'updateAxisPointer', currTrigger: 'leave' });
+    }
+  }
+
+  const point = position === null ? null : points[ring ? 0 : position];
+  const readings = ring && position !== null ? [series[position]] : series;
+  return (
+    <div
+      className={ring ? 'feedback-overview-plot is-ring' : 'feedback-overview-plot'}
+      role="group"
+      aria-label={title + '，使用左右方向键读数'}
+      tabIndex={0}
+      onKeyDown={readPoint}
+      onBlur={clearPoint}
+    >
+      {/* 图形内容的可访问数值由下方播报与数据表提供。 */}
+      <div className="feedback-overview-chart-host" aria-hidden="true" ref={host} />
+      <span className="sr-only" aria-live="polite">
+        {point &&
+          [
+            periodLabel(point),
+            ...readings.map(
+              ({ label, measure }) => `${label} ${valueText(point[measure], measure)}`,
+            ),
+          ].join('，')}
+      </span>
+    </div>
+  );
+}

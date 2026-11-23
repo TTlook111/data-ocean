@@ -175,11 +175,11 @@ public interface FeedbackTaskMapper {
     @Insert(
             """
             INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause,
-                task_id,completion_round)
+                task_id,completion_round,status_after)
             SELECT i.id,#{event.version},#{event.actorId},#{event.action},#{event.assigneeId},
-                #{event.direction},#{event.note},#{event.rootCause},#{task},i.completion_round
-            FROM fb_issue i WHERE i.id=#{event.issueId}
-            """)
+                #{event.direction},#{event.note},#{event.rootCause},#{task},i.completion_round,
+            """
+                    + FeedbackMapper.ACTIVITY_STATUS + " FROM fb_issue i WHERE i.id=#{event.issueId}")
     void appendActivity(Activity event, int task);
 
     /**

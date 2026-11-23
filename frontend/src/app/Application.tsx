@@ -68,6 +68,7 @@ const navigation = [
   { key: '/knowledge', label: '知识文档', permission: 'knowledge.view' },
   { key: '/test-cases', label: '标准题单', permission: 'test-cases.view' },
   { key: '/releases', label: '发布与版本', permission: 'releases.view' },
+  { key: '/feedback-dashboard', label: '反馈概览', permission: 'feedback-dashboard.view' },
   { key: '/feedback', label: '问题队列与处理', permission: 'feedback.view' },
   { key: '/models', label: '模型配置', permission: 'models.view' },
   { key: '/diagnostics', label: '调用记录与故障', permission: 'diagnostics.view' },
@@ -100,6 +101,10 @@ const DepartmentsPage = lazyPage(() =>
 const RolesPage = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RolesPage));
 const RoleEditor = lazyPage(() => import('../modules/iam/RolesPage').then((m) => m.RoleEditor));
 const AuditPage = lazyPage(() => import('../modules/iam/AuditPage').then((m) => m.AuditPage));
+// 统计与办理分开加载，并分别检查已有页面权限。
+const FeedbackOverview = lazyPage(() =>
+  import('../modules/feedback-overview/FeedbackOverview').then((m) => m.FeedbackOverview),
+);
 // 已可靠入队的事项通过反馈处理菜单进入。
 const FeedbackQueue = lazyPage(() =>
   import('../modules/feedback/FeedbackQueue').then((m) => m.FeedbackQueue),
@@ -205,7 +210,8 @@ const workspaceRoutes = [
   { path: '/releases', element: <KnowledgeReleasePage /> },
   { path: '/releases/:id', element: <KnowledgeReleaseBuildPage /> },
   { path: '/releases/versions/:id', element: <KnowledgeEffectiveVersionPage /> },
-  // 反馈基础队列通过已有页面权限保护。
+  // 反馈概览和基础队列分别使用各自的页面权限。
+  { path: '/feedback-dashboard', element: <FeedbackOverview /> },
   { path: '/feedback', element: <FeedbackQueue /> },
   { path: '/feedback/:id', element: <FeedbackIssuePage /> },
   // 系统配置的真实模型与诊断入口。
@@ -259,6 +265,20 @@ export function Application() {
     !entryPaths.some((path) => matchPath(path, location.pathname));
 
   const pageContexts = useRef<Record<string, string>>({});
+
+  // 显式刷新概览恢复默认期间，应用内来回导航仍使用页面上下文。
+  const resetFeedbackOverview = useRef(
+    location.pathname === '/feedback-dashboard' &&
+      Boolean(location.search) &&
+      (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)
+        ?.type === 'reload',
+  );
+  useEffect(() => {
+    // 只在本次应用首次挂载处理浏览器刷新。
+    if (!resetFeedbackOverview.current) return;
+    resetFeedbackOverview.current = false;
+    void navigate('/feedback-dashboard', { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     // 各管理列表独立保留已应用条件与页码，编辑子页不覆盖原列表上下文。

@@ -1,0 +1,425 @@
+/* 看板按原型使用白色工作区，四边继续使用后台共用内距。 */
+.workspace:has(> .feedback-overview) {
+  background: var(--do-panel);
+}
+
+/* 概览沿用工作区滚动，并为末图留出内容底边。 */
+.feedback-overview {
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+/* 来源与期间使用两个控件组，空间不足时以整组换行。 */
+.feedback-overview-toolbar,
+.feedback-overview-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+/* 过滤区和主图保持同一条左右对齐线。 */
+.feedback-overview-toolbar {
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+/* 数据源采用后台下拉尺寸的紧凑档，剩余空间留给数据时效。 */
+.feedback-overview-filter > .ant-select {
+  width: 180px;
+}
+
+/* 日期保留手工输入和完整的起止含义。 */
+.feedback-overview-filter > .query-range-picker {
+  width: 280px;
+}
+
+/* 数据时效和展开链接属于次级信息。 */
+.feedback-overview-as-of,
+.feedback-overview-coverage,
+.feedback-overview-drawer-range {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 统计粒度与数据时效成组，沿用原型的暖色定位点。 */
+.feedback-overview-as-of {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 暖色仅帮助定位口径，不单独表示状态。 */
+.feedback-overview-as-of::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #bc7d1e;
+  content: '';
+}
+
+/* 通栏主图、左侧趋势和右侧环图保留原型构图。 */
+.feedback-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.25fr) minmax(260px, 1fr);
+  grid-template-areas: 'hero hero' 'backlog ring' 'duration ring';
+  gap: 24px;
+}
+
+/* 标题与图例紧贴各自数据分区。 */
+.feedback-overview-panel {
+  min-width: 0;
+  align-self: start;
+}
+
+/* 第一张趋势图与下方结构以细线分隔。 */
+.feedback-overview-panel.is-hero {
+  grid-area: hero;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 期末趋势位于环图左侧，紧接耗时图。 */
+.feedback-overview-panel.is-backlog {
+  grid-area: backlog;
+}
+
+/* 结案区填满跨越的两行，与左列共用下边界。 */
+.feedback-overview-panel.is-ring {
+  grid-area: ring;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 24px;
+  border-radius: 8px;
+  background: #faf8f3;
+}
+
+/* 解决耗时贴合末行底边，展开结案数据时也保持对齐。 */
+.feedback-overview-panel.is-duration {
+  grid-area: duration;
+  align-self: end;
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 标题与控件可换行，缩放后仍保留读数空间。 */
+.feedback-overview-panel > header,
+.feedback-overview-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+/* 单位和按需提示紧随对应分区，避免另占一行。 */
+.feedback-overview-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 使用后台页面内分区标题尺寸。 */
+.feedback-overview-panel h2 {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+/* 说明和展开数据都从属于图例，焦点仍由组件样式表达。 */
+.feedback-overview-panel :is(.feedback-overview-info, .feedback-overview-data-toggle) {
+  height: 28px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+/* 历史覆盖提示紧邻单位。 */
+.feedback-overview-panel .feedback-overview-info {
+  min-width: 24px;
+  padding: 0;
+}
+
+/* 图例使用颜色、线型和名称同时标识。 */
+.feedback-overview-legend,
+.feedback-overview-headlines,
+.feedback-overview-ring-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 图例与图表使用同一色谱。 */
+.feedback-overview-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #42546a;
+  font-size: 12px;
+}
+
+/* 实线和虚线的长度统一。 */
+.feedback-overview-legend li > span {
+  width: 14px;
+  border-top: 2px solid currentColor;
+}
+
+/* 待验证使用虚线，对比未结存量。 */
+.feedback-overview-legend li > .is-dashed {
+  border-top-style: dashed;
+}
+
+/* 总量集中在图形上方，用数字与单位区分层级。 */
+.feedback-overview-headlines {
+  gap: 8px 24px;
+  margin: 4px 0 8px;
+}
+
+/* 主图读数和曲线之间保留原型的较大间距。 */
+.feedback-overview-panel.is-hero .feedback-overview-headlines {
+  margin-bottom: 16px;
+}
+
+/* 单个读数与自身标签贴近对齐。 */
+.feedback-overview-headlines li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #526279;
+  font-size: 12px;
+}
+
+/* 强调主读数，数字等宽避免更新时跳动。 */
+.feedback-overview-headlines strong,
+.feedback-overview-ring-label strong {
+  color: #17283d;
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 32px;
+}
+
+/* 主趋势及环图中心读数采用主数字尺度。 */
+.feedback-overview-panel.is-hero .feedback-overview-headlines strong,
+.feedback-overview-ring-label strong {
+  font-size: 28px;
+  line-height: 36px;
+}
+
+/* 可下钻数字使用同一份读数排版，在焦点时明确可操作。 */
+.feedback-overview .feedback-overview-number {
+  min-width: 20px;
+  height: auto;
+  padding: 0;
+  color: #254b83;
+  line-height: inherit;
+}
+
+/* 下钻读数保留主数字层级，鼠标及键盘都提供反馈。 */
+.feedback-overview-number:hover,
+.feedback-overview-number:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* ECharts 在拥有确定高度的容器内响应工作区宽度。 */
+.feedback-overview-plot {
+  position: relative;
+  height: 128px;
+  outline-offset: 2px;
+}
+
+/* 统计主图优先获得阅读空间。 */
+.feedback-overview-panel.is-hero .feedback-overview-plot {
+  height: 210px;
+}
+
+/* 容器变宽或收窄时，等待图表重绘的旧画面保持在分配区域内。 */
+.feedback-overview-chart-host {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 环图在标题和图例之间垂直居中，中心读数跟随绘图区。 */
+.feedback-overview-ring {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  margin: 24px 0 12px;
+}
+
+/* 环图在两列及单列下保持相同的数字与环宽关系。 */
+.feedback-overview-plot.is-ring {
+  height: 224px;
+}
+
+/* 中心读数自身可读，鼠标事件继续传给图形。 */
+.feedback-overview-ring-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  color: #526279;
+  text-align: center;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* 分类说明纵向排列，分布数量右对齐便于比较。 */
+.feedback-overview-ring-legend {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+  margin-inline: auto;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 分类、件数和占比形成三条对齐的阅读列。 */
+.feedback-overview-ring-legend li {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto 54px;
+  align-items: center;
+  gap: 8px;
+  text-align: right;
+}
+
+/* 分类名称靠左，比例列随各类别保持右对齐。 */
+.feedback-overview-ring-legend li > span:nth-child(2) {
+  text-align: left;
+}
+
+/* 可下钻数量与纯文本数量使用相同的右对齐边界。 */
+.feedback-overview-ring-legend li > .feedback-overview-number {
+  justify-self: end;
+  min-width: auto;
+}
+
+/* 色块只帮助定位分类，名称始终可见。 */
+.feedback-overview-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* 无耗时样本保留分区和原因，避免空白图被当成零小时。 */
+.feedback-overview-no-samples {
+  display: grid;
+  min-height: 126px;
+  place-items: center;
+  color: #526279;
+  font-size: 13px;
+}
+
+/* 数据表限制在本图分区内滚动，展开长期间不挤开其余图形。 */
+.feedback-overview-data {
+  max-height: 240px;
+  margin-top: 12px;
+  overflow: auto;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 可展开读数表采用与后台一致的分隔线与对齐。 */
+.feedback-overview-data table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 较长期间按日期整行展示，数值在同列右对齐。 */
+.feedback-overview-data :is(th, td) {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e8edf2;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 区间标签依照阅读顺序左对齐。 */
+.feedback-overview-data th:first-child {
+  text-align: left;
+}
+
+/* 长期间滚动时固定列名，日期行不与列名争夺视觉层级。 */
+.feedback-overview-data thead th {
+  position: sticky;
+  top: 0;
+  background: var(--do-subtle);
+  font-weight: 500;
+}
+
+/* 日期列保持正文权重。 */
+.feedback-overview-data tbody th {
+  font-weight: 400;
+}
+
+/* 历史缺失说明跟随可展开数据。 */
+.feedback-overview-coverage {
+  margin: 8px 0 0;
+}
+
+/* 主图右下角延续进入原问题队列的独立入口。 */
+.feedback-overview-panel > footer {
+  margin-top: 8px;
+  text-align: right;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 队列入口沿用原型的次级链接权重，聚焦或悬停时明确反馈。 */
+.feedback-overview-panel > footer a {
+  color: var(--do-muted);
+}
+
+/* 队列入口与其它查看动作共用后台主色反馈。 */
+.feedback-overview-panel > footer a:is(:hover, :focus-visible) {
+  color: var(--do-primary);
+}
+
+/* 下钻范围紧接标题，日期与来源始终可核对。 */
+.feedback-overview-drawer-range {
+  margin: 0 0 12px;
+}
+
+/* 窄桌面窗口及放大后按图表顺序下移。 */
+@media (max-width: 1100px) {
+  .feedback-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero' 'backlog' 'ring' 'duration';
+  }
+
+  /* 堆叠后恢复趋势图高度，保持窄桌面读数距离。 */
+  .feedback-overview-panel:where(:not(.is-ring)) .feedback-overview-plot {
+    height: 196px;
+  }
+
+  /* 通栏趋势在单列时保留主图的阅读尺度。 */
+  .feedback-overview-panel.is-hero .feedback-overview-plot {
+    height: 250px;
+  }
+
+  /* 窄列的环图继续单独表达结案分类。 */
+  .feedback-overview-panel.is-ring .feedback-overview-plot {
+    height: 210px;
+  }
+}

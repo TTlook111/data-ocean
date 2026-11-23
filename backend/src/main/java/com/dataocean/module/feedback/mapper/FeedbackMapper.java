@@ -117,6 +117,11 @@ public interface FeedbackMapper {
             """;
 
     /**
+     * 操作台账和队列对待补充使用同一个状态定义。
+     */
+    String ACTIVITY_STATUS = "CASE WHEN " + WAITING_SUPPLEMENT + " THEN 'PENDING_SUPPLEMENT' ELSE i.status END";
+
+    /**
      * 主从事项共用基础投影，等待补充独立于实际处理进度。
      */
     String ISSUE_SELECT =
@@ -419,10 +424,11 @@ public interface FeedbackMapper {
     @Insert(
             """
             INSERT INTO fb_issue_activity(issue_id,issue_version,actor_id,action,assignee_id,direction,note,root_cause,
-                conclusion,completion_round)
+                conclusion,completion_round,status_after)
             SELECT i.id,#{version},#{actorId},#{action},#{assigneeId},#{direction},#{note},#{rootCause},#{conclusion},
-                i.completion_round FROM fb_issue i WHERE i.id=#{issueId}
-            """)
+                i.completion_round,
+            """
+                    + ACTIVITY_STATUS + " FROM fb_issue i WHERE i.id=#{issueId}")
     void appendActivity(Activity event);
 
     /** 回看最近处理过程，保留已发生的操作顺序。 */

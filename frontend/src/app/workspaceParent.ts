@@ -17,6 +17,7 @@ export function workspaceParent(
         catalogSearch?: string;
         catalogRow?: string;
         releaseReturn?: ReleaseRevisionReturn;
+        feedbackOverviewSearch?: string;
       } & EffectiveVersionOrigin)
     | null;
   // 仅剔除详情专用参数，避免回列表时丢失源、查询和分页。
@@ -35,6 +36,17 @@ export function workspaceParent(
     };
   }
   if (route === '/feedback/:id') {
+    if (
+      origin?.feedbackOverviewSearch?.startsWith('?') &&
+      permissions.includes('feedback-dashboard.view')
+    ) {
+      // 从统计下钻进入时回到同一指标、来源、日期和页码。
+      return {
+        label: '反馈概览',
+        current: '事项 #' + id,
+        url: '/feedback-dashboard' + origin.feedbackOverviewSearch,
+      };
+    }
     // 与详情内的底部返回保持同一筛选及事项焦点。
     return {
       label: '问题队列与处理',
