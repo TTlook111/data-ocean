@@ -5,7 +5,8 @@ import { api, ApiError, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { displayTime, ReadAccessDenied } from '../../shared/Records';
 import type { Page } from '../iam/types';
-import { metrics, valueText } from './types';
+import { valueText } from '../overview/types';
+import { metrics } from './types';
 import type { Contribution, Measure } from './types';
 
 /**
@@ -68,7 +69,7 @@ export function FeedbackContributionDrawer({
         <ReadAccessDenied title="当前无权查看这些记录" />
       ) : (
         <>
-          <p className="feedback-overview-drawer-range">
+          <p className="overview-drawer-range">
             {sourceName} · {fromDate === toDate ? toDate : fromDate + ' 至 ' + toDate}
           </p>
           <RecordTable<Contribution>
@@ -105,7 +106,7 @@ export function FeedbackContributionDrawer({
                       title: '耗时（小时）',
                       dataIndex: 'resolutionHours',
                       width: 95,
-                      render: (value: number | null) => valueText(value, 'averageResolutionHours'),
+                      render: (value: number | null) => valueText(value, 1),
                     },
                   ]
                 : []),

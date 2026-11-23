@@ -2,6 +2,7 @@ package com.dataocean.module.feedback.mapper;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.overview.OverviewPeriod.Window;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -168,17 +169,6 @@ public interface FeedbackOverviewMapper {
      */
     @Select("SELECT UTC_TIMESTAMP(3)")
     LocalDateTime now();
-
-    /**
-     * SQL UTC 时间窗口，起点包含，截止不包含。
-     */
-    record Window(
-            /** 区间在本次查询中的顺序。 */
-            int index,
-            /** 首日业务午夜对应的 UTC 时刻。 */
-            LocalDateTime start,
-            /** 期末次日午夜与数据截止时刻两者中的较早值。 */
-            LocalDateTime end) {}
 
     /**
      * 单个区间统计，需要保留解决耗时累计值供跨期间加权。

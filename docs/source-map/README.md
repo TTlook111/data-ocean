@@ -42,6 +42,8 @@ F 批评价、入队和分派由 [React 回答评价](../../frontend/src/modules
 
 反馈概览由 [React 反馈概览](../../frontend/src/modules/feedback-overview/FeedbackOverview.tsx)、[概览接口](../../backend/src/main/java/com/dataocean/module/feedback/controller/FeedbackOverviewController.java)及[统计 SQL](../../backend/src/main/java/com/dataocean/module/feedback/mapper/FeedbackOverviewMapper.java)组成。[V49 迁移](../../backend/src/main/resources/db/migration/V49__feedback_overview_history.sql)记录状态覆盖起点，详见[反馈运营统计](../backend/feedback/运营统计.md)。
 
+接入概览由 [React 接入概览](../../frontend/src/modules/datasource/SourceOverview.tsx)、[概览接口](../../backend/src/main/java/com/dataocean/module/datasource/controller/SourceOverviewController.java)和[统计 SQL](../../backend/src/main/java/com/dataocean/module/datasource/mapper/SourceOverviewMapper.java)组成。图表共用 [React 看板组件](../../frontend/src/modules/overview/OverviewPanel.tsx)，分组共用 [统计区间](../../backend/src/main/java/com/dataocean/common/overview/OverviewPeriod.java)，口径见[接入运营统计](../backend/datasource/运营统计.md)。
+
 001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
 
 | 模块 |

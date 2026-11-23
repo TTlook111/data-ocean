@@ -8,7 +8,7 @@ import { SVGRenderer } from 'echarts/renderers';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { periodLabel, valueText } from './types';
-import type { Point, Series } from './types';
+import type { DashboardPoint, DashboardSeries } from './types';
 
 // 懒加载页面只注册趋势和分类图需要的渲染组件。
 registerCharts([LineChart, PieChart, GridComponent, TooltipComponent, SVGRenderer]);
@@ -23,20 +23,23 @@ type Options = ComposeOption<
 /**
  * 在一个焦点内读取各图的数据点，完整数值另有可展开数据表。
  */
-export function FeedbackChart({
+export function OverviewChart<M extends string>({
   title,
   points,
   series,
   ring = false,
+  ringSurface = '#ffffff',
 }: {
   /** 图表的可访问名称。 */
   title: string;
   /** 趋势点或环图对应的全期统计。 */
-  points: Point[];
+  points: DashboardPoint<M>[];
   /** 保持顺序的指标图例。 */
-  series: Series[];
+  series: DashboardSeries<M>[];
   /** 结案分布使用环图。 */
   ring?: boolean;
+  /** 环图分割线使用面板底色。 */
+  ringSurface?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<EChartsType>(null);
@@ -44,7 +47,7 @@ export function FeedbackChart({
   const width = ring ? series.length : points.length;
   const position = active === null ? null : Math.min(active, width - 1);
   const options = useMemo<Options>(() => {
-    // 环图使用全期的互斥结案分类，与历史状态趋势分开。
+    // 环形分布使用全期互斥分类，直接对应图例和统计明细。
     if (ring) {
       return {
         animation: false,
@@ -57,7 +60,7 @@ export function FeedbackChart({
             stillShowZeroSum: false,
             showEmptyCircle: true,
             emptyCircleStyle: { color: '#e7e2d8' },
-            itemStyle: { borderWidth: 2, borderColor: '#faf8f3', borderRadius: 1 },
+            itemStyle: { borderWidth: 2, borderColor: ringSurface, borderRadius: 1 },
             data: series.map((item) => ({
               name: item.label,
               value: points[0]?.[item.measure] ?? 0,
@@ -93,7 +96,7 @@ export function FeedbackChart({
       yAxis: {
         type: 'value',
         min: 0,
-        minInterval: series[0].measure === 'averageResolutionHours' ? undefined : 1,
+        minInterval: series.some((item) => item.decimals) ? undefined : 1,
         splitNumber: 4,
         axisLabel: { color: '#526279' },
         splitLine: { lineStyle: { color: '#e8edf2' } },
@@ -101,28 +104,27 @@ export function FeedbackChart({
       series: series.map((item): LineSeriesOption => {
         // 少量真实发生日用圆点标示，连续趋势维持原型的纯线条。
         const values = points.map((point) => point[item.measure]);
-        const duration = item.measure === 'averageResolutionHours';
+        const decimalSeries = Boolean(item.decimals);
         const sparse = values.filter((value) => value !== null && value > 0).length <= 4;
         return {
           name: item.label,
           type: 'line',
           data: values,
           connectNulls: false,
+          step: item.step ? 'end' : undefined,
           symbol: 'circle',
-          showSymbol: duration || sparse,
+          showSymbol: decimalSeries || sparse,
           symbolSize: (_value, { dataIndex }) => {
             // 连续零值无需逐点标记，单日和耗时仍可识别。
-            return duration || points.length === 1 || (values[dataIndex] ?? 0) > 0 ? 6 : 0;
+            return decimalSeries || points.length === 1 || (values[dataIndex] ?? 0) > 0 ? 6 : 0;
           },
           itemStyle: { color: item.color },
           lineStyle: { color: item.color, type: item.dashed ? 'dashed' : 'solid', width: 2 },
-          areaStyle: item.fill
-            ? { color: item.color, opacity: item.measure === 'open' ? 0.055 : 0.075 }
-            : undefined,
+          areaStyle: item.fill ? { color: item.color, opacity: item.fill } : undefined,
         };
       }),
     };
-  }, [points, ring, series]);
+  }, [points, ring, ringSurface, series]);
 
   useEffect(() => {
     // 容器宽度随侧栏和工作区变化，图表随容器重排。
@@ -191,7 +193,7 @@ export function FeedbackChart({
   const readings = ring && position !== null ? [series[position]] : series;
   return (
     <div
-      className={ring ? 'feedback-overview-plot is-ring' : 'feedback-overview-plot'}
+      className={ring ? 'overview-plot is-ring' : 'overview-plot'}
       role="group"
       aria-label={title + '，使用左右方向键读数'}
       tabIndex={0}
@@ -199,13 +201,13 @@ export function FeedbackChart({
       onBlur={clearPoint}
     >
       {/* 图形内容的可访问数值由下方播报与数据表提供。 */}
-      <div className="feedback-overview-chart-host" aria-hidden="true" ref={host} />
+      <div className="overview-chart-host" aria-hidden="true" ref={host} />
       <span className="sr-only" aria-live="polite">
         {point &&
           [
             periodLabel(point),
             ...readings.map(
-              ({ label, measure }) => `${label} ${valueText(point[measure], measure)}`,
+              ({ label, measure, decimals }) => `${label} ${valueText(point[measure], decimals)}`,
             ),
           ].join('，')}
       </span>

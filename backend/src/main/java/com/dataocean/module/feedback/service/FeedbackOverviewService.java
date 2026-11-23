@@ -1,7 +1,7 @@
 package com.dataocean.module.feedback.service;
 
 import com.dataocean.common.PageVO;
-import com.dataocean.module.feedback.entity.query.FeedbackOverviewQuery;
+import com.dataocean.common.overview.OverviewQuery;
 import com.dataocean.module.feedback.entity.vo.FeedbackOverviewVO;
 import com.dataocean.module.feedback.entity.vo.FeedbackOverviewVO.Detail;
 
@@ -13,10 +13,10 @@ public interface FeedbackOverviewService {
     /**
      * 以当前权限与统计截止时间读取各区间。
      */
-    FeedbackOverviewVO overview(FeedbackOverviewQuery query);
+    FeedbackOverviewVO overview(OverviewQuery query);
 
     /**
      * 以相同口径分页查看指定指标的贡献记录。
      */
-    PageVO<Detail> details(FeedbackOverviewQuery query);
+    PageVO<Detail> details(OverviewQuery query);
 }

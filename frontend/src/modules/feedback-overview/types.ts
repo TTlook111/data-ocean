@@ -1,3 +1,5 @@
+import type { DashboardSeries } from '../overview/types';
+
 /**
  * 统计区间按业务日期展示，发生量与期末存量分别读取。
  */
@@ -20,22 +22,6 @@ export type Point = {
   awaitingVerification: number | null;
   /** 从事项创建到实际解决的平均小时数，无样本时为空。 */
   averageResolutionHours: number | null;
-};
-
-/**
- * 当前授权范围内的趋势及全期统计。
- */
-export type Overview = {
-  /** 可用于筛选的来源编号和名称。 */
-  sources: { id: string; name: string }[];
-  /** 数据库读取截止时刻，供下钻复用。 */
-  asOf: string;
-  /** 服务端计算的业务粒度。 */
-  grain: 'DAY' | 'WEEK' | 'MONTH';
-  /** 从早到晚的区间统计。 */
-  points: Point[];
-  /** 全期计算结果，无来源时为空。 */
-  total: Point | null;
 };
 
 /**
@@ -75,35 +61,6 @@ export type Contribution = {
 };
 
 /**
- * 指标的可见图例和线条样式。
+ * 反馈页面的图表仅引用自身可核对的指标。
  */
-export type Series = {
-  /** 当前图对应的统计字段。 */
-  measure: Measure;
-  /** 图例、数据表与读屏共用的名称。 */
-  label: string;
-  /** 原型图表颜色。 */
-  color: string;
-  /** 第一条主线可带浅色面积。 */
-  fill?: boolean;
-  /** 子集使用虚线以便区分。 */
-  dashed?: boolean;
-};
-
-/**
- * 以等权的中文格式展示计数及一位小数的小时数。
- */
-export function valueText(value: number | null, measure: Measure) {
-  return value === null
-    ? '—'
-    : value.toLocaleString('zh-CN', {
-        maximumFractionDigits: measure === 'averageResolutionHours' ? 1 : 0,
-      });
-}
-
-/**
- * 图表提示和数据表保留区间的起止业务日。
- */
-export function periodLabel(point: Point) {
-  return point.fromDate === point.toDate ? point.toDate : `${point.fromDate} 至 ${point.toDate}`;
-}
+export type Series = DashboardSeries<Measure>;

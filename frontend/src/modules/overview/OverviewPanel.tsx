@@ -2,34 +2,50 @@ import { InfoCircleOutlined } from '@ant-design/icons';
 import { Button, Tooltip } from 'antd';
 import { useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { FeedbackChart } from './FeedbackChart';
+import { OverviewChart } from './OverviewChart';
 import { periodLabel, valueText } from './types';
-import type { Measure, Point, Series } from './types';
+import type { DashboardPoint, DashboardSeries } from './types';
+import './overview.css';
 
 /**
  * 图表、可展开数据表和统计下钻共用同一组数值。
  */
-export function FeedbackMetricPanel({
+export function OverviewPanel<M extends string>({
   title,
   points,
   total,
   series,
   onDrill,
   layout,
+  unit,
+  emptyText,
+  note,
+  ringLabel,
+  ringSurface,
   footer,
 }: {
   /** 图表及数据表标题。 */
   title: string;
   /** 按期间粒度返回的明细统计。 */
-  points: Point[];
+  points: DashboardPoint<M>[];
   /** 本期总量和期末数。 */
-  total: Point;
+  total: DashboardPoint<M>;
   /** 当前图负责显示的指标。 */
-  series: Series[];
-  /** 有权查看反馈事项时允许下钻贡献记录。 */
-  onDrill?: (measure: Measure, point: Point) => void;
+  series: DashboardSeries<M>[];
+  /** 具备原模块明细权限时允许下钻。 */
+  onDrill?: (measure: M, point: DashboardPoint<M>) => void;
   /** 原型中的通栏主图、辅助趋势或右侧环图。 */
-  layout: 'hero' | 'backlog' | 'ring' | 'duration';
+  layout: 'hero' | 'backlog' | 'ring' | 'duration' | 'pending';
+  /** 图表的业务单位。 */
+  unit: string;
+  /** 没有有效样本时的反馈。 */
+  emptyText?: string;
+  /** 按需查看的口径及历史覆盖说明。 */
+  note?: string;
+  /** 环图中心的合计说明。 */
+  ringLabel?: string;
+  /** 环图分割线与面板共用的底色。 */
+  ringSurface?: string;
   /** 主图进入既有工作队列的入口。 */
   footer?: ReactNode;
 }) {
@@ -37,22 +53,19 @@ export function FeedbackMetricPanel({
   const id = useId();
   const ring = layout === 'ring';
   const seriesPoints = useMemo(() => (ring ? [total] : points), [ring, total, points]);
-  const ringCount = total.resolved + total.otherClosed + total.merged;
-  const duration = layout === 'duration';
-  const noDurationSamples = duration && total.averageResolutionHours === null;
-  const historyGap =
-    layout === 'backlog' && points.some((point) => point.awaitingVerification === null);
+  const ringCount = ring ? series.reduce((sum, item) => sum + (total[item.measure] ?? 0), 0) : 0;
+  const noSamples = emptyText && series.every((item) => total[item.measure] === null);
 
   /**
    * 数值为零或无可核对历史时只显示读数。
    */
-  function reading(item: Series, point: Point, headline = false) {
+  function reading(item: DashboardSeries<M>, point: DashboardPoint<M>, headline = false) {
     const value = point[item.measure];
-    const text = valueText(value, item.measure);
+    const text = valueText(value, item.decimals);
     const number = headline ? <strong>{text}</strong> : text;
-    return onDrill && value !== null && (value > 0 || item.measure === 'averageResolutionHours') ? (
+    return onDrill && value !== null && (value > 0 || item.decimals) ? (
       <Button
-        className="feedback-overview-number"
+        className="overview-number"
         type="link"
         aria-label={`查看${item.label}明细，${periodLabel(point)}，${text}`}
         onClick={() => onDrill(item.measure, point)}
@@ -65,28 +78,28 @@ export function FeedbackMetricPanel({
   }
 
   return (
-    <section className={`feedback-overview-panel is-${layout}`} aria-labelledby={id}>
+    <section className={`overview-panel is-${layout}`} aria-labelledby={id}>
       {/* 标题、图例和数据表开关使用同一行，窄窗口自动换行。 */}
       <header>
         {/* 单位贴近标题，历史覆盖提示按需查看。 */}
-        <div className="feedback-overview-panel-title">
+        <div className="overview-panel-title">
           <h2 id={id}>{title}</h2>
-          <span>{duration ? '小时' : '个'}</span>
-          {historyGap && (
-            <Tooltip title="历史待验证状态缺失的时段留空" trigger={['hover', 'focus']}>
+          <span>{unit}</span>
+          {note && (
+            <Tooltip title={note} trigger={['hover', 'focus']}>
               <Button
                 type="text"
                 size="small"
-                className="feedback-overview-info"
+                className="overview-info"
                 icon={<InfoCircleOutlined />}
-                aria-label="历史待验证状态缺失的时段留空"
+                aria-label={note}
               />
             </Tooltip>
           )}
         </div>
-        <div className="feedback-overview-panel-actions">
+        <div className="overview-panel-actions">
           {!ring && (
-            <ul className="feedback-overview-legend" aria-label="图例">
+            <ul className="overview-legend" aria-label="图例">
               {series.map((item) => (
                 <li key={item.measure}>
                   <span className={item.dashed ? 'is-dashed' : ''} style={{ color: item.color }} />
@@ -98,7 +111,7 @@ export function FeedbackMetricPanel({
           <Button
             type="text"
             size="small"
-            className="feedback-overview-data-toggle"
+            className="overview-data-toggle"
             aria-label={`${expanded ? '收起' : '查看'}${title}数据`}
             aria-expanded={expanded}
             aria-controls={expanded ? id + '-data' : undefined}
@@ -110,37 +123,43 @@ export function FeedbackMetricPanel({
       </header>
 
       {/* 重要读数贴近对应图形，日期缺口和无解决样本保留不同语义。 */}
-      {!ring && !noDurationSamples && (
-        <ul className="feedback-overview-headlines">
+      {!ring && !noSamples && (
+        <ul className="overview-headlines">
           {series.map((item) => (
             <li key={item.measure}>
               {reading(item, total, true)}
-              <span>{duration ? '小时平均解决' : '个' + item.label}</span>
+              <span>{item.summaryLabel ?? unit + item.label}</span>
             </li>
           ))}
         </ul>
       )}
-      {noDurationSamples ? (
-        <div className="feedback-overview-no-samples">所选期间暂无已解决样本</div>
+      {noSamples ? (
+        <div className="overview-no-samples">{emptyText}</div>
       ) : (
-        <div className={ring ? 'feedback-overview-ring' : undefined}>
-          <FeedbackChart title={title} points={seriesPoints} series={series} ring={ring} />
+        <div className={ring ? 'overview-ring' : undefined}>
+          <OverviewChart
+            title={title}
+            points={seriesPoints}
+            series={series}
+            ring={ring}
+            ringSurface={ringSurface}
+          />
           {ring && (
-            <div className="feedback-overview-ring-label">
+            <div className="overview-ring-label">
               <strong>{ringCount.toLocaleString('zh-CN')}</strong>
-              <span>个期间结案</span>
+              <span>{ringLabel}</span>
             </div>
           )}
         </div>
       )}
       {ring && (
-        <ul className="feedback-overview-ring-legend" aria-label="结案分布与占比">
+        <ul className="overview-ring-legend" aria-label={title + '与占比'}>
           {series.map((item) => (
             <li key={item.measure}>
-              <span className="feedback-overview-swatch" style={{ backgroundColor: item.color }} />
+              <span className="overview-swatch" style={{ backgroundColor: item.color }} />
               <span>{item.label}</span>
               {reading(item, total)}
-              <span className="feedback-overview-share">
+              <span className="overview-share">
                 {ringCount
                   ? (((total[item.measure] ?? 0) / ringCount) * 100).toFixed(1) + '%'
                   : '—'}
@@ -153,7 +172,7 @@ export function FeedbackMetricPanel({
       {/* 数据表逐点保留原始期间，并提供与图表一致的下钻入口。 */}
       {expanded && (
         <div
-          className="feedback-overview-data"
+          className="overview-data"
           id={id + '-data'}
           role="region"
           aria-label={title + '数据区'}
@@ -184,9 +203,7 @@ export function FeedbackMetricPanel({
           </table>
         </div>
       )}
-      {expanded && historyGap && (
-        <p className="feedback-overview-coverage">历史待验证状态缺失的时段留空</p>
-      )}
+      {expanded && note && <p className="overview-coverage">{note}</p>}
       {footer && <footer>{footer}</footer>}
     </section>
   );

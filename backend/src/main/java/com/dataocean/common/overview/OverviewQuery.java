@@ -1,4 +1,4 @@
-package com.dataocean.module.feedback.entity.query;
+package com.dataocean.common.overview;
 
 import com.dataocean.common.PageQuery;
 
@@ -15,7 +15,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class FeedbackOverviewQuery extends PageQuery {
+public class OverviewQuery extends PageQuery {
 
     /**
      * 首个统计业务日，包含该日。

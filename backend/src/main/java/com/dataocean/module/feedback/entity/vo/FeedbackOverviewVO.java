@@ -1,6 +1,6 @@
 package com.dataocean.module.feedback.entity.vo;
 
-import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
+import com.dataocean.common.overview.OverviewSourceVO;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -19,7 +19,7 @@ public class FeedbackOverviewVO {
     /**
      * 仅供本次统计切换的可见来源。
      */
-    private List<QuerySourceOptionVO> sources;
+    private List<OverviewSourceVO> sources;
 
     /**
      * 事实读取截止时刻，下钻沿用该时刻。

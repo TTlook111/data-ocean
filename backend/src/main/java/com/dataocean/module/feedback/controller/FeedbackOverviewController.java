@@ -1,8 +1,8 @@
 package com.dataocean.module.feedback.controller;
 
 import com.dataocean.common.PageVO;
+import com.dataocean.common.overview.OverviewQuery;
 import com.dataocean.common.result.Result;
-import com.dataocean.module.feedback.entity.query.FeedbackOverviewQuery;
 import com.dataocean.module.feedback.entity.vo.FeedbackOverviewVO;
 import com.dataocean.module.feedback.entity.vo.FeedbackOverviewVO.Detail;
 import com.dataocean.module.feedback.service.FeedbackOverviewService;
@@ -35,7 +35,7 @@ public class FeedbackOverviewController {
      */
     @GetMapping
     @RequirePermission("feedback-dashboard.view")
-    public Result<FeedbackOverviewVO> overview(@Valid @ModelAttribute FeedbackOverviewQuery query) {
+    public Result<FeedbackOverviewVO> overview(@Valid @ModelAttribute OverviewQuery query) {
         return Result.success(overview.overview(query));
     }
 
@@ -44,7 +44,7 @@ public class FeedbackOverviewController {
      */
     @GetMapping("/details")
     @RequirePermission({"feedback-dashboard.view", "feedback.view"})
-    public Result<PageVO<Detail>> details(@Valid @ModelAttribute FeedbackOverviewQuery query) {
+    public Result<PageVO<Detail>> details(@Valid @ModelAttribute OverviewQuery query) {
         return Result.success(overview.details(query));
     }
 }

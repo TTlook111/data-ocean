@@ -66,7 +66,7 @@ export function StructureChanges({
   const [params, setParams] = useSearchParams();
   const [form] = Form.useForm();
   const [moreOpen, setMoreOpen] = useState(false);
-  const [id, setId] = useState<string | null>(null);
+  const [id, setId] = useState<string | null>(params.get('change'));
   const [checking, setChecking] = useState<StructureChange | null>(null);
   const [review, setReview] = useState<ReviewSubmission | null>(null);
   const path = '/datasources/' + source + '/changes';
@@ -88,6 +88,19 @@ export function StructureChanges({
   const hasFilters = ['keyword', 'changeType', 'fromDate', 'toDate', 'stage'].some((key) =>
     params.has(key),
   );
+
+  /**
+   * 关闭由对账打开的变化时保留来源与普通列表条件。
+   */
+  function closeChange() {
+    setId(null);
+    if (params.has('change')) {
+      // 只清除详情入口，来源、筛选和导航状态继续可用。
+      const next = new URLSearchParams(params);
+      next.delete('change');
+      setParams(next, { replace: true, state });
+    }
+  }
 
   /**
    * 重置手选条件，保留入口指定的采集任务或对象。
@@ -287,7 +300,7 @@ export function StructureChanges({
             </div>
           }
           width={880}
-          close={() => setId(null)}
+          close={closeChange}
           actions={
             detail.data && (
               <>

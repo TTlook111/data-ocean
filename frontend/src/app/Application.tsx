@@ -50,6 +50,7 @@ const navigation = [
   { key: '/iam/access-requests', label: '访问申请', permission: 'access-requests.view' },
   { key: '/iam/grants', label: '授权管理', permission: 'grants.view' },
   { key: '/iam/audit', label: '权限审计', permission: 'audit.view', icon: <AuditOutlined /> },
+  { key: '/sources-dashboard', label: '接入概览', permission: 'sources-dashboard.view' },
   {
     key: '/datasources',
     label: '数据源管理',
@@ -128,6 +129,10 @@ const GrantsPage = lazyPage(() => import('../modules/access/ScopePages').then((m
 const MyAccessPage = lazyPage(() =>
   import('../modules/access/ScopePages').then((m) => m.MyAccessPage),
 );
+// 接入概览单独按获准权限加载。
+const SourceOverview = lazyPage(() =>
+  import('../modules/datasource/SourceOverview').then((m) => m.SourceOverview),
+);
 const CollectionPage = lazyPage(() =>
   import('../modules/datasource/CollectionPage').then((m) => m.CollectionPage),
 );
@@ -195,6 +200,7 @@ const workspaceRoutes = [
   { path: '/iam/audit', element: <AuditPage /> },
   // 数据源接入及目录详情。
   { path: '/datasources', element: <DatasourceManagementPage /> },
+  { path: '/sources-dashboard', element: <SourceOverview /> },
   { path: '/collections', element: <CollectionPage /> },
   { path: '/collections/changes', element: <StandaloneStructureChangePage /> },
   { path: '/catalog', element: <CatalogPage /> },
@@ -267,17 +273,20 @@ export function Application() {
   const pageContexts = useRef<Record<string, string>>({});
 
   // 显式刷新概览恢复默认期间，应用内来回导航仍使用页面上下文。
-  const resetFeedbackOverview = useRef(
-    location.pathname === '/feedback-dashboard' &&
+  const resetOverview = useRef(
+    ['/feedback-dashboard', '/sources-dashboard'].includes(location.pathname) &&
       Boolean(location.search) &&
       (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)
-        ?.type === 'reload',
+        ?.type === 'reload'
+      ? location.pathname
+      : null,
   );
   useEffect(() => {
     // 只在本次应用首次挂载处理浏览器刷新。
-    if (!resetFeedbackOverview.current) return;
-    resetFeedbackOverview.current = false;
-    void navigate('/feedback-dashboard', { replace: true });
+    const path = resetOverview.current;
+    if (!path) return;
+    resetOverview.current = null;
+    void navigate(path, { replace: true });
   }, [navigate]);
 
   useEffect(() => {
@@ -518,14 +527,15 @@ export function Application() {
             label: '数据源接入',
             icon: <DatabaseOutlined />,
             children: [
-              ...(session.permissionCodes.includes('sources-dashboard.view')
-                ? [{ key: 'pending-sources-dashboard', label: '接入概览', disabled: true }]
-                : []),
               ...visible
                 .filter((item) =>
-                  ['/datasources', '/collections', '/catalog', '/business-notes'].includes(
-                    item.key,
-                  ),
+                  [
+                    '/sources-dashboard',
+                    '/datasources',
+                    '/collections',
+                    '/catalog',
+                    '/business-notes',
+                  ].includes(item.key),
                 )
                 .map(({ key, label }) => ({ key, label })),
             ],
