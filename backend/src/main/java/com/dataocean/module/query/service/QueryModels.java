@@ -5,6 +5,7 @@ import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
 import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
+import com.dataocean.module.query.entity.dto.QueryIntentInputDTO;
 import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.entity.vo.QueryExplanationTextVO;
@@ -12,6 +13,7 @@ import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryProtocol.Check;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
+import com.dataocean.module.query.service.QueryProtocol.Intent;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 
@@ -87,6 +89,19 @@ class QueryModels {
         }
     }
 
+    /**
+     * 接收新问数前核对节点已分配、启用且符合当前部署的外发准入。
+     */
+    void requireIntentReady(long source) {
+        try {
+            requireScope(source);
+            models.verifyActive(models.requireBinding("intent"));
+        } catch (QueryFailure | BizIllegalException unavailable) {
+            // 配置不完整时在提交处告知，避免产生无法运行的队列项。
+            throw BizIllegalException.state("问题理解模型暂不可用，请联系管理员检查模型配置");
+        }
+    }
+
     /** 未显式批准业务结果外发时停止解释，已交付结果仍保持可用。 */
     void requireExplanationScope(long source) {
         requireScope(source);
@@ -103,6 +118,39 @@ class QueryModels {
             // 权威模型目录缺少当前节点属于配置失败，与业务知识缺口分开。
             throw QueryFailure.modelUnavailable();
         }
+    }
+
+    /**
+     * 修正节点只在需要重规划时必需，冻结时用零保留未配置事实。
+     */
+    long repairRevision() {
+        Long selected = models.activeBinding("sql-repair");
+        return selected == null ? 0L : selected;
+    }
+
+    /**
+     * 使用问题理解自己的配置整理检索表述，恢复时回读同一阶段的已登记结果。
+     */
+    String understand(Run run, long revision, int seconds, String question, Memory memory) {
+        var step = run.key("intent");
+        boolean lookup = steps.issue(run.id(), run.version(), step) != 1;
+        var reference = new QueryIntentInputDTO<>(models.revisionReference(revision), question, memory);
+        String query;
+        if (lookup) {
+            // 已登记的阶段只核对原输入，无需读取模型凭据或校验当前启停。
+            query = call(run.id(), step, true, "/intent", reference, Intent.class)
+                    .retrievalQuery();
+        } else {
+            // 首次派发仍使用原冻结修订的当前许可，断连改走无凭据的回读请求。
+            var input = new QueryIntentInputDTO<>(models.invocation(revision, Math.min(28, seconds)), question, memory);
+            query = call(run.id(), step, false, "/intent", input, reference, Intent.class)
+                    .retrievalQuery();
+        }
+        if (query == null || query.isBlank() || query.codePointCount(0, query.length()) > 600) {
+            // 旧版或异常响应不能作为下一步检索输入。
+            throw QueryFailure.technical();
+        }
+        return query.strip();
     }
 
     /** 通过实际固定向量模型召回并验证代次。 */
@@ -191,24 +239,27 @@ class QueryModels {
 
     /** 机器间 HTTP 断连后仅核对已有回执，避免未知窗口重复外发。 */
     private <T> T call(String id, String step, boolean lookup, String path, Object input, Class<T> type) {
+        return call(id, step, lookup, path, input, input, type);
+    }
+
+    /**
+     * 首次派发断连时使用指定的回读输入，同一阶段不会再次外发模型请求。
+     */
+    private <T> T call(
+            String id, String step, boolean lookup, String path, Object input, Object receipt, Class<T> type) {
         try {
             return send(id, step, lookup, path, input, type);
         } catch (ResourceAccessException lostReply) {
             // 传输错误不能证明接收结果，恢复入口只读实际已经落盘的回执。
-            if (!lookup) {
-                try {
-                    return send(id, step, true, path, input, type);
-                } catch (ResourceAccessException interrupted) {
-                    throw new QueryFailure("RECOVERY_PENDING");
-                } catch (RestClientException unresolved) {
-                    log.info("问数节点回执待核实，request={}，step={}", id, step);
-                }
-            }
             if (lookup) {
                 throw new QueryFailure("RECOVERY_PENDING");
             }
-            throw QueryFailure.technical();
+            return readReceipt(id, step, path, receipt, type);
         } catch (RestClientResponseException rejected) {
+            if (!lookup && rejected.getStatusCode().value() == 503) {
+                // 检查点获确认前的超时也可能已经提交回执，先只读核对一次。
+                return readReceipt(id, step, path, receipt, type);
+            }
             log.info(
                     "问数内部节点失败，request={}，step={}，http={}",
                     id,
@@ -221,6 +272,20 @@ class QueryModels {
                     id,
                     step,
                     unavailable.getClass().getSimpleName());
+            throw QueryFailure.technical();
+        }
+    }
+
+    /**
+     * 首次回包不能确认时只读取同一阶段，连接中断保留恢复待核实状态。
+     */
+    private <T> T readReceipt(String id, String step, String path, Object input, Class<T> type) {
+        try {
+            return send(id, step, true, path, input, type);
+        } catch (ResourceAccessException interrupted) {
+            throw new QueryFailure("RECOVERY_PENDING");
+        } catch (RestClientException unresolved) {
+            log.info("问数节点回执待核实，request={}，step={}", id, step);
             throw QueryFailure.technical();
         }
     }

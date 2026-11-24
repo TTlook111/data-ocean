@@ -10,6 +10,7 @@ from langchain_openai import OpenAIEmbeddings
 from openai import APIError
 
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
+from dataocean_ai.adapters.model_receipts import ModelRecordingError, model_call_hooks
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,10 @@ async def embed(config: ModelConfiguration, texts: list[str]) -> list[list[float
         async with (
             asyncio.timeout(config.timeout),
             httpx.AsyncClient(
-                follow_redirects=False, trust_env=False, timeout=config.timeout
+                follow_redirects=False,
+                trust_env=False,
+                timeout=config.timeout,
+                event_hooks=model_call_hooks(config),
             ) as client,
         ):
             model = OpenAIEmbeddings(
@@ -38,8 +42,13 @@ async def embed(config: ModelConfiguration, texts: list[str]) -> list[list[float
                 http_async_client=client,
             )
             rows = await model.aembed_documents(texts)
+    except ModelRecordingError:
+        # 未登记前拒绝发出向量请求。
+        raise ModelFailure("MODEL_RECORD_UNAVAILABLE") from None
     except APIError as error:
         # 诊断只披露服务故障的安全分类，不保存上游正文或凭据。
+        if isinstance(error.__cause__, ModelRecordingError):
+            raise ModelFailure("MODEL_RECORD_UNAVAILABLE") from None
         provider_code = getattr(error, "code", None)
         if (
             not isinstance(provider_code, str)

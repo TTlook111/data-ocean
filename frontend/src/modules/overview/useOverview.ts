@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import { useSearchParams } from 'react-router';
 import { api, ApiError, queryString } from '../../shared/api';
 import { useSession } from '../../shared/session';
-import type { DashboardRange, DashboardReport } from './types';
+import type { DashboardRange, DashboardReport, OverviewReport } from './types';
 
 // 下钻条件与主图时间范围独立，关闭详情只删除这些条件。
 const drillKeys = [
@@ -20,12 +20,12 @@ const drillKeys = [
  */
 export function useOverview<
   P extends DashboardRange,
-  R extends DashboardReport<P> = DashboardReport<P>,
->(endpoint: string) {
+  R extends OverviewReport<P> = DashboardReport<P>,
+>(endpoint: string, defaultPeriod: '7' | '30' = '30') {
   const session = useSession();
   const [params, setParams] = useSearchParams();
   const sourceId = params.get('sourceId') ?? '';
-  const period = params.get('period') ?? '30';
+  const period = params.get('period') ?? defaultPeriod;
   const today = dayjs(
     new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date()),
   );

@@ -1,0 +1,112 @@
+/* 同一白底工作区只用图表、留白与看板现有的分隔线组织信息。 */
+.model-overview {
+  --dashboard-accent: #98a3b2;
+}
+
+/* 主图左轴承接用量，右轴对齐全页日期控件和颜色图例。 */
+.model-overview .is-hero .dashboard-chart-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px 24px;
+}
+
+/* 主图题名和数字的字号差拉开阅读顺序。 */
+.model-overview .is-hero h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 650;
+}
+
+/* 总用量保留主位，分项与图例使用相同的颜色。 */
+.model-overview .is-hero [data-metric="tokenTotal"] {
+  color: var(--do-ink);
+  font-size: clamp(36px, 3.5vw, 52px);
+  line-height: 1.08;
+  font-weight: 680;
+  letter-spacing: -.05em;
+}
+
+/* 次级数字和柱体颜色对应，字重低于主读数。 */
+.model-overview .is-hero :is([data-metric="input"], [data-metric="output"]) {
+  font-size: 22px;
+  line-height: 30px;
+}
+
+/* 输入色来自主图输入柱。 */
+.model-overview .is-hero [data-metric="input"] { color: var(--do-primary-hover); }
+
+/* 输出色与柱体保持同色相并加深以便阅读。 */
+.model-overview .is-hero [data-metric="output"] { color: #4369A5; }
+
+/* 期间控制单独成行，数据图例及查看入口在下一行对齐右轴。 */
+.model-overview .is-hero .dashboard-chart-side {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  justify-items: end;
+  gap: 10px 16px;
+  align-items: center;
+}
+
+/* 示例标识及两个日期组件根据工作区宽度换行。 */
+.model-usage-controls {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin-left: 0;
+}
+
+/* 日期选择和预设是同一组选项，可在较窄区间拆行。 */
+.model-usage-date-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* 日期错误就近展示，空反馈不占版面。 */
+.model-usage-date-error {
+  flex-basis: 100%;
+  color: #a13d34;
+  font-size: 12px;
+  text-align: right;
+}
+
+/* 未产生错误时不留多余空行。 */
+.model-usage-date-error:empty { display: none; }
+
+/* 堆叠柱图例使用实色色块。 */
+.model-overview .is-hero .dashboard-chart-legend i {
+  width: 8px;
+  height: 8px;
+  border: 0;
+  background: var(--series-color);
+}
+
+/* 主图与后台选中态使用同一浅蓝，从基线周围逐渐过渡至白底。 */
+.model-overview .is-hero .dashboard-plot {
+  height: clamp(284px, 24.5vw, 370px);
+  margin-top: 12px;
+  background: radial-gradient(ellipse at 50% 78%, var(--do-selected) 0%, #F6F9FF 54%, transparent 80%);
+}
+
+/* 只有用量回执不完整时展示覆盖范围。 */
+.model-usage-coverage {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 用量回执说明放在数字下方，不挤压同一基线的读数。 */
+.model-overview .dashboard-chart-metrics .model-usage-coverage { flex-basis: 100%; }
+
+/* 两张辅助图的绘图区对齐，桌面窄窗口沿用看板的上下阅读顺序。 */
+.model-overview-grid .dashboard-plot {
+  height: 212px;
+}
+
+/* 窄 PC 仍保留完整日期控件及常驻侧栏。 */
+@media (max-width: 1230px) {
+  .model-overview .is-hero .dashboard-chart-heading { grid-template-columns: minmax(0, 1fr); }
+  .model-overview .is-hero .dashboard-chart-side { justify-items: start; }
+  .model-usage-controls { justify-content: flex-start; }
+  .model-usage-date-error { text-align: left; }
+}

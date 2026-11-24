@@ -66,6 +66,10 @@ public class QueryService {
      * 在同一可信身份下核对澄清时的当前来源权限。
      */
     private final QueryRunAccess runAccess;
+    /**
+     * 新问数接收前核对问题理解节点的可用配置。
+     */
+    private final QueryModels models;
     /** 交付后独立跟踪解释修订。 */
     private final QueryExplanations explanations;
     /** 当前数据源访问与输出限制。 */
@@ -292,9 +296,8 @@ public class QueryService {
             if (parent != null && (parent.sourceId() != source || !conversationId.equals(parent.conversationId()))) {
                 throw BizIllegalException.missing();
             }
-            if (id.equals(conversationId)) {
-                conversations.insert(id, actor.userId(), source, question, id);
-            } else {
+            if (!id.equals(conversationId)) {
+                // 先完成会话归属核验，再向合法请求反馈配置状态。
                 var conversation = conversations.lock(conversationId);
                 if (conversation == null
                         || conversation.userId() != actor.userId()
@@ -302,6 +305,12 @@ public class QueryService {
                     throw BizIllegalException.missing();
                 }
                 parentId = parent == null ? conversation.latestRequestId() : parent.id();
+            }
+            // 在新轮次写入任何状态前确认配置，重放已有命令仍取原收据。
+            models.requireIntentReady(source);
+            if (id.equals(conversationId)) {
+                conversations.insert(id, actor.userId(), source, question, id);
+            } else {
                 conversations.use(conversationId, id);
             }
             requests.insert(new Input(

@@ -16,9 +16,7 @@ export type DashboardPoint<M extends string> = DashboardRange & Record<M, number
 /**
  * 两类看板的筛选和读取状态使用同一份接口元数据。
  */
-export type DashboardReport<P extends DashboardRange> = {
-  /** 当前可统计的来源。 */
-  sources: { id: string; name: string }[];
+export type OverviewReport<P extends DashboardRange> = {
   /** 统计快照截止时刻。 */
   asOf: string;
   /** 日、自然周或自然月。 */
@@ -27,6 +25,14 @@ export type DashboardReport<P extends DashboardRange> = {
   points: P[];
   /** 整个期间的统计，无可统计来源时为空。 */
   total: P | null;
+};
+
+/**
+ * 按来源统计的看板另附当前可见的来源选项。
+ */
+export type DashboardReport<P extends DashboardRange> = OverviewReport<P> & {
+  /** 当前可统计的来源。 */
+  sources: { id: string; name: string }[];
 };
 
 /**
@@ -41,6 +47,8 @@ export type DashboardSeries<M extends string> = {
   summaryLabel?: string;
   /** 与原型一致的系列颜色。 */
   color: string;
+  /** 堆叠柱最高用量的同色系强调色。 */
+  peakColor?: string;
   /** 主线下面的面积透明度。 */
   fill?: number;
   /** 辅助线以虚线区分。 */

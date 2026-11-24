@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { ArrowRightOutlined } from '@ant-design/icons';
 import {
   App,
   Button,
@@ -36,6 +37,35 @@ import {
 } from './types';
 
 /**
+ * 旧接口省略接通状态时，只为旧版已有独立调用的节点保留分配入口。
+ */
+const legacyConnectedNodes = new Set([
+  'table-description',
+  'field-explanation',
+  'relation-discovery',
+  'metric-discovery',
+  'sql-generate',
+  'sql-semantic-check',
+  'output-meaning',
+  'result-explanation',
+  'rag-embedding',
+]);
+
+/**
+ * 固定本次确认的节点、原分配及准备保存的目标。
+ */
+interface ModelAssignment {
+  /**
+   * 包含原配置和并发版本的节点快照。
+   */
+  node: ModelNode;
+  /**
+   * 目标模型，空值表示解除当前分配。
+   */
+  modelId: string | null;
+}
+
+/**
  * 模型配置和独立节点分配沿用原型的两个页签。
  */
 export function ModelPage() {
@@ -47,6 +77,7 @@ export function ModelPage() {
   const [tab, setTab] = useState(params.get('tab') === 'nodes' ? 'nodes' : 'models');
   const [editor, setEditor] = useState<ModelConfig | 'new' | null>(null);
   const [detail, setDetail] = useState<ModelConfig | null>(null);
+  const [assignmentDraft, setAssignmentDraft] = useState<ModelAssignment | null>(null);
   const [keyword, setKeyword] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
@@ -130,33 +161,35 @@ export function ModelPage() {
   }
 
   const assignment = useMutation({
-    mutationFn: ({ node, modelId }: { node: ModelNode; modelId: string | null }) =>
+    mutationFn: ({ node, modelId }: ModelAssignment) =>
       api(`/models/nodes/${node.code}`, {
         method: 'PUT',
         body: { modelId, version: node.version },
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['models', 'nodes'] }),
+    onSuccess: async () => {
+      // 保存成功后回读生效分配，再反馈本次变更结果。
+      await client.invalidateQueries({ queryKey: ['models', 'nodes'] });
+      setAssignmentDraft(null);
+      void message.success('模型分配已更新');
+    },
     onError: (error) => {
+      // 并发修改或模型停用后刷新可读状态，确认框仍保留本次选择。
       void message.error(readErrorMessage(error));
+      void client.invalidateQueries({ queryKey: ['models'] });
     },
   });
 
   /**
-   * 选择即保存单个节点，清空必需节点先说明后果。
+   * 选择只准备待确认分配，表格继续显示已保存的值。
    */
-  async function assign(node: ModelNode, modelId?: string) {
-    if (
-      !modelId &&
-      node.capability !== 'RERANK' &&
-      !(await modal.confirm({
-        title: `清空「${modelNodeInfo[node.code]?.name ?? node.code}」的模型？`,
-        content: '清空后，该节点将处于未配置状态。',
-        okText: '清空',
-        cancelText: '取消',
-      }))
-    )
+  function prepareAssignment(node: ModelNode, value?: string) {
+    const modelId = value ?? null;
+    if (modelId === node.modelId) {
+      // 与已保存的分配一致时没有待确认变更。
       return;
-    assignment.mutate({ node, modelId: modelId ?? null });
+    }
+
+    setAssignmentDraft({ node, modelId });
   }
 
   // 查询条件与结果的同名列对齐，详情动作集中在底栏。
@@ -216,30 +249,46 @@ export function ModelPage() {
       title: '分配模型',
       width: 228,
       className: 'model-node-assignment',
-      render: (_, node) => (
-        <Select
-          aria-label={`为${modelNodeInfo[node.code]?.name ?? node.code}分配模型`}
-          placeholder="未分配"
-          size="middle"
-          className="model-node-picker"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          value={node.modelId ?? undefined}
-          disabled={!allowed(session, 'models.assign') || assignment.isPending || options.isError}
-          loading={options.isPending}
-          options={options.data
-            ?.filter((row) => protocolCapability[row.protocol] === node.capability)
-            .map((row) => ({
-              value: row.id,
-              label: row.enabled ? row.name : `${row.name}（已停用）`,
-              disabled: !row.enabled,
-            }))}
-          onChange={(value) => {
-            void assign(node, value);
-          }}
-        />
-      ),
+      render: (_, node) => {
+        const connected = node.connected ?? legacyConnectedNodes.has(node.code);
+        if (!connected) {
+          // 追问仍在查询规划中共用模型，其他未接入节点只展示状态。
+          return (
+            <span className="table-secondary">
+              {node.code === 'clarification' ? '共用 SQL 生成' : '暂无独立调用'}
+            </span>
+          );
+        }
+        // 早期治理节点省略能力字段，沿用原有生成模型类型。
+        const capability = node.capability ?? 'GENERATION';
+        return (
+          <Select<string>
+            aria-label={`为${modelNodeInfo[node.code]?.name ?? node.code}分配模型`}
+            placeholder="未分配"
+            size="middle"
+            className="model-node-picker"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={node.modelId ?? null}
+            disabled={
+              !allowed(session, 'models.assign') ||
+              assignment.isPending ||
+              options.isPending ||
+              options.isError
+            }
+            loading={options.isPending}
+            options={options.data
+              ?.filter((row) => protocolCapability[row.protocol] === capability)
+              .map((row) => ({
+                value: row.id,
+                label: row.enabled ? row.name : `${row.name}（已停用）`,
+                disabled: !row.enabled,
+              }))}
+            onChange={(value) => prepareAssignment(node, value)}
+          />
+        );
+      },
     },
   ];
 
@@ -373,7 +422,7 @@ export function ModelPage() {
                   </Form>
                 </div>
                 <section className="panel records-panel" aria-label="节点列表">
-                  {/* 节点表直接承接独立分配，没有额外的保存步骤。 */}
+                  {/* 节点表显示已保存的分配，变更前在确认框核对原值与目标。 */}
                   <RecordTable
                     rowKey="code"
                     columns={nodeColumns}
@@ -402,6 +451,16 @@ export function ModelPage() {
           },
         ]}
       />
+      {/* 保留待确认的节点快照，提交成功才关闭弹窗。 */}
+      {assignmentDraft && (
+        <ModelAssignmentDialog
+          draft={assignmentDraft}
+          models={options.data}
+          saving={assignment.isPending}
+          onClose={() => setAssignmentDraft(null)}
+          onConfirm={() => assignment.mutate(assignmentDraft)}
+        />
+      )}
       {/* 只显示凭据已设置，编辑表单不会预填秘密。 */}
       <Modal
         className="app-dialog"
@@ -490,6 +549,82 @@ export function ModelPage() {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * 用同一处前后对照确认分配，确认和取消共用后台弹窗的标准操作区。
+ */
+function ModelAssignmentDialog({
+  draft,
+  models,
+  saving,
+  onClose,
+  onConfirm,
+}: {
+  /**
+   * 已选的节点和待保存模型。
+   */
+  draft: ModelAssignment;
+  /**
+   * 用于将分配编号显示为配置名的模型目录。
+   */
+  models?: ModelConfig[];
+  /**
+   * 保存中保持原确认信息和操作位置。
+   */
+  saving: boolean;
+  /**
+   * 放弃本次选择并关闭。
+   */
+  onClose: () => void;
+  /**
+   * 提交当前快照中的模型分配。
+   */
+  onConfirm: () => void;
+}) {
+  useReturnFocus();
+  const { node, modelId } = draft;
+  const nodeName = modelNodeInfo[node.code]?.name ?? node.code;
+  const current = models?.find((model) => model.id === node.modelId);
+  const target = models?.find((model) => model.id === modelId);
+  const clearing = modelId === null;
+
+  return (
+    <Modal
+      className="app-dialog"
+      open
+      centered
+      width={500}
+      title={clearing ? `清空「${nodeName}」的模型` : `为「${nodeName}」分配模型`}
+      okText={clearing ? '确认清空' : '确认分配'}
+      cancelText="取消"
+      confirmLoading={saving}
+      okButtonProps={{ danger: clearing }}
+      cancelButtonProps={{ disabled: saving }}
+      closable={!saving}
+      keyboard={!saving}
+      mask={{ closable: false }}
+      onCancel={onClose}
+      onOk={onConfirm}
+    >
+      {/* 在同一个浅底区域横向核对已保存模型和变更目标。 */}
+      <div className="model-assignment-comparison">
+        <dl>
+          <dt>当前模型</dt>
+          <dd>{current?.name ?? node.modelId ?? '未分配'}</dd>
+        </dl>
+        <ArrowRightOutlined className="model-assignment-arrow" aria-hidden="true" />
+        <dl className={clearing ? undefined : 'model-assignment-target'}>
+          <dt>分配后</dt>
+          <dd>{target?.name ?? modelId ?? '未分配'}</dd>
+        </dl>
+      </div>
+      {/* 清空必需配置时说明对后续调用的影响。 */}
+      {clearing && node.capability !== 'RERANK' && (
+        <p className="model-assignment-warning">清空后，依赖该配置的新调用将无法发起。</p>
+      )}
+    </Modal>
   );
 }
 

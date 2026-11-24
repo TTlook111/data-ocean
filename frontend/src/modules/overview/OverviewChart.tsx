@@ -1,5 +1,10 @@
-import { LineChart, PieChart, ScatterChart } from 'echarts/charts';
-import type { LineSeriesOption, PieSeriesOption, ScatterSeriesOption } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
+import type {
+  BarSeriesOption,
+  LineSeriesOption,
+  PieSeriesOption,
+  ScatterSeriesOption,
+} from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import type { GridComponentOption, TooltipComponentOption } from 'echarts/components';
 import { init, use as registerCharts } from 'echarts/core';
@@ -11,12 +16,21 @@ import { periodLabel, valueText } from './types';
 import type { DashboardPoint, DashboardSeries } from './types';
 
 // 懒加载页面只注册趋势和分类图需要的渲染组件。
-registerCharts([LineChart, PieChart, ScatterChart, GridComponent, TooltipComponent, SVGRenderer]);
+registerCharts([
+  BarChart,
+  LineChart,
+  PieChart,
+  ScatterChart,
+  GridComponent,
+  TooltipComponent,
+  SVGRenderer,
+]);
 
 /**
  * 限制图表选项为此页面实际使用的组件。
  */
 type Options = ComposeOption<
+  | BarSeriesOption
   | LineSeriesOption
   | PieSeriesOption
   | ScatterSeriesOption
@@ -33,7 +47,10 @@ export function OverviewChart<M extends string>({
   series,
   ring = false,
   dots = false,
+  rank = false,
+  stacked = false,
   ringSurface = '#ffffff',
+  onDrill,
 }: {
   /** 图表的可访问名称。 */
   title: string;
@@ -45,13 +62,19 @@ export function OverviewChart<M extends string>({
   ring?: boolean;
   /** 可重叠维护状态使用分类点图。 */
   dots?: boolean;
+  /** 按总用量排列的水平条形图。 */
+  rank?: boolean;
+  /** 输入及输出在同一时间柱内堆叠。 */
+  stacked?: boolean;
   /** 环图分割线使用面板底色。 */
   ringSurface?: string;
+  /** 从选中的指标和时间点打开原回执。 */
+  onDrill?: (measure: M, point: DashboardPoint<M>) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<EChartsType>(null);
   const [active, setActive] = useState<number | null>(null);
-  const distribution = ring || dots;
+  const distribution = ring || dots || rank;
   const width = distribution ? series.length : points.length;
   const position = active === null ? null : Math.min(active, width - 1);
   const options = useMemo<Options>(() => {
@@ -119,9 +142,59 @@ export function OverviewChart<M extends string>({
         ],
       };
     }
+    if (rank) {
+      // 长模型名称在轴上限宽，提示和数据表保留全称与精确用量。
+      return {
+        animation: false,
+        grid: { left: 4, right: 60, top: 8, bottom: 12, outerBoundsMode: 'same' },
+        tooltip: {
+          trigger: 'item',
+          confine: true,
+          renderMode: 'richText',
+          valueFormatter: (value) => valueText(Number(value)) + ' Token',
+        },
+        xAxis: { type: 'value', show: false, min: 0 },
+        yAxis: {
+          type: 'category',
+          inverse: true,
+          data: series.map((item) => item.label),
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { color: '#526279', width: 142, overflow: 'truncate' },
+        },
+        series: [
+          {
+            type: 'bar',
+            barMaxWidth: 22,
+            itemStyle: { borderRadius: [0, 3, 3, 0] },
+            label: {
+              show: true,
+              position: 'right',
+              color: '#1f2937',
+              formatter: ({ value }) => valueText(Number(value)),
+            },
+            data: series.map((item) => ({
+              name: item.label,
+              value: points[0]?.[item.measure] ?? 0,
+              itemStyle: { color: item.color },
+            })),
+          },
+        ],
+      };
+    }
+    // 峰值采用已知用量之和，强调色沿用当次系列的主题色。
+    const stacks = stacked
+      ? points.map((point) => series.reduce((sum, item) => sum + (point[item.measure] ?? 0), 0))
+      : [];
+    const peak = stacks.reduce((largest, amount) => Math.max(largest, amount), 0);
+    const peakIndex = peak > 0 ? stacks.indexOf(peak) : -1;
+    const peakSeries = series.reduce((last, item, index) => {
+      // 只在该柱最后一个可见分段上显示总峰值。
+      return (points[peakIndex]?.[item.measure] ?? 0) > 0 ? index : last;
+    }, -1);
     return {
       animation: false,
-      grid: { left: 4, right: 16, top: 14, bottom: 4, outerBoundsMode: 'same' },
+      grid: { left: 4, right: 16, top: stacked ? 28 : 14, bottom: 4, outerBoundsMode: 'same' },
       tooltip: {
         trigger: 'axis',
         confine: true,
@@ -130,7 +203,7 @@ export function OverviewChart<M extends string>({
       },
       xAxis: {
         type: 'category',
-        boundaryGap: false,
+        boundaryGap: stacked,
         data: points.map((point) => point.toDate),
         axisLine: { show: false },
         axisTick: { show: false },
@@ -139,7 +212,13 @@ export function OverviewChart<M extends string>({
           hideOverlap: true,
           showMinLabel: true,
           showMaxLabel: true,
-          formatter: (date: string) => date.slice(5).replace('-', '/'),
+          formatter: (date: string, index: number) => {
+            // 有调用但全段未知时标出原因，区别于没有调用的零值。
+            const label = date.slice(5).replace('-', '/');
+            return stacked && series.every((item) => points[index]?.[item.measure] === null)
+              ? label + '\n用量未知'
+              : label;
+          },
         },
       },
       yAxis: {
@@ -147,12 +226,41 @@ export function OverviewChart<M extends string>({
         min: 0,
         minInterval: series.some((item) => item.decimals) ? undefined : 1,
         splitNumber: 4,
-        axisLabel: { color: '#526279' },
+        axisLabel: {
+          color: '#526279',
+          formatter: stacked
+            ? (value: number) => (value >= 1000 ? `${value / 1000}k` : String(value))
+            : undefined,
+        },
         splitLine: { lineStyle: { color: '#e8edf2' } },
       },
-      series: series.map((item): LineSeriesOption => {
+      series: series.map((item, index): LineSeriesOption | BarSeriesOption => {
         // 少量真实发生日用圆点标示，连续趋势维持原型的纯线条。
         const values = points.map((point) => point[item.measure]);
+        if (stacked) {
+          // 两种用量共用柱宽，峰值标签贴在该柱最后一个非零分段上。
+          return {
+            name: item.label,
+            type: 'bar',
+            stack: 'usage',
+            barMaxWidth: 68,
+            data: values,
+            itemStyle: {
+              color: ({ dataIndex }) =>
+                dataIndex === peakIndex ? (item.peakColor ?? item.color) : item.color,
+              borderRadius: index === series.length - 1 ? [5, 5, 0, 0] : 0,
+            },
+            label: {
+              show: index === peakSeries,
+              position: 'top',
+              distance: 8,
+              color: series[0]?.peakColor,
+              fontWeight: 600,
+              fontSize: 14,
+              formatter: ({ dataIndex }) => (dataIndex === peakIndex ? valueText(peak) : ''),
+            },
+          };
+        }
         const decimalSeries = Boolean(item.decimals);
         const sparse = values.filter((value) => value !== null && value > 0).length <= 4;
         return {
@@ -162,7 +270,7 @@ export function OverviewChart<M extends string>({
           connectNulls: false,
           step: item.step ? 'end' : undefined,
           symbol: 'circle',
-          showSymbol: decimalSeries || sparse,
+          showSymbol: Boolean(onDrill) || decimalSeries || sparse,
           symbolSize: (_value, { dataIndex }) => {
             // 连续零值无需逐点标记，单日和耗时仍可识别。
             return decimalSeries || points.length === 1 || (values[dataIndex] ?? 0) > 0 ? 6 : 0;
@@ -173,7 +281,7 @@ export function OverviewChart<M extends string>({
         };
       }),
     };
-  }, [points, ring, dots, ringSurface, series]);
+  }, [points, ring, dots, rank, stacked, ringSurface, series, onDrill]);
 
   useEffect(() => {
     // 容器宽度随侧栏和工作区变化，图表随容器重排。
@@ -195,6 +303,21 @@ export function OverviewChart<M extends string>({
     chart.current?.setOption(options, { notMerge: true });
   }, [options]);
 
+  useEffect(() => {
+    // 明细只针对有记录的图点。取消订阅时保留其他图表事件。
+    const instance = chart.current;
+    if (!onDrill || !instance) return;
+    const read = ({ dataIndex, seriesIndex }: { dataIndex: number; seriesIndex?: number }) => {
+      const point = points[dataIndex],
+        item = series[seriesIndex ?? -1];
+      if (point && item && (point[item.measure] ?? 0) > 0) onDrill(item.measure, point);
+    };
+    instance.on('click', 'series', read);
+    return () => {
+      instance.off('click', read);
+    };
+  }, [onDrill, points, series]);
+
   /**
    * 方向键移动一格，Home 和 End 定位端点，Esc 关闭提示。
    */
@@ -204,6 +327,13 @@ export function OverviewChart<M extends string>({
       // 关闭当前提示并保留键盘焦点。
       event.preventDefault();
       clearPoint();
+      return;
+    }
+    if (event.key === 'Enter' && position !== null && onDrill) {
+      // 同一点的各状态仍可在数据表逐项选择，键盘图点进入第一个有记录的状态。
+      const point = points[position];
+      const item = series.find(({ measure }) => (point[measure] ?? 0) > 0);
+      if (item) onDrill(item.measure, point);
       return;
     }
     const next = {
@@ -244,7 +374,7 @@ export function OverviewChart<M extends string>({
     <div
       className={ring ? 'overview-plot is-ring' : 'overview-plot'}
       role="group"
-      aria-label={title + '，使用左右方向键读数'}
+      aria-label={title + '，使用左右方向键读数' + (onDrill ? '，按 Enter 查看明细' : '')}
       tabIndex={0}
       onKeyDown={readPoint}
       onBlur={clearPoint}

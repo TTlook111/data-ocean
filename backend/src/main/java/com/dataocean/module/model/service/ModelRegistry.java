@@ -12,7 +12,6 @@ import com.dataocean.module.iam.service.PermissionService;
 import com.dataocean.module.model.entity.dto.ModelAssignmentDTO;
 import com.dataocean.module.model.entity.dto.ModelSaveDTO;
 import com.dataocean.module.model.entity.dto.ModelStateDTO;
-import com.dataocean.module.model.entity.vo.ModelCallVO;
 import com.dataocean.module.model.entity.vo.ModelConfigVO;
 import com.dataocean.module.model.entity.vo.ModelNodeVO;
 import com.dataocean.module.model.mapper.ModelMapper;
@@ -22,6 +21,7 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -58,6 +58,22 @@ public class ModelRegistry {
     public static final String METRIC_DISCOVERY = "metric-discovery";
 
     /**
+     * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
+     */
+    private static final Set<String> CONNECTED_NODES = Set.of(
+            TABLE_DESCRIPTION,
+            FIELD_EXPLANATION,
+            RELATION_DISCOVERY,
+            METRIC_DISCOVERY,
+            "intent",
+            "sql-generate",
+            "sql-semantic-check",
+            "output-meaning",
+            "sql-repair",
+            "result-explanation",
+            "rag-embedding");
+
+    /**
      * 平台配置和调用诊断的查询入口。
      */
     private final ModelMapper models;
@@ -86,19 +102,16 @@ public class ModelRegistry {
     }
 
     /**
-     * 读取带当次配置的调用记录。
-     */
-    public PageVO<ModelCallVO> calls(PageQuery page) {
-        return PageVO.from(models.calls(page.toFixedOrderMpPage()), call -> call);
-    }
-
-    /**
      * 列出产品定义的节点、所需能力及当前选择。
      */
     public List<ModelNodeVO> nodes() {
         return models.assignments().stream()
                 .map(row -> new ModelNodeVO(
-                        row.nodeCode(), row.capability(), Objects.toString(row.modelId(), null), row.version()))
+                        row.nodeCode(),
+                        row.capability(),
+                        Objects.toString(row.modelId(), null),
+                        row.version(),
+                        CONNECTED_NODES.contains(row.nodeCode())))
                 .toList();
     }
 
@@ -213,6 +226,10 @@ public class ModelRegistry {
         if (current.version() != input.getVersion()) {
             throw BizIllegalException.conflict();
         }
+        if (selected != null && !CONNECTED_NODES.contains(node)) {
+            // 只有实际读取独立分配的节点接受配置，仍允许按既有流程清空历史分配。
+            throw BizIllegalException.state("当前节点没有独立模型调用，暂不能分配模型");
+        }
         if (selected != null && !current.capability().equals(capability(selected.protocol()))) {
             // 直接调用接口也不能把能力不匹配的模型分配给节点。
             throw BizIllegalException.invalid("模型类型不符合该节点所需能力");
@@ -237,11 +254,18 @@ public class ModelRegistry {
      * 解析任务应固定的节点配置修订。
      */
     public long requireBinding(String node) {
-        Long revision = models.binding(node);
+        Long revision = activeBinding(node);
         if (revision == null) {
             throw BizIllegalException.state("当前节点未分配可用模型");
         }
         return revision;
+    }
+
+    /**
+     * 对仅在需要时调用的节点，也在主任务开始时固定可用修订。
+     */
+    public Long activeBinding(String node) {
+        return models.binding(node);
     }
 
     /**
@@ -269,6 +293,32 @@ public class ModelRegistry {
     public ModelInvocation invocation(Long revisionId, int remainingSeconds) {
         var config = revisionId == null ? null : models.revision(revisionId);
         return invocation(config, remainingSeconds);
+    }
+
+    /**
+     * 保留回执指纹所绑定的不可变模型字段，供问数内部回读使用。
+     *
+     * @param revisionId 原任务冻结的配置修订编号
+     * @param protocol 原请求的接口格式
+     * @param endpoint 原请求的服务基址
+     * @param modelName 原请求的模型名称
+     */
+    public record RevisionReference(String revisionId, String protocol, String endpoint, String modelName) {}
+
+    /**
+     * 回执查验沿用原修订标识，不读取凭据也不重新批准外发。
+     */
+    public RevisionReference revisionReference(long revisionId) {
+        var config = models.revision(revisionId);
+        if (config == null) {
+            // 无法重建原请求身份时，不能使用其他修订的回执。
+            throw BizIllegalException.missing();
+        }
+        return new RevisionReference(
+                Long.toString(config.revisionId()),
+                config.protocol(),
+                config.endpoint().strip(),
+                config.modelName());
     }
 
     /**

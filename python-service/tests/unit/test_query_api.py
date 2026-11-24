@@ -6,10 +6,12 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
 from fastapi.testclient import TestClient
 
 from dataocean_ai.adapters.chat import ModelFailure
 from dataocean_ai.query import api
+from dataocean_ai.query.journal import stable
 
 
 def model_config(kind: str, revision: str = "21") -> dict:
@@ -60,6 +62,41 @@ def test_validation_does_not_echo_credentials_and_request_body(http):
     )
     assert response.status_code == 422
     assert response.json() == {"code": "QUERY_INPUT_INVALID"}
+
+
+def test_intent_uses_its_model_and_only_authorized_context(monkeypatch, http):
+    """问题理解只发送原问题和同源历史，使用自己的模型修订。"""
+    result = {"retrievalQuery": "按线路查询妥投量"}
+    generate = AsyncMock(return_value=(api.Intent.model_validate(result), None))
+    monkeypatch.setattr(api, "generate", generate)
+    context = {"question": "按线路呢？", "memory": {"recent": [{"question": "妥投量是多少？"}]}}
+    job = {"model": model_config("OPENAI_CHAT_COMPLETIONS", "31"), **context}
+
+    response = http.post("/internal/v1/query/intent", json=job)
+
+    assert response.status_code == 200
+    assert response.json() == result
+    config, _, data, schema = generate.await_args.args
+    assert config.revision_id == "31"
+    assert json.loads(data) == context
+    assert schema is api.Intent
+    assert http.post("/internal/v1/query/intent", json={**job, "evidence": []}).status_code == 422
+    generate.assert_awaited_once()
+
+
+def test_intent_receipt_reference_keeps_original_fingerprint():
+    """回读身份不含凭据，仍匹配首次派发的检查点指纹。"""
+    model = model_config("OPENAI_CHAT_COMPLETIONS", "31")
+    dispatch = {"model": model, "question": "妥投量是多少？"}
+    reference = {
+        key: value for key, value in model.items() if key not in {"apiKey", "timeoutSeconds"}
+    }
+    lookup = {**dispatch, "model": reference}
+    assert stable(jsonable_encoder(api.IntentJob.model_validate(dispatch))) == stable(
+        jsonable_encoder(api.IntentJob.model_validate(lookup))
+    )
+    with pytest.raises(ModelFailure, match="MODEL_CONFIGURATION_UNAVAILABLE"):
+        asyncio.run(api.understand_question(api.IntentJob.model_validate(lookup)))
 
 
 @pytest.mark.parametrize("step", ["plan", "repair-parameter", "semantic", "output"])

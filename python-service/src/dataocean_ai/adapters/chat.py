@@ -20,6 +20,8 @@ from langsmith import tracing_context
 from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
+from dataocean_ai.adapters.model_receipts import ModelRecordingError, model_call_hooks
+
 
 class ModelConfiguration(BaseModel):
     """Java 在外发前签发的单次模型配置。"""
@@ -107,7 +109,9 @@ async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatMode
         # 私有业务原文只送达当次准入服务，禁止外部追踪和 HTTP 重定向。
         async with (
             asyncio.timeout(config.timeout),
-            client_type(follow_redirects=False, trust_env=False) as transport,
+            client_type(
+                follow_redirects=False, trust_env=False, event_hooks=model_call_hooks(config)
+            ) as transport,
             AsyncExitStack() as clients,
         ):
             if openai:
@@ -136,11 +140,16 @@ async def model_session(config: ChatConfiguration) -> AsyncIterator[BaseChatMode
             with tracing_context(enabled=False):
                 # 工作流只在受控传输存活时向提供方发送消息。
                 yield model
+    except ModelRecordingError:
+        # 外发前未能登记时拒绝开始，避免业务调用脱离统计。
+        raise ModelFailure("MODEL_RECORD_UNAVAILABLE") from None
     except TimeoutError:
         # 读超时后服务端仍可能已收到请求，保留待核实事实。
         raise ModelFailure("MODEL_RESULT_UNKNOWN") from None
     except (AnthropicAPIError, OpenAIAPIError) as error:
         # 只在 SDK 边界转换提供方异常，避免把内部错误误报为外发结果未知。
+        if isinstance(error.__cause__, ModelRecordingError):
+            raise ModelFailure("MODEL_RECORD_UNAVAILABLE") from None
         status = getattr(error, "status_code", None)
         code = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
         raise ModelFailure(code.get(status, "MODEL_RESULT_UNKNOWN")) from None

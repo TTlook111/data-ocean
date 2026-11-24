@@ -29,4 +29,9 @@ public class ModelNodeVO {
      * 节点并发版本。
      */
     private int version;
+
+    /**
+     * 当前业务实现是否存在对应该节点的独立提供方调用入口。
+     */
+    private boolean connected;
 }

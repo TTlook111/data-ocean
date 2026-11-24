@@ -20,6 +20,7 @@
 - 适配器负责各协议的请求、认证、响应和错误转换，工作流只使用类型化的生成结果和诊断字段。SDK 无法表达必要能力时先核对厂商专用集成，再考虑局部补充。Embedding 和 Rerank 按各自已定接口格式及调用契约接入。
 - 结构化结果按服务和模型实测能力选用 `with_structured_output` 的具体方法或受支持的 JSON 模式，并使用 Pydantic 校验。使用严格 JSON Schema 时，开放键的字典可在模型传输层改为有类型的列表，再转换为业务字段。业务节点继续核对允许字段、引用和实际来源。解析失败和模型拒绝按实际原因处理。 [LangChain 结构化输出](https://docs.langchain.com/oss/python/langchain/models#structured-output) · [Claude 的动态键约束](https://platform.claude.com/docs/en/build-with-claude/structured-outputs#objects-with-arbitrary-keys)
 - 连接测试使用合成输入并复用同一格式适配器。每种协议在部署环境中验证鉴权、响应和节点所需的结构化能力，系统配置只展示已实现并验证的格式。业务调用返回可审计的节点、实际模型、配置修订、结果状态、耗时、可取得的用量及失败原因。日志和追踪只保留获准的诊断字段，模型凭据、完整提示词、原始业务资料及完整响应不得写入诊断内容。
+- 业务入口为实际模型外发绑定节点及原任务，生成与向量适配器按每个提供方请求登记。正式 Python API 和 Worker 都使用原有 `AI_JAVA_URL` 与 `AI_WORKER_PRIVATE_KEY` 向 Java 写回。登记未确认时不发送提供方请求，已发送但结果未确认的请求超期作为待核查记录。连接测试使用独立回执。
 
 ## LangGraph 工作流与故障恢复
 

@@ -76,22 +76,35 @@
     if (range[1] > asOf) return '示例统计截至 2026-11-15，请选择该日期及以前的时段。';
     return '';
   }
+
+  /**
+   * 将已校验的业务日期切成首尾都包含的日、周或月区间。
+   */
+  function periodBuckets(from, to) {
+    const days = Math.round((date(to) - date(from)) / DAY) + 1;
+    const granularity = days <= 60 ? 'day' : days <= 180 ? 'week' : 'month';
+    const buckets = [];
+    for (let cursor = from; cursor <= to;) {
+      // 月粒度沿自然月切分，首尾跨出的日期仍按已选区间裁切。
+      const current = date(cursor);
+      const next = granularity === 'month'
+        ? iso(new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 1)))
+        : shift(cursor, granularity === 'week' ? 7 : 1);
+      buckets.push({ from: cursor, to: next > to ? to : shift(next, -1) });
+      cursor = next;
+    }
+    return { days, granularity, buckets };
+  }
+
   function view({ range = presetRange(30), source = 'all' } = {}) {
     const error = validateRange(range);
     if (error) return { error, points: [], totals: {}, count: 0 };
     if (source !== 'all' && !sources.some(item => item.id === source)) return { error: '数据源不可用。', points: [], totals: {}, count: 0 };
     const [from, to] = range;
-    const days = Math.round((date(to) - date(from)) / DAY) + 1;
-    const granularity = days <= 60 ? 'day' : days <= 180 ? 'week' : 'month';
+    const { days, granularity, buckets } = periodBuckets(from, to);
     const applicable = rows.filter(row => (source === 'all' || row.source === source) && row.date >= from && row.date <= to);
     const points = [];
-    for (let cursor = from; cursor <= to;) {
-      let next;
-      if (granularity === 'month') {
-        const current = date(cursor);
-        next = iso(new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 1)));
-      } else next = shift(cursor, granularity === 'week' ? 7 : 1);
-      const end = next > to ? to : shift(next, -1);
+    for (const { from: cursor, to: end } of buckets) {
       const bucket = applicable.filter(row => row.date >= cursor && row.date <= end);
       const values = Object.fromEntries(fields.map(key => [key, bucket.length ? 0 : null]));
       for (const row of bucket) for (const key of fields) if (!stocks.has(key)) values[key] += row[key];
@@ -101,7 +114,6 @@
         for (const key of stocks) values[key] = bucket.filter(row => row.date === last).reduce((sum, row) => sum + row[key], 0);
       }
       points.push({ from: cursor, to: end, label: cursor.slice(5).replace('-', '/'), ...derived(values) });
-      cursor = next;
     }
     const totals = Object.fromEntries(fields.map(key => [key, applicable.reduce((sum, row) => sum + row[key], 0)]));
     // 期末值没有快照时保持未知，不借用更早日期的状态填补。
@@ -114,5 +126,5 @@
       sourceName: source === 'all' ? '全部数据源' : sources.find(item => item.id === source).name
     };
   }
-  window.DashboardDemo = { asOf, startsAt, sources, presetRange, validateRange, view };
+  window.DashboardDemo = { asOf, startsAt, sources, shift, validDay, periodBuckets, presetRange, validateRange, view };
 })();

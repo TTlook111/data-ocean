@@ -2178,8 +2178,62 @@ h3 {
   padding-inline-start: 28px;
 }
 
+/* 未开放分配的状态与下拉选中值沿同一左轴显示。 */
+.records-panel td.model-node-assignment > .table-secondary {
+  padding-inline-start: 12px;
+}
+
 /* 分配模型的列宽围绕控件内容，描述继续使用剩余空间。 */
 .model-node-picker {
   inline-size: 100%;
   max-inline-size: 204px;
+}
+
+/* 分配确认在同一处对齐旧值、变更方向和目标值。 */
+.model-assignment-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 6px;
+  background: var(--do-canvas);
+}
+
+/* 模型长名称完整换行，避免将另一侧的名称挤出。 */
+.model-assignment-comparison dl {
+  min-width: 0;
+  margin: 0;
+}
+
+/* 属性名称比实际选择低一档。 */
+.model-assignment-comparison dt {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: var(--do-line-meta);
+}
+
+/* 数值沿用正文尺度，并与各自标签对齐。 */
+.model-assignment-comparison dd {
+  margin: 4px 0 0;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+/* 主色只标出准备分配的模型，箭头提示变化方向。 */
+.model-assignment-target dd {
+  color: var(--do-primary);
+  font-weight: 600;
+}
+
+/* 方向提示保持次要色，避免抢占模型名称。 */
+.model-assignment-arrow {
+  color: var(--do-muted);
+}
+
+/* 清空影响放在对照下方，无额外外框。 */
+.model-assignment-warning {
+  margin: 12px 0 0;
+  color: var(--do-muted);
+  line-height: 22px;
 }

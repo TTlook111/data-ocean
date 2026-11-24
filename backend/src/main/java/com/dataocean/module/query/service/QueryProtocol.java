@@ -34,14 +34,28 @@ public final class QueryProtocol {
     /** 原查询接受时间和可披露的近期对话及更早摘要。 */
     public record Memory(String timeAnchor, List<MemoryTurn> recent, List<MemoryTurn> earlier) {}
 
-    /** 首次派发前固化的许可依据及模型修订，任何凭据都不保存。 */
+    /**
+     * 首次派发前固化许可及模型修订，任何凭据都不保存。
+     *
+     * @param repairRevision 修正节点固定修订，零表示本轮未配置，空值用于旧版已冻结输入
+     * @param intentRevision 问题理解节点固定修订，空值仅用于保持升级前旧请求的检索回执
+     */
     public record RunInput(
             String signature,
             Memory memory,
             List<Long> bindings,
             long generationRevision,
             long semanticRevision,
-            Long outputRevision) {}
+            Long outputRevision,
+            Long repairRevision,
+            Long intentRevision) {}
+
+    /**
+     * 检索前的问题理解回执，查询计划继续使用原问题和核验后的正式证据。
+     *
+     * @param retrievalQuery 归一化的业务检索表述
+     */
+    public record Intent(String retrievalQuery) {}
 
     /** 当前已获权的内部证据引用，不包含结果行及 SQL 参数。 */
     public record RatingAnswer(

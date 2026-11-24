@@ -74,6 +74,7 @@ const navigation = [
   { key: '/releases', label: '发布与版本', permission: 'releases.view' },
   { key: '/feedback-dashboard', label: '反馈概览', permission: 'feedback-dashboard.view' },
   { key: '/feedback', label: '问题队列与处理', permission: 'feedback.view' },
+  { key: '/model-overview', label: '模型运行概览', permission: 'diagnostics.view' },
   { key: '/models', label: '模型配置', permission: 'models.view' },
   { key: '/diagnostics', label: '调用记录与故障', permission: 'diagnostics.view' },
   { key: '/my-requests', label: '我的申请', permission: 'my-requests.view' },
@@ -195,6 +196,9 @@ const KnowledgeEffectiveVersionPage = lazyPage(() =>
   ),
 );
 // 模型配置与调用记录独立授权，使用各自的后台入口。
+const ModelOverview = lazyPage(() =>
+  import('../modules/models/ModelOverview').then((m) => m.ModelOverview),
+);
 const ModelPage = lazyPage(() => import('../modules/models/ModelPage').then((m) => m.ModelPage));
 const ModelCallsPage = lazyPage(() =>
   import('../modules/models/ModelCallsPage').then((m) => m.ModelCallsPage),
@@ -239,6 +243,7 @@ const workspaceRoutes = [
   { path: '/feedback', element: <FeedbackQueue /> },
   { path: '/feedback/:id', element: <FeedbackIssuePage /> },
   // 系统配置的真实模型与诊断入口。
+  { path: '/model-overview', element: <ModelOverview /> },
   { path: '/models', element: <ModelPage /> },
   { path: '/diagnostics', element: <ModelCallsPage /> },
   // 数据访问审批及个人范围。
@@ -458,6 +463,10 @@ export function Application() {
   }
 
   const visible = navigation.filter((item) => session.permissionCodes.includes(item.permission));
+  // 概览沿用调用诊断权限，模型配置继续独立授权。
+  const systemPages = visible.filter(({ key }) =>
+    ['/model-overview', '/models', '/diagnostics'].includes(key),
+  );
   const home = visible[0]?.key ?? '/account';
 
   if (entryPaths.some((path) => matchPath(path, location.pathname))) {
@@ -610,15 +619,13 @@ export function Application() {
           },
         ]
       : []),
-    ...(visible.some(({ key }) => key === '/models' || key === '/diagnostics')
+    ...(systemPages.length
       ? [
           {
             key: 'system-group',
             label: '系统配置',
             icon: <SettingOutlined />,
-            children: visible
-              .filter(({ key }) => key === '/models' || key === '/diagnostics')
-              .map(({ key, label }) => ({ key, label })),
+            children: systemPages.map(({ key, label }) => ({ key, label })),
           },
         ]
       : []),

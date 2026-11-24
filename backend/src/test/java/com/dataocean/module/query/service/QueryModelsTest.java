@@ -3,9 +3,13 @@ package com.dataocean.module.query.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.module.model.service.ModelInvocation;
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.model.service.ModelRegistry.RevisionReference;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryModels.Run;
@@ -93,6 +97,42 @@ class QueryModelsTest {
     }
 
     /**
+     * 问题理解以独立的阶段和模型修订派发，恢复时读取原回执。
+     */
+    @Test
+    void dispatchesAndRecoversIntent() {
+        when(registry.invocation(31L, 28))
+                .thenReturn(new ModelInvocation(
+                        "31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample", 28, "fixture"))
+                .thenThrow(BizIllegalException.state("当前模型已停用"));
+        when(registry.revisionReference(31L))
+                .thenReturn(
+                        new RevisionReference("31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample"));
+        when(steps.issue("query-a", 3, "intent")).thenReturn(1, 0);
+        var seen = new ArrayList<String>();
+        var models = client((request, bytes, execution) -> {
+            assertThat(request.getURI().getPath()).endsWith("/intent");
+            assertThat(request.getHeaders().getFirst("X-Query-Step")).isEqualTo("intent");
+            var body = new String(bytes, StandardCharsets.UTF_8);
+            assertThat(body).contains("\"revisionId\":\"31\"");
+            var lookup = request.getHeaders().getFirst("X-Query-Lookup");
+            seen.add(lookup);
+            if ("false".equals(lookup)) {
+                // 首次断连后，实际发送给回读接口的身份不含原凭据。
+                assertThat(body).contains("\"apiKey\"");
+                throw new ResourceAccessException("lost intent reply");
+            }
+            assertThat(body).doesNotContain("\"apiKey\"", "\"timeoutSeconds\"");
+            return response(HttpStatus.OK, "{\"retrievalQuery\":\"按线路查询物流状态\"}");
+        });
+
+        assertThat(models.understand(run, 31, 60, "物流状态", memory)).isEqualTo("按线路查询物流状态");
+        assertThat(models.understand(run, 31, 60, "物流状态", memory)).isEqualTo("按线路查询物流状态");
+        assertThat(seen).containsExactly("false", "true", "true");
+        verify(registry).invocation(31L, 28);
+    }
+
+    /**
      * 真正断连只查回执，旧代次失败保留恢复待核实。
      */
     @Test
@@ -120,6 +160,27 @@ class QueryModelsTest {
         assertThatThrownBy(() -> interrupted.retrieve(run, "妥投量", List.of(), 9))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("RECOVERY_PENDING");
+    }
+
+    /**
+     * 检查点已提交但首次返回暂不可用时，也能用原阶段查回真实结果。
+     */
+    @Test
+    void serviceUnavailableCanRecoverACompletedReceipt() {
+        when(steps.issue("query-a", 3, "retrieve")).thenReturn(1);
+        var calls = new ArrayList<String>();
+        var models = client((request, bytes, execution) -> {
+            var lookup = request.getHeaders().getFirst("X-Query-Lookup");
+            calls.add(lookup);
+            if ("false".equals(lookup)) {
+                // 首次响应因检查点确认超时返回 503，回执已经写入。
+                return response(HttpStatus.SERVICE_UNAVAILABLE, "{}");
+            }
+            return response(HttpStatus.OK, "[]");
+        });
+
+        assertThat(models.retrieve(run, "妥投量", List.of(), 9)).isEmpty();
+        assertThat(calls).containsExactly("false", "true");
     }
 
     /**

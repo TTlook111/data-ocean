@@ -11,6 +11,7 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel, ConfigDict, Field
 
 from dataocean_ai.adapters.chat import CallReceipt, ChatConfiguration, ModelFailure, generate
+from dataocean_ai.adapters.model_receipts import model_call_scope
 from dataocean_ai.governance.attachments import fragments
 from dataocean_ai.governance.discovery import (
     DISCOVERY_PROMPT,
@@ -398,27 +399,37 @@ async def invoke_model(state: ModelGraphState, runtime: Runtime[TaskContext]) ->
         # 领取响应丢失时保留未知边界，下一次不会重复外发。
         raise ModelFailure("MODEL_RESULT_UNKNOWN") from None
 
-    if state["context"].discovery is not None:
-        # 有固定证据和输出的发现使用单次结构化调用。
-        discovered, call = await generate(
-            config, DISCOVERY_PROMPT, state["prompt"], DiscoveryAnswer
-        )
-        return {"discovered": discovered, "call": call}
-    if state["context"].targetColumn is not None:
-        # 字段解释可以按需取证，普通表说明沿用单轮生成。
-        answer, call, used_notes = await explain_field(
-            config,
-            state["prompt"],
-            ModelAnswer,
-            partial(recheck_field, task),
-            partial(read_field_sample, task) if state["context"].sampleAvailable else None,
-        )
-        if not used_notes:
-            # 没调用资料工具时，不登记资料取用，也无法引用相关编号。
-            return {"answer": answer, "call": call, "used": [], "locators": {}}
+    context = state["context"]
+    if context.discovery is not None:
+        # 两种发现按各自的独立配置节点登记。
+        node = {"RELATION": "relation-discovery", "METRIC": "metric-discovery"}[
+            context.discovery.kind
+        ]
+    else:
+        # 表和字段使用不同节点。字段 Agent 的每轮请求均继承此归属。
+        node = "field-explanation" if context.targetColumn is not None else "table-description"
+    with model_call_scope("GOVERNANCE", node, task["request_id"]):
+        if context.discovery is not None:
+            # 有固定证据和输出的发现使用单次结构化调用。
+            discovered, call = await generate(
+                config, DISCOVERY_PROMPT, state["prompt"], DiscoveryAnswer
+            )
+            return {"discovered": discovered, "call": call}
+        if context.targetColumn is not None:
+            # 字段解释可以按需取证，普通表说明沿用单轮生成。
+            answer, call, used_notes = await explain_field(
+                config,
+                state["prompt"],
+                ModelAnswer,
+                partial(recheck_field, task),
+                partial(read_field_sample, task) if context.sampleAvailable else None,
+            )
+            if not used_notes:
+                # 没调用资料工具时，不登记资料取用，也无法引用相关编号。
+                return {"answer": answer, "call": call, "used": [], "locators": {}}
+            return {"answer": answer, "call": call}
+        answer, call = await generate(config, SYSTEM_PROMPT, state["prompt"], ModelAnswer)
         return {"answer": answer, "call": call}
-    answer, call = await generate(config, SYSTEM_PROMPT, state["prompt"], ModelAnswer)
-    return {"answer": answer, "call": call}
 
 
 async def recheck_field(task: TaskContext) -> None:

@@ -238,6 +238,7 @@ class QueryWorker {
             namedPlan = new QuerySql().namedStock(named, relativeDay);
         }
         long generation = frozen.generationRevision();
+        Long usedRepair = null;
         String planningQuestion = relativeDay == null ? question : withBusinessDate(question, relativeDay.toString());
         QueryProtocol.Plan proposed;
         boolean generated = adjacentDay == null && namedPlan == null;
@@ -284,10 +285,16 @@ class QueryWorker {
                 // 已验证历史上的日期追问无需再次生成业务条件。
                 throw invalid;
             }
-            // 首次草案从未获得执行许可。重规划仍使用原模型、权限、来源和剩余预算。
+            // 新任务使用已冻结的修正节点，旧快照依原生成修订恢复同一个检查点。
+            long repair = frozen.repairRevision() == null ? generation : frozen.repairRevision();
+            if (repair == 0) {
+                // 缺少独立修正配置时不替用户改用其他节点的模型。
+                throw QueryFailure.modelUnavailable();
+            }
             runAccess.requireRules(row, signature);
             var revised = models.repairParameter(
-                    run, generation, remaining(row), planningQuestion, evidence, rules, proposed, frozen.memory());
+                    run, repair, remaining(row), planningQuestion, evidence, rules, proposed, frozen.memory());
+            usedRepair = repair;
             runAccess.requireRules(row, signature);
             checked = compile(bases, QuerySql.normalize(revised), previous, frozen.memory(), question);
         }
@@ -341,9 +348,17 @@ class QueryWorker {
         }
 
         var revisions = new ArrayList<String>();
+        if (frozen.intentRevision() != null) {
+            // 新版请求先完成了独立问题理解，将其实际修订纳入同轮审计。
+            revisions.add(Ids.text(frozen.intentRevision()));
+        }
         if (generated) {
             // 这轮确实调用了规划节点，审计记录应包含实际模型版本。
             revisions.add(Ids.text(generation));
+        }
+        if (usedRepair != null) {
+            // 修正使用独立修订，记录实际网络调用所用配置。
+            revisions.add(Ids.text(usedRepair));
         }
         revisions.add(Ids.text(semantic));
         if (outputRevision != null) {
@@ -380,6 +395,27 @@ class QueryWorker {
      */
     private List<QueryCorpus.Basis> retrieveBasis(
             Request row, String signature, String question, RunInput frozen, QueryModels.Run run) {
+        String search = retrievalText(question, frozen.memory());
+        if (frozen.intentRevision() != null) {
+            // 问题和历史上下文仅在本轮申请人的规则仍有效时发给已分配的理解模型。
+            runAccess.asActor(row, () -> {
+                runAccess.requireRules(row, signature);
+                context.verify(row, signature, frozen.memory());
+                return null;
+            });
+            try {
+                // 保留原问题与已核验的上轮检索上下文，再补充理解节点整理的表达。
+                String understood =
+                        models.understand(run, frozen.intentRevision(), remaining(row), question, frozen.memory());
+                if (!question.equals(understood)) {
+                    // 原样返回时已有本轮原话，避免重复加入同一句。
+                    search += "\n" + understood;
+                }
+            } finally {
+                // 外部理解期间取消或撤权时，不进入后续知识检索。
+                runAccess.requireRules(row, signature);
+            }
+        }
         var indexes = runAccess.asActor(row, () -> {
             // 只为可信原发起者取得当前仍有权使用的索引。
             runAccess.requireRules(row, signature);
@@ -393,7 +429,7 @@ class QueryWorker {
         List<QueryProtocol.Hit> hits;
         try {
             // 调用属于同一运行的正式召回节点。
-            hits = models.retrieve(run, retrievalText(question, frozen.memory()), indexes, remaining(row));
+            hits = models.retrieve(run, search, indexes, remaining(row));
         } finally {
             // 即使上游返回失败，也先落实在等待期间发生的取消与撤权。
             runAccess.requireRules(row, signature);
@@ -580,7 +616,9 @@ class QueryWorker {
                     bindings,
                     models.revision("sql-generate"),
                     models.revision("sql-semantic-check"),
-                    noRules ? null : models.revision("output-meaning"));
+                    noRules ? null : models.revision("output-meaning"),
+                    models.repairRevision(),
+                    models.revision("intent"));
             if (requests.freeze(row.id(), row.runVersion(), json.write(frozen)) != 1) {
                 // 只有当前代次可写首次冻结的上下文。
                 throw QueryFailure.technical();

@@ -21,6 +21,8 @@
   <link rel="stylesheet" href="feedback.css?v=feedback-queue-20261116">
   <link rel="stylesheet" href="system-models.css?v=models-20261116">
   <link rel="stylesheet" href="dashboard.css?v=overview-20261115">
+  <!-- 模型运行概览复用现有图表，并统一辅助图绘图区。 -->
+  <link rel="stylesheet" href="model-overview.css?v=model-theme-20261124">
   <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
   <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
   <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
@@ -56,12 +58,14 @@
   <script defer src="knowledge-update.js?v=knowledge-phase23-20261115"></script>
   <script defer src="feedback.js?v=feedback-queue-20261116"></script>
   <script defer src="../shared/vendor/echarts-6.0.0.min.js"></script>
-  <script defer src="dashboard-data.js?v=overview-20261115"></script>
+  <script defer src="dashboard-data.js?v=model-period-20261124"></script>
   <script defer src="module-dashboards.js?v=modules-20261115"></script>
-  <script defer src="dashboard.js?v=overview-20261115"></script>
-  <script defer src="system-model-data.js?v=models-20261116"></script>
-  <script defer src="system-models.js?v=models-20261116"></script>
-  <script defer src="people.js?v=models-20261116"></script>
+  <script defer src="dashboard.js?v=model-tone-20261124"></script>
+  <script defer src="system-model-data.js?v=model-period-20261124"></script>
+  <!-- 三张图和诊断列表读取同一份离线模型调用。 -->
+  <script defer src="model-overview.js?v=model-theme-20261124"></script>
+  <script defer src="system-models.js?v=model-usage-20261124"></script>
+  <script defer src="people.js?v=model-usage-20261124"></script>
 </head>
 <body>
   <header class="admin-top">

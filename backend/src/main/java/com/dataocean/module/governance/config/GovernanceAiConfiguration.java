@@ -67,7 +67,8 @@ public class GovernanceAiConfiguration {
                                 && "dataocean-python".equals(token.getHeaders().get("kid"))
                         ? OAuth2TokenValidatorResult.success()
                         : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token"))));
-        return http.securityMatcher("/internal/v1/governance/**", "/internal/v1/knowledge/**")
+        return http.securityMatcher(
+                        "/internal/v1/governance/**", "/internal/v1/knowledge/**", "/internal/v1/model-calls/**")
                 .sessionManagement(config -> config.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(config -> config.disable())
                 .authorizeHttpRequests(config -> config.anyRequest().authenticated())

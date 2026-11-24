@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
 from dataocean_ai.adapters.embedding import embed
 from dataocean_ai.adapters.milvus import vector_client
+from dataocean_ai.adapters.model_receipts import model_call_scope
 from dataocean_ai.knowledge.index import BATCH_SIZE, Verified, authority
 
 
@@ -169,7 +170,10 @@ async def execute_validation(task: str, run: int, base: str) -> ValidationReceip
             # 返回可披露状态，不记录无效输入正文。
             raise ModelFailure("INPUT_STALE") from None
         try:
-            with tracing_context(enabled=False):
+            with (
+                tracing_context(enabled=False),
+                model_call_scope("KNOWLEDGE", "rag-embedding", task),
+            ):
                 async with asyncio.timeout(job.remainingSeconds):
                     state = await _graph().ainvoke(
                         {},

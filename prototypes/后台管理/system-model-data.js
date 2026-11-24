@@ -152,9 +152,50 @@
       rows.splice(0,rows.length,...leading,...rows.filter(row=>!leading.includes(row)));
       const generation=rows.filter(row=>row.kind==='generation'&&row.state==='已启用'),vector=rows.find(row=>row.kind==='embedding'),rank=rows.find(row=>row.kind==='rerank');
       nodes.forEach(node=>{node.model=node.kind==='generation'?generation[0].id:node.kind==='embedding'?vector.id:rank.id;node.active=snapshot(find(node.model));node.indexState='已就绪';});
-      const callNodes=['table-description','field-description','relation-discovery','metric-discovery','document-plan','document-write','question-suggestion','intent','clarification','history-summary','sql-generate','sql-semantic-check','result-explanation','rag-embedding','feedback-similarity'];
-      for(let i=0;i<15;i++){const node=nodes.find(value=>value.id===callNodes[i]),row=find(node.model),failed=i%3===0;calls.push({id:'DY-'+String(i+1).padStart(3,'0'),node:node.id,nodeName:node.name,module:node.module,model:row.id,revision:row.revision,snapshot:snapshot(row),status:failed?i===9?'结果待核查':'失败':'成功',reason:failed?['服务限流','凭据失效','响应中断'][Math.floor(i/3)%3]:'',at:clock()-i*600000,elapsed:i===9?null:280+i*27,tokens:i%4===0?null:1000+i*13,delivered:node.id==='result-explanation'&&failed});}
+      const callNodes=['table-description','field-description','relation-discovery','metric-discovery','document-plan','document-write','question-suggestion','intent','clarification','history-summary','sql-generate','sql-semantic-check','result-explanation','rag-embedding','feedback-similarity',
+        'field-description','document-plan','sql-generate','metric-discovery','intent','document-write','question-suggestion'];
+      // 每项为输入和输出的 Token 数，空项表示该次调用缺少用量回执。
+      const usage = [null, [6400, 1200], [4500, 850], null, [8500, 2300], [12600, 3700], null,
+        [2800, 650], [2100, 500], null, [7900, 1800], [4400, 900], [5300, 700], [1400, 0], [1650, 0],
+        [6700, 1800], [9300, 2500], [4900, 1600], null, [6200, 1400], [13800, 4400], [3500, 900]];
+      // 部分历史调用使用其他生成模型，当次快照独立于当前节点分配。
+      const anthropic = generation.find(row => row.content.protocol === 'anthropic');
+      const alternate = generation.find(row => row.name === '生成备用模型 1');
+      const historical = new Map([
+        ['relation-discovery', anthropic], ['document-plan', anthropic], ['sql-semantic-check', anthropic],
+        ['intent', alternate], ['clarification', alternate]
+      ]);
+      // 样例分布在多个上海自然日，两个快捷期间和自定义范围都有可核对的明细。
+      const daysAgo = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 7, 8, 9, 9, 10, 12, 13];
+      const day = 86400000, hour = 3600000, shanghaiOffset = 8 * hour;
+      const now = clock();
+      const today = Math.floor((now + shanghaiOffset) / day) * day - shanghaiOffset;
+      for (let i = 0; i < callNodes.length; i++) {
+        // 记录保留发生时间、当次模型快照、用量和实际运行结果。
+        const node = nodes.find(value => value.id === callNodes[i]);
+        const row = historical.get(node.id) ?? find(node.model);
+        const failed = [0, 3, 6, 9, 12, 18].includes(i);
+        const [inputTokens, outputTokens] = usage[i] ?? [null, null];
+        const reason = i === 12 ? '解释响应格式不符' : (i === 9 ? '调用结果尚未确认' : ['服务限流', '凭据失效', '响应中断'][Math.floor(i / 3) % 3]);
+        // 当天样例落在已过的时间中，其他日期按白天的不同小时分布。
+        const at = daysAgo[i] ? today - daysAgo[i] * day + (16 - i % 7) * hour : today + Math.floor((now - today) * (i === 0 ? 0.92 : 0.68));
+        calls.push({
+          // 诊断列表标识与当次业务节点。
+          id: 'DY-' + String(i + 1).padStart(3, '0'), node: node.id, nodeName: node.name, module: node.module,
+          // 模型配置与调用所使用的修订快照。
+          model: row.id, revision: row.revision, snapshot: snapshot(row),
+          // 调用结果、诊断原因和耗时，时刻及耗时使用毫秒。
+          status: failed ? (i === 9 ? '结果待核查' : '失败') : '成功', reason: failed ? reason : '',
+          at, elapsed: i === 9 ? null : 280 + i * 27,
+          // 两种用量及合计均为 Token，未知不改写为零。
+          inputTokens, outputTokens, tokens: inputTokens === null ? null : inputTokens + outputTokens,
+          // 解释失败时保留此前业务结果的交付事实。
+          delivered: node.id === 'result-explanation' && failed
+        });
+      }
       calls.forEach((call,index)=>{call.context=clone(callContext(nodes.find(node=>node.id===call.node),index));});
+      // 模型排行使用所选期间最新一次调用的名称，来源任务编号保持原分配。
+      calls.sort((a, b) => b.at - a.at);
       changes.length=0;
     }
     if(options.seed!==false)seed();

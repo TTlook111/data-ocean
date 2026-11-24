@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
 from dataocean_ai.adapters.embedding import embed
 from dataocean_ai.adapters.milvus import vector_client
+from dataocean_ai.adapters.model_receipts import model_call_scope
 from dataocean_ai.governance.security import worker_token
 
 # 单批有界。换批和写索引之前再次从 Java 核查当前任务资格。
@@ -271,7 +272,10 @@ async def execute_index(task: str, run: int, base: str) -> IndexReceipt:
             raise ModelFailure("INPUT_STALE") from None
         try:
             # 剩余预算包含所有批次和存储，且不发送正文至外部追踪服务。
-            with tracing_context(enabled=False):
+            with (
+                tracing_context(enabled=False),
+                model_call_scope("KNOWLEDGE", "rag-embedding", task),
+            ):
                 async with asyncio.timeout(source.remainingSeconds):
                     state = await _graph().ainvoke(
                         {},

@@ -22,7 +22,7 @@
     ['知识库与发布', 'file-text', [['knowledge-dashboard', '知识概览'], ['knowledge', '知识文档'], ['test-cases', '标准题单'], ['releases', '发布与版本']]],
     ['反馈处理', 'inbox', [['feedback-dashboard', '反馈概览'], ['feedback', '问题队列与处理']]],
     ['人员与权限', 'user-round', [['users', '人员管理'], ['departments', '部门管理'], ['roles', '角色与功能权限'], ['output-rules', '输出限制规则'], ['access-requests', '访问申请'], ['grants', '授权管理'], ['audit', '权限审计']]],
-    ['系统配置', 'layers', [['models', '模型配置'], ['diagnostics', '调用记录与故障']]],
+    ['系统配置', 'layers', [['model-overview', '模型运行概览'], ['models', '模型配置'], ['diagnostics', '调用记录与故障']]],
     ['个人管理', 'user-round', [['account-info', '账号信息'], ['my-requests', '我的申请'], ['my-access', '我的访问范围']]]
   ];
   const titles = { dashboard: '总览', ...Object.fromEntries(groups.flatMap(group => group[2])) };
@@ -890,9 +890,10 @@
     else if (section === 'my-requests') renderMyRequests();
     else if (section === 'account-info') AccountInfoPage.render(main, { el, button, pair, status, pageHeading, currentUser, openForm, modal });
     else if (section === 'audit') AuditPage.render(main, { el, button, pair, textCell, pageHeading, modal, currentUser, viewRequest: (request, trigger) => requestDetail(request, trigger, true) });
-    else if (['models','diagnostics'].includes(section)) SystemModelsPage.render(main,{el,button,pair,textCell,status,pageHeading,modal,currentUser,openForm,notify,moreActions,
+    // 模型模块的下钻条件只附在目标地址上，由目标页继续校验既有权限。
+    else if (['model-overview', 'models', 'diagnostics'].includes(section)) SystemModelsPage.render(main,{el,button,pair,textCell,status,pageHeading,modal,currentUser,openForm,notify,moreActions,
       setTitle(title){pageLocation.title=title;document.title=title+' · DataOcean 后台管理';}
-    },section,decodeURIComponent(parts[1]||''));
+    },section,decodeURIComponent(parts[1]||''),new URLSearchParams(parts[2]));
     else if (section === 'feedback') FeedbackPage.render(main,{el,button,pair,textCell,pageHeading,modal,currentUser,openForm,notify,moreActions,
       setTitle(title,parent='',href='#feedback'){pageLocation.title=title;pageLocation.parent=parent;pageLocation.parentHref=href;document.title=title+' · DataOcean 后台管理';}
     },decodeURIComponent(parts[1]||''));

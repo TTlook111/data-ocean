@@ -9,6 +9,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -42,6 +44,7 @@ import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
+import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
@@ -142,6 +145,7 @@ class QueryServiceTest {
                 conversations,
                 users,
                 runAccess,
+                models,
                 explanations,
                 access,
                 actors,
@@ -213,6 +217,23 @@ class QueryServiceTest {
                 .isInstanceOf(BizIllegalException.class);
         assertThatThrownBy(() -> service.ask(new AskQueryDTO("72", "  ", null, null, null), command))
                 .isInstanceOf(BizIllegalException.class);
+    }
+
+    /**
+     * 必备模型不可用时拒绝入队，原命令的回执仍可以读取。
+     */
+    @Test
+    void checksIntentConfigurationOnlyForNewCommands() {
+        var input = new AskQueryDTO("72", "物流状态", null, null, null);
+        doThrow(BizIllegalException.state("问题理解模型暂不可用")).when(models).requireIntentReady(SOURCE);
+
+        assertThatThrownBy(() -> service.ask(input, command)).hasMessage("问题理解模型暂不可用");
+        verify(requests, never()).insert(any());
+        verify(conversations, never()).insert(anyString(), anyLong(), anyLong(), anyString(), anyString());
+
+        when(requests.byCommand(USER, command)).thenReturn(row);
+        when(row.commandFingerprint()).thenReturn(new byte[] {1});
+        assertThat(service.ask(input, command).getId()).isEqualTo(id);
     }
 
     /**
@@ -302,6 +323,88 @@ class QueryServiceTest {
     }
 
     /**
+     * 新轮次固定问题理解的独立修订，并把理解结果用在第一次知识召回。
+     */
+    @Test
+    void understandsQuestionBeforeRetrievalUsingItsOwnRevision() throws SQLException {
+        ready();
+
+        worker.work();
+
+        var calls = inOrder(models);
+        calls.verify(models).revision("intent");
+        calls.verify(models).understand(any(), eq(31L), anyInt(), eq("物流状态"), any());
+        calls.verify(models).retrieve(any(), eq("物流状态\n按已确认线路统计物流状态"), anyList(), anyInt());
+        verify(requests)
+                .freeze(
+                        eq(id),
+                        eq(2),
+                        argThat(input -> json.read(input, RunInput.class).intentRevision() == 31L));
+    }
+
+    /**
+     * 模型原样返回短追问时，仍用上轮原问和已确认指标参与检索。
+     */
+    @Test
+    void keepsPriorRetrievalContextWhenIntentLeavesFollowUpUnchanged() throws SQLException {
+        ready();
+        var prior = new Plan("READY", null, "6", "VALUES", "妥投量", null, List.of(label), List.of());
+        var memory = new Memory(
+                time.toInstant(ZoneOffset.UTC).toString(),
+                List.of(new MemoryTurn(UUID.randomUUID().toString(), "妥投量是多少？", null, prior)),
+                List.of());
+        when(row.question()).thenReturn("按线路呢？");
+        when(context.capture(eq(row), anyString())).thenReturn(memory);
+        when(models.understand(any(), eq(31L), anyInt(), eq("按线路呢？"), eq(memory)))
+                .thenReturn("按线路呢？");
+
+        worker.work();
+
+        verify(models).retrieve(any(), eq("按线路呢？\n同源上轮：妥投量是多少？\n已确认指标：妥投量"), anyList(), anyInt());
+    }
+
+    /**
+     * 旧轮次恢复时沿用原始召回输入，以便继续读取之前的步骤回执。
+     */
+    @Test
+    void resumesLegacyRetrievalWithOriginalInput() throws SQLException {
+        ready();
+        var memory = new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of());
+        when(row.runInput())
+                .thenReturn(json.write(Map.of(
+                        "signature",
+                        new QueryOutput().signature(List.of()),
+                        "memory",
+                        memory,
+                        "bindings",
+                        List.of(BINDING),
+                        "generationRevision",
+                        1,
+                        "semanticRevision",
+                        2)));
+
+        worker.work();
+
+        verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
+        verify(models).retrieve(any(), eq("物流状态"), anyList(), anyInt());
+    }
+
+    /**
+     * 新轮次缺少问题理解模型时停止，避免跳过该步骤或借用其他模型。
+     */
+    @Test
+    void stopsBeforeRetrievalWhenIntentModelIsUnassigned() throws SQLException {
+        ready();
+        when(models.revision("intent")).thenThrow(QueryFailure.modelUnavailable());
+
+        worker.work();
+
+        verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
+        verify(models, never()).retrieve(any(), anyString(), anyList(), anyInt());
+        verify(requests, never()).permit(any());
+    }
+
+    /**
      * 各规划判定必须转成封闭的任务状态，并且不能触发 JDBC。
      */
     @ParameterizedTest
@@ -371,6 +474,8 @@ class QueryServiceTest {
                             List.of(BINDING),
                             1,
                             2,
+                            null,
+                            null,
                             null)));
             default -> throw new AssertionError(mode);
         }
@@ -436,6 +541,8 @@ class QueryServiceTest {
                 .thenReturn(new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()));
         when(corpus.bindings(SOURCE)).thenReturn(List.of(BINDING));
         when(corpus.indexes(eq(SOURCE), anyList(), anyInt())).thenReturn(List.of(mock(Index.class)));
+        when(models.revision("intent")).thenReturn(31L);
+        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn("按已确认线路统计物流状态");
         var hit = new Hit("6", 0, "digest");
         when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(List.of(hit));
         var basis = mock(QueryCorpus.Basis.class);

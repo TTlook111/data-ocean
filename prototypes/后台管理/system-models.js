@@ -2,12 +2,14 @@
 (() => {
   'use strict';
   const model=SystemModelsDemo,queries=new Map();let main,ui,actor,section='models',tab='list',sourceOrigin,reopen;
+  // 本次定位来自概览入口，不覆盖模型与诊断页面单独保存的查询。
+  let overviewParams = new URLSearchParams();
   const el=(...args)=>ui.el(...args),has=key=>model.permitted(actor,key),button=(label,fn,primary=false)=>ui.button(label,fn,primary?'admin-button is-primary':'admin-button');
   const time=at=>new Date(at).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,19);
   const field=(key,label,extra={})=>({key,label,...extra}),choices=values=>values.map(value=>({value,label:value}));
   const status=value=>el('span','status-tag'+(/未分配|不使用|已停用/.test(value)?' is-disabled':/失败|待|不可用/.test(value)?' is-pending':''),value);
   function focusKey(key){requestAnimationFrame(()=>{if(document.querySelector('dialog[open]'))return;const target=[...main.querySelectorAll('[data-focus]')].find(node=>node.dataset.focus===key)||main.querySelector('.sm-record-panel .do-action')||main.querySelector('input');target?.focus({preventScroll:true});});}
-  function refresh(){render(main,ui,section,tab);}
+  function refresh(){render(main,ui,section,tab,overviewParams);}
   function facts(entries){const list=el('dl','sm-facts');entries.forEach(([label,value])=>list.append(ui.pair(label,String(value??'未知'))));return list;}
   function form(config){const initial=JSON.stringify(config.value);return ui.openForm({protectChanges:true,hasChanges:value=>JSON.stringify(value)!==initial,...config});}
   function tabs(items,active,change,action){const host=el('div','prototype-ui sm-tabs'),nav=el('div','sm-tabs-nav');PrototypeUI.mount(nav,{data:()=>({active}),methods:{change},template:'<el-tabs v-model="active" @tab-change="change">'+items.map(([name,label])=>'<el-tab-pane name="'+name+'" label="'+label+'"></el-tab-pane>').join('')+'</el-tabs>'});host.append(nav);if(action)host.append(action);return host;}
@@ -117,7 +119,9 @@
   function recordDetail(record,trigger,type){
     const node=ui.modal(type==='changes'?'配置变更详情':type==='tests'?'连接测试详情':'模型调用详情',trigger,true),body=el('div','dialog-body');
     const saved=type==='changes'?null:model.recordSnapshot(record);
-    body.append(facts(type==='changes'?[['操作',record.action],['对象',record.object],['变更前',record.before||'无'],['变更后',record.after||'无'],['操作者',record.actor],['时间',time(record.at)]]:[['记录编号',record.id],['节点',record.nodeName||'连接测试'],['配置名称（当次）',saved?.name||'当次配置不可用'],['实际模型标识',saved?.content.model||'未知'],['当次配置修订','r'+record.revision],['状态',record.status],['时间',time(record.at)],['原因',record.reason||'固定样例成功'],['耗时',record.elapsed==null?'未知':record.elapsed+' 毫秒'],['用量',record.tokens==null?'未知':record.tokens+' token'],['费用','未知']]));
+    // 调用详情沿用概览的输入输出口径，缺失用量时显示未知。
+    const usage = record.tokens == null ? '未知' : '输入 ' + record.inputTokens + ' · 输出 ' + record.outputTokens + ' Token';
+    body.append(facts(type==='changes'?[['操作',record.action],['对象',record.object],['变更前',record.before||'无'],['变更后',record.after||'无'],['操作者',record.actor],['时间',time(record.at)]]:[['记录编号',record.id],['节点',record.nodeName||'连接测试'],['配置名称（当次）',saved?.name||'当次配置不可用'],['实际模型标识',saved?.content.model||'未知'],['当次配置修订','r'+record.revision],['状态',record.status],['时间',time(record.at)],['原因',record.reason||'固定样例成功'],['耗时',record.elapsed==null?'未知':record.elapsed+' 毫秒'],['用量',usage],['费用','未知']]));
     if(type==='calls'&&canViewSource(record))body.append(facts([['来源任务',record.context.taskId],['数据源',record.context.sourceName],['业务对象（当次）',record.context.object]]));
     else if(type==='calls'&&record.context)body.append(el('p','sm-notice','当前账号无权查看来源任务。'));
     if(saved&&has('models.view')){const evidence=el('details','sm-disclosure');evidence.append(el('summary','','查看当次配置快照'),snapshotFacts(saved));body.append(evidence);}
@@ -129,14 +133,48 @@
     const row=model.find(record.model);if(row&&has('diagnostics.test')&&has('models.test'))footer.append(button('测试当前模型连接',()=>{node.close();test(row,trigger);}));node.append(body,footer);node.showModal();
   }
   function records(){
-    const type=['calls','tests','changes'].includes(tab)?tab:'calls',key='records-'+type;if(!queries.has(key))queries.set(key,{keyword:'',node:'',status:'all',fromDate:'',toDate:'',page:1,pageSize:10});const q=queries.get(key);
+    const type = ['calls', 'tests', 'changes'].includes(tab) ? tab : 'calls';
+    // 图表下钻保留到毫秒的区间，日历过滤仍用于诊断页自己的查询。
+    const from = Number(overviewParams.get('from')), to = Number(overviewParams.get('to'));
+    const scoped = type === 'calls' && Number.isFinite(from) && Number.isFinite(to) && from > 0 && to > from && to <= 8640000000000000;
+    const state = overviewParams.get('state');
+    const key = 'records-' + type + (scoped ? '/' + overviewParams : '');
+    if (!queries.has(key)) {
+      // 状态通过现有查询控件表达；管理员可以继续核对同一时段内的其他状态。
+      queries.set(key, { keyword: '', node: '', status: scoped && ['成功', '失败', '结果待核查'].includes(state) ? state : 'all', fromDate: '', toDate: '', page: 1, pageSize: 10 });
+    }
+    const q = queries.get(key);
     main.append(tabs([['calls','调用记录'],['tests','连接测试'],['changes','配置变更']],type,value=>{location.hash='diagnostics/'+value;}));
-    main.append(RecordControls.filters({value:q,includeStatus:type!=='changes',dateLabel:'发生日期',fields:[field('keyword',type==='changes'?'配置对象或操作者':'模型名称或记录编号'),...(type==='calls'?[field('node','节点名称')]:[])],statuses:[{value:'all',label:'全部状态'},...choices(type==='tests'?['通过','失败']:['成功','失败','结果待核查'])],onApply:data=>{Object.assign(q,data);refresh();},onReset:()=>{queries.delete(key);refresh();}}));
-    const rows=(type==='calls'?model.calls:type==='tests'?model.tests:model.changes).filter(row=>{const saved=type==='changes'?null:model.recordSnapshot(row);return AdminQuery.matches(type==='changes'?[row.object,row.actor]:[row.id,row.model,saved?.name,saved?.content.model,model.find(row.model)?.name],q.keyword)&&(!q.node||AdminQuery.matches([row.nodeName],q.node))&&(q.status==='all'||row.status===q.status)&&(!q.fromDate||time(row.at).slice(0,10)>=q.fromDate)&&(!q.toDate||time(row.at).slice(0,10)<=q.toDate);}).slice().sort((a,b)=>b.at-a.at);
+    if (scoped) {
+      // 定位保留图上的精确时段，可返回图表或清除条件回到诊断页。
+      const bar = el('div', 'sm-source-return model-overview-scope');
+      const actions = el('div', 'do-actions');
+      const clear = el('a', 'do-action', '清除定位');
+      const back = el('a', 'do-action is-primary', '返回模型运行概览');
+      clear.href = '#diagnostics/calls';
+      back.href = '#model-overview';
+      actions.append(clear, back);
+      bar.append(el('span', '', '调用时段 · ' + time(from).slice(0, 16) + ' 至 ' + time(to).slice(0, 16)), actions);
+      main.append(bar);
+    }
+    main.append(RecordControls.filters({value:q,includeStatus:type!=='changes',dateLabel:'发生日期',fields:[field('keyword',type==='changes'?'配置对象或操作者':'模型名称或记录编号'),...(type==='calls'?[field('node','节点名称')]:[])],statuses:[{value:'all',label:'全部状态'},...choices(type==='tests'?['通过','失败']:['成功','失败','结果待核查'])],onApply:data=>{Object.assign(q,data);refresh();},onReset:()=>{queries.delete(key);if(scoped)location.hash='diagnostics/calls';else refresh();}}));
+    const rows=(type==='calls'?model.calls:type==='tests'?model.tests:model.changes).filter(row=>{const saved=type==='changes'?null:model.recordSnapshot(row);return (!scoped||row.at>=from&&row.at<to)&&AdminQuery.matches(type==='changes'?[row.object,row.actor]:[row.id,row.model,saved?.name,saved?.content.model,model.find(row.model)?.name],q.keyword)&&(!q.node||AdminQuery.matches([row.nodeName],q.node))&&(q.status==='all'||row.status===q.status)&&(!q.fromDate||time(row.at).slice(0,10)>=q.fromDate)&&(!q.toDate||time(row.at).slice(0,10)<=q.toDate);}).slice().sort((a,b)=>b.at-a.at);
     main.append(table('模型调用与配置记录',rows,[{key:'model',label:type==='changes'?'操作者 / 对象':'当次模型 / 修订',width:220,grow:2},{key:'node',label:type==='changes'?'操作':'节点',width:190},{key:'state',label:type==='changes'?'变更结果':'状态',width:160},{key:'summary',label:type==='changes'?'配置变化':'原因',width:240,grow:2},{key:'at',label:'发生时间',width:185},{key:'actions',label:'操作',width:100,fixed:'right'}],row=>[ui.textCell(type==='changes'?row.actor+' / '+row.object:(model.recordSnapshot(row)?.name||'当次配置不可用')+' · r'+row.revision),ui.textCell(type==='changes'?row.action:row.nodeName||'连接测试'),type==='changes'?ui.textCell('已保存'):status(row.status),ui.textCell(type==='changes'?(row.before||'无')+' → '+(row.after||'无'):row.reason||'固定样例成功'),ui.textCell(time(row.at)),ui.button('查看详情',trigger=>recordDetail(row,trigger,type),'do-action is-primary','sm-record-'+type+'-'+row.id)],q));
   }
-  function render(target,controls,current='models',selected='list'){
-    main=target;ui=controls;actor=controls.currentUser;section=current;tab=selected||'list';const title=current==='models'?'模型配置':'调用记录与故障';ui.setTitle(title);main.replaceChildren(ui.pageHeading(title));
+  function render(target,controls,current='models',selected='list',scope=new URLSearchParams()){
+    // 每次从概览发起定位都应用当次条件，列表内部刷新继续保留已修改的查询。
+    if (section === 'model-overview' && current === 'diagnostics' && scope.size) {
+      queries.delete('records-calls/' + scope);
+    }
+    main=target;ui=controls;actor=controls.currentUser;section=current;tab=selected||'list';overviewParams=scope;
+    const title = { 'model-overview': '模型运行概览', models: '模型配置', diagnostics: '调用记录与故障' }[current];
+    ui.setTitle(title);main.replaceChildren(ui.pageHeading(title));
+    // 三张图来自调用记录，沿用诊断查看权限。
+    if (current === 'model-overview') {
+      if (has('diagnostics.view')) ModelOverviewPage.render(main, ui);
+      else main.append(el('p', 'sm-notice', '当前账号没有此页面的查看权限。'));
+      return;
+    }
     if(!has(current+'.view')){main.append(el('p','sm-notice','当前账号没有此页面的查看权限。'));return;}
     if(current==='models'){const add=tab!=='nodes'&&has('models.create')?ui.button('新增模型',trigger=>edit(null,trigger),'admin-button is-primary','sm-create'):null;main.append(tabs([['list','模型列表'],['nodes','节点列表']],tab==='nodes'?'nodes':'list',value=>{location.hash='models'+(value==='nodes'?'/nodes':'');},add));if(tab==='nodes')nodes();else list();}else records();
     main.append(el('p','sm-prototype-hint','离线原型，请填写演示凭据；连接测试与调用记录使用固定样例。'));

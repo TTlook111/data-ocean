@@ -187,9 +187,13 @@ export interface ModelNode {
    */
   code: string;
   /**
-   * 对应节点可选择的模型能力。
+   * 当前业务是否有独立调用入口，旧接口可能省略此状态。
    */
-  capability: keyof typeof modelCapabilities;
+  connected?: boolean;
+  /**
+   * 节点可选择的模型能力，早期治理接口只返回生成节点且省略此字段。
+   */
+  capability?: keyof typeof modelCapabilities;
   /**
    * 未分配时为空。
    */
@@ -216,6 +220,7 @@ export interface ModelConnectionTest {
  * 调用失败的稳定提示，供治理和诊断复用。
  */
 export const modelFailureLabels: Record<string, string> = {
+  MODEL_RECORD_UNAVAILABLE: '调用记录暂不可用，本次请求未发出。',
   STALE_INPUT: '结构、资料或任务权限发生变化，请重新发起。',
   CONTEXT_UNAVAILABLE: '暂时无法读取本次生成所需的资料。',
   MODEL_UNAVAILABLE: '当前节点的模型已停用或不可用。',

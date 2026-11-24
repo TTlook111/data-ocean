@@ -3,9 +3,11 @@ import { useState } from 'react';
 import { Button, Descriptions, Tabs } from 'antd';
 import type { TableProps } from 'antd';
 import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router';
 import { api, queryString } from '../../shared/api';
 import { RecordTable } from '../../shared/RecordTable';
 import { displayTime, Status } from '../../shared/Records';
+import { useSession } from '../../shared/session';
 import type { Page } from '../iam/types';
 import { modelFailureLabels, modelNodeInfo, modelProtocols, type ModelConfig } from './types';
 
@@ -89,14 +91,38 @@ function displayCallNode(code: string) {
 }
 
 /**
+ * 结果待核查保留独立诊断口径，不算作已明确失败。
+ */
+function callStatus(record: ModelCall) {
+  if (record.state === 'SUCCEEDED') return <Status value="SUCCEEDED" label="成功" />;
+  if (record.failureCode === 'MODEL_RESULT_UNKNOWN')
+    return <Status value="PENDING" label="待核查" />;
+  return <Status value={record.state} label="失败" />;
+}
+
+/**
  * 显示真实调用及使用的历史配置修订。
  */
 export function ModelCallsPage() {
   const [paging, setPaging] = useState({ pageNum: 1, pageSize: 10 });
   const [detail, setDetail] = useState<ModelCall | null>(null);
+  const [params] = useSearchParams();
+  const session = useSession();
+  // 图表和诊断只共享原范围、快照和状态，分页继续由调用列表管理。
+  const fromDate = params.get('fromDate');
+  const toDate = params.get('toDate');
+  const metric = params.get('metric');
+  const search = queryString({ ...paging, fromDate, toDate, asOf: params.get('asOf'), metric });
+  const overview =
+    '/model-overview?' +
+    queryString({
+      period: params.get('overviewPeriod'),
+      fromDate: params.get('overviewFromDate'),
+      toDate: params.get('overviewToDate'),
+    });
   const calls = useQuery({
-    queryKey: ['model-calls', paging],
-    queryFn: () => api<Page<ModelCall>>(`/models/calls?${queryString(paging)}`),
+    queryKey: ['model-calls', session.userId, search],
+    queryFn: () => api<Page<ModelCall>>(`/models/calls?${search}`),
   });
   // 调用节点以当次回执为准。
   const columns: TableProps<ModelCall>['columns'] = [
@@ -127,9 +153,7 @@ export function ModelCallsPage() {
     {
       title: '状态',
       width: 100,
-      render: (_, row) => (
-        <Status value={row.state} label={row.state === 'SUCCEEDED' ? '成功' : '失败'} />
-      ),
+      render: (_, row) => callStatus(row),
     },
     { title: '发生时间', width: 175, render: (_, row) => displayTime(row.recordedAt) },
     {
@@ -156,6 +180,25 @@ export function ModelCallsPage() {
           { key: 'revisions', label: '配置变更', disabled: true },
         ]}
       />
+      {/* 保留概览点选的期间与结果，可返回原概览或恢复完整列表。 */}
+      {fromDate && toDate && (
+        <div className="overview-toolbar">
+          <span className="overview-coverage">
+            {fromDate === toDate ? fromDate : `${fromDate} 至 ${toDate}`}
+            {metric &&
+              ` · ${{ succeeded: '成功', failed: '失败', uncertain: '待核查' }[metric] ?? ''}`}
+          </span>
+          <div className="overview-filter">
+            <Link
+              to="/diagnostics"
+              onClick={() => setPaging({ pageNum: 1, pageSize: paging.pageSize })}
+            >
+              清除定位
+            </Link>
+            <Link to={overview}>返回模型运行概览</Link>
+          </div>
+        </div>
+      )}
       {/* 诊断列表使用共用分页和空态。 */}
       <div className="panel records-panel">
         <RecordTable
@@ -188,12 +231,7 @@ export function ModelCallsPage() {
               {
                 key: 'status',
                 label: '调用状态',
-                children: (
-                  <Status
-                    value={detail.state}
-                    label={detail.state === 'SUCCEEDED' ? '成功' : '失败'}
-                  />
-                ),
+                children: callStatus(detail),
               },
               {
                 key: 'format',
@@ -216,10 +254,7 @@ export function ModelCallsPage() {
                 key: 'usage',
                 label: '用量',
                 span: 2,
-                children:
-                  detail.inputTokens === null || detail.outputTokens === null
-                    ? '未知'
-                    : `输入 ${detail.inputTokens} · 输出 ${detail.outputTokens} token`,
+                children: `输入 ${detail.inputTokens ?? '未知'} · 输出 ${detail.outputTokens ?? '未知'} Token`,
               },
               { key: 'endpoint', label: '服务 URL', children: detail.endpoint ?? '未知', span: 2 },
               ...(detail.inputLimits

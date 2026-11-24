@@ -2,15 +2,18 @@ package com.dataocean.module.model.controller;
 
 import com.dataocean.common.PageQuery;
 import com.dataocean.common.PageVO;
+import com.dataocean.common.overview.OverviewQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.model.entity.dto.ModelAssignmentDTO;
 import com.dataocean.module.model.entity.dto.ModelSaveDTO;
 import com.dataocean.module.model.entity.dto.ModelStateDTO;
+import com.dataocean.module.model.entity.vo.ModelCallOverviewVO;
 import com.dataocean.module.model.entity.vo.ModelCallVO;
 import com.dataocean.module.model.entity.vo.ModelConfigVO;
 import com.dataocean.module.model.entity.vo.ModelConnectionTestVO;
 import com.dataocean.module.model.entity.vo.ModelNodeVO;
+import com.dataocean.module.model.service.ModelCallOverviewService;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.model.service.impl.ModelConnectionTestService;
 
@@ -46,6 +49,11 @@ public class ModelController {
      * 独立的合成连接测试及回读。
      */
     private final ModelConnectionTestService connectionTests;
+
+    /**
+     * 统计及分页查询沿用同一持久化回执。
+     */
+    private final ModelCallOverviewService callOverview;
 
     /**
      * 读取可披露的当前模型配置。
@@ -135,7 +143,16 @@ public class ModelController {
      */
     @GetMapping("/calls")
     @RequirePermission("diagnostics.view")
-    public Result<PageVO<ModelCallVO>> calls(PageQuery query) {
-        return Result.success(registry.calls(query));
+    public Result<PageVO<ModelCallVO>> calls(OverviewQuery query) {
+        return Result.success(callOverview.calls(query));
+    }
+
+    /**
+     * 查询同一时段的 Token、排行和调用结果。
+     */
+    @GetMapping("/calls/overview")
+    @RequirePermission("diagnostics.view")
+    public Result<ModelCallOverviewVO> callOverview(OverviewQuery query) {
+        return Result.success(callOverview.overview(query));
     }
 }

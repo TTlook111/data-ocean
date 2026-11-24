@@ -83,15 +83,14 @@ class GovernanceSettings(BaseModel):
         if not worker and self.redis_url is None and self.java_public_key is None:
             # 单独使用基础 API 时，业务端点仍按已有边界拒绝调用。
             return
-        required = {"AI_QUEUE_URL": self.redis_url}
-        if worker:
-            # Worker 消费任务及访问 Java，API 只验证传入身份。
-            required["AI_JAVA_URL"] = self.java_url
-            required["AI_WORKER_PRIVATE_KEY"] = (
-                self.worker_private_key and self.worker_private_key.is_file()
-            )
-        else:
-            # 服务公钥必须可定位到实际文件。
+        # API 的正式问数与 Worker 的异步模型任务都向 Java 登记调用回执。
+        required = {
+            "AI_QUEUE_URL": self.redis_url,
+            "AI_JAVA_URL": self.java_url,
+            "AI_WORKER_PRIVATE_KEY": self.worker_private_key and self.worker_private_key.is_file(),
+        }
+        if not worker:
+            # API 另外核验调用方的 Java 服务身份。
             required["AI_JAVA_PUBLIC_KEY"] = self.java_public_key and self.java_public_key.is_file()
         missing = [name for name, value in required.items() if not value]
         if missing:

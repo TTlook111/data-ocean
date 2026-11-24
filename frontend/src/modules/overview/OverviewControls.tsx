@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { LoadingIndicator } from '../../shared/LoadingIndicator';
 import { QueryDateRange } from '../../shared/QueryDateRange';
 import { displayTime } from '../../shared/Records';
-import type { DashboardRange } from './types';
+import type { DashboardRange, DashboardReport, OverviewReport } from './types';
 import type { useOverview } from './useOverview';
 
 /**
@@ -30,14 +30,23 @@ const grainLabels = { DAY: '按天', WEEK: '按周', MONTH: '按月' };
 /**
  * 来源和期间工具栏对两类看板保持统一尺度。
  */
-export function OverviewToolbar({
+export function OverviewToolbar<
+  R extends OverviewReport<DashboardRange> &
+    Partial<Pick<DashboardReport<DashboardRange>, 'sources'>>,
+>({
   view,
   refreshLabel,
+  showContext = true,
+  datePicker,
 }: {
   /** 已应用的来源、期间和读取结果。 */
-  view: ReturnType<typeof useOverview<DashboardRange>>;
+  view: ReturnType<typeof useOverview<DashboardRange, R>>;
   /** 按模块区分手动刷新动作。 */
   refreshLabel: string;
+  /** 按来源统计的看板展示来源和统计时效。 */
+  showContext?: boolean;
+  /** 在报表重新读取时由页面保持日历是否打开。 */
+  datePicker?: { open: boolean; onOpenChange: (open: boolean) => void };
 }) {
   const { data, report, range, period, today, apply, chooseSource } = view;
   const [refreshing, setRefreshing] = useState(false);
@@ -59,23 +68,25 @@ export function OverviewToolbar({
   return (
     <section className="overview-toolbar" aria-label="统计范围">
       {/* 来源和统计时效保持在同一组。 */}
-      <div className="overview-filter">
-        <Select
-          aria-label="统计数据源"
-          value={range.sourceId}
-          disabled={!data?.sources.length}
-          options={[
-            { value: '', label: '全部数据源' },
-            ...(data?.sources ?? []).map((source) => ({ value: source.id, label: source.name })),
-          ]}
-          onChange={chooseSource}
-        />
-        {data?.total && (
-          <span className="overview-as-of">
-            {grainLabels[data.grain]} · 截至 {displayTime(data.asOf)}
-          </span>
-        )}
-      </div>
+      {showContext && (
+        <div className="overview-filter">
+          <Select
+            aria-label="统计数据源"
+            value={range.sourceId}
+            disabled={!data?.sources?.length}
+            options={[
+              { value: '', label: '全部数据源' },
+              ...(data?.sources ?? []).map((source) => ({ value: source.id, label: source.name })),
+            ]}
+            onChange={chooseSource}
+          />
+          {data?.total && (
+            <span className="overview-as-of">
+              {grainLabels[data.grain]} · 截至 {displayTime(data.asOf)}
+            </span>
+          )}
+        </div>
+      )}
       {/* 快捷范围和自定义日期共享实际应用条件。 */}
       <div className="overview-filter">
         <ConfigProvider theme={periodTheme}>
@@ -89,8 +100,14 @@ export function OverviewToolbar({
             ]}
             onChange={(value) => {
               // 打开自定义时保留当前区间供编辑。
-              if (value === 'custom') apply(range.sourceId, value, range.fromDate, range.toDate);
-              else apply(range.sourceId, value);
+              if (value === 'custom') {
+                // 调用看板在选择自定义时直接打开起止日期。
+                if (datePicker) datePicker.onOpenChange(true);
+                else apply(range.sourceId, value, range.fromDate, range.toDate);
+              } else {
+                datePicker?.onOpenChange(false);
+                apply(range.sourceId, value);
+              }
             }}
           />
         </ConfigProvider>
@@ -99,9 +116,12 @@ export function OverviewToolbar({
           value={[dayjs(range.fromDate), dayjs(range.toDate)]}
           allowClear={false}
           maxDate={today}
+          open={datePicker?.open}
+          onOpenChange={datePicker?.onOpenChange}
           onChange={(dates) => {
             // 成对选择由日期控件校验后应用。
             if (dates?.[0] && dates[1]) {
+              datePicker?.onOpenChange(false);
               apply(
                 range.sourceId,
                 'custom',

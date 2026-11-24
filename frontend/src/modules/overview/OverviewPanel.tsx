@@ -23,6 +23,10 @@ export function OverviewPanel<M extends string>({
   ringLabel,
   ringSurface,
   footer,
+  controls,
+  headlineSeries = series,
+  stacked = false,
+  chartDrill = false,
 }: {
   /** 图表及数据表标题。 */
   title: string;
@@ -45,7 +49,8 @@ export function OverviewPanel<M extends string>({
     | 'relations'
     | 'dots'
     | 'publishing'
-    | 'validation';
+    | 'validation'
+    | 'rank';
   /** 图表的业务单位。 */
   unit: string;
   /** 没有有效样本时的反馈。 */
@@ -58,18 +63,29 @@ export function OverviewPanel<M extends string>({
   ringSurface?: string;
   /** 主图进入既有工作队列的入口。 */
   footer?: ReactNode;
+  /** 通栏主图右侧的统计期间控件。 */
+  controls?: ReactNode;
+  /** 读数可包含图例外的输入与输出合计。 */
+  headlineSeries?: DashboardSeries<M>[];
+  /** 主图使用按时间堆叠的柱形。 */
+  stacked?: boolean;
+  /** 允许从图上实点进入原记录。 */
+  chartDrill?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
   const ring = layout === 'ring';
   const dots = layout === 'dots';
-  const distribution = ring || dots;
+  const rank = layout === 'rank';
+  const distribution = ring || dots || rank;
   const seriesPoints = useMemo(
     () => (distribution ? [total] : points),
     [distribution, total, points],
   );
   const ringCount = ring ? series.reduce((sum, item) => sum + (total[item.measure] ?? 0), 0) : 0;
   const noSamples = emptyText && series.every((item) => total[item.measure] === null);
+  // 图上突出前六名，展开的表格仍保留完整排名。
+  const chartSeries = useMemo(() => (rank ? series.slice(0, 6) : series), [rank, series]);
 
   /**
    * 数值为零或无可核对历史时只显示读数。
@@ -77,7 +93,7 @@ export function OverviewPanel<M extends string>({
   function reading(item: DashboardSeries<M>, point: DashboardPoint<M>, headline = false) {
     const value = point[item.measure];
     const text = valueText(value, item.decimals);
-    const number = headline ? <strong>{text}</strong> : text;
+    const number = headline ? <strong data-measure={item.measure}>{text}</strong> : text;
     return onDrill && value !== null && (value > 0 || item.decimals) ? (
       <Button
         className="overview-number"
@@ -99,7 +115,7 @@ export function OverviewPanel<M extends string>({
         {/* 单位贴近标题，历史覆盖提示按需查看。 */}
         <div className="overview-panel-title">
           <h2 id={id}>{title}</h2>
-          <span>{unit}</span>
+          {unit && <span>{unit}</span>}
           {note && (
             <Tooltip title={note} trigger={['hover', 'focus']}>
               <Button
@@ -113,6 +129,7 @@ export function OverviewPanel<M extends string>({
           )}
         </div>
         <div className="overview-panel-actions">
+          {controls}
           {!distribution && (
             <ul className="overview-legend" aria-label="图例">
               {series.map((item) => (
@@ -140,7 +157,7 @@ export function OverviewPanel<M extends string>({
       {/* 重要读数贴近对应图形，日期缺口和无解决样本保留不同语义。 */}
       {!distribution && !noSamples && (
         <ul className="overview-headlines">
-          {series.map((item) => (
+          {headlineSeries.map((item) => (
             <li key={item.measure}>
               {reading(item, total, true)}
               <span>{item.summaryLabel ?? unit + item.label}</span>
@@ -155,10 +172,13 @@ export function OverviewPanel<M extends string>({
           <OverviewChart
             title={title}
             points={seriesPoints}
-            series={series}
+            series={chartSeries}
             ring={ring}
             dots={dots}
+            rank={rank}
+            stacked={stacked}
             ringSurface={ringSurface}
+            onDrill={chartDrill ? onDrill : undefined}
           />
           {ring && (
             <div className="overview-ring-label">
@@ -198,23 +218,34 @@ export function OverviewPanel<M extends string>({
           <table aria-label={title + '数据'}>
             <thead>
               <tr>
-                <th scope="col">期间</th>
-                {series.map((item) => (
-                  <th scope="col" key={item.measure}>
-                    {item.label}
-                  </th>
-                ))}
+                <th scope="col">{rank ? '模型' : '期间'}</th>
+                {rank ? (
+                  <th scope="col">{unit}</th>
+                ) : (
+                  series.map((item) => (
+                    <th scope="col" key={item.measure}>
+                      {item.label}
+                    </th>
+                  ))
+                )}
               </tr>
             </thead>
             <tbody>
-              {seriesPoints.map((point) => (
-                <tr key={point.fromDate}>
-                  <th scope="row">{periodLabel(point)}</th>
-                  {series.map((item) => (
-                    <td key={item.measure}>{reading(item, point)}</td>
+              {rank
+                ? series.map((item) => (
+                    <tr key={item.measure}>
+                      <th scope="row">{item.label}</th>
+                      <td>{reading(item, total)}</td>
+                    </tr>
+                  ))
+                : seriesPoints.map((point) => (
+                    <tr key={point.fromDate}>
+                      <th scope="row">{periodLabel(point)}</th>
+                      {series.map((item) => (
+                        <td key={item.measure}>{reading(item, point)}</td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>

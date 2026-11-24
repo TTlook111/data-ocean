@@ -124,7 +124,8 @@ public class GovernanceGenerationTasks implements GovernanceGenerationService {
             "MODEL_FORMAT",
             "MODEL_TIMEOUT",
             "MODEL_CALL_LIMIT",
-            "MODEL_RESULT_UNKNOWN");
+            "MODEL_RESULT_UNKNOWN",
+            "MODEL_RECORD_UNAVAILABLE");
 
     /**
      * 部署侧模型开关和获准传输的数据源。

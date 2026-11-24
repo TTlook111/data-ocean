@@ -1,6 +1,7 @@
 package com.dataocean.module.model.mapper;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.overview.OverviewPeriod.Window;
 import com.dataocean.module.model.entity.vo.ModelCallVO;
 import com.dataocean.module.model.entity.vo.ModelConnectionTestVO;
 
@@ -252,16 +253,28 @@ public interface ModelMapper {
     ModelConnectionTestVO latestConnectionTest(@Param("modelId") long modelId, @Param("revisionId") long revisionId);
 
     /**
-     * 调用记录通过原任务关联当次修订，旧联调记录保留缺失事实。
+     * 读取全站已完成或超期的回执，并关联当次固定修订。
      */
     @Select(
             """
-            SELECT CAST(g.id AS CHAR) AS id, g.node_code, c.name AS config_name, c.protocol, c.revision,
+            <script>
+            SELECT g.id, g.node_code, c.name AS config_name, c.protocol, c.revision,
                    g.model_name, c.endpoint, g.state, g.failure_code, g.elapsed_ms, g.input_tokens,
                    g.output_tokens, g.input_limits, g.recorded_at AS recorded_at_utc
-            FROM gov_model_call g JOIN gov_generation_task t ON t.request_id = g.request_id
-            LEFT JOIN mdl_config_revision c ON c.id = t.model_revision_id
-            ORDER BY g.id DESC
+            FROM mdl_diagnostic_call g LEFT JOIN mdl_config_revision c ON c.id = g.model_revision_id
+            <where>
+                g.recorded_at &lt; UTC_TIMESTAMP(3)
+                <if test="window != null">
+                    AND g.recorded_at &gt;= #{window.start} AND g.recorded_at &lt; #{window.end}
+                </if>
+                <choose>
+                    <when test="metric == 'succeeded'">AND g.state='SUCCEEDED'</when>
+                    <when test="metric == 'failed'">AND g.state='FAILED' AND COALESCE(g.failure_code,'') != 'MODEL_RESULT_UNKNOWN'</when>
+                    <when test="metric == 'uncertain'">AND g.state='FAILED' AND g.failure_code='MODEL_RESULT_UNKNOWN'</when>
+                </choose>
+            </where>
+            ORDER BY g.recorded_at DESC,g.id DESC
+            </script>
             """)
-    Page<ModelCallVO> calls(Page<ModelCallVO> page);
+    Page<ModelCallVO> calls(Page<ModelCallVO> page, Window window, String metric);
 }
