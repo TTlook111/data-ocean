@@ -8,8 +8,12 @@ import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeRevisionConfirmDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeTestDraftDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeTestSuggestionAdoptionDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeTestSuggestionDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeTestUpdateDTO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeTestVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeTestSuggestionVO;
+import com.dataocean.module.knowledge.service.KnowledgeTestSuggestions;
 import com.dataocean.module.knowledge.service.KnowledgeTests;
 
 import java.util.List;
@@ -44,6 +48,11 @@ public class KnowledgeTestController {
     private final KnowledgeTests tests;
 
     /**
+     * 从确切确认内容提出标准题候选并按需采纳。
+     */
+    private final KnowledgeTestSuggestions suggestions;
+
+    /**
      * 保留所属文档的实际查询范围。
      */
     @GetMapping
@@ -70,6 +79,49 @@ public class KnowledgeTestController {
     public Result<List<KnowledgeTestVO.FactOption>> factOptions(
             @PathVariable String source, @PathVariable String document, @RequestParam String revisionId) {
         return Result.success(tests.factOptions(Ids.parse(source), Ids.parse(document), Ids.parse(revisionId)));
+    }
+
+    /**
+     * 受理一次真实标准题建议任务。
+     */
+    @PostMapping("/suggestions")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @RequirePermission("test-cases.edit")
+    public Result<MutationVO> suggest(
+            @PathVariable String source, @RequestHeader("Idempotency-Key") String command,
+            @Valid @RequestBody KnowledgeTestSuggestionDTO input) {
+        return Result.success(suggestions.create(Ids.parse(source), command, input));
+    }
+
+    /**
+     * 打开同一文档确认时回看本人最近一次建议。
+     */
+    @GetMapping("/suggestions")
+    @RequirePermission("test-cases.edit")
+    public Result<KnowledgeTestSuggestionVO> latestSuggestion(
+            @PathVariable String source, @RequestParam String documentId, @RequestParam String documentRevisionId) {
+        return Result.success(suggestions.latest(Ids.parse(source), Ids.parse(documentId), Ids.parse(documentRevisionId)));
+    }
+
+    /**
+     * 用原编号核实请求实际状态和候选题。
+     */
+    @GetMapping("/suggestions/{id}")
+    @RequirePermission("test-cases.edit")
+    public Result<KnowledgeTestSuggestionVO> suggestion(@PathVariable String source, @PathVariable String id) {
+        return Result.success(suggestions.detail(Ids.parse(source), Ids.parse(id)));
+    }
+
+    /**
+     * 单独采纳一道候选，返回正式题目草稿编号。
+     */
+    @PostMapping("/suggestions/{id}/adoptions")
+    @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("test-cases.edit")
+    public Result<MutationVO> adoptSuggestion(
+            @PathVariable String source, @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody KnowledgeTestSuggestionAdoptionDTO input) {
+        return Result.success(suggestions.adopt(Ids.parse(source), Ids.parse(id), command, input));
     }
 
     /**

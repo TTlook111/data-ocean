@@ -68,6 +68,11 @@ public class ModelRegistry {
     public static final String DOCUMENT_WRITE = "document-write";
 
     /**
+     * 根据确切知识确认准备标准题草稿的独立生成节点。
+     */
+    public static final String QUESTION_SUGGESTION = "question-suggestion";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -77,6 +82,7 @@ public class ModelRegistry {
             METRIC_DISCOVERY,
             DOCUMENT_PLAN,
             DOCUMENT_WRITE,
+            QUESTION_SUGGESTION,
             "intent",
             "sql-generate",
             "sql-semantic-check",

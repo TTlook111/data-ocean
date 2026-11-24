@@ -51,7 +51,7 @@ class ModelRegistryTest {
      * 已接通节点继续保存能力匹配且版本一致的选择。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write"})
+    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write", "question-suggestion"})
     void savesConnectedAssignment(String node) {
         var choice = availableChoice(node);
 

@@ -20,9 +20,9 @@ vi.mock('../../shared/session', () => ({ useSession: () => ({}), allowed: () => 
  * 选择和取消都不产生分配请求，确认后才提交选中模型及原并发版本。
  */
 it.each([
-  ['1', '原生成模型'],
-  [null, '未分配'],
-] as const)('原分配为 %s 时仅在确认后更新节点模型', async (initial, previousName) => {
+  ['intent', '问题理解', '1', '原生成模型'],
+  ['question-suggestion', '标准题建议', null, '未分配'],
+] as const)('%s 仅在确认后更新节点模型', async (node, label, initial, previousName) => {
   let selected: string | null = initial;
   let version = 3;
   const save = vi.fn(({ modelId }: { modelId: string }) => {
@@ -35,7 +35,7 @@ it.each([
     // 确认框的前后状态及写入记录由各自的正式接口提供。
     if (url === '/models/nodes') {
       return [
-        { code: 'intent', connected: true, capability: 'GENERATION', modelId: selected, version },
+        { code: node, connected: true, capability: 'GENERATION', modelId: selected, version },
         {
           code: 'history-summary',
           connected: false,
@@ -51,7 +51,7 @@ it.each([
         { id: '2', name: '新生成模型', protocol: 'OPENAI_CHAT_COMPLETIONS', enabled: true },
       ];
     }
-    if (url === '/models/nodes/intent' && options?.method === 'PUT') {
+    if (url === `/models/nodes/${node}` && options?.method === 'PUT') {
       return save(options.body as { modelId: string });
     }
     throw new Error(`未预期的验收接口 ${url}`);
@@ -70,7 +70,7 @@ it.each([
     </ConfigProvider>,
   );
 
-  const picker = await screen.findByRole('combobox', { name: '为问题理解分配模型' });
+  const picker = await screen.findByRole('combobox', { name: `为${label}分配模型` });
   await waitFor(() => expect(picker).toBeEnabled());
   expect(screen.getByText('暂无独立调用')).toBeInTheDocument();
   expect(

@@ -133,16 +133,23 @@ public class KnowledgeTests {
     public MutationVO create(long source, String command, KnowledgeTestDraftDTO input) {
         return commands.execute("test-cases.edit", command, target(source, null), input, null, false, false, () -> {
             writable(source);
-            long document = Ids.parse(input.getDocumentId());
-            long basis = Ids.parse(input.getDocumentRevisionId());
-            verifyDocument(source, document, basis);
-            var body = content(input, basis);
-            long id = IdWorker.getId();
-            long revision = IdWorker.getId();
-            tests.create(id, source, document, body.getQuestion(), revision);
-            tests.append(revision, id, basis, 1, json.write(body), UserContext.getUser());
-            return record(command, "test-cases.edit", id, body.getQuestion(), 1);
+            return createDraft(source, command, input);
         });
+    }
+
+    /**
+     * 经核权和同源锁定的事务中，人工新增与采纳共用题目首份修订。
+     */
+    MutationVO createDraft(long source, String command, KnowledgeTestDraftDTO input) {
+        long document = Ids.parse(input.getDocumentId());
+        long basis = Ids.parse(input.getDocumentRevisionId());
+        verifyDocument(source, document, basis);
+        var body = content(input, basis);
+        long id = IdWorker.getId();
+        long revision = IdWorker.getId();
+        tests.create(id, source, document, body.getQuestion(), revision);
+        tests.append(revision, id, basis, 1, json.write(body), UserContext.getUser());
+        return record(command, "test-cases.edit", id, body.getQuestion(), 1);
     }
 
     /**

@@ -22,6 +22,7 @@ import { allowed, useSession } from '../../shared/session';
 import { SourcePicker, SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
 import type { Page } from '../iam/types';
 import type { ReleaseTestReturn } from './types';
+import { KnowledgeTestSuggestions } from './KnowledgeTestSuggestions';
 import { useKnowledgeDraft } from './useKnowledgeDraft';
 import './knowledge.css';
 
@@ -75,6 +76,7 @@ export function KnowledgeTestPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const open = params.get('testId') ?? undefined;
+  const [suggesting, setSuggesting] = useState(false);
   const focusTest = (location.state as { focusTest?: string } | null)?.focusTest;
   const restored = useRef<string>(undefined);
   const session = useSession();
@@ -122,6 +124,10 @@ export function KnowledgeTestPage() {
   });
   // 任务自带明确的目标修订，关联题不用在通用文档选项的第一页查找。
   const docChoices = taskReturn ? [taskReturn.document] : (documents.data?.items ?? []);
+  const suggestionDocuments = documentFilter
+    ? docChoices.filter((doc) => doc.id === documentFilter)
+    : docChoices;
+  const maySuggest = allowed(session, 'test-cases.edit') && allowed(session, 'knowledge.view');
   const queueName = docChoices.find((doc) => doc.id === queueDocument)?.title;
   const queueRows = list.data?.items ?? [];
   const activeQuestion = detail.data?.test;
@@ -217,8 +223,29 @@ export function KnowledgeTestPage() {
                   新增标准题
                 </Button>
               )}
+              {source && maySuggest && (
+                <Button
+                  onClick={() => setSuggesting(true)}
+                  disabled={!suggestionDocuments.length || selected?.lifecycle !== 'ENABLED'}
+                >
+                  生成候选题
+                </Button>
+              )}
             </Space>
           </div>
+          {/* 标准题建议沿用当前文档筛选，采纳后从原题单打开草稿。 */}
+          {source && maySuggest && suggesting && suggestionDocuments.length > 0 && (
+            <KnowledgeTestSuggestions
+              key={`${source}:${documentFilter ?? ''}`}
+              source={source}
+              documents={suggestionDocuments}
+              close={() => setSuggesting(false)}
+              openTest={(id) => {
+                setSuggesting(false);
+                openTest(id);
+              }}
+            />
+          )}
         </>
       )}
       <ReadState

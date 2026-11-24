@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /**
- * 保存知识规划与正文生成的固定输入、单次领取和终态。
+ * 保存知识规划、正文生成与标准题建议的固定输入、单次领取和终态。
  */
 public interface KnowledgePlanMapper {
 
@@ -29,6 +29,8 @@ public interface KnowledgePlanMapper {
      * @param parentPlanId 正文所采纳的原规划编号
      * @param suggestionIndex 本次采纳的规划建议序号，从零开始
      * @param appliedDocumentId 明确采纳后保存的文档编号
+     * @param questionDocumentId 标准题建议所依据的文档
+     * @param questionRevisionId 标准题建议固定的文档确认修订
      */
     record Row(
             long id,
@@ -43,7 +45,9 @@ public interface KnowledgePlanMapper {
             String operation,
             Long parentPlanId,
             Integer suggestionIndex,
-            Long appliedDocumentId) {}
+            Long appliedDocumentId,
+            Long questionDocumentId,
+            Long questionRevisionId) {}
 
     /**
      * @param suggestionIndex 原规划中的建议序号
@@ -114,6 +118,39 @@ public interface KnowledgePlanMapper {
             WHERE id=#{id} AND operation='WRITE' AND state='SUCCEEDED' AND applied_document_id IS NULL
             """)
     int applied(long id, long document);
+
+    /**
+     * 记录标准题生成固定的确切文档确认与节点配置。
+     */
+    @Insert("""
+            INSERT INTO kn_document_plan(id,source_id,requested_by,authentication_version,model_revision_id,
+                snapshot,operation,question_document_id,question_revision_id)
+            VALUES(#{id},#{source},#{actor},#{authentication},#{model},#{snapshot},'QUESTION',#{document},#{revision})
+            """)
+    void insertQuestions(long id, long source, long actor, long authentication, long model, String snapshot,
+            long document, long revision);
+
+    /**
+     * 读回本人在当前确认版本的原任务，受理时在源锁内读取最新提交。
+     */
+    @Select("""
+            <script>
+            SELECT * FROM kn_document_plan WHERE source_id=#{source} AND requested_by=#{actor}
+                AND question_document_id=#{document} AND question_revision_id=#{revision}
+            ORDER BY id DESC LIMIT 1
+            <if test='lock'>FOR UPDATE</if>
+            </script>
+            """)
+    Row latestQuestions(long source, long actor, long document, long revision, boolean lock);
+
+    /**
+     * 采纳状态随已保存的建议结果一并写入同一事务。
+     */
+    @Update("""
+            UPDATE kn_document_plan SET result=#{result}
+            WHERE id=#{id} AND operation='QUESTION' AND state='SUCCEEDED'
+            """)
+    int recordQuestionAdoption(long id, String result);
 
     /**
      * 仅领取本部署明确允许发给知识模型的来源。

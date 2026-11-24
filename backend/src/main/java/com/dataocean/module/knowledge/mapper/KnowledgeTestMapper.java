@@ -77,6 +77,24 @@ public interface KnowledgeTestMapper {
     Test get(@Param("source") long source, @Param("id") long id);
 
     /**
+     * 提供近期题干用于减少重复建议，期望、执行条件和样例不外发。
+     */
+    @Select("""
+            SELECT question FROM kn_test_case WHERE source_id=#{source} AND document_id=#{document}
+            ORDER BY id DESC LIMIT 60
+            """)
+    List<String> recentQuestions(long source, long document);
+
+    /**
+     * 检查同一文档的题干，锁定读取可见同源刚刚提交的采纳结果。
+     */
+    @Select("""
+            SELECT id FROM kn_test_case WHERE source_id=#{source} AND document_id=#{document}
+                AND LOWER(question)=LOWER(#{question}) ORDER BY id LIMIT 1 FOR UPDATE
+            """)
+    Long sameQuestion(long source, long document, String question);
+
+    /**
      * 保存稳定身份和首份题目。
      */
     @Insert(

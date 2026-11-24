@@ -131,6 +131,11 @@ public class KnowledgePlans {
     private final KnowledgeDraftGenerations drafts;
 
     /**
+     * 标准题建议复用知识任务领取、期限与失败状态。
+     */
+    private final KnowledgeTestSuggestions questions;
+
+    /**
      * 内部客户选择带模型响应预算的现有签名连接。
      */
     public KnowledgePlans(
@@ -146,7 +151,8 @@ public class KnowledgePlans {
             MutationService commands,
             AuditService audit,
             JsonCodec json,
-            KnowledgeDraftGenerations drafts) {
+            KnowledgeDraftGenerations drafts,
+            KnowledgeTestSuggestions questions) {
         this.plans = plans;
         this.documents = documents;
         this.catalog = catalog;
@@ -160,6 +166,7 @@ public class KnowledgePlans {
         this.audit = audit;
         this.json = json;
         this.drafts = drafts;
+        this.questions = questions;
     }
 
     /**
@@ -250,6 +257,11 @@ public class KnowledgePlans {
         if ("WRITE".equals(job.operation())) {
             // 正文和规划各自解析固定输入，领取与终态保护共用。
             drafts.dispatch(job, client);
+            return;
+        }
+        if (KnowledgeTestSuggestions.OPERATION.equals(job.operation())) {
+            // 标准题建议只向其独立节点发出已确认的正文输入。
+            questions.dispatch(job, client);
             return;
         }
         try {
