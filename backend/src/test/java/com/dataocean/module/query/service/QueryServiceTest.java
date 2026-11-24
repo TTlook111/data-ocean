@@ -41,6 +41,7 @@ import com.dataocean.module.query.mapper.QueryConversationMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.dataocean.module.query.service.QueryProtocol.HistorySummary;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
@@ -48,6 +49,7 @@ import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
+import com.dataocean.module.query.service.QueryProtocol.SummaryDecision;
 import com.dataocean.module.query.service.QuerySql.Compiled;
 
 import java.sql.SQLException;
@@ -389,6 +391,76 @@ class QueryServiceTest {
         verify(models).retrieve(any(), eq("物流状态"), anyList(), anyInt());
     }
 
+    /** 独立的上周追问只询问缺少的对象和指标，保留已经明确的日期。 */
+    @Test
+    void asksOnlyForMissingScopeOnStandalonePreviousWeek() throws SQLException {
+        ready();
+        when(row.question()).thenReturn("上周？");
+        String prompt = "上周你想查什么指标？请补充商品或范围。";
+        when(requests.waitForAnswer(id, 2, prompt)).thenReturn(1);
+
+        worker.work();
+
+        verify(requests).waitForAnswer(id, 2, prompt);
+        verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
+        verify(requests, never()).permit(any());
+    }
+
+    /** 可选摘要成功和不可用都在理解之前固定，不因后续恢复更换上下文。 */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void freezesSelectedHistoryAndReusesItAfterClaim(boolean succeeded) throws SQLException {
+        ready();
+        var older = new MemoryTurn("old", null, null, plan);
+        var raw = new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of(older));
+        when(context.capture(eq(row), anyString())).thenReturn(raw);
+        when(models.historySummaryRevision()).thenReturn(35L);
+        when(requests.freezeSummary(eq(id), eq(2), anyString())).thenReturn(1);
+        if (succeeded) {
+            // 本轮实际选用旧计划。
+            when(models.summarize(any(), eq(35L), anyInt(), anyString(), any()))
+                    .thenReturn(new HistorySummary(List.of("old")));
+        } else {
+            // 尚未核实网络结果时将确定性回退固定在原轮次。
+            when(models.summarize(any(), eq(35L), anyInt(), anyString(), any()))
+                    .thenThrow(new QueryFailure("RECOVERY_PENDING"));
+        }
+
+        worker.work();
+
+        var ordered = inOrder(requests, models);
+        ordered.verify(models).summarize(any(), eq(35L), anyInt(), eq("物流状态"), eq(raw));
+        ordered.verify(requests).freezeSummary(eq(id), eq(2), argThat(value ->
+                json.read(value, SummaryDecision.class).equals(new SummaryDecision(List.of("old"), succeeded))));
+        ordered.verify(models).understand(any(), eq(31L), anyInt(), eq("物流状态"), eq(raw));
+
+        when(row.runInput()).thenReturn(json.write(new RunInput(new QueryOutput().signature(List.of()), raw,
+                List.of(BINDING), 1, 2, null, null, 31L, 35L, new SummaryDecision(List.of("old"), succeeded))));
+        worker.work();
+        verify(models).summarize(any(), eq(35L), anyInt(), anyString(), any());
+    }
+
+    /** 摘要在途撤权禁止回填或继续发出任何后续模型输入。 */
+    @Test
+    void stopsWhenHistoryPermissionIsRevokedBeforeDelivery() throws SQLException {
+        ready();
+        var memory = new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(),
+                List.of(new MemoryTurn("old", null, null, plan)));
+        when(context.capture(eq(row), anyString())).thenReturn(memory);
+        when(models.historySummaryRevision()).thenReturn(35L);
+        when(models.summarize(any(), eq(35L), anyInt(), anyString(), any())).thenAnswer(call -> {
+            // 模拟模型等待期间，实际发起人的数据源授权被撤销。
+            when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+            return new HistorySummary(List.of("old"));
+        });
+
+        worker.work();
+
+        verify(requests, never()).freezeSummary(anyString(), anyInt(), anyString());
+        verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
+        verify(requests).stop(eq(id), eq(2), eq("PERMISSION_DENIED"), eq("NOT_SUBMITTED"), any(), any());
+    }
+
     /**
      * 新轮次缺少问题理解模型时停止，避免跳过该步骤或借用其他模型。
      */
@@ -474,6 +546,8 @@ class QueryServiceTest {
                             List.of(BINDING),
                             1,
                             2,
+                            null,
+                            null,
                             null,
                             null,
                             null)));

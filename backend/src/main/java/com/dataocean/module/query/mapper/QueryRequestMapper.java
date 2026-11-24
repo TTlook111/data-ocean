@@ -179,6 +179,17 @@ public interface QueryRequestMapper {
             """)
     int freeze(String id, int run, String input);
 
+    /**
+     * 首次选定的历史摘要或确定性回退先于理解和规划节点持久化。
+     */
+    @Update("""
+            UPDATE qry_request SET run_input=JSON_SET(run_input,'$.historySummary',CAST(#{summary} AS JSON))
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3) AND cancel_requested=FALSE
+              AND run_input IS NOT NULL
+              AND COALESCE(JSON_TYPE(JSON_EXTRACT(run_input,'$.historySummary')),'NULL')='NULL'
+            """)
+    int freezeSummary(String id, int run, String summary);
+
     /** 状态变化只允许属于本次活动且未取消的在途请求。 */
     @Update(
             """

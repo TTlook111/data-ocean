@@ -53,6 +53,20 @@ final class QueryDates {
     private static final Pattern PERIOD =
             Pattern.compile("截至|从.{0,32}(?:至|到)|同比|环比|对比|比较|相比|(?i:\\b(?:since|until|through)\\b)");
 
+    /** 只识别独立改变时间到上一个自然周的短追问。 */
+    private static final Pattern PREVIOUS_WEEK_FOLLOWUP =
+            Pattern.compile("^\\s*(?:那(?:么)?\\s*)?上(?:周|个星期)(?:的)?(?:呢)?[？?。.!！\\s]*$");
+
+    /** 明确只改变自然周，其余语义由当前已确认口径决定。 */
+    static boolean previousWeekFollowup(String question) {
+        return PREVIOUS_WEEK_FOLLOWUP.matcher(question).matches();
+    }
+
+    /** 原请求接受日所在自然周之前的周一，周日由调用者按七日计算。 */
+    static LocalDate previousMonday(LocalDate anchor) {
+        return anchor.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks(1);
+    }
+
     /**
      * 仅含日号，没有判断月份的用户表达。
      */

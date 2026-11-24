@@ -73,6 +73,11 @@ public class ModelRegistry {
     public static final String QUESTION_SUGGESTION = "question-suggestion";
 
     /**
+     * 只处理近期窗口之外的问数历史。
+     */
+    public static final String HISTORY_SUMMARY = "history-summary";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -83,6 +88,7 @@ public class ModelRegistry {
             DOCUMENT_PLAN,
             DOCUMENT_WRITE,
             QUESTION_SUGGESTION,
+            HISTORY_SUMMARY,
             "intent",
             "sql-generate",
             "sql-semantic-check",

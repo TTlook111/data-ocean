@@ -162,6 +162,35 @@ class QueryModelsTest {
                 .hasMessage("RECOVERY_PENDING");
     }
 
+    /** 摘要节点的澄清回读保持同一阶段，并只携带固定修订标识。 */
+    @Test
+    void summaryUsesItsOwnStepAndOmitsCredentialsOnLookup() {
+        when(steps.issue("query-a", 3, "history-summary")).thenReturn(1).thenReturn(0);
+        when(registry.revisionReference(31L)).thenReturn(
+                new RevisionReference("31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample"));
+        when(registry.invocation(31L, 9)).thenReturn(new ModelInvocation(
+                "31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample", 9, "fixture"));
+        var seen = new ArrayList<String>();
+        var models = client((request, bytes, execution) -> {
+            assertThat(request.getURI().getPath()).endsWith("/history-summary");
+            assertThat(request.getHeaders().getFirst("X-Query-Step")).isEqualTo("history-summary");
+            var body = new String(bytes, StandardCharsets.UTF_8);
+            var lookup = request.getHeaders().getFirst("X-Query-Lookup");
+            seen.add(lookup);
+            if ("true".equals(lookup)) {
+                // 恢复的历史依据不需要重新获取凭据。
+                assertThat(body).doesNotContain("apiKey", "timeoutSeconds");
+            }
+            return response(HttpStatus.OK, "{\"requestIds\":[\"old\"]}");
+        });
+
+        assertThat(models.summarize(run, 31, 60, "那上周呢？", memory).requestIds()).containsExactly("old");
+        var clarified = new QueryModels.Run("query-a", 3, true);
+        assertThat(models.summarize(clarified, 31, 60, "那上周呢？", memory).requestIds()).containsExactly("old");
+        assertThat(seen).containsExactly("false", "true");
+        verify(registry).invocation(31L, 9);
+    }
+
     /**
      * 检查点已提交但首次返回暂不可用时，也能用原阶段查回真实结果。
      */

@@ -41,4 +41,15 @@ class QueryDatesTest {
         assertThat(QueryDates.singleRelativeDay("这个月 20 号仓的库存", LocalDate.of(2026, 11, 22)))
                 .isNull();
     }
+
+    /** 自然周追问不覆盖含明确星期或其他条件的普通问法。 */
+    @Test
+    void recognizesPreviousWeekOnlyInPureFollowUp() {
+        assertThat(QueryDates.previousWeekFollowup("那上周呢？")).isTrue();
+        assertThat(QueryDates.previousWeekFollowup("那么上个星期的呢？")).isTrue();
+        assertThat(QueryDates.previousWeekFollowup("那上周五呢？")).isFalse();
+        assertThat(QueryDates.previousWeekFollowup("那上周只查二号仓")).isFalse();
+        assertThat(QueryDates.previousMonday(LocalDate.of(2026, 11, 24)))
+                .isEqualTo(LocalDate.of(2026, 11, 16));
+    }
 }

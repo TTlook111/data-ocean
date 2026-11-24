@@ -15,6 +15,7 @@ import com.dataocean.module.query.service.QueryCorpus.Table;
 import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
+import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
 
@@ -267,6 +268,42 @@ class QuerySqlTest {
                 List.of(),
                 new TimeSelection(date, "TREND", "2026-11-01", "2026-11-04", false));
         assertThat(compiler.followBusinessDay(basis, fixed, series, -1)).isNull();
+    }
+
+    /** 上周追问沿用已验证的原计划，按业务自然周区间逐日执行。 */
+    @Test
+    void keepsConfirmedFiltersWhenFollowingPreviousCalendarWeek() {
+        var stock = new Field("stock_snapshot", "on_hand");
+        var locked = new Field("stock_snapshot", "locked");
+        var date = new Field("stock_snapshot", "business_date");
+        var evidence = basis("TABLE", stock, locked, date, null);
+        var previous = new Plan("READY", null, "1", "SUM", "库存", null, List.of(stock),
+                List.of(new Condition(stock, "5"), new Condition(date, "2026-11-19")),
+                new TimeSelection(date, "DAY", "2026-11-19", "2026-11-19", false));
+
+        var week = new QuerySql().followPreviousWeek(evidence, previous, LocalDate.of(2026, 11, 24));
+
+        assertThat(week.time()).isEqualTo(new TimeSelection(date, "TREND", "2026-11-16", "2026-11-22", false));
+        assertThat(week.filters()).containsExactly(new Condition(stock, "5"));
+        assertThat(week.metric()).isEqualTo(previous.metric());
+    }
+
+    /** 日期解析与商品校验对「上周」使用同一组纯追问表达。 */
+    @ParameterizedTest
+    @ValueSource(strings = {"上周？", "那么上个星期？", "那上周呢？"})
+    void acceptsConfirmedProductForAllPreviousWeekFollowups(String question) {
+        var code = new Field("product", "code");
+        var evidence = new Basis(null, null, 0, "", Map.of(), Map.of(), Map.of(), Map.of(code, "SKU 编码"));
+        var plan = new Plan("READY", null, "1", "SUM", "库存", null,
+                List.of(code), List.of(new Condition(code, "DEMO-2")));
+        var memory = new Memory("2026-11-24T00:00:00Z",
+                List.of(new MemoryTurn("confirmed", "查 DEMO-2 的库存", null, plan)), List.of());
+
+        assertThat(QueryDates.previousWeekFollowup(question)).isTrue();
+        assertThat(new QuerySql().checkProductCodes(evidence, plan, question, memory).contextRequestIds())
+                .containsExactly("confirmed");
+        assertThatThrownBy(() -> new QuerySql().checkProductCodes(evidence, plan,
+                question + "另查其他商品。", memory)).isInstanceOf(QueryFailure.class);
     }
 
     /**

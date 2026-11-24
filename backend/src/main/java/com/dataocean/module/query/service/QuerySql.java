@@ -248,6 +248,22 @@ final class QuerySql {
         return withTime(plan, filters, new TimeSelection(field, "DAY", date, date, false));
     }
 
+    /** 只移动已验证日指标的时间范围，按日保留原计算和筛选，避免快照跨日相加。 */
+    Plan followPreviousWeek(Basis basis, Plan previous, LocalDate anchor) {
+        var time = previous.time();
+        if (time == null || time.field() == null || previous.filters() == null || previous.operation() == null
+                || !ARITY.containsKey(previous.operation())
+                || !dateField(basis, time.field())) {
+            // 尚未验证逐日统计口径时不能按历史结果推导新范围。
+            return null;
+        }
+        var date = time.field();
+        var filters = previous.filters().stream().filter(filter -> !date.equals(filter.field())).toList();
+        var monday = QueryDates.previousMonday(anchor);
+        return withTime(previous, filters,
+                new TimeSelection(date, "TREND", monday.toString(), monday.plusDays(6).toString(), false));
+    }
+
     /**
      * 只改变业务日期条件，保留同一结构化计划中已确定的指标、字段和其他业务参数。
      */
@@ -271,6 +287,9 @@ final class QuerySql {
         boolean hasProduct = false;
         boolean published = false;
         var context = new LinkedHashSet<String>();
+        // 自然周追问和日期路径共用完整句式，其他商品指代沿用原判断。
+        boolean followsProduct = PRODUCT_CONTINUATION.matcher(question).find()
+                || QueryDates.previousWeekFollowup(question);
         for (var filter : plan.filters()) {
             // 只处理被确认为商品编码的列，其他等值业务条件沿用原有验证。
             String label = basis.labels().get(filter.field());
@@ -292,7 +311,7 @@ final class QuerySql {
                             && turn.plan().filters() != null
                             && turn.plan().filters().contains(filter))
                     .findFirst();
-            if (inherited.isPresent() && PRODUCT_CONTINUATION.matcher(question).find()) {
+            if (inherited.isPresent() && followsProduct) {
                 // 记录实际为这个参数提供依据的原轮次。
                 context.add(inherited.orElseThrow().requestId());
                 continue;

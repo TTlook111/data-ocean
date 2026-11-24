@@ -37,7 +37,7 @@ class ModelRegistryTest {
      * 共用模型及尚未接入的节点都不能保存新的模型分配。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"clarification", "history-summary"})
+    @ValueSource(strings = {"clarification", "rag-rerank"})
     void refusesIneffectiveAssignment(String node) {
         var choice = availableChoice(node);
 
@@ -51,7 +51,7 @@ class ModelRegistryTest {
      * 已接通节点继续保存能力匹配且版本一致的选择。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write", "question-suggestion"})
+    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write", "question-suggestion", "history-summary"})
     void savesConnectedAssignment(String node) {
         var choice = availableChoice(node);
 

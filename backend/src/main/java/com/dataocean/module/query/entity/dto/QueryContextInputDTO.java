@@ -7,14 +7,14 @@ import lombok.Data;
 import lombok.ToString;
 
 /**
- * 检索前的问题理解携带当前提问、同源上下文及本节点固定模型的调用或回读信息。
+ * 历史摘要与问题理解共用本轮提问、获准上下文和节点调用或回读身份。
  *
  * @param <T> 首次调用使用获准的配置，回读只使用原配置的修订标识
  */
 @Data
 @AllArgsConstructor
 @ToString(onlyExplicitlyIncluded = true)
-public class QueryIntentInputDTO<T> {
+public class QueryContextInputDTO<T> {
 
     /**
      * 新派发使用有界调用许可，回读只验证原修订的非敏感信息。
@@ -22,7 +22,7 @@ public class QueryIntentInputDTO<T> {
     private T model;
 
     /**
-     * 当前用户问题以及同轮已确认的补充内容。
+     * 当前用户问题。理解阶段可包含同轮已做的补充。
      */
     private String question;
 

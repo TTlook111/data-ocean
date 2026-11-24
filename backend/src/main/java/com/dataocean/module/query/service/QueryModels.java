@@ -5,12 +5,13 @@ import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
 import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
-import com.dataocean.module.query.entity.dto.QueryIntentInputDTO;
+import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
 import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.entity.vo.QueryExplanationTextVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryProtocol.Check;
+import com.dataocean.module.query.service.QueryProtocol.HistorySummary;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
 import com.dataocean.module.query.service.QueryProtocol.Intent;
@@ -42,6 +43,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 class QueryModels {
 
+    /** 可选历史节点使用更短的机器调用时限，给检索和执行保留时间。 */
+    private static final String HISTORY_PATH = "/history-summary";
+
     /** 保持现有受认证地址、短超时和不跟随重定向。 */
     private final ObjectProvider<RestClient> worker;
     /** 模型使用平台节点的当前固定修订。 */
@@ -55,6 +59,9 @@ class QueryModels {
     /** 各次内部调用复用本机 HTTP 连接与固定有界预算。 */
     private final JdkClientHttpRequestFactory factory;
 
+    /** 摘要失败或原回执不可读时应及时回退。 */
+    private final JdkClientHttpRequestFactory historyFactory;
+
     /** 复用内部模型客户端与独立结果外发约束。 */
     QueryModels(
             @Qualifier("modelTestPythonClient") ObjectProvider<RestClient> worker,
@@ -67,11 +74,14 @@ class QueryModels {
         this.steps = steps;
         this.allowedSources = allowedSources;
         this.explanationSources = explanationSources;
-        this.factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
+        var client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(3))
-                .build());
+                .build();
+        this.factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(Duration.ofSeconds(32));
+        this.historyFactory = new JdkClientHttpRequestFactory(client);
+        historyFactory.setReadTimeout(Duration.ofSeconds(12));
     }
 
     /** 同一次查询的节点由真实请求、执行代次及是否完成澄清确定。 */
@@ -128,29 +138,42 @@ class QueryModels {
         return selected == null ? 0L : selected;
     }
 
+    /** 允许无摘要配置的环境继续使用结构化历史。 */
+    long historySummaryRevision() {
+        Long selected = models.activeBinding(ModelRegistry.HISTORY_SUMMARY);
+        return selected == null ? 0L : selected;
+    }
+
+    /** 澄清前后共用原问题和旧轮次，摘要只发起一次。 */
+    HistorySummary summarize(Run run, long revision, int seconds, String question, Memory memory) {
+        return contextStep(run, ModelRegistry.HISTORY_SUMMARY, HISTORY_PATH, revision, Math.min(9, seconds),
+                question, memory, HistorySummary.class);
+    }
+
     /**
      * 使用问题理解自己的配置整理检索表述，恢复时回读同一阶段的已登记结果。
      */
     String understand(Run run, long revision, int seconds, String question, Memory memory) {
-        var step = run.key("intent");
-        boolean lookup = steps.issue(run.id(), run.version(), step) != 1;
-        var reference = new QueryIntentInputDTO<>(models.revisionReference(revision), question, memory);
-        String query;
-        if (lookup) {
-            // 已登记的阶段只核对原输入，无需读取模型凭据或校验当前启停。
-            query = call(run.id(), step, true, "/intent", reference, Intent.class)
-                    .retrievalQuery();
-        } else {
-            // 首次派发仍使用原冻结修订的当前许可，断连改走无凭据的回读请求。
-            var input = new QueryIntentInputDTO<>(models.invocation(revision, Math.min(28, seconds)), question, memory);
-            query = call(run.id(), step, false, "/intent", input, reference, Intent.class)
-                    .retrievalQuery();
-        }
+        var query = contextStep(run, run.key("intent"), "/intent", revision, Math.min(28, seconds),
+                question, memory, Intent.class).retrievalQuery();
         if (query == null || query.isBlank() || query.codePointCount(0, query.length()) > 600) {
             // 旧版或异常响应不能作为下一步检索输入。
             throw QueryFailure.technical();
         }
         return query.strip();
+    }
+
+    /** 上下文节点恢复只读取冻结修订及原输入的回执，无需传递模型凭据。 */
+    private <T> T contextStep(Run run, String step, String path, long revision, int seconds, String question,
+            Memory memory, Class<T> type) {
+        boolean lookup = steps.issue(run.id(), run.version(), step) != 1;
+        var reference = new QueryContextInputDTO<>(models.revisionReference(revision), question, memory);
+        if (lookup) {
+            // 只有已登记的实际结果可恢复，不能重新外发。
+            return call(run.id(), step, true, path, reference, type);
+        }
+        var input = new QueryContextInputDTO<>(models.invocation(revision, seconds), question, memory);
+        return call(run.id(), step, false, path, input, reference, type);
     }
 
     /** 通过实际固定向量模型召回并验证代次。 */
@@ -294,7 +317,7 @@ class QueryModels {
     private <T> T send(String id, String step, boolean lookup, String path, Object input, Class<T> type) {
         var result = worker.getObject()
                 .mutate()
-                .requestFactory(factory)
+                .requestFactory(HISTORY_PATH.equals(path) ? historyFactory : factory)
                 .build()
                 .post()
                 .uri("/internal/v1/query" + path)

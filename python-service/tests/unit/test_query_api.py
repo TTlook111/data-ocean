@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.testclient import TestClient
 
+from dataocean_ai.adapters import model_receipts
 from dataocean_ai.adapters.chat import ModelFailure
 from dataocean_ai.query import api
 from dataocean_ai.query.journal import stable
@@ -92,11 +93,51 @@ def test_intent_receipt_reference_keeps_original_fingerprint():
         key: value for key, value in model.items() if key not in {"apiKey", "timeoutSeconds"}
     }
     lookup = {**dispatch, "model": reference}
-    assert stable(jsonable_encoder(api.IntentJob.model_validate(dispatch))) == stable(
-        jsonable_encoder(api.IntentJob.model_validate(lookup))
+    assert stable(jsonable_encoder(api.ContextJob.model_validate(dispatch))) == stable(
+        jsonable_encoder(api.ContextJob.model_validate(lookup))
     )
     with pytest.raises(ModelFailure, match="MODEL_CONFIGURATION_UNAVAILABLE"):
-        asyncio.run(api.understand_question(api.IntentJob.model_validate(lookup)))
+        asyncio.run(api.understand_question(api.ContextJob.model_validate(lookup)))
+
+
+def test_history_summary_keeps_provenance_and_uses_own_scope(monkeypatch, http):
+    """
+    摘要只返回实际旧轮次来源，独立模型用量归属本次请求。
+    """
+    query_id = "c39611fa-8f66-44f3-aee3-fcdb964cea8f"
+    old_id = "77c7aafb-c039-491c-a628-557d0a5ec09c"
+    summary = {"requestIds": [old_id]}
+
+    async def selected(config, prompt, data, schema):
+        """
+        向提供方发送已获准的旧计划及近期比较资料。
+        """
+        assert model_receipts._scope.get() == model_receipts.CallScope(
+            "QUERY", "history-summary", query_id
+        )
+        assert config.revision_id == "75"
+        assert "近期计划只用于核对" in prompt
+        assert "secret-fixture-value" not in data
+        assert json.loads(data)["memory"]["earlier"][0]["requestId"] == old_id
+        return schema.model_validate(summary), None
+
+    generate = AsyncMock(side_effect=selected)
+    monkeypatch.setattr(api, "generate", generate)
+    job = {
+        "model": model_config("OPENAI_CHAT_COMPLETIONS", "75"),
+        "question": "原口径上周呢？",
+        "memory": {
+            "timeAnchor": "2026-11-24T01:00:00Z",
+            "recent": [],
+            "earlier": [{"requestId": old_id, "plan": {"metric": "已确认指标"}}],
+        },
+    }
+    response = http.post(
+        "/internal/v1/query/history-summary", json=job, headers={"X-Query-Id": query_id}
+    )
+    assert response.status_code == 200
+    assert response.json() == summary
+    generate.assert_awaited_once()
 
 
 @pytest.mark.parametrize("step", ["plan", "repair-parameter", "semantic", "output"])

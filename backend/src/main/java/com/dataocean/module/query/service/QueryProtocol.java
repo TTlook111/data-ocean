@@ -39,6 +39,8 @@ public final class QueryProtocol {
      *
      * @param repairRevision 修正节点固定修订，零表示本轮未配置，空值用于旧版已冻结输入
      * @param intentRevision 问题理解节点固定修订，空值仅用于保持升级前旧请求的检索回执
+     * @param historySummaryRevision 历史摘要固定修订，零表示没有配置，空值保持旧冻结输入
+     * @param historySummary 已持久选定的摘要来源及是否采用模型回包
      */
     public record RunInput(
             String signature,
@@ -48,7 +50,24 @@ public final class QueryProtocol {
             long semanticRevision,
             Long outputRevision,
             Long repairRevision,
-            Long intentRevision) {}
+            Long intentRevision,
+            Long historySummaryRevision,
+            SummaryDecision historySummary) {}
+
+    /**
+     * 摘要模型只引用 Java 提供的已核验轮次，内容由源计划组装。
+     *
+     * @param requestIds 保留的旧轮次编号
+     */
+    public record HistorySummary(List<String> requestIds) {}
+
+    /**
+     * 选定的上下文先落盘，超时后到达的回包不得改变后续节点输入。
+     *
+     * @param requestIds 实际保留的旧轮次，全部来自冻结历史
+     * @param applied 是否采用了通过核对的模型摘要
+     */
+    public record SummaryDecision(List<String> requestIds, boolean applied) {}
 
     /**
      * 检索前的问题理解回执，查询计划继续使用原问题和核验后的正式证据。
