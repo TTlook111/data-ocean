@@ -58,6 +58,11 @@ public class ModelRegistry {
     public static final String METRIC_DISCOVERY = "metric-discovery";
 
     /**
+     * 基于所选源建议文档范围的独立知识节点。
+     */
+    public static final String DOCUMENT_PLAN = "document-plan";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -65,6 +70,7 @@ public class ModelRegistry {
             FIELD_EXPLANATION,
             RELATION_DISCOVERY,
             METRIC_DISCOVERY,
+            DOCUMENT_PLAN,
             "intent",
             "sql-generate",
             "sql-semantic-check",

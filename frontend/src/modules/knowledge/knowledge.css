@@ -1159,3 +1159,34 @@
     border-inline-start: 1px solid var(--do-line);
   }
 }
+/* 规划从当前源进入全宽确认区，建议采用统一正文阅读轴。 */
+.knowledge-plan-surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+/* 短填写区保持桌面可读宽度，提交错误与入口按标准间距排列。 */
+.knowledge-plan-surface > .ant-form {
+  max-width: 640px;
+}
+
+/* 保留开始按钮与实际失败反馈之间的距离。 */
+.knowledge-plan-surface > .ant-form > .ant-alert {
+  margin-bottom: 12px;
+}
+
+/* 每篇建议使用细分隔线，范围和依据可跟随正文连续读取。 */
+.knowledge-plan-suggestion + .knowledge-plan-suggestion {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 文档建议沿用后台区块标题尺度。 */
+.knowledge-plan-suggestion h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 24px;
+}

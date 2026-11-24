@@ -81,10 +81,24 @@ export function KnowledgePage() {
               查看治理依据
             </Button>
           )}
+          {source && allowed(session, 'knowledge.generate') && (
+            <Button
+              type="primary"
+              disabled={selected.lifecycle !== 'ENABLED'}
+              onClick={() => {
+                // 规划从当前数据源发起，不依赖任何已有文档身份。
+                navigate('/knowledge/plans/new?' + queryString({ source }), {
+                  state: { listSearch: location.search },
+                });
+              }}
+            >
+              生成知识文档
+            </Button>
+          )}
           {source && allowed(session, 'knowledge.edit') && (
             <Button
               id="knowledge-open-new"
-              type="primary"
+              type={allowed(session, 'knowledge.generate') ? 'default' : 'primary'}
               icon={<PlusOutlined aria-hidden="true" />}
               disabled={selected.lifecycle !== 'ENABLED'}
               onClick={() => open('new')}

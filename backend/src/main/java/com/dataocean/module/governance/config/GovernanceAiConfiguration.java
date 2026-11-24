@@ -133,6 +133,14 @@ public class GovernanceAiConfiguration {
     }
 
     /**
+     * 异步文档规划需要更长的模型响应时间，仍沿用同一个内部签名连接。
+     */
+    @Bean
+    RestClient knowledgePlanPythonClient(@Qualifier("governancePythonClient") RestClient client) {
+        return client.mutate().requestFactory(requestFactory(65)).build();
+    }
+
+    /**
      * 为两种内部动作分别设定有限的读超时。
      */
     private JdkClientHttpRequestFactory requestFactory(int readSeconds) {

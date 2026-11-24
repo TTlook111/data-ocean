@@ -99,6 +99,15 @@ export function workspaceParent(
       url: '/knowledge-dashboard' + origin.knowledgeOverviewSearch,
     };
   }
+  if (route === '/knowledge/plans/:id') {
+    // 规划完成或返回时沿用同一来源和原列表筛选。
+    return {
+      label: '知识文档',
+      current: id === 'new' ? '文档规划' : '生成前确认',
+      url:
+        '/knowledge' + (origin?.listSearch ?? '?' + queryString({ source: params.get('source') })),
+    };
+  }
   if (route === '/knowledge/:id') {
     const from = origin?.releaseReturn;
     if (from && permissions.includes('releases.view')) {

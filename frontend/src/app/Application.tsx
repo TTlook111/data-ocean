@@ -175,6 +175,10 @@ const KnowledgeOverview = lazyPage(() =>
 const KnowledgePage = lazyPage(() =>
   import('../modules/knowledge/KnowledgePage').then((m) => m.KnowledgePage),
 );
+// 规划由当前数据源发起，任务编号支持轮询和回看。
+const KnowledgePlanPage = lazyPage(() =>
+  import('../modules/knowledge/KnowledgePlanPage').then((m) => m.KnowledgePlanPage),
+);
 const KnowledgeDocumentPage = lazyPage(() =>
   import('../modules/knowledge/KnowledgeDocumentPage').then((m) => m.KnowledgeDocumentPage),
 );
@@ -233,6 +237,7 @@ const workspaceRoutes = [
   // 知识文档列表及其草稿、当前确认和历史修订。
   { path: '/knowledge-dashboard', element: <KnowledgeOverview /> },
   { path: '/knowledge', element: <KnowledgePage /> },
+  { path: '/knowledge/plans/:id', element: <KnowledgePlanPage /> },
   { path: '/knowledge/:id', element: <KnowledgeDocumentPage /> },
   { path: '/test-cases', element: <KnowledgeTestPage /> },
   { path: '/releases', element: <KnowledgeReleasePage /> },
