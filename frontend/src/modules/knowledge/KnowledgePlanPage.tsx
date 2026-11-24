@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Descriptions, Form, Input, Space } from 'antd';
 import { useRef } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
@@ -7,6 +7,7 @@ import { LoadingStatus } from '../../shared/LoadingIndicator';
 import { readErrorMessage, ReadState } from '../../shared/Records';
 import { allowed, useSession } from '../../shared/session';
 import { SourceUnavailable, useSourceSelection } from '../datasource/CollectionPage';
+import { KnowledgeDraftGeneration } from './KnowledgeDraftGeneration';
 import './knowledge.css';
 
 /**
@@ -38,6 +39,8 @@ type KnowledgePlan = {
   facts: Array<{ number: number; label: string }>;
   /** 同源现有文档的匹配身份。 */
   existingDocuments: Array<{ id: string; title: string }>;
+  /** 各建议当前可回看的实际正文任务。 */
+  draftTasks: Array<{ suggestionIndex: number; id: string }>;
 };
 
 /** 规划失败按可复核的实际结果提示。 */
@@ -59,6 +62,7 @@ export function KnowledgePlanPage() {
   const selected = sources.data?.find((item) => item.id === source);
   const session = useSession();
   const navigate = useNavigate();
+  const cache = useQueryClient();
   const location = useLocation();
   const command = useRef<{ source: string; goal: string; key: string } | null>(null);
   const mayPlan = allowed(session, 'knowledge.generate');
@@ -110,6 +114,9 @@ export function KnowledgePlanPage() {
   const factNames = new Map(report?.facts.map((fact) => [fact.number, fact.label]));
   const documents = new Map(
     report?.existingDocuments.map((document) => [document.id, document.title]),
+  );
+  const draftTasks = new Map(
+    report?.draftTasks?.map(({ suggestionIndex, id }) => [suggestionIndex, id]),
   );
   return (
     <main className="record-page" aria-label="知识文档规划">
@@ -243,6 +250,32 @@ export function KnowledgePlanPage() {
                             ]
                           : []),
                       ]}
+                    />
+                    {/* 每篇独立核对、生成和采纳，成功结果随规划回看。 */}
+                    <KnowledgeDraftGeneration
+                      endpoint={`${endpoint}/${id}/draft-generations`}
+                      source={source}
+                      suggestionIndex={index}
+                      suggestion={document}
+                      facts={report.facts}
+                      taskId={draftTasks.get(index)}
+                      mayEdit={allowed(session, 'knowledge.edit')}
+                      started={(taskId) => {
+                        // 保留其他文档各自的办理位置，仅更新本篇回执。
+                        cache.setQueryData<KnowledgePlan>(
+                          ['knowledge-plan', source, id],
+                          (current) =>
+                            current && {
+                              ...current,
+                              draftTasks: [
+                                ...(current.draftTasks ?? []).filter(
+                                  (task) => task.suggestionIndex !== index,
+                                ),
+                                { suggestionIndex: index, id: taskId },
+                              ],
+                            },
+                        );
+                      }}
                     />
                   </article>
                 ))

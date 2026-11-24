@@ -155,19 +155,25 @@ public class KnowledgeDocuments {
      * 创建草稿使用同源固定引用和稳定命令。
      */
     public MutationVO create(long source, String command, KnowledgeDocumentDraftDTO input) {
-        return commands.execute("knowledge.edit", command, target(source, null), input, null, false, false, () -> {
-            var origin = writable(source);
-            var body = content(input);
-            var captured = references.capture(origin, input);
-            var required = input.getRequiredDocuments() == null
-                    ? List.<Long>of()
-                    : links.capture(source, null, input.getRequiredDocuments());
-            long id = IdWorker.getId();
-            long revision = IdWorker.getId();
-            documents.create(id, source, body.getTitle(), revision);
-            append(id, revision, 1, body, captured, required);
-            return recorded(command, "knowledge.edit", id, body.getTitle(), 1);
-        });
+        return commands.execute("knowledge.edit", command, target(source, null), input, null, false, false,
+                () -> createDraft(source, command, input));
+    }
+
+    /**
+     * 在已通过命令核权的事务中保存首份草稿，人工创建和正文采纳使用同一校验。
+     */
+    MutationVO createDraft(long source, String command, KnowledgeDocumentDraftDTO input) {
+        var origin = writable(source);
+        var body = content(input);
+        var captured = references.capture(origin, input);
+        var required = input.getRequiredDocuments() == null
+                ? List.<Long>of()
+                : links.capture(source, null, input.getRequiredDocuments());
+        long id = IdWorker.getId();
+        long revision = IdWorker.getId();
+        documents.create(id, source, body.getTitle(), revision);
+        append(id, revision, 1, body, captured, required);
+        return recorded(command, "knowledge.edit", id, body.getTitle(), 1);
     }
 
     /**
@@ -175,30 +181,39 @@ public class KnowledgeDocuments {
      */
     public MutationVO draft(long source, long id, String command, KnowledgeDocumentUpdateDTO input) {
         int expected = input.getExpectedVersion();
-        return commands.execute("knowledge.edit", command, target(source, id), input, expected, false, false, () -> {
-            var origin = writable(source);
-            var current = document(source, id);
-            version(current, expected);
-            var body = content(input);
-            var captured = references.capture(origin, input);
-            var prior = documents.revision(id, current.headRevisionId());
-            var oldLinks = links.documents(prior.id());
-            var required = input.getRequiredDocuments() == null
-                    ? oldLinks
-                    : links.capture(source, id, input.getRequiredDocuments());
-            // MySQL 的 JSON 列会规范化格式，按类型化内容和依赖集合判断变化。
-            if (body.equals(json.read(prior.content(), Content.class))
-                    && required.equals(oldLinks)
-                    && ordered(captured).equals(ordered(documents.references(prior.id())))) {
-                return mutation(command, id, expected);
-            }
-            long revision = IdWorker.getId();
-            append(id, revision, prior.revision() + 1, body, captured, required);
-            if (documents.advance(source, id, expected, body.getTitle(), revision) != 1) {
-                throw BizIllegalException.conflict();
-            }
-            return recorded(command, "knowledge.edit", id, body.getTitle(), expected + 1);
-        });
+        return commands.execute("knowledge.edit", command, target(source, id), input, expected, false, false,
+                () -> saveDraft(source, id, command, input));
+    }
+
+    /**
+     * 在已通过命令核权的事务中按原聚合版本追加修订。
+     */
+    MutationVO saveDraft(long source, long id, String command, KnowledgeDocumentUpdateDTO input) {
+        var origin = writable(source);
+        var current = document(source, id);
+        int expected = input.getExpectedVersion();
+        version(current, expected);
+        var body = content(input);
+        var captured = references.capture(origin, input);
+        var prior = documents.revision(id, current.headRevisionId());
+        var oldLinks = links.documents(prior.id());
+        var required = input.getRequiredDocuments() == null
+                ? oldLinks
+                : links.capture(source, id, input.getRequiredDocuments());
+        // MySQL 的 JSON 列会规范化格式，按类型化内容和依赖集合判断变化。
+        if (body.equals(json.read(prior.content(), Content.class))
+                && required.equals(oldLinks)
+                && ordered(captured).equals(ordered(documents.references(prior.id())))) {
+            // 重复保存可返回当前版本，不增加无变化的修订。
+            return mutation(command, id, expected);
+        }
+        long revision = IdWorker.getId();
+        append(id, revision, prior.revision() + 1, body, captured, required);
+        if (documents.advance(source, id, expected, body.getTitle(), revision) != 1) {
+            // 同一版本只能有一个后续草稿。
+            throw BizIllegalException.conflict();
+        }
+        return recorded(command, "knowledge.edit", id, body.getTitle(), expected + 1);
     }
 
     /**

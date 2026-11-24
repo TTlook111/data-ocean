@@ -1190,3 +1190,66 @@
   font-size: 16px;
   line-height: 24px;
 }
+
+/* 生成动作、进度和回执紧跟当前建议，区分其他文档的进度。 */
+.knowledge-generation,
+.knowledge-generation-review {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+/* 正文审核区和本轮规划的治理依据保持同一个阅读轴。 */
+.knowledge-generation {
+  margin-top: 16px;
+}
+
+/* 差异区使用完整工作宽度，避免短正文缩窄相邻的比较列。 */
+.knowledge-generation-review {
+  width: 100%;
+}
+
+/* 已采纳的建议可展开回查，默认让文档入口保持简洁。 */
+.knowledge-generation-record {
+  width: 100%;
+}
+
+/* 展开后将切换入口与逐节内容分开。 */
+.knowledge-generation-record[open] > summary {
+  margin-bottom: 12px;
+}
+
+/* 分节建议保持独立，便于逐条核对和选择。 */
+.knowledge-generation-change {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}
+
+/* 章节名与建议正文按既有后台字号阅读。 */
+.knowledge-generation-change h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 原文与建议并排，长文本可换行以适应桌面缩放。 */
+.knowledge-generation-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* 保留原正文的段落断行并处理较长业务标识。 */
+.knowledge-generation-change p {
+  margin: 4px 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 核对治理依据后可紧接选择这一节。 */
+.knowledge-generation-change .ant-checkbox-wrapper {
+  margin-top: 8px;
+}

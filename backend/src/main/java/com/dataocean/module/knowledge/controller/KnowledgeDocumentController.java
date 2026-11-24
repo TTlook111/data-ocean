@@ -9,11 +9,15 @@ import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.security.RequirePermission;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeDocumentDraftDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeDocumentUpdateDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeDraftAdoptionDTO;
+import com.dataocean.module.knowledge.entity.dto.KnowledgeDraftGenerationDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgePlanDTO;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeRevisionConfirmDTO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgeDocumentVO;
+import com.dataocean.module.knowledge.entity.vo.KnowledgeDraftGenerationVO;
 import com.dataocean.module.knowledge.entity.vo.KnowledgePlanVO;
 import com.dataocean.module.knowledge.service.KnowledgeDocuments;
+import com.dataocean.module.knowledge.service.KnowledgeDraftGenerations;
 import com.dataocean.module.knowledge.service.KnowledgePlans;
 
 import jakarta.validation.Valid;
@@ -52,6 +56,11 @@ public class KnowledgeDocumentController {
     private final KnowledgePlans plans;
 
     /**
+     * 核对范围后生成正文及逐节采纳差异。
+     */
+    private final KnowledgeDraftGenerations generations;
+
+    /**
      * 按已核验的治理输入发起实际文档规划。
      */
     @PostMapping("/plans")
@@ -71,6 +80,39 @@ public class KnowledgeDocumentController {
     @RequirePermission("knowledge.generate")
     public Result<KnowledgePlanVO> planDetail(@PathVariable String source, @PathVariable String id) {
         return Result.success(plans.detail(Ids.parse(source), Ids.parse(id)));
+    }
+
+    /**
+     * 单独受理一篇正文生成，返回可核实的后台任务编号。
+     */
+    @PostMapping("/plans/{plan}/draft-generations")
+    @RequirePermission("knowledge.generate")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Result<MutationVO> generateDraft(
+            @PathVariable String source, @PathVariable String plan,
+            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody KnowledgeDraftGenerationDTO input) {
+        return Result.success(generations.create(Ids.parse(source), Ids.parse(plan), command, input));
+    }
+
+    /**
+     * 回看原生成状态及确切原文、建议与依据。
+     */
+    @GetMapping("/plans/{plan}/draft-generations/{id}")
+    @RequirePermission("knowledge.generate")
+    public Result<KnowledgeDraftGenerationVO> draftGeneration(
+            @PathVariable String source, @PathVariable String plan, @PathVariable String id) {
+        return Result.success(generations.detail(Ids.parse(source), Ids.parse(plan), Ids.parse(id)));
+    }
+
+    /**
+     * 明确采纳正文建议后保存一份可编辑的实际草稿。
+     */
+    @PostMapping("/plans/{plan}/draft-generations/{id}/adoptions")
+    @RequirePermission("knowledge.edit")
+    public Result<MutationVO> adoptDraft(
+            @PathVariable String source, @PathVariable String plan, @PathVariable String id,
+            @RequestHeader("Idempotency-Key") String command, @Valid @RequestBody KnowledgeDraftAdoptionDTO input) {
+        return Result.success(generations.adopt(Ids.parse(source), Ids.parse(plan), Ids.parse(id), command, input));
     }
 
     /**

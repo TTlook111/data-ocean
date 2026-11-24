@@ -60,8 +60,8 @@ export function KnowledgeDocumentPage() {
   });
   const navigation = location.state as {
     listSearch?: string;
-    /** 文档列表的行操作可以直接进入草稿编辑。 */
-    editDocument?: boolean;
+    /** 仅对用户从列表或生成结果打开的原版本进入编辑。 */
+    editVersion?: number;
   } | null;
   const listSearch = navigation?.listSearch ?? '?' + queryString({ source });
 
@@ -90,17 +90,17 @@ export function KnowledgeDocumentPage() {
           sourceName={sourceName}
           current={document.data}
           listSearch={listSearch}
-          startEditing={Boolean(navigation?.editDocument) && !revisionId}
+          startEditing={navigation?.editVersion === document.data.document.version && !revisionId}
           tab={tab}
           switchTab={(tab) =>
             setParams(queryString({ source, revisionId, tab }), {
               replace: true,
-              state: { ...(location.state as object | null), editDocument: false },
+              state: { ...(location.state as object | null), editVersion: undefined },
             })
           }
           showRevision={(revision) =>
             setParams(queryString({ source, revisionId: revision }), {
-              state: { ...(location.state as object | null), editDocument: false },
+              state: { ...(location.state as object | null), editVersion: undefined },
             })
           }
         />

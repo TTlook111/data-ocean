@@ -18,6 +18,7 @@ from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.core.result import Result
 from dataocean_ai.governance.queue import knowledge_router
 from dataocean_ai.governance.queue import router as governance_router
+from dataocean_ai.knowledge.draft_generation import router as draft_generation_router
 from dataocean_ai.knowledge.planning import router as planning_router
 from dataocean_ai.knowledge.readback import router as readback_router
 from dataocean_ai.query.api import router as query_router
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     # 工作流接收入口使用独立服务身份，不处理浏览器会话。
     app.include_router(governance_router)
     app.include_router(knowledge_router)
+    app.include_router(draft_generation_router)
     app.include_router(planning_router)
     app.include_router(readback_router)
     app.include_router(query_router)

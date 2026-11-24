@@ -53,11 +53,11 @@ export function KnowledgePage() {
   }, [list.isSuccess, location.key, returned]);
 
   /** 同一源下打开正文，保留原查询地址。 */
-  function open(id: string, editDocument = false) {
+  function open(id: string, editVersion?: number) {
     navigate('/knowledge/' + id + '?' + queryString({ source }), {
       state: {
         listSearch: '?' + queryString({ source, keyword, pageNum, pageSize: size }),
-        editDocument,
+        editVersion,
       },
     });
   }
@@ -196,7 +196,10 @@ export function KnowledgePage() {
                   className: 'record-actions-cell',
                   fixed: 'right',
                   render: (_, row) => (
-                    <Button type="link" onClick={() => open(row.id, canEditDocument)}>
+                    <Button
+                      type="link"
+                      onClick={() => open(row.id, canEditDocument ? row.version : undefined)}
+                    >
                       {canEditDocument ? '编辑草稿' : '查看'}
                     </Button>
                   ),

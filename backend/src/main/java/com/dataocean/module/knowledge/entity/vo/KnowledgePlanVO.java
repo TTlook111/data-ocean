@@ -11,6 +11,7 @@ import java.util.List;
  * @param documents 生成的文档建议
  * @param facts 建议引用的同源治理快照标识
  * @param existingDocuments 可回看和定位的同源现有文档
+ * @param draftTasks 各建议最近生成的正文任务，跨刷新保留办理位置
  */
 public record KnowledgePlanVO(
         String id,
@@ -18,7 +19,16 @@ public record KnowledgePlanVO(
         String failureCode,
         List<Suggestion> documents,
         List<FactReference> facts,
-        List<DocumentReference> existingDocuments) {
+        List<DocumentReference> existingDocuments,
+        List<DraftTask> draftTasks) {
+
+    /**
+     * 用原建议的稳定顺序定位已提交的正文任务。
+     *
+     * @param suggestionIndex 原规划建议的零起始序号
+     * @param id 正文任务编号
+     */
+    public record DraftTask(int suggestionIndex, String id) {}
 
     /**
      * 模型提出的单篇规划，由用户核对后才能进入正文生成。

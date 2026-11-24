@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.mapper;
 
+import java.util.List;
 import java.util.Set;
 
 import org.apache.ibatis.annotations.Insert;
@@ -8,7 +9,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /**
- * 保存知识规划的固定输入、单次领取和终态。
+ * 保存知识规划与正文生成的固定输入、单次领取和终态。
  */
 public interface KnowledgePlanMapper {
 
@@ -24,6 +25,10 @@ public interface KnowledgePlanMapper {
      * @param state 当前任务状态
      * @param result 成功建议
      * @param failureCode 可披露失败分类
+     * @param operation 规划与正文分别使用自身输入和结果契约
+     * @param parentPlanId 正文所采纳的原规划编号
+     * @param suggestionIndex 本次采纳的规划建议序号，从零开始
+     * @param appliedDocumentId 明确采纳后保存的文档编号
      */
     record Row(
             long id,
@@ -34,7 +39,17 @@ public interface KnowledgePlanMapper {
             String snapshot,
             String state,
             String result,
-            String failureCode) {}
+            String failureCode,
+            String operation,
+            Long parentPlanId,
+            Integer suggestionIndex,
+            Long appliedDocumentId) {}
+
+    /**
+     * @param suggestionIndex 原规划中的建议序号
+     * @param id 最近可办理的正文任务编号
+     */
+    record DraftTask(int suggestionIndex, long id) {}
 
     /**
      * 公共命令受理事务只创建一次任务。
@@ -51,6 +66,54 @@ public interface KnowledgePlanMapper {
      */
     @Select("SELECT * FROM kn_document_plan WHERE id=#{id}")
     Row get(long id);
+
+    /**
+     * 同一规划的生成和采纳操作先锁定原规划，避免并发采纳重复创建文档。
+     */
+    @Select("SELECT * FROM kn_document_plan WHERE id=#{id} FOR UPDATE")
+    Row lock(long id);
+
+    /**
+     * 优先返回已经采纳的文档，否则回看当前建议最近的正文任务。
+     */
+    @Select("""
+            SELECT * FROM kn_document_plan WHERE parent_plan_id=#{plan} AND suggestion_index=#{suggestion}
+            ORDER BY (applied_document_id IS NOT NULL) DESC,id DESC LIMIT 1 FOR UPDATE
+            """)
+    Row latestDraft(long plan, int suggestion);
+
+    /**
+     * 回看规划时一次定位全部已提交的正文任务。
+     */
+    @Select("""
+            SELECT suggestion_index, id FROM (
+                SELECT suggestion_index, id, ROW_NUMBER() OVER (
+                    PARTITION BY suggestion_index ORDER BY (applied_document_id IS NOT NULL) DESC, id DESC
+                ) AS task_rank
+                FROM kn_document_plan WHERE parent_plan_id=#{plan}
+            ) ranked WHERE task_rank=1
+            """)
+    List<DraftTask> draftTasks(long plan);
+
+    /**
+     * 正文任务冻结原规划建议和实际文档修订。
+     */
+    @Insert("""
+            INSERT INTO kn_document_plan(id,source_id,requested_by,authentication_version,model_revision_id,
+                snapshot,operation,parent_plan_id,suggestion_index)
+            VALUES(#{id},#{source},#{actor},#{authentication},#{revision},#{snapshot},'WRITE',#{plan},#{suggestion})
+            """)
+    void insertDraft(long id, long source, long actor, long authentication, long revision, String snapshot,
+            long plan, int suggestion);
+
+    /**
+     * 采纳与实际文档写入在同一事务完成。
+     */
+    @Update("""
+            UPDATE kn_document_plan SET applied_document_id=#{document}
+            WHERE id=#{id} AND operation='WRITE' AND state='SUCCEEDED' AND applied_document_id IS NULL
+            """)
+    int applied(long id, long document);
 
     /**
      * 仅领取本部署明确允许发给知识模型的来源。

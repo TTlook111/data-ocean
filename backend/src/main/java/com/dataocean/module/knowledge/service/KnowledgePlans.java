@@ -126,6 +126,11 @@ public class KnowledgePlans {
     private final JsonCodec json;
 
     /**
+     * 正文和规划沿用同一条单次派发队列。
+     */
+    private final KnowledgeDraftGenerations drafts;
+
+    /**
      * 内部客户选择带模型响应预算的现有签名连接。
      */
     public KnowledgePlans(
@@ -140,7 +145,8 @@ public class KnowledgePlans {
             PermissionService permissions,
             MutationService commands,
             AuditService audit,
-            JsonCodec json) {
+            JsonCodec json,
+            KnowledgeDraftGenerations drafts) {
         this.plans = plans;
         this.documents = documents;
         this.catalog = catalog;
@@ -153,6 +159,7 @@ public class KnowledgePlans {
         this.commands = commands;
         this.audit = audit;
         this.json = json;
+        this.drafts = drafts;
     }
 
     /**
@@ -186,13 +193,15 @@ public class KnowledgePlans {
     public KnowledgePlanVO detail(long sourceId, long id) {
         permissions.require("knowledge.view");
         var row = plans.get(id);
-        if (row == null || row.sourceId() != sourceId || row.requestedBy() != UserContext.getUser()) {
+        if (row == null || !"PLAN".equals(row.operation()) || row.sourceId() != sourceId
+                || row.requestedBy() != UserContext.getUser()) {
             // 同一任务不可通过其他数据源或后台账号访问。
             throw BizIllegalException.missing();
         }
         if (row.result() == null) {
             // 失败或执行过程只给出状态，未完成输入不进入界面。
-            return new KnowledgePlanVO(Ids.text(id), row.state(), row.failureCode(), List.of(), List.of(), List.of());
+            return new KnowledgePlanVO(Ids.text(id), row.state(), row.failureCode(),
+                    List.of(), List.of(), List.of(), List.of());
         }
         var snapshot = json.read(row.snapshot(), Snapshot.class);
         var facts = snapshot.facts().stream()
@@ -214,7 +223,10 @@ public class KnowledgePlans {
                 null,
                 json.read(row.result(), Response.class).documents(),
                 facts,
-                snapshot.existingDocuments());
+                snapshot.existingDocuments(),
+                plans.draftTasks(id).stream()
+                        .map(task -> new KnowledgePlanVO.DraftTask(task.suggestionIndex(), Ids.text(task.id())))
+                        .toList());
     }
 
     /**
@@ -235,6 +247,11 @@ public class KnowledgePlans {
             return;
         }
         var job = plans.get(id);
+        if ("WRITE".equals(job.operation())) {
+            // 正文和规划各自解析固定输入，领取与终态保护共用。
+            drafts.dispatch(job, client);
+            return;
+        }
         try {
             var snapshot = json.read(job.snapshot(), Snapshot.class);
             var model = actors.asActor(

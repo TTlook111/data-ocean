@@ -37,7 +37,7 @@ it.each([
       return [
         { code: 'intent', connected: true, capability: 'GENERATION', modelId: selected, version },
         {
-          code: 'document-write',
+          code: 'history-summary',
           connected: false,
           capability: 'GENERATION',
           modelId: null,
@@ -74,7 +74,7 @@ it.each([
   await waitFor(() => expect(picker).toBeEnabled());
   expect(screen.getByText('暂无独立调用')).toBeInTheDocument();
   expect(
-    screen.queryByRole('combobox', { name: '为知识正文生成与更新分配模型' }),
+    screen.queryByRole('combobox', { name: '为历史对话摘要分配模型' }),
   ).not.toBeInTheDocument();
   // 只检查选择器的展示值，避开组件为读屏保留的重复文本。
   const displayedModel = picker.closest('.ant-select')?.querySelector('.ant-select-content');

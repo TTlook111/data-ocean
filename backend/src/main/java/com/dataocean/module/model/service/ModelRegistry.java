@@ -63,6 +63,11 @@ public class ModelRegistry {
     public static final String DOCUMENT_PLAN = "document-plan";
 
     /**
+     * 使用核对后的治理事实生成正文或既有文档差异。
+     */
+    public static final String DOCUMENT_WRITE = "document-write";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -71,6 +76,7 @@ public class ModelRegistry {
             RELATION_DISCOVERY,
             METRIC_DISCOVERY,
             DOCUMENT_PLAN,
+            DOCUMENT_WRITE,
             "intent",
             "sql-generate",
             "sql-semantic-check",
