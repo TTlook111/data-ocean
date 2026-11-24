@@ -38,6 +38,7 @@ import '../modules/access/access.css';
  * 已实现页面与真实页面权限的对应关系。
  */
 const navigation = [
+  { key: '/dashboard', label: '总览', permission: 'dashboard.view', icon: <DashboardOutlined /> },
   { key: '/iam/users', label: '人员管理', permission: 'users.view', icon: <TeamOutlined /> },
   {
     key: '/iam/departments',
@@ -132,6 +133,10 @@ const MyAccessPage = lazyPage(() =>
   import('../modules/access/ScopePages').then((m) => m.MyAccessPage),
 );
 // 接入概览单独按获准权限加载。
+// 总览只在实际进入后台首页时加载图表。
+const DashboardOverview = lazyPage(() =>
+  import('../modules/dashboard/DashboardOverview').then((m) => m.DashboardOverview),
+);
 const SourceOverview = lazyPage(() =>
   import('../modules/datasource/SourceOverview').then((m) => m.SourceOverview),
 );
@@ -199,6 +204,7 @@ const ModelCallsPage = lazyPage(() =>
  * 工作区路由同时用于内容渲染与权限、菜单和面包屑定位。
  */
 const workspaceRoutes = [
+  { path: '/dashboard', element: <DashboardOverview /> },
   // 问数使用独立工作台，管理页面继续走原有外壳。
   { path: '/query' },
   // 人员、组织与功能权限管理。
@@ -287,6 +293,7 @@ export function Application() {
   // 显式刷新概览恢复默认期间，应用内来回导航仍使用页面上下文。
   const resetOverview = useRef(
     [
+      '/dashboard',
       '/feedback-dashboard',
       '/sources-dashboard',
       '/governance-dashboard',
@@ -529,7 +536,7 @@ export function Application() {
 
   const menus = [
     ...(session.permissionCodes.includes('dashboard.view')
-      ? [{ key: 'pending-dashboard', label: '总览', icon: <DashboardOutlined />, disabled: true }]
+      ? [{ key: '/dashboard', label: '总览', icon: <DashboardOutlined /> }]
       : []),
     ...([
       'sources-dashboard.view',
@@ -650,7 +657,7 @@ export function Application() {
         <Layout.Header className="topbar">
           <a
             className="admin-brand"
-            href="/iam/users"
+            href={home}
             onClick={(event) => {
               event.preventDefault();
               navigate(home);

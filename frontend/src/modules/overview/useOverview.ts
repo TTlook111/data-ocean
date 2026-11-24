@@ -18,7 +18,10 @@ const drillKeys = [
 /**
  * 两类看板共享筛选地址、重新核权和下钻时间快照。
  */
-export function useOverview<P extends DashboardRange>(endpoint: string) {
+export function useOverview<
+  P extends DashboardRange,
+  R extends DashboardReport<P> = DashboardReport<P>,
+>(endpoint: string) {
   const session = useSession();
   const [params, setParams] = useSearchParams();
   const sourceId = params.get('sourceId') ?? '';
@@ -30,10 +33,11 @@ export function useOverview<P extends DashboardRange>(endpoint: string) {
     params.get('fromDate') ?? today.subtract(period === '7' ? 6 : 29, 'day').format('YYYY-MM-DD');
   const toDate = params.get('toDate') ?? today.format('YYYY-MM-DD');
   const range = { sourceId, fromDate, toDate };
-  const query = queryString(range);
+  // 下钻期间沿用原统计截止时刻，关闭后恢复最新统计。
+  const query = queryString({ ...range, asOf: params.get('asOf') });
   const report = useQuery({
     queryKey: ['overview', endpoint, session.userId, query],
-    queryFn: () => api<DashboardReport<P>>(endpoint + '?' + query),
+    queryFn: () => api<R>(endpoint + '?' + query),
     retry: false,
     gcTime: 0,
     refetchInterval: 4500,

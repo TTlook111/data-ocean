@@ -20,7 +20,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
     "com.dataocean.module.model.mapper",
     "com.dataocean.module.knowledge.mapper",
     "com.dataocean.module.query.mapper",
-    "com.dataocean.module.feedback.mapper"
+    "com.dataocean.module.feedback.mapper",
+    "com.dataocean.module.dashboard.mapper"
 })
 public class DataOceanApplication {
 

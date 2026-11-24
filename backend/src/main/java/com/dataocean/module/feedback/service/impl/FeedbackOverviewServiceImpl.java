@@ -119,7 +119,7 @@ public class FeedbackOverviewServiceImpl implements FeedbackOverviewService {
             // 概览权限单独授予时仍可看汇总。
             permissions.require("feedback.view");
         }
-        var period = OverviewPeriod.resolve(query, mapper.now(), details);
+        var period = OverviewPeriod.resolve(query, mapper.now(), true);
 
         var options = access.current(UserContext.getUser()).stream()
                 // 只转交名称与编号，不带出授权来源及输出规则。

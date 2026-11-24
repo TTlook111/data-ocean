@@ -66,7 +66,7 @@ public class SourceOverviewServiceImpl implements SourceOverviewService {
     public SourceOverviewVO overview(OverviewQuery query) {
         guard.shared();
         permissions.require("sources-dashboard.view");
-        var period = OverviewPeriod.resolve(query, mapper.now(), false);
+        var period = OverviewPeriod.resolve(query, mapper.now(), true);
         var options = sources.options().stream()
                 // 汇总页只返回编号和名称，不读取连接资料。
                 .map(source -> new OverviewSourceVO(Ids.text(source.getId()), source.getName()))

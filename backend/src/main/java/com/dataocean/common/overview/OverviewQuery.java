@@ -45,7 +45,7 @@ public class OverviewQuery extends PageQuery {
     private String metric;
 
     /**
-     * 下钻所依据的原概览截止时刻。
+     * 跨看板对账或下钻所依据的原概览截止时刻，缺省使用数据库当前时刻。
      */
     private Instant asOf;
 }

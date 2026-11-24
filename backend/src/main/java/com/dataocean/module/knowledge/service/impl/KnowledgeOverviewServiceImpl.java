@@ -64,7 +64,7 @@ public class KnowledgeOverviewServiceImpl implements KnowledgeOverviewService {
         var options = mapper.sources();
         Long source = selectedSource(query, options);
         var now = mapper.now();
-        var period = OverviewPeriod.resolve(query, now, false);
+        var period = OverviewPeriod.resolve(query, now, true);
         if (options.isEmpty()) {
             // 区分尚无来源与已有来源的零文档。
             return new KnowledgeOverviewVO(options, Times.instant(period.asOf()), period.grain(), List.of(), null);

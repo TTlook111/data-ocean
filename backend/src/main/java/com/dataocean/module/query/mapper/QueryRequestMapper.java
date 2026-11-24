@@ -231,10 +231,13 @@ public interface QueryRequestMapper {
             """)
     int capture(String id, int run, String data);
 
-    /** 只交付已捕获且重新授权的结果，外呼预算扣到原轮次。 */
+    /**
+     * 原子保存重新授权后的交付时间和状态，外呼预算扣到原轮次。
+     */
     @Update(
             """
             UPDATE qry_request SET state='RESULT_DELIVERED',lease_until=NULL,updated_at=UTC_TIMESTAMP(3),
+                delivered_at=UTC_TIMESTAMP(3),
                 remaining_millis=GREATEST(0,remaining_millis-
                     TIMESTAMPDIFF(MICROSECOND,processing_started_at,UTC_TIMESTAMP(3)) DIV 1000),
                 processing_started_at=NULL

@@ -46,7 +46,7 @@ D 批正式页面已覆盖文档修订、标准题审核、发布准备、构建
 
 现有正式页面继续沿用原型布局。单行和双行表格按各自内容确定行高，权限反馈保留当前页面上下文，发布条件和操作按可用宽度成组排布。字段状态使用等宽分段，字段与部门成员范围以浅底定位当前筛选。界面调整及桌面复验见[页面和操作对照](../../output/playwright/2026-11-21-d-closeout/report.html)。
 
-[反馈概览](pages/dashboard.md#正式反馈概览)、[接入概览](pages/dashboard.md#正式接入概览)、[治理概览](pages/dashboard.md#正式治理概览)和[知识概览](pages/dashboard.md#正式知识概览)共用筛选、读数、数据表和按需加载的 ECharts 6.1 图形组件。各看板的原型布局、指标、下钻及验证见对应页面专题。
+[正式总览](pages/dashboard.md#正式总览)、[反馈概览](pages/dashboard.md#正式反馈概览)、[接入概览](pages/dashboard.md#正式接入概览)、[治理概览](pages/dashboard.md#正式治理概览)和[知识概览](pages/dashboard.md#正式知识概览)共用筛选、读数、数据表和按需加载的 ECharts 6.1 图形组件。各看板的原型布局、指标、下钻及验证见对应页面专题。
 
 ## 前端技术选型
 

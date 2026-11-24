@@ -76,7 +76,7 @@ public class GovernanceOverviewServiceImpl implements GovernanceOverviewService 
         guard.shared();
         permissions.require("governance-dashboard.view");
         var options = mapper.sources();
-        var period = OverviewPeriod.resolve(query, mapper.now(), false);
+        var period = OverviewPeriod.resolve(query, mapper.now(), true);
         Long source = selectedSource(query, options);
         if (options.isEmpty()) {
             // 无来源时通过独立空态展示，不产生虚构的零观测。

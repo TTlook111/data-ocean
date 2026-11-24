@@ -37,6 +37,7 @@ export function OverviewPanel<M extends string>({
   /** 原型中的通栏主图、辅助趋势或右侧环图。 */
   layout:
     | 'hero'
+    | 'trend'
     | 'backlog'
     | 'ring'
     | 'duration'
