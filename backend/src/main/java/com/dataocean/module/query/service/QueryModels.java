@@ -7,6 +7,7 @@ import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
 import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
 import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
 import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
+import com.dataocean.module.query.entity.dto.QueryRerankInputDTO;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.entity.vo.QueryExplanationTextVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
@@ -17,6 +18,7 @@ import com.dataocean.module.query.service.QueryProtocol.Index;
 import com.dataocean.module.query.service.QueryProtocol.Intent;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
+import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -46,6 +48,9 @@ class QueryModels {
     /** 可选历史节点使用更短的机器调用时限，给检索和执行保留时间。 */
     private static final String HISTORY_PATH = "/history-summary";
 
+    /** 可选重排使用与摘要相同的短机器调用预算。 */
+    private static final String RERANK_PATH = "/rerank";
+
     /** 保持现有受认证地址、短超时和不跟随重定向。 */
     private final ObjectProvider<RestClient> worker;
     /** 模型使用平台节点的当前固定修订。 */
@@ -59,8 +64,8 @@ class QueryModels {
     /** 各次内部调用复用本机 HTTP 连接与固定有界预算。 */
     private final JdkClientHttpRequestFactory factory;
 
-    /** 摘要失败或原回执不可读时应及时回退。 */
-    private final JdkClientHttpRequestFactory historyFactory;
+    /** 可选模型不可用时应及时回退。 */
+    private final JdkClientHttpRequestFactory optionalFactory;
 
     /** 复用内部模型客户端与独立结果外发约束。 */
     QueryModels(
@@ -80,8 +85,8 @@ class QueryModels {
                 .build();
         this.factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(Duration.ofSeconds(32));
-        this.historyFactory = new JdkClientHttpRequestFactory(client);
-        historyFactory.setReadTimeout(Duration.ofSeconds(12));
+        this.optionalFactory = new JdkClientHttpRequestFactory(client);
+        optionalFactory.setReadTimeout(Duration.ofSeconds(12));
     }
 
     /** 同一次查询的节点由真实请求、执行代次及是否完成澄清确定。 */
@@ -144,6 +149,12 @@ class QueryModels {
         return selected == null ? 0L : selected;
     }
 
+    /** 未配置重排时仍可使用已经核验的召回候选。 */
+    long rerankRevision() {
+        Long selected = models.activeBinding(ModelRegistry.RAG_RERANK);
+        return selected == null ? 0L : selected;
+    }
+
     /** 澄清前后共用原问题和旧轮次，摘要只发起一次。 */
     HistorySummary summarize(Run run, long revision, int seconds, String question, Memory memory) {
         return contextStep(run, ModelRegistry.HISTORY_SUMMARY, HISTORY_PATH, revision, Math.min(9, seconds),
@@ -180,6 +191,19 @@ class QueryModels {
     List<Hit> retrieve(Run run, String question, List<Index> indexes, int seconds) {
         var input = Map.of("question", question, "indexes", indexes, "remainingSeconds", seconds);
         return List.of(call(run, "retrieve", "/retrieve", input, Hit[].class));
+    }
+
+    /** 每个召回阶段只发一次真实排序请求，凭据不进入回执查询。 */
+    RerankOrder rerank(Run run, long revision, int seconds, String query, List<String> texts) {
+        var step = run.key(ModelRegistry.RAG_RERANK);
+        boolean lookup = steps.issue(run.id(), run.version(), step) != 1;
+        var receipt = new QueryRerankInputDTO<>(models.revisionReference(revision), query, texts);
+        if (lookup) {
+            // 已登记过的阶段只读原检查点，即使当前模型配置被停用也无需凭据。
+            return call(run.id(), step, true, RERANK_PATH, receipt, RerankOrder.class);
+        }
+        var input = new QueryRerankInputDTO<>(models.invocation(revision, Math.min(9, seconds)), query, texts);
+        return call(run.id(), step, false, RERANK_PATH, input, receipt, RerankOrder.class);
     }
 
     /** 生成受控运算与业务条件。 */
@@ -317,7 +341,7 @@ class QueryModels {
     private <T> T send(String id, String step, boolean lookup, String path, Object input, Class<T> type) {
         var result = worker.getObject()
                 .mutate()
-                .requestFactory(HISTORY_PATH.equals(path) ? historyFactory : factory)
+                .requestFactory(HISTORY_PATH.equals(path) || RERANK_PATH.equals(path) ? optionalFactory : factory)
                 .build()
                 .post()
                 .uri("/internal/v1/query" + path)

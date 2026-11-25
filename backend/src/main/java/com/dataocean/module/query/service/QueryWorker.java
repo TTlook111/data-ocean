@@ -14,8 +14,10 @@ import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Permit;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
+import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
 import com.dataocean.module.query.service.QueryProtocol.SummaryDecision;
+import com.dataocean.module.query.service.QueryTableSelection.Scope;
 
 import java.sql.SQLException;
 import java.time.Duration;
@@ -26,8 +28,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -44,8 +48,28 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 class QueryWorker {
 
-    /** 可选摘要最多等待两次短请求，余量不足时使用结构化历史。 */
-    private static final int MIN_HISTORY_BUDGET_SECONDS = 35;
+    /** 可选节点最多等待两次短请求，余量不足时给必要步骤保留时间。 */
+    private static final int MIN_OPTIONAL_BUDGET_SECONDS = 35;
+
+    /**
+     * 只补充物理表时，恢复同一轮的日期计算。
+     */
+    private static final String TABLE_CLARIFICATION = "有多个符合条件的同名表。请用模式名.表名指定要查询的表。";
+
+    /**
+     * 相邻日需要确认原表上要移动的日期条件。
+     */
+    private static final String ADJACENT_DATE_CLARIFICATION = "上一轮无法确定要调整的日期条件。请说明要调整哪一列，如有新日期请一并给出。";
+
+    /**
+     * 识别已经进入补充状态的旧请求。
+     */
+    private static final String LEGACY_DATE_CLARIFICATION = "上一轮无法确定唯一的日期基准。请说明要调整哪个日期条件，或直接给出查询日期。";
+
+    /**
+     * 自然周需要确认原表上的逐日指标。
+     */
+    private static final String PREVIOUS_WEEK_CLARIFICATION = "请确认上周需要逐日查询的指标。";
 
     /**
      * 与权限及配置变更协调执行许可。
@@ -210,10 +234,17 @@ class QueryWorker {
             waitForAnswer(row, "你说的是哪个月的这一天？");
             return null;
         }
-        var relativeDay = QueryDates.singleRelativeDay(question, businessDay(memory));
-        Integer adjacentDay = row.supplement() == null ? context.adjacentDay(row.question()) : null;
+        var requestedDay = QueryDates.requestedDay(row.question(), row.supplement(), businessDay(memory));
+        boolean keepsDateFollowup = row.supplement() == null || TABLE_CLARIFICATION.equals(row.clarification());
+        boolean clarifiedAdjacentDate = row.supplement() != null
+                && (ADJACENT_DATE_CLARIFICATION.equals(row.clarification())
+                        || LEGACY_DATE_CLARIFICATION.equals(row.clarification()));
+        boolean clarifiedHistoryDate = clarifiedAdjacentDate
+                || row.supplement() != null && PREVIOUS_WEEK_CLARIFICATION.equals(row.clarification());
+        Integer adjacentDay = keepsDateFollowup ? context.adjacentDay(row.question()) : null;
         boolean asksPreviousWeek = frozen.historySummaryRevision() != null
-                && row.supplement() == null && QueryDates.previousWeekFollowup(row.question());
+                && keepsDateFollowup
+                && QueryDates.previousWeekFollowup(row.question());
         if ((adjacentDay != null || asksPreviousWeek) && previous == null) {
             // 纯追问没有上文时先向本人求证，不从别的对话或文档示例猜测。
             updateStage(row, "GENERATING");
@@ -222,7 +253,13 @@ class QueryWorker {
             return null;
         }
         Long outputRevision = frozen.outputRevision();
-        var bases = retrieveBasis(row, signature, question, frozen, run, memory);
+        var retrieval = retrieveBasis(row, signature, question, frozen, run, memory);
+        var scope = planningScope(row, signature, frozen, memory, retrieval.bases());
+        var bases = scope.bases();
+        if (bases.isEmpty()) {
+            // 完成可用的定向核对之后，仍无正式依据才返回知识不足。
+            throw QueryFailure.knowledge();
+        }
         var evidence = bases.stream().map(QueryCorpus.Basis::snippet).toList();
         updateStage(row, "GENERATING");
         var named = QueryProductNames.resolve(bases, question);
@@ -242,15 +279,15 @@ class QueryWorker {
         if (named != null
                 && named.confirmed()
                 && named.simpleStock()
-                && (relativeDay != null || !QueryDates.mentionsSpecificDate(question))) {
+                && (requestedDay != null || !QueryDates.mentionsSpecificDate(question))) {
             // 该问法只有已核验的商品、规格及单日范围，不让示例中的其他条件进入计划。
-            namedPlan = new QuerySql().namedStock(named, relativeDay);
+            namedPlan = new QuerySql().namedStock(named, requestedDay);
         }
         long generation = frozen.generationRevision();
         Long usedRepair = null;
-        String planningQuestion = relativeDay == null ? question : withBusinessDate(question, relativeDay.toString());
+        String planningQuestion = requestedDay == null ? question : withBusinessDate(question, requestedDay.toString());
         QueryProtocol.Plan proposed;
-        boolean followsWeek = asksPreviousWeek && previous != null && previous.time() != null;
+        boolean followsWeek = asksPreviousWeek;
         boolean generated = adjacentDay == null && !followsWeek && namedPlan == null;
         if (namedPlan != null) {
             // 采用正式片段确认的单日查询计划。
@@ -261,21 +298,8 @@ class QueryWorker {
             proposed = QuerySql.normalize(
                     models.plan(run, generation, remaining(row), planningQuestion, evidence, rules, memory));
         } else {
-            // 纯日期追问沿用上一轮核验的商品和口径，整体自然周按日计算。
-            var basis = selectBasis(bases, previous);
-            var compiler = new QuerySql();
-            proposed = followsWeek ? compiler.followPreviousWeek(basis, previous, businessDay(memory))
-                    : compiler.followBusinessDay(basis, previous, previous, adjacentDay);
-            if (proposed == null) {
-                // 上轮没有支持本次日期变更的可用口径，保留问题并明确澄清。
-                waitForAnswer(row, followsWeek ? "请确认上周需要逐日查询的指标。"
-                        : "上一轮没有可作为基准的单个业务日期。请告诉我要查询的日期。");
-                return null;
-            }
-            if (!followsWeek) {
-                // 单日路径沿用现有日期提示，自然周先以用户原话核对商品沿用条件。
-                question = withBusinessDate(question, proposed.time().start());
-            }
+            // 沿用上一轮的商品和口径，在编译每份候选时计算该片段支持的日期。
+            proposed = previous;
         }
         switch (proposed.decision()) {
             case "READY" -> {
@@ -292,10 +316,30 @@ class QueryWorker {
             default -> throw QueryFailure.technical();
         }
         runAccess.requireRules(row, signature);
+        DateFollowup dateFollowup = null;
+        var timeCompiler = new QuerySql();
+        boolean keepsPastDates = timeCompiler.keepsBusinessDay(question);
+        boolean changesConfirmedDate =
+                clarifiedHistoryDate || !keepsPastDates && timeCompiler.keepsOtherConditions(question);
+        if (previous != null && (adjacentDay != null || followsWeek || changesConfirmedDate || keepsPastDates)) {
+            // 在当前发起者权限下读取冻结历史轮次的实际血缘。
+            var prior = recent.get(recent.size() - 1);
+            var usage = runAccess.asActor(row, () -> context.executionUsage(row, signature, prior));
+            if (usage == null) {
+                // 旧轮次缺少血缘，无法仅凭逻辑字段确定原查询对象。
+                throw QueryFailure.knowledge();
+            }
+            var offset = adjacentDay;
+            if (clarifiedAdjacentDate && !timeCompiler.requestsDate(row.supplement())) {
+                // 用户只选了日期列，保留原追问的相邻日偏移。
+                offset = context.adjacentDay(row.question());
+            }
+            dateFollowup = new DateFollowup(previous, offset, followsWeek, changesConfirmedDate, usage);
+        }
         CheckedPlan checked;
         try {
             // 先尝试按当前观测结构核验生成参数。
-            checked = compile(bases, proposed, previous, memory, question);
+            checked = compile(scope, proposed, dateFollowup, memory, question, row);
         } catch (QueryFailure invalid) {
             // 仅明确的参数类型不合适才允许在原轮次修订。
             if (!generated || !invalid.parameterMismatch()) {
@@ -313,22 +357,29 @@ class QueryWorker {
                     run, repair, remaining(row), planningQuestion, evidence, rules, proposed, memory);
             usedRepair = repair;
             runAccess.requireRules(row, signature);
-            checked = compile(bases, QuerySql.normalize(revised), previous, memory, question);
+            checked = compile(scope, QuerySql.normalize(revised), dateFollowup, memory, question, row);
+        }
+        if (checked == null) {
+            // 日期或物理表有歧义时已暂停本轮。
+            return null;
         }
         var plan = checked.plan();
         var basis = checked.basis();
         var compiled = checked.compiled();
         if (followsWeek) {
             // 核验用户原话之后，再把实际编译出的自然周范围提供给独立复核。
-            question = withBusinessDate(question, plan.time().start() + " 至 " + plan.time().end() + "，按日查询");
-        } else if (checked.inheritedDay()) {
-            // 让独立审核看到本题已确定沿用的日期和用户修改的原话。
-            question = withBusinessDate(question, plan.time().start());
-        } else if (relativeDay != null
+            question = withBusinessDate(
+                    question, plan.time().start() + " 至 " + plan.time().end() + "，按日查询");
+        } else if (dateFollowup != null
                 && plan.time() != null
-                && "DAY".equals(plan.time().mode())) {
-            // 同一请求的规划、复核和实际查询使用同一个日历基准。
-            question = withBusinessDate(question, plan.time().start());
+                && (!dateFollowup.changesConfirmedDate() || dateFollowup.adjacentDay() != null)) {
+            // 只有由历史执行或服务端计算的时间才能标为已确认。
+            var time = plan.time();
+            String range = time.start().equals(time.end()) ? time.start() : time.start() + " 至 " + time.end();
+            question = withBusinessDate(question, range);
+        } else if (requestedDay != null) {
+            // 复核使用独立解析的用户日期，错填的草案值不会成为确认提示。
+            question = withBusinessDate(question, requestedDay.toString());
         }
         if (namedPlan != null) {
             // 用户原话和发布依据的商品映射一起提交独立语义与输出核对。
@@ -377,6 +428,10 @@ class QueryWorker {
             // 新版请求先完成了独立问题理解，将其实际修订纳入同轮审计。
             revisions.add(Ids.text(frozen.intentRevision()));
         }
+        if (retrieval.modelRevision() != null) {
+            // 审计只登记实际采用的候选次序对应的固定修订。
+            revisions.add(Ids.text(retrieval.modelRevision()));
+        }
         if (generated) {
             // 这轮确实调用了规划节点，审计记录应包含实际模型版本。
             revisions.add(Ids.text(generation));
@@ -398,7 +453,7 @@ class QueryWorker {
                 plan,
                 basis.source().configurationId());
         var contextIds = new ArrayList<>(checked.parameterUse().contextRequestIds());
-        if (adjacentDay != null || followsWeek || checked.inheritedDay()) {
+        if (checked.usesHistoricalScope()) {
             // 实际沿用上轮计划或日期时登记确切轮次。
             contextIds.add(recent.get(recent.size() - 1).requestId());
         }
@@ -418,8 +473,12 @@ class QueryWorker {
     /**
      * 只从仍受当前权限约束的正式索引取证据，模型回包后再次核对。
      */
-    private List<QueryCorpus.Basis> retrieveBasis(
-            Request row, String signature, String question, RunInput frozen, QueryModels.Run run,
+    private RetrievedBasis retrieveBasis(
+            Request row,
+            String signature,
+            String question,
+            RunInput frozen,
+            QueryModels.Run run,
             QueryProtocol.Memory memory) {
         String search = retrievalText(question, memory);
         if (frozen.intentRevision() != null) {
@@ -427,8 +486,7 @@ class QueryWorker {
             verifyHistory(row, signature, memory);
             try {
                 // 保留原问题与已核验的上轮检索上下文，再补充理解节点整理的表达。
-                String understood =
-                        models.understand(run, frozen.intentRevision(), remaining(row), question, memory);
+                String understood = models.understand(run, frozen.intentRevision(), remaining(row), question, memory);
                 if (!question.equals(understood)) {
                     // 原样返回时已有本轮原话，避免重复加入同一句。
                     search += "\n" + understood;
@@ -456,16 +514,85 @@ class QueryWorker {
             // 即使上游返回失败，也先落实在等待期间发生的取消与撤权。
             runAccess.requireRules(row, signature);
         }
-        if (hits.isEmpty()) {
-            // 没有实际命中时无法为计划提供正式依据。
-            throw QueryFailure.knowledge();
+        return rankBasis(row, signature, search, frozen, run, memory, hits);
+    }
+
+    /**
+     * 在调用规划模型前固定指定表的依据范围，首轮漏召回时定向补查。
+     */
+    private Scope planningScope(
+            Request row,
+            String signature,
+            RunInput frozen,
+            QueryProtocol.Memory memory,
+            List<QueryCorpus.Basis> recalled) {
+        if (!QueryTableSelection.mayMentionTable(row.question(), row.supplement())) {
+            // 普通问法保留原召回和规划路径。
+            return new Scope(recalled, Set.of());
+        }
+        var matching = QueryTableSelection.recalledScope(recalled, row.question(), row.supplement());
+        if (matching.isPresent()) {
+            // 已有指定表的候选时，规划只使用这些候选。
+            return matching.orElseThrow();
         }
         return runAccess.asActor(row, () -> {
-            // 按当前来源权限回看刚才实际命中的正式片段。
+            // 补查仍受本轮发布、原发起者和当前权限约束。
             runAccess.requireRules(row, signature);
+            context.verify(row, signature, memory);
+            var scope =
+                    corpus.targetedScope(row.sourceId(), frozen.bindings(), recalled, row.question(), row.supplement());
+            runAccess.requireRules(row, signature);
+            return scope;
+        });
+    }
+
+    /** 外发前及回包后都从当前授权下的发布版本回看候选正文。 */
+    private List<QueryCorpus.Basis> verifiedBasis(Request row, String signature, QueryProtocol.Memory memory,
+            List<QueryProtocol.Hit> hits) {
+        return runAccess.asActor(row, () -> {
+            // 复核查询权限、检索表述依赖的历史，以及每条片段的确切身份。
+            runAccess.requireRules(row, signature);
+            context.verify(row, signature, memory);
             return hits.stream().map(hit -> corpus.basis(row.sourceId(), hit)).toList();
         });
     }
+
+    /** 复用已有召回集合，只在多候选且配置可用时尝试排序。 */
+    private RetrievedBasis rankBasis(Request row, String signature, String search, RunInput frozen, QueryModels.Run run,
+            QueryProtocol.Memory memory, List<QueryProtocol.Hit> hits) {
+        var bases = verifiedBasis(row, signature, memory, hits);
+        Long revision = frozen.rerankRevision();
+        if (revision == null || revision == 0L || hits.size() < 2) {
+            // 旧快照、单候选和未配置模型都沿用现有召回路径。
+            return new RetrievedBasis(bases, null);
+        }
+        var decision = run.clarified() ? frozen.clarifiedRerank() : frozen.rerank();
+        if (decision == null) {
+            RerankOrder order = null;
+            int seconds = remaining(row);
+            if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
+                try {
+                    // 仅向第三方提交已核验正文以及本轮相同检索表述。
+                    order = models.rerank(run, revision, seconds, search,
+                            bases.stream().map(QueryCorpus.Basis::text).toList());
+                } catch (QueryFailure | BizIllegalException unavailable) {
+                    // 外部不可用时不重新发出请求，使用原始候选次序。
+                    log.info("问数候选重排回退，request={}", row.id());
+                }
+                bases = verifiedBasis(row, signature, memory, hits);
+            }
+            decision = QueryReranking.decide(hits, order);
+            var path = run.clarified() ? "$.clarifiedRerank" : "$.rerank";
+            if (requests.freezeRerank(row.id(), row.runVersion(), path, json.write(decision)) != 1) {
+                // 结果和回退都需要固定，迟到结果不能改变已发出的规划输入。
+                throw QueryFailure.technical();
+            }
+        }
+        return new RetrievedBasis(QueryReranking.restore(hits, bases, decision), decision.applied() ? revision : null);
+    }
+
+    /** 下游读取实际获准的证据次序及采用的模型修订。 */
+    private record RetrievedBasis(List<QueryCorpus.Basis> bases, Long modelRevision) {}
 
     /**
      * 执行之前在独立事务内记录唯一执行许可，源端只接收已核准的只读计划。
@@ -527,41 +654,198 @@ class QueryWorker {
     }
 
     /**
-     * 计划必须落在实际召回的同版知识与可用字段内。
+     * 只在同一发布中查找候选。计划指定的指标存在时，只匹配其确切依据。
      */
-    private QueryCorpus.Basis selectBasis(List<QueryCorpus.Basis> bases, QueryProtocol.Plan plan) {
+    private List<QueryCorpus.Basis> matchingBases(Scope scope, QueryProtocol.Plan plan) {
         if (plan == null || !"READY".equals(plan.decision()) || plan.fields() == null) {
             // 缺失候选不能携带到业务数据库。
             throw QueryFailure.knowledge();
         }
-        return bases.stream()
+        var sameBinding = scope.bases().stream()
                 .filter(value -> Ids.text(value.binding().id()).equals(plan.binding()))
-                .filter(value -> plan.fields().stream().allMatch(value.labels()::containsKey))
-                .findFirst()
-                .orElseThrow(QueryFailure::knowledge);
+                .toList();
+        if (!scope.requiredObjects().isEmpty()) {
+            // 已提供限定证据后，模型选用其他发布或不在证据内的表属于规划错误。
+            var tables = sameBinding.stream()
+                    .flatMap(basis -> basis.tables().keySet().stream())
+                    .collect(Collectors.toSet());
+            if (sameBinding.isEmpty()
+                    || plan.fields().stream().anyMatch(field -> field != null && !tables.contains(field.table()))
+                    || plan.filters() != null
+                            && plan.filters().stream()
+                                    .anyMatch(filter -> filter != null
+                                            && filter.field() != null
+                                            && !tables.contains(filter.field().table()))
+                    || plan.time() != null
+                            && plan.time().field() != null
+                            && !tables.contains(plan.time().field().table())) {
+                // 不能把错表提议作为发布知识缺口上报。
+                throw QueryFailure.planTargetMismatch();
+            }
+        }
+        var named = !"VALUES".equals(plan.operation())
+                        && plan.metric() != null
+                        && !plan.metric().isBlank()
+                ? sameBinding.stream()
+                        .filter(basis -> basis.facts().values().stream()
+                                .anyMatch(
+                                        fact -> "METRIC".equals(fact.getTarget().getKind())
+                                                && plan.metric().equals(fact.getLabel())))
+                        .toList()
+                : List.<QueryCorpus.Basis>of();
+        var matching = (named.isEmpty() ? sameBinding : named)
+                .stream()
+                        .filter(value -> plan.fields().stream().allMatch(value.labels()::containsKey))
+                        .toList();
+        if (matching.isEmpty()) {
+            // 找不到本发布支持指定投影的候选时，不能换用另一发布。
+            throw QueryFailure.knowledge();
+        }
+        return matching;
     }
 
     /**
-     * 优先绑定同一主题明确沿用的日期，再用正常业务默认和受控编译验证。
+     * 分别解析并完整编译同版候选，日期或物理身份有歧义时在原轮次澄清。
      */
     private CheckedPlan compile(
-            List<QueryCorpus.Basis> bases,
+            Scope scope,
             QueryProtocol.Plan plan,
-            QueryProtocol.Plan previous,
+            DateFollowup followup,
             QueryProtocol.Memory memory,
-            String question) {
-        var basis = selectBasis(bases, plan);
+            String question,
+            Request row) {
+        var candidates = matchingBases(scope, plan);
         var compiler = new QuerySql();
-        var inherited =
-                compiler.keepsBusinessDay(question) ? compiler.followBusinessDay(basis, plan, previous, 0) : null;
+        var day = businessDay(memory);
+        var requestedDay = QueryDates.requestedDay(row.question(), row.supplement(), day);
         boolean hasHistory = !memory.recent().isEmpty() || !memory.earlier().isEmpty();
-        var resolved = inherited != null
-                ? inherited
-                : compiler.resolveTime(basis, plan, businessDay(memory), question, hasHistory);
-        var compiled = jdbc.compile(basis, resolved);
-        var parameterUse = compiler.checkProductCodes(basis, resolved, question, memory);
-        return new CheckedPlan(resolved, basis, compiled, inherited != null, parameterUse);
+        boolean foundHistoricalBasis = false;
+        QueryFailure parameterFailure = null;
+        QueryFailure unsupported = null;
+        var complete = new ArrayList<CheckedPlan>();
+        for (var basis : candidates) {
+            // 完整核对时间、筛选、指标、关联和参数来源，每次只用一份片段的依据。
+            try {
+                if (followup != null) {
+                    // 仅用与历史执行血缘一致的候选处理原范围内的日期。
+                    if (!followup.usage().supportsHistoricalPlan(basis, followup.previous())) {
+                        // 同名表或不同筛选列不能补齐原表依据。
+                        continue;
+                    }
+                    foundHistoricalBasis = true;
+                }
+                var resolved = followup == null
+                        ? compiler.resolveTime(basis, plan, day, question, hasHistory, requestedDay)
+                        : resolveHistoricalDate(compiler, basis, plan, followup, day, question, requestedDay);
+                if (resolved == null) {
+                    // 本片段无法支持要求的日期移动或保留。
+                    continue;
+                }
+                var compiled = jdbc.compile(basis, resolved);
+                if (requestedDay != null && !compiled.parameters().contains(requestedDay)) {
+                    // 已确认日必须以日期类型进入实际 SQL，不能只出现在模型说明中。
+                    continue;
+                }
+                if (followup != null && !followup.usage().sameObjects(compiled.usage())) {
+                    // 实际 SQL 对象还包括关联表，编译后再次核对执行范围。
+                    continue;
+                }
+                var parameterUse = compiler.checkProductCodes(basis, resolved, question, memory);
+                complete.add(new CheckedPlan(resolved, basis, compiled, followup != null, parameterUse));
+            } catch (QueryFailure failure) {
+                if ("OUT_OF_SCOPE".equals(failure.state())) {
+                    // 视图等不支持的对象不能作为完整依据，也不会遮挡可编译的普通表。
+                    unsupported = failure;
+                    continue;
+                }
+                if (!"KNOWLEDGE_INSUFFICIENT".equals(failure.state()) || failure.diagnostic() != null) {
+                    // 权限、预算和技术错误保持原处理。
+                    throw failure;
+                }
+                if (failure.parameterMismatch() && parameterFailure == null) {
+                    // 没有其他候选可以执行时，保留原有的一次参数修正入口。
+                    parameterFailure = failure;
+                }
+            }
+        }
+        if (complete.isEmpty()) {
+            // 无完整依据时保留不支持对象及原参数修正入口。
+            if (unsupported != null) {
+                throw unsupported;
+            }
+            if (followup != null
+                    && parameterFailure == null
+                    && foundHistoricalBasis
+                    && (followup.previousWeek() || followup.adjacentDay() != null || followup.changesConfirmedDate())) {
+                // 原表仍可核实时，单独澄清尚不能确定的日期口径。
+                waitForAnswer(row, followup.previousWeek() ? PREVIOUS_WEEK_CLARIFICATION : ADJACENT_DATE_CLARIFICATION);
+                return null;
+            }
+            throw parameterFailure == null ? QueryFailure.knowledge() : parameterFailure;
+        }
+        var selected = QueryTableSelection.select(
+                complete.stream().map(item -> item.compiled().usage()).toList(), scope.requiredObjects());
+        if (selected.isEmpty()) {
+            // 所有完整候选都参与比较，排序不能消解物理表歧义。
+            waitForAnswer(row, TABLE_CLARIFICATION);
+            return null;
+        }
+        return complete.get(selected.getAsInt());
     }
+
+    /**
+     * 确定日期变更后，与原轮次的实际筛选合并成完整执行计划。
+     */
+    private QueryProtocol.Plan resolveHistoricalDate(
+            QuerySql compiler,
+            QueryCorpus.Basis basis,
+            QueryProtocol.Plan plan,
+            DateFollowup followup,
+            LocalDate day,
+            String question,
+            LocalDate requestedDay) {
+        var previous = followup.previous();
+        if (followup.previousWeek()) {
+            // 上周使用本轮接受日所在的自然周，其他条件仍来自原轮次。
+            var shifted = compiler.followPreviousWeek(basis, previous, day);
+            return shifted == null
+                    ? null
+                    : compiler.historicalConditions(basis, shifted, previous, question, shifted.time());
+        }
+        if (followup.changesConfirmedDate()) {
+            // 模型只提供新条件候选，Java 复核要替换的日期列。
+            var proposed = followup.adjacentDay() == null && requestedDay == null
+                    ? compiler.resolveTime(basis, plan, day, question, true, null)
+                    : plan;
+            var changed = compiler.changedHistoricalDate(
+                    basis, previous, proposed, question, followup.adjacentDay(), requestedDay);
+            return changed == null ? null : compiler.historicalConditions(basis, proposed, previous, question, changed);
+        }
+        if (followup.adjacentDay() != null) {
+            // 沿用原业务日偏移，不让当前草案改变其他筛选。
+            var shifted = compiler.followBusinessDay(basis, plan, previous, followup.adjacentDay());
+            return shifted == null
+                    ? null
+                    : compiler.historicalConditions(basis, shifted, previous, question, shifted.time());
+        }
+        return compiler.historicalConditions(basis, plan, previous, question, null);
+    }
+
+    /**
+     * 本轮可沿用的历史计划及用户要求的日期移动。
+     *
+     * @param previous 上一轮已验证的实际计划
+     * @param adjacentDay 用户要求的相邻日偏移
+     * @param previousWeek 是否按上一个自然周逐日查询
+     * @param changesConfirmedDate 是否明确修改日期并仍需沿用原执行范围
+     * @param usage 上一轮实际使用的物理对象及筛选列
+     */
+    private record DateFollowup(
+            QueryProtocol.Plan previous,
+            Integer adjacentDay,
+            boolean previousWeek,
+            boolean changesConfirmedDate,
+            QueryUsage usage) {}
 
     /**
      * 澄清和任务恢复都沿用请求接收时的北京时间日期。
@@ -579,7 +863,7 @@ class QueryWorker {
             QueryProtocol.Plan plan,
             QueryCorpus.Basis basis,
             QuerySql.Compiled compiled,
-            boolean inheritedDay,
+            boolean usesHistoricalScope,
             QueryUsage.ParameterUse parameterUse) {}
 
     /**
@@ -643,6 +927,9 @@ class QueryWorker {
                     models.repairRevision(),
                     models.revision("intent"),
                     memory.earlier().isEmpty() ? 0L : models.historySummaryRevision(),
+                    null,
+                    models.rerankRevision(),
+                    null,
                     null);
             if (requests.freeze(row.id(), row.runVersion(), json.write(frozen)) != 1) {
                 // 只有当前代次可写首次冻结的上下文。
@@ -678,7 +965,7 @@ class QueryWorker {
         int seconds = remaining(row);
         verifyHistory(row, signature, input);
         var selected = fallback;
-        if (seconds >= MIN_HISTORY_BUDGET_SECONDS) {
+        if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
             try {
                 // 用户补充不改变已登记的摘要输入，仍使用原问题。
                 selected = QueryHistorySummary.decide(input,

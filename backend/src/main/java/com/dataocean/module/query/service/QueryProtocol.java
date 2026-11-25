@@ -41,6 +41,9 @@ public final class QueryProtocol {
      * @param intentRevision 问题理解节点固定修订，空值仅用于保持升级前旧请求的检索回执
      * @param historySummaryRevision 历史摘要固定修订，零表示没有配置，空值保持旧冻结输入
      * @param historySummary 已持久选定的摘要来源及是否采用模型回包
+     * @param rerankRevision 候选重排的固定修订，零或空值表示沿用召回顺序
+     * @param rerank 首次理解后的候选排序或回退
+     * @param clarifiedRerank 同轮补充后生成的独立顺序
      */
     public record RunInput(
             String signature,
@@ -52,7 +55,10 @@ public final class QueryProtocol {
             Long repairRevision,
             Long intentRevision,
             Long historySummaryRevision,
-            SummaryDecision historySummary) {}
+            SummaryDecision historySummary,
+            Long rerankRevision,
+            RerankDecision rerank,
+            RerankDecision clarifiedRerank) {}
 
     /**
      * 摘要模型只引用 Java 提供的已核验轮次，内容由源计划组装。
@@ -147,4 +153,19 @@ public final class QueryProtocol {
 
     /** 索引只回已核验的编号及摘要。 */
     public record Hit(String binding, int ordinal, String digest) {}
+
+    /**
+     * 模型仅返回原候选的排列，业务端在应用之前核对完整性。
+     *
+     * @param order 各候选在召回列表中的零起始位置
+     */
+    public record RerankOrder(List<Integer> order) {}
+
+    /**
+     * 进入后续规划前固定同一候选集合。恢复时用摘要和身份重新核对。
+     *
+     * @param hits 本阶段采用的完整候选次序
+     * @param applied 是否采用了有效重排结果
+     */
+    public record RerankDecision(List<Hit> hits, boolean applied) {}
 }

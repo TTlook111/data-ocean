@@ -190,6 +190,17 @@ public interface QueryRequestMapper {
             """)
     int freezeSummary(String id, int run, String summary);
 
+    /**
+     * 规划前保存每个阶段采用的候选顺序，澄清和租约接管不能重放外发。
+     */
+    @Update("""
+            UPDATE qry_request SET run_input=JSON_SET(run_input,#{path},CAST(#{decision} AS JSON))
+            WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3) AND cancel_requested=FALSE
+              AND run_input IS NOT NULL
+              AND COALESCE(JSON_TYPE(JSON_EXTRACT(run_input,#{path})),'NULL')='NULL'
+            """)
+    int freezeRerank(String id, int run, String path, String decision);
+
     /** 状态变化只允许属于本次活动且未取消的在途请求。 */
     @Update(
             """

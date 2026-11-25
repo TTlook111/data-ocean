@@ -1,6 +1,7 @@
 package com.dataocean.module.query.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
 
@@ -24,6 +25,28 @@ class QueryDatesTest {
         assertThat(QueryDates.singleRelativeDay("上周五", sunday)).isEqualTo(LocalDate.of(2026, 11, 13));
         assertThat(QueryDates.singleRelativeDay("前天到今天", sunday)).isNull();
         assertThat(QueryDates.singleRelativeDay("截至前天", sunday)).isNull();
+    }
+
+    /**
+     * 完整单日只从原话取值，并服从后来补充的明确日期。
+     */
+    @Test
+    void readsAnExactUserDateWithoutTreatingExamplesAndRangesAsSingleDays() {
+        var anchor = LocalDate.of(2026, 11, 22);
+        var exact = LocalDate.of(2026, 11, 19);
+        assertThat(QueryDates.requestedDay("业务日改为2026-11-19，其他条件不变", anchor)).isEqualTo(exact);
+        assertThat(QueryDates.requestedDay("查2026年11月19日的出库量", anchor)).isEqualTo(exact);
+        assertThat(QueryDates.requestedDay("2026/11/18的库存", "2026/11/19", anchor))
+                .isEqualTo(exact);
+        assertThat(QueryDates.requestedDay("2026-11-18的库存", "改查昨天", anchor)).isEqualTo(anchor.minusDays(1));
+        assertThat(QueryDates.requestedDay("20号的库存", "这个月", anchor)).isEqualTo(anchor.withDayOfMonth(20));
+        assertThat(QueryDates.requestedDay("2026-11-19的库存", "改查20号", anchor)).isNull();
+        assertThat(QueryDates.requestedDay("从2026-11-17到2026-11-19的走势", anchor)).isNull();
+        assertThat(QueryDates.requestedDay("排除2026-11-19的库存", anchor)).isNull();
+        assertThat(QueryDates.requestedDay("查2026-11-19之前的库存", anchor)).isNull();
+        assertThat(QueryDates.requestedDay("只查SKU-2026-11-19", anchor)).isNull();
+        assertThatThrownBy(() -> QueryDates.requestedDay("查2026-02-30的库存", anchor))
+                .isInstanceOf(QueryFailure.class);
     }
 
     /**

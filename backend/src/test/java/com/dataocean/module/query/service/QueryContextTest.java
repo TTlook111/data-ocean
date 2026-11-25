@@ -80,6 +80,33 @@ class QueryContextTest {
     }
 
     /**
+     * 只有仍获准的上轮执行记录才能为日期追问提供物理表血缘。
+     */
+    @Test
+    void verifiesExecutionUsageBeforeReusingTheHistoricalTable() {
+        var rows = mock(QueryRequestMapper.class);
+        var versions = mock(KnowledgeVersionService.class);
+        var json = new JsonCodec(JsonMapper.builder().build());
+        var anchor = LocalDateTime.now(ZoneOffset.UTC);
+        var plan = new Plan("READY", null, "1", "VALUES", null, null, List.of(), List.of());
+        var reasoning = json.write(new Reasoning(null, "", List.of(), List.of(), plan, null));
+        var current = request("now", "previous", "scope", 1, anchor, reasoning);
+        var previous = request("previous", null, "scope", 1, anchor, reasoning);
+        when(rows.get("previous")).thenReturn(previous);
+        var context = new QueryContext(rows, versions, json);
+        var turn = context.capture(current, "scope").recent().get(0);
+
+        assertThat(context.executionUsage(current, "scope", turn)).isNull();
+        var usage = new QueryUsage(
+                1, List.of(), List.of(new QueryUsage.ObjectRef("11", 1, "12", List.of())), List.of(), List.of());
+        when(previous.usageRefs()).thenReturn(json.write(usage));
+        assertThat(context.executionUsage(current, "scope", turn)).isEqualTo(usage);
+
+        when(previous.ruleSignature()).thenReturn("revoked");
+        assertThatThrownBy(() -> context.executionUsage(current, "scope", turn)).isInstanceOf(QueryFailure.class);
+    }
+
+    /**
      * 换题后仍保留这一轮的对话位置，追问看不到旧主题的已交付口径。
      */
     @Test

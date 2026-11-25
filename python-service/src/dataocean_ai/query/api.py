@@ -17,6 +17,7 @@ from dataocean_ai.adapters.chat import ChatConfiguration, ModelConfiguration, Mo
 from dataocean_ai.adapters.embedding import embed
 from dataocean_ai.adapters.milvus import vector_client
 from dataocean_ai.adapters.model_receipts import model_call_scope
+from dataocean_ai.adapters.reranking import rerank
 from dataocean_ai.governance.security import verify_java
 from dataocean_ai.knowledge.index import Verified
 from dataocean_ai.query.journal import journal
@@ -231,6 +232,70 @@ class ContextRevisionReference(BaseModel):
     endpoint: str
     # 原调用的服务端模型名称。
     model_name: str = Field(alias="modelName")
+
+
+class RerankRevisionReference(ContextRevisionReference):
+    """
+    重排回执核对原修订，不需要凭据。
+    """
+
+    # 回查只接受实际重排协议。
+    protocol: Literal["COHERE_RERANK"]
+
+
+class RerankConfiguration(ModelConfiguration):
+    """
+    首次调用使用已固定且仍允许外发的重排配置。
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    # 其他模型能力不进入重排服务。
+    protocol: Literal["COHERE_RERANK"]
+
+
+class RerankJob(BaseModel):
+    """
+    只处理 Java 已按真实授权、版本和摘要核验的片段正文。
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    # 原调用使用冻结配置，回读使用无凭据的同修订引用。
+    model: RerankConfiguration | RerankRevisionReference = Field(repr=False)
+    # 与实际向量召回一致的本轮检索表述。
+    query: str = Field(min_length=1, max_length=2600, repr=False)
+    # 现有召回上限八条。每条由发布时的正文、用途和边界组成。
+    documents: list[Annotated[str, Field(min_length=1, max_length=8500)]] = Field(
+        min_length=2, max_length=8, repr=False
+    )
+
+
+class RerankOrder(BaseModel):
+    """
+    排序只返回原始索引，无权创建或删除候选。
+    """
+
+    # 零起始编号的完整排列。
+    order: list[Annotated[int, Field(ge=0, le=7)]] = Field(min_length=2, max_length=8)
+
+
+async def rank_documents(job: RerankJob) -> RerankOrder:
+    """
+    调用已确认可用的排序模型。
+    """
+    if not isinstance(job.model, RerankConfiguration):
+        # 回执使用的只读引用不能启动外发。
+        raise ModelFailure("MODEL_CONFIGURATION_UNAVAILABLE")
+    return RerankOrder(order=await rerank(job.model, job.query, job.documents))
+
+
+@router.post("/rerank")
+async def rerank_candidates(job: RerankJob, request: Request) -> RerankOrder:
+    """
+    根据问数阶段固定模型调用，在恢复时仅回读持久化结果。
+    """
+    with model_call_scope("QUERY", "rag-rerank", request.headers.get("X-Query-Id", "")):
+        # 排序失败也写入对应阶段，外部请求不随恢复重复派发。
+        return await journal(request, job, lambda: rank_documents(job))
 
 
 class ContextJob(BaseModel):

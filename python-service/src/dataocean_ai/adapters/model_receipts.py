@@ -2,7 +2,7 @@
 
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -90,6 +90,17 @@ def _counter(value: object) -> int | None:
 
 def _usage(payload: dict, protocol: str) -> tuple[int | None, int | None]:
     """按不同能力的实际回执字段读取已报告的 Token。"""
+    if protocol == "COHERE_RERANK":
+        # 计费搜索次数不能换算成 Token，仅采纳提供方实际报告的 Token 数。
+        meta = payload.get("meta")
+        if not isinstance(meta, dict):
+            return None, None
+        tokens = meta.get("tokens")
+        billed = meta.get("billed_units")
+        counts = tokens if isinstance(tokens, dict) else billed
+        if isinstance(counts, dict):
+            return _counter(counts.get("input_tokens")), _counter(counts.get("output_tokens"))
+        return None, None
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return None, None
@@ -110,7 +121,7 @@ def _usage(payload: dict, protocol: str) -> tuple[int | None, int | None]:
     return input_tokens, _counter(usage.get("completion_tokens"))
 
 
-def model_call_hooks(config: "ModelConfiguration"):
+def model_call_hooks(config: "ModelConfiguration", validate: Callable[[dict], bool] | None = None):
     """在提供方客户端登记真实请求，同一 Agent 的多次外发分别计数。"""
     scope = _scope.get()
     if scope is None:
@@ -156,6 +167,9 @@ def model_call_hooks(config: "ModelConfiguration"):
                 raise
             except (UnicodeError, ValueError):
                 failure = "MODEL_FORMAT"
+        if failure is None and validate is not None and not validate(payload):
+            # HTTP 成功但排序结果不完整时，也把可核实的格式故障记入概览。
+            failure = "MODEL_FORMAT"
         input_tokens, output_tokens = _usage(payload, config.protocol)
         name = payload.get("model")
         if not await _write(

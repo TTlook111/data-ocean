@@ -140,6 +140,42 @@ def test_history_summary_keeps_provenance_and_uses_own_scope(monkeypatch, http):
     generate.assert_awaited_once()
 
 
+def test_rerank_node_uses_its_own_receipt_and_complete_order(monkeypatch, http):
+    """
+    同一候选集合使用重排配置外发，续查身份不依赖凭据。
+    """
+    query_id = "c39611fa-8f66-44f3-aee3-fcdb964cea8f"
+
+    async def rank(config, query, documents):
+        """
+        检查独立模型归属而不发送网络请求。
+        """
+        assert model_receipts._scope.get() == model_receipts.CallScope(
+            "QUERY", "rag-rerank", query_id
+        )
+        assert config.revision_id == "61" and config.protocol == "COHERE_RERANK"
+        assert query == "日末可售库存" and documents == ["在库", "可售"]
+        return [1, 0]
+
+    transport = AsyncMock(side_effect=rank)
+    monkeypatch.setattr(api, "rerank", transport)
+    model = model_config("COHERE_RERANK", "61")
+    job = {"model": model, "query": "日末可售库存", "documents": ["在库", "可售"]}
+    response = http.post("/internal/v1/query/rerank", json=job, headers={"X-Query-Id": query_id})
+    assert response.status_code == 200 and response.json() == {"order": [1, 0]}
+    reference = {
+        key: value for key, value in model.items() if key not in {"apiKey", "timeoutSeconds"}
+    }
+    assert stable(jsonable_encoder(api.RerankJob.model_validate(job))) == stable(
+        jsonable_encoder(api.RerankJob.model_validate({**job, "model": reference}))
+    )
+    wrong = http.post(
+        "/internal/v1/query/rerank", json={**job, "model": model_config("OPENAI_EMBEDDINGS")}
+    )
+    assert wrong.status_code == 422 and "secret-fixture-value" not in wrong.text
+    transport.assert_awaited_once()
+
+
 @pytest.mark.parametrize("step", ["plan", "repair-parameter", "semantic", "output"])
 def test_model_routes_use_only_fixed_scope(monkeypatch, http, step):
     """为工厂能耗检查规划和审核，服务凭据不会拼进模型正文。"""

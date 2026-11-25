@@ -1,10 +1,12 @@
 package com.dataocean.module.query.service;
 
 import com.dataocean.common.Ids;
+import com.dataocean.module.datasource.mapper.GovernanceCatalogMapper.Column;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.query.entity.vo.QueryColumnVO;
 import com.dataocean.module.query.entity.vo.QuerySeriesWindowVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
+import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
@@ -132,6 +134,14 @@ final class QuerySql {
 
     /** 仅为已确认需要业务日期的指标补默认值，显式筛选沿用原条件。 */
     Plan resolveTime(Basis basis, Plan plan, LocalDate today, String question, boolean hasHistory) {
+        return resolveTime(basis, plan, today, question, hasHistory, QueryDates.requestedDay(question, today));
+    }
+
+    /**
+     * 采用从原问题与补充解析的独立日期，再核对候选时间条件。
+     */
+    Plan resolveTime(
+            Basis basis, Plan plan, LocalDate today, String question, boolean hasHistory, LocalDate requestedDay) {
         if (plan.operation() == null
                 || plan.filters() == null
                 || plan.filters().stream()
@@ -139,17 +149,32 @@ final class QuerySql {
             throw QueryFailure.knowledge();
         }
         var businessDay = businessDate(basis, plan);
-        var requestedDay = QueryDates.singleRelativeDay(question, today);
         var time = plan.time();
-        if (requestedDay != null && (time == null || "DAY".equals(time.mode()))) {
-            // 绑定用户口语中唯一的日历日期，覆盖模型从材料示例复制的日期。
-            var date = time == null ? businessDay : time.field();
+        if (requestedDay != null) {
+            // 绑定用户原话中唯一的日历日期，模型只提供候选结构。
+            var namedDates = basis.labels().keySet().stream()
+                    .filter(field -> dateField(basis, field) && mentionsField(basis, question, field))
+                    .toList();
+            var date = namedDates.size() == 1 ? namedDates.get(0) : time == null ? businessDay : time.field();
+            if (date == null) {
+                // 明细计划可用唯一的已确认日期筛选列承接用户所给日期。
+                var fields = plan.filters().stream()
+                        .map(Condition::field)
+                        .filter(field -> dateField(basis, field))
+                        .distinct()
+                        .toList();
+                date = fields.size() == 1 ? fields.get(0) : null;
+            }
             if (date != null && dateField(basis, date)) {
+                // 同列的模型日期条件全部替换成已确认日，保留其他筛选。
+                var field = date;
                 var filters = plan.filters().stream()
-                        .filter(filter -> !date.equals(filter.field()))
+                        .filter(filter -> !field.equals(filter.field()))
                         .toList();
                 String day = requestedDay.toString();
-                return withTime(plan, filters, new TimeSelection(date, "DAY", day, day, false));
+                var selection = new TimeSelection(field, timeMode(time), day, day, false);
+                var resolved = withTime(plan, filters, selection);
+                return withTime(resolved, filters, resolvePeriod(basis, resolved, selection, today));
             }
         }
         if (!REQUESTED_DATE.matcher(question).find()
@@ -202,10 +227,201 @@ final class QuerySql {
      * 明示沿用日期或其他原条件时使用历史业务日，明确给出新日期则交给正常规划。
      */
     boolean keepsBusinessDay(String question) {
-        return !REQUESTED_DATE.matcher(question).find()
-                && !CURRENT_DAY.matcher(question).find()
-                && (REFERENCED_DATE.matcher(question).find()
-                        || UNCHANGED_CONDITIONS.matcher(question).find());
+        return !requestsDate(question) && (REFERENCED_DATE.matcher(question).find() || keepsOtherConditions(question));
+    }
+
+    /**
+     * 即使本轮修改日期，也需在服务端核对要求保留的原执行范围。
+     */
+    boolean keepsOtherConditions(String question) {
+        return UNCHANGED_CONDITIONS.matcher(question).find();
+    }
+
+    /**
+     * 区分补充新日期与仅明确要移动的历史日期列。
+     */
+    boolean requestsDate(String question) {
+        return REQUESTED_DATE.matcher(question).find()
+                || CURRENT_DAY.matcher(question).find();
+    }
+
+    /**
+     * 以实际历史条件为底稿，仅替换明确指定的日期和其他筛选。
+     */
+    Plan historicalConditions(Basis basis, Plan plan, Plan previous, String question, TimeSelection change) {
+        if (plan.operation() == null
+                || plan.filters() == null
+                || !Objects.equals(plan.binding(), previous.binding())
+                || !Objects.equals(plan.metric(), previous.metric())
+                || plan.filters().stream()
+                        .anyMatch(filter -> filter == null || filter.field() == null || filter.value() == null)) {
+            // 历史条件只能并入同一已核验口径的有效计划。
+            return null;
+        }
+        boolean keepOthers = change != null || keepsOtherConditions(question);
+        var changes = plan.filters().stream()
+                .filter(filter -> !dateField(basis, filter.field()))
+                .filter(filter -> !keepOthers || requestedFilter(basis, filter, question))
+                .toList();
+        var replaced = changes.stream().map(Condition::field).collect(Collectors.toSet());
+        var priorTime = previous.time();
+        var priorTimeField = priorTime == null ? null : priorTime.field();
+        var changedDateField = change == null ? null : change.field();
+        var filters = previous.filters().stream()
+                .filter(filter -> !filter.field().equals(priorTimeField)
+                        && !filter.field().equals(changedDateField))
+                .filter(filter -> !replaced.contains(filter.field()))
+                .filter(filter -> keepOthers || dateField(basis, filter.field()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        filters.addAll(changes);
+        var time = change == null ? priorTime : change;
+        if (priorTime != null && change != null && !priorTime.field().equals(change.field())) {
+            // 单日可以作为另一日期维度的等值筛选同时保留。
+            if ("DAY".equals(priorTime.mode())) {
+                // 保留上一轮的单日，新日期承担本轮的时间维度。
+                filters.add(new Condition(priorTime.field(), priorTime.start()));
+            } else if ("DAY".equals(change.mode())) {
+                // 保留原区间，本轮修改的另一日期以等值筛选表达。
+                filters.add(new Condition(change.field(), change.start()));
+                time = priorTime;
+            } else {
+                // 当前受控计划只支持一个日期区间。
+                return null;
+            }
+        }
+        if (time == null) {
+            // 旧计划的单条日期筛选继续以正常的业务日表示。
+            var dates = filters.stream()
+                    .filter(filter -> dateField(basis, filter.field()))
+                    .toList();
+            if (dates.size() == 1) {
+                // 提取唯一业务日并去掉同列的重复筛选。
+                var exact = dates.get(0);
+                time = new TimeSelection(exact.field(), "DAY", exact.value(), exact.value(), false);
+                filters.remove(exact);
+            } else if (dates.isEmpty() && !keepOthers) {
+                // 用户明确要求沿用日期时，缺少历史日期需要确认。
+                return null;
+            }
+        }
+        if (time != null && "TREND".equals(time.mode()) && !ARITY.containsKey(plan.operation())) {
+            // 逐日趋势口径只能继续用于支持聚合的运算。
+            return null;
+        }
+        return withTime(plan, filters, time);
+    }
+
+    /**
+     * 只为唯一明确的日期列取得本轮的新时间条件。
+     */
+    TimeSelection changedHistoricalDate(
+            Basis basis,
+            Plan previous,
+            Plan proposed,
+            String question,
+            Integer clarifiedOffset,
+            LocalDate requestedDay) {
+        var named = basis.labels().keySet().stream()
+                .filter(field -> dateField(basis, field) && mentionsField(basis, question, field))
+                .toList();
+        var historical = previous.filters().stream()
+                .map(Condition::field)
+                .filter(field -> dateField(basis, field))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (previous.time() != null) {
+            // 显式时间也属于已确认的日期候选。
+            historical.add(previous.time().field());
+        }
+        var field = named.size() == 1
+                ? named.get(0)
+                : named.isEmpty() && historical.size() == 1
+                        ? historical.iterator().next()
+                        : null;
+        if (field == null) {
+            // 多日期列无法由模型建议直接消歧。
+            return null;
+        }
+        if (requestedDay != null) {
+            // 日期列由原口径和用户指代共同确定，日期值直接取自用户输入。
+            String day = requestedDay.toString();
+            return new TimeSelection(field, timeMode(proposed.time()), day, day, false);
+        }
+        if (clarifiedOffset != null) {
+            // 用户只补充日期列时仍以历史实际值计算相邻日。
+            var prior = previous.time();
+            var exact = prior != null && prior.field().equals(field) ? prior : singleDateFilter(previous, field);
+            if (exact == null || !"DAY".equals(exact.mode()) || !exact.start().equals(exact.end())) {
+                // 只有单日可以作为相邻日基准。
+                return null;
+            }
+            String day = parseDay(exact.start()).plusDays(clarifiedOffset).toString();
+            return new TimeSelection(field, "DAY", day, day, false);
+        }
+        var time = proposed.time();
+        return time != null && time.field().equals(field) && !Boolean.TRUE.equals(time.defaulted())
+                ? time
+                : singleDateFilter(proposed, field);
+    }
+
+    /**
+     * 保留已提议的逐日聚合形式，普通单日查询使用等值条件。
+     */
+    private String timeMode(TimeSelection proposed) {
+        return proposed != null && "TREND".equals(proposed.mode()) ? "TREND" : "DAY";
+    }
+
+    /**
+     * 将已指定日期列上的单条等值条件转换为业务日。
+     */
+    private TimeSelection singleDateFilter(Plan plan, Field field) {
+        var filters = plan.filters().stream()
+                .filter(filter -> field.equals(filter.field()))
+                .toList();
+        if (filters.size() != 1) {
+            // 多值或没有值都需要补充日期。
+            return null;
+        }
+        String day = parseDay(filters.get(0).value()).toString();
+        return new TimeSelection(field, "DAY", day, day, false);
+    }
+
+    /**
+     * 原值的替换必须有用户指代，商品可由同版确认的映射提供编号。
+     */
+    private boolean requestedFilter(Basis basis, Condition filter, String question) {
+        String value = filter.value();
+        boolean namesField = mentionsField(basis, question, filter.field());
+        if (isProductCode(basis.labels().get(filter.field()))) {
+            // 商品别名和规格沿用发布正文中的已确认映射。
+            var named = QueryProductNames.resolve(List.of(basis), question);
+            return mentionsText(question, value)
+                    || named != null && named.confirmed() && value.equalsIgnoreCase(named.code());
+        }
+        return mentionsText(question, value)
+                && (namesField
+                        || value.length() > 1 && !requestsDate(value) && !value.matches("[+-]?\\d+(?:\\.\\d+)?"));
+    }
+
+    /**
+     * 可用目录名、发布标题和含义定位用户明确指出的筛选列。
+     */
+    private boolean mentionsField(Basis basis, String question, Field field) {
+        var column = confirmedColumn(basis, field);
+        var fact = column == null ? null : basis.fact("COLUMN", column.columnId());
+        return mentionsText(question, field.column())
+                || mentionsText(question, basis.labels().get(field))
+                || fact != null && mentionsText(question, fact.getLabel());
+    }
+
+    /**
+     * 对英文标识和代码按完整词记账，允许它们直接贴中文叙述。
+     */
+    private boolean mentionsText(String question, String value) {
+        return value != null
+                && !value.isBlank()
+                && Pattern.compile("(?i)(?<![A-Za-z0-9_$-])" + Pattern.quote(value) + "(?![A-Za-z0-9_$-])")
+                        .matcher(question)
+                        .find();
     }
 
     /**
@@ -224,9 +440,14 @@ final class QuerySql {
         }
         var time = previous.time();
         if (time == null) {
-            // 兼容已交付的早期计划在普通等值条件里保存业务日期。
-            var dateFilters = (previous.filters() == null ? List.<QueryProtocol.Condition>of() : previous.filters())
-                    .stream().filter(filter -> dateField(basis, filter.field())).toList();
+            var historical = previous.filters();
+            if (historical == null || historical.stream().anyMatch(filter ->
+                    filter == null || confirmedColumn(basis, filter.field()) == null)) {
+                // 片段看不到全部历史筛选时，不能据此断定哪一列是唯一日期。
+                return null;
+            }
+            // 兼容以普通等值条件保存的历史计划，只有确定为单个日期时才可沿用。
+            var dateFilters = historical.stream().filter(filter -> dateField(basis, filter.field())).toList();
             if (dateFilters.size() != 1) {
                 return null;
             }
@@ -289,6 +510,7 @@ final class QuerySql {
         var context = new LinkedHashSet<String>();
         // 自然周追问和日期路径共用完整句式，其他商品指代沿用原判断。
         boolean followsProduct = PRODUCT_CONTINUATION.matcher(question).find()
+                || keepsOtherConditions(question)
                 || QueryDates.previousWeekFollowup(question);
         for (var filter : plan.filters()) {
             // 只处理被确认为商品编码的列，其他等值业务条件沿用原有验证。
@@ -426,11 +648,18 @@ final class QuerySql {
 
     /** 日期维度必须来自同版治理引用与原生 DATE 字段。 */
     private boolean dateField(Basis basis, Field field) {
+        var column = confirmedColumn(basis, field);
+        return column != null && "date".equalsIgnoreCase(column.nativeType());
+    }
+
+    /** 只在当前片段的已确认字段中读取可信目录列。 */
+    private Column confirmedColumn(Basis basis, Field field) {
+        if (field == null || !basis.labels().containsKey(field)) {
+            // 实际表有该列也不能替代当前片段对列的确认引用。
+            return null;
+        }
         var table = basis.tables().get(field.table());
-        return table != null
-                && basis.labels().containsKey(field)
-                && table.entry().named(field.column()) != null
-                && "date".equalsIgnoreCase(table.entry().named(field.column()).nativeType());
+        return table == null ? null : table.entry().named(field.column());
     }
 
     /** 日期解析失败不能变成数据库的隐式日期转换。 */
@@ -628,20 +857,18 @@ final class QuerySql {
         var logical = aggregate(
                 plan.operation(),
                 plan.fields().stream().map(f -> f.table() + "." + f.column()).toList());
-        var matches = basis.facts().values().stream()
-                .filter(f -> "METRIC".equals(f.getTarget().getKind())
-                        && normal(logical)
-                                .equals(normal(f.getContent().path("rule").asText())))
+        var metrics = basis.facts().values().stream()
+                .filter(f -> "METRIC".equals(f.getTarget().getKind()))
                 .toList();
-        return matches.stream()
-                .filter(f -> f.getLabel().equals(plan.metric()))
-                .findFirst()
-                .orElseGet(() -> {
-                    if (matches.size() == 1) {
-                        return matches.get(0);
-                    }
-                    throw QueryFailure.knowledge();
-                });
+        var named = metrics.stream().filter(f -> f.getLabel().equals(plan.metric())).toList();
+        var matches = (named.isEmpty() ? metrics : named).stream()
+                .filter(f -> normal(logical).equals(normal(f.getContent().path("rule").asText())))
+                .toList();
+        if (matches.size() != 1) {
+            // 指定了已确认的指标时，不用同片段里的其他指标替代它的计算口径。
+            throw QueryFailure.knowledge();
+        }
+        return matches.get(0);
     }
 
     /**

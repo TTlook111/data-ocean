@@ -107,6 +107,27 @@ class QueryContext {
         }
     }
 
+    /**
+     * 从仍获准的原轮次读取实际执行血缘，仅供服务端核验历史追问。
+     */
+    QueryUsage executionUsage(Request row, String rules, MemoryTurn previous) {
+        var turn = requests.get(previous.requestId());
+        if (!belongs(row, turn)
+                || !usable(turn, rules)
+                || !Objects.equals(
+                        previous.plan(),
+                        json.read(turn.reasoning(), Reasoning.class).plan())) {
+            // 权威记录与冻结计划不一致时，不能继续沿用。
+            throw QueryFailure.knowledge();
+        }
+        if (turn.usageRefs() == null) {
+            // 旧轮次缺少执行血缘时，由工作者结算知识不足。
+            return null;
+        }
+        var usage = json.read(turn.usageRefs(), QueryUsage.class);
+        return usage == null || usage.objects() == null || usage.objects().isEmpty() ? null : usage;
+    }
+
     /** 用户、来源和对话三个边界必须同时满足。 */
     private boolean belongs(Request current, Request older) {
         return older != null

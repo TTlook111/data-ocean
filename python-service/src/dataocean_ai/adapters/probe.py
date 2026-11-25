@@ -1,15 +1,13 @@
 """用固定合成请求验证已保存的模型配置。"""
 
-import asyncio
-import math
 from typing import Literal
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from dataocean_ai.adapters.chat import ChatConfiguration, ModelConfiguration, ModelFailure, generate
 from dataocean_ai.adapters.embedding import embed
+from dataocean_ai.adapters.reranking import rerank
 from dataocean_ai.governance.security import verify_java
 
 # 沿用调用方服务身份，仅允许 Java 提交已经过准入核对的配置。
@@ -62,41 +60,5 @@ async def _check_non_chat(config: ModelConfiguration) -> None:
         # 测试与实际候选构建共享同一向量发送和校验逻辑。
         await embed(config, ["DataOcean connection test"])
         return
-    try:
-        # 复用生成调用的出站约束，避免读取开发机代理或跟随重定向。
-        async with (
-            asyncio.timeout(config.timeout),
-            httpx.AsyncClient(
-                follow_redirects=False, trust_env=False, timeout=config.timeout
-            ) as transport,
-        ):
-            # Cohere v2 在配置基址下接收固定查询和两个合成文本。
-            response = await transport.post(
-                config.endpoint.rstrip("/") + "/rerank",
-                headers={"Authorization": "Bearer " + config.api_key.get_secret_value()},
-                json={
-                    "model": config.model_name,
-                    "query": "Product stock",
-                    "documents": ["Product stock is available", "Warehouse location"],
-                    "top_n": 1,
-                },
-            )
-            response.raise_for_status()
-            results = response.json()["results"]
-            if (
-                len(results) != 1
-                or results[0]["index"] not in (0, 1)
-                or not math.isfinite(results[0]["relevance_score"])
-            ):
-                raise ModelFailure("MODEL_FORMAT")
-    except (ValueError, TypeError, KeyError, IndexError):
-        # 无效结构只暴露稳定分类，不返回正文。
-        raise ModelFailure("MODEL_FORMAT") from None
-    except httpx.HTTPStatusError as error:
-        # HTTP 与 SDK 连接测试使用一致的安全故障编码。
-        status = error.response.status_code
-        codes = {400: "MODEL_FORMAT", 401: "MODEL_AUTH", 403: "MODEL_AUTH", 429: "MODEL_RATE_LIMIT"}
-        raise ModelFailure(codes.get(status, "MODEL_RESULT_UNKNOWN")) from None
-    except (httpx.RequestError, TimeoutError):
-        # 传输异常没有可验证的服务回执。
-        raise ModelFailure("MODEL_RESULT_UNKNOWN") from None
+    # 连接测试与正式排序共用传输和结果校验，仅替换为合成输入。
+    await rerank(config, "Product stock", ["Product stock is available", "Warehouse location"])

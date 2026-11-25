@@ -4,6 +4,7 @@ import com.dataocean.common.Ids;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
 import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.dataocean.module.query.service.QueryProtocol.Plan;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -35,6 +36,54 @@ record QueryUsage(
 
     /** 已经确认的参数出处，在许可时合并进入执行证据。 */
     record ParameterUse(List<String> contextRequestIds, boolean published) {}
+
+    /**
+     * 只允许在候选包含原物理对象及实际筛选列时推导历史日期。
+     */
+    boolean supportsHistoricalPlan(Basis basis, Plan previous) {
+        return objects.stream().allMatch(ref -> basis.tables().values().stream()
+                        .anyMatch(table -> sameObject(
+                                ref, Ids.text(table.entry().id()), table.entry().generation())))
+                && previous.filters() != null
+                && previous.filters().stream().allMatch(filter -> filter != null && usedFilter(basis, filter.field()))
+                && (previous.time() == null || usedFilter(basis, previous.time().field()));
+    }
+
+    /**
+     * 比较实际参与查询的对象及世代，忽略 SQL 列引用的顺序。
+     */
+    boolean sameObjects(QueryUsage current) {
+        return objects.size() == current.objects.size()
+                && current.objects.stream().allMatch(ref -> objects.stream()
+                        .anyMatch(prior -> sameObject(prior, ref.objectId(), ref.generation())));
+    }
+
+    /**
+     * 同时核对候选目录、原物理对象和上轮实际使用的筛选列。
+     */
+    private boolean usedFilter(Basis basis, Field field) {
+        if (field == null || !basis.labels().containsKey(field)) {
+            // 日期判断需要候选确认完整的历史筛选字段。
+            return false;
+        }
+        var table = basis.tables().get(field.table());
+        var column = table == null ? null : table.entry().named(field.column());
+        return column != null
+                && objects.stream()
+                        .filter(ref -> sameObject(
+                                ref, Ids.text(table.entry().id()), table.entry().generation()))
+                        .flatMap(ref -> ref.columns().stream())
+                        .anyMatch(ref -> Ids.text(column.columnId()).equals(ref.columnId())
+                                && Ids.text(column.revisionId()).equals(ref.columnRevisionId())
+                                && ref.usages().contains("FILTER"));
+    }
+
+    /**
+     * 目录对象被替换后，即使名字相同也不能沿用历史口径。
+     */
+    private boolean sameObject(ObjectRef object, String id, int generation) {
+        return id.equals(object.objectId()) && generation == object.generation();
+    }
 
     /** 合并确切片段与沿用条件的出处，保留编译所得的引用。 */
     QueryUsage withBasis(Basis basis, List<Basis> parameters, List<String> context) {

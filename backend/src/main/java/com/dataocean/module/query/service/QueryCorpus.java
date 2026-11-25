@@ -10,6 +10,7 @@ import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.governance.service.GovernanceKnowledgeService;
 import com.dataocean.module.governance.service.GovernanceTarget;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Chunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgePublicationMapper.Binding;
@@ -24,12 +25,17 @@ import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Fragment;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
+import com.dataocean.module.query.service.QueryTableSelection.Name;
+import com.dataocean.module.query.service.QueryTableSelection.Scope;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -41,6 +47,11 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class QueryCorpus {
+
+    /**
+     * 规划模型最多接收八份片段。
+     */
+    private static final int MAX_PLAN_EVIDENCE = 8;
 
     /** 同源正式版本及确认历史。 */
     private final KnowledgePublicationMapper publications;
@@ -86,12 +97,9 @@ public class QueryCorpus {
         for (var id : frozen) {
             var binding = versions.requireForQuery(source, id);
             var candidate = candidates.selectById(binding.candidateId());
-            var build = builds.get(binding.buildId());
-            var chunks = builds.chunks(binding.buildId());
-            if (candidate == null
-                    || build == null
-                    || chunks.isEmpty()
-                    || !Objects.equals(build.verifiedChunks(), chunks.size())) {
+            var chunks = verifiedChunks(binding);
+            if (candidate == null) {
+                // 正式索引必须保留确切候选身份。
                 throw QueryFailure.technical();
             }
             allowed.add(new Index(
@@ -106,6 +114,70 @@ public class QueryCorpus {
                     models.invocation(binding.embeddingRevisionId(), Math.min(16, remaining))));
         }
         return allowed;
+    }
+
+    /**
+     * 按实际库表身份补查本轮冻结的发布。匹配后仍用常规依据复核正文。
+     */
+    Scope targetedScope(long sourceId, List<Long> frozen, List<Basis> recalled, String question, String supplement) {
+        var source = catalog.source(sourceId, false);
+        var directories = new HashMap<Long, GovernanceCatalog.Entry>();
+        var available = new ArrayList<TableHit>();
+        for (var id : frozen) {
+            // 撤权或发布失效时，不能用旧冻结结果继续外发。
+            var binding = versions.requireForQuery(sourceId, id);
+            for (var chunk : verifiedChunks(binding)) {
+                // 根据固定片段实际发布的对象证据建立补查入口。
+                var tables = new ArrayList<Name>();
+                for (var evidence : json.read(chunk.evidence(), Evidence[].class)) {
+                    // 只有已发布的表级证据才可用来定位候选。
+                    if ("TABLE".equals(evidence.kind())) {
+                        // 缓存当前源目录身份，不从用户输入拼接定位语句。
+                        var entry = directories.computeIfAbsent(
+                                Ids.parse(evidence.objectId()), objectId -> catalog.current(source, objectId));
+                        if (entry != null && !entry.retired() && entry.generation() == evidence.generation()) {
+                            // 已变更世代的旧片段不能补齐用户当前指定的对象。
+                            tables.add(QueryTableSelection.name(
+                                    entry.observation().structure().object()));
+                        }
+                    }
+                }
+                available.add(new TableHit(new Hit(Ids.text(id), chunk.ordinal(), chunk.digest()), Set.copyOf(tables)));
+            }
+        }
+        var names = available.stream().flatMap(hit -> hit.tables().stream()).collect(Collectors.toSet());
+        var requested = QueryTableSelection.requestedNames(names, question, supplement);
+        if (requested.isEmpty()) {
+            // 例如版本号等普通点分文本，继续沿用首轮召回。
+            return new Scope(recalled, Set.of());
+        }
+        var matches = available.stream()
+                .filter(hit -> hit.tables().containsAll(requested))
+                .toList();
+        if (matches.size() > MAX_PLAN_EVIDENCE) {
+            // 无法在现有证据预算内核对全部精确候选时，保留资源不足状态。
+            throw QueryFailure.resource();
+        }
+        var verified = matches.stream().map(hit -> basis(sourceId, hit.hit())).toList();
+        return QueryTableSelection.matchingScope(verified, requested).orElseThrow(QueryFailure::knowledge);
+    }
+
+    /**
+     * 记录固定片段身份和确切的表名，补查后仍使用常规依据复核。
+     */
+    private record TableHit(Hit hit, Set<Name> tables) {}
+
+    /**
+     * 复用已验证的构建片段清单，召回和补查均按同一发布代次定位。
+     */
+    private List<Chunk> verifiedChunks(Binding binding) {
+        var build = builds.get(binding.buildId());
+        var chunks = builds.chunks(binding.buildId());
+        if (build == null || chunks.isEmpty() || !Objects.equals(build.verifiedChunks(), chunks.size())) {
+            // 发布索引损坏属于技术失败，不能误判为没有相关知识。
+            throw QueryFailure.technical();
+        }
+        return chunks;
     }
 
     /** 只读取实际召回的固定片段并提供该片段确切治理依据。 */

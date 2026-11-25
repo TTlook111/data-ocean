@@ -23,8 +23,12 @@ import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.entity.vo.AccessScopeVO;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.access.service.AccessScopeService;
+import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
+import com.dataocean.module.datasource.mapper.GovernanceCatalogMapper.Column;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
+import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
+import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PermissionService;
@@ -40,6 +44,7 @@ import com.dataocean.module.query.entity.vo.QueryExplanationVO;
 import com.dataocean.module.query.mapper.QueryConversationMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
+import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.HistorySummary;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
@@ -48,13 +53,19 @@ import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
+import com.dataocean.module.query.service.QueryProtocol.RerankDecision;
+import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
 import com.dataocean.module.query.service.QueryProtocol.SummaryDecision;
+import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
 import com.dataocean.module.query.service.QuerySql.Compiled;
+import com.dataocean.module.query.service.QueryTableSelection.Scope;
 
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,6 +79,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -435,7 +447,8 @@ class QueryServiceTest {
         ordered.verify(models).understand(any(), eq(31L), anyInt(), eq("物流状态"), eq(raw));
 
         when(row.runInput()).thenReturn(json.write(new RunInput(new QueryOutput().signature(List.of()), raw,
-                List.of(BINDING), 1, 2, null, null, 31L, 35L, new SummaryDecision(List.of("old"), succeeded))));
+                List.of(BINDING), 1, 2, null, null, 31L, 35L, new SummaryDecision(List.of("old"), succeeded),
+                null, null, null)));
         worker.work();
         verify(models).summarize(any(), eq(35L), anyInt(), anyString(), any());
     }
@@ -459,6 +472,819 @@ class QueryServiceTest {
         verify(requests, never()).freezeSummary(anyString(), anyInt(), anyString());
         verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
         verify(requests).stop(eq(id), eq(2), eq("PERMISSION_DENIED"), eq("NOT_SUBMITTED"), any(), any());
+    }
+
+    /** 重排只读取已获权正文，原阶段的排序或回退在规划前固定。 */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void freezesRerankOrFallbackBeforePlanningAndReusesItsOrder(boolean applied) throws SQLException {
+        ready();
+        var hits = rerankCandidates();
+        var first = corpus.basis(SOURCE, hits.get(0)).snippet();
+        var second = corpus.basis(SOURCE, hits.get(1)).snippet();
+        var ranking = when(models.rerank(any(), eq(51L), anyInt(), anyString(), eq(List.of("第一段", "第二段"))));
+        if (applied) {
+            // 模型仅交换原候选位置。
+            ranking.thenReturn(new RerankOrder(List.of(1, 0)));
+        } else {
+            // 结果未知时原始候选仍可使用，恢复不会重新计算排序。
+            ranking.thenThrow(new QueryFailure("RECOVERY_PENDING"));
+        }
+        var hitsInOrder = applied ? List.of(hits.get(1), hits.get(0)) : hits;
+        var snippets = applied ? List.of(second, first) : List.of(first, second);
+        var decision = new RerankDecision(hitsInOrder, applied);
+        when(requests.freezeRerank(eq(id), eq(2), eq("$.rerank"), anyString())).thenReturn(1);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenThrow(QueryFailure.knowledge());
+
+        worker.work();
+
+        var ordered = inOrder(requests, models);
+        ordered.verify(models).rerank(any(), eq(51L), anyInt(), anyString(), eq(List.of("第一段", "第二段")));
+        ordered.verify(requests).freezeRerank(eq(id), eq(2), eq("$.rerank"),
+                argThat(value -> json.read(value, RerankDecision.class).equals(decision)));
+        ordered.verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(snippets), anyList(), any());
+        var input = new RunInput(new QueryOutput().signature(List.of()),
+                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING),
+                1L, 2L, null, null, 31L, 0L, null, 51L, decision, null);
+        when(row.runInput()).thenReturn(json.write(input));
+        worker.work();
+        verify(models).rerank(any(), eq(51L), anyInt(), anyString(), anyList());
+    }
+
+    /** 旧版片段校验失败不能送到重排，模型等待期间撤权也不能继续规划。 */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rejectsUnusableRerankEvidenceBeforeAndAfterItsCall(boolean beforeCall) throws SQLException {
+        ready();
+        var hits = rerankCandidates();
+        if (beforeCall) {
+            // 当前绑定已失效的片段不得作为外发资料。
+            when(corpus.basis(SOURCE, hits.get(1))).thenThrow(BizIllegalException.denied());
+        } else {
+            // 外发期间撤销来源访问，收到排序也不得交付。
+            when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList())).thenAnswer(call -> {
+                when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+                return new RerankOrder(List.of(1, 0));
+            });
+        }
+
+        worker.work();
+
+        if (beforeCall) {
+            // 失效候选未触达模型客户端。
+            verify(models, never()).rerank(any(), anyLong(), anyInt(), anyString(), anyList());
+        }
+        verify(requests, never()).freezeRerank(anyString(), anyInt(), anyString(), anyString());
+        verify(models, never()).plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any());
+    }
+
+    /** 补充后固定新一批召回顺序，不借用补充前的排序。 */
+    @Test
+    void usesSeparateRerankDecisionAfterClarification() throws SQLException {
+        ready();
+        var hits = rerankCandidates();
+        when(row.supplement()).thenReturn("只看已妥投线路");
+        when(row.clarificationCommand()).thenReturn("clarified-command");
+        var original = new RerankDecision(List.of(hits.get(1), hits.get(0)), true);
+        var input = new RunInput(new QueryOutput().signature(List.of()),
+                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING),
+                1L, 2L, null, null, 31L, 0L, null, 51L, original, null);
+        when(row.runInput()).thenReturn(json.write(input));
+        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn("妥投线路");
+        when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
+                .thenReturn(new RerankOrder(List.of(0, 1)));
+        when(requests.freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), anyString())).thenReturn(1);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenThrow(QueryFailure.knowledge());
+
+        worker.work();
+
+        verify(models).rerank(argThat(QueryModels.Run::clarified), eq(51L), anyInt(), anyString(), anyList());
+        verify(requests).freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), argThat(value ->
+                json.read(value, RerankDecision.class).equals(new RerankDecision(hits, true))));
+    }
+
+    /**
+     * 同一发布的首片段缺少依据或引用不支持的对象时，下一片段仍可支持完整计划。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"KNOWLEDGE_INSUFFICIENT", "OUT_OF_SCOPE"})
+    void selectsCompleteEvidenceEvenWhenRerankPlacesAnUnusableFragmentFirst(String state) throws SQLException {
+        ready();
+        var hits = rerankCandidates();
+        var complete = corpus.basis(SOURCE, hits.get(0));
+        var incomplete = corpus.basis(SOURCE, hits.get(1));
+        var filter = new Field("deliveries", "status");
+        var filtered = new Plan(
+                "READY", null, "6", "VALUES", null, null, List.of(label), List.of(new Condition(filter, "已妥投")));
+        when(complete.labels()).thenReturn(Map.of(label, "线路", filter, "妥投状态"));
+        var binding = complete.binding();
+        when(incomplete.binding()).thenReturn(binding);
+        when(incomplete.labels()).thenReturn(Map.of(label, "线路"));
+        when(jdbc.compile(eq(incomplete), eq(filtered))).thenThrow(new QueryFailure(state));
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(filtered);
+        when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
+                .thenReturn(new RerankOrder(List.of(1, 0)));
+        when(requests.freezeRerank(eq(id), eq(2), eq("$.rerank"), anyString())).thenReturn(1);
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        var compiled = inOrder(jdbc);
+        compiled.verify(jdbc).compile(incomplete, filtered);
+        compiled.verify(jdbc).compile(complete, filtered);
+        var snippet = complete.snippet();
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        anyString(),
+                        eq(List.of(snippet)),
+                        anyList(),
+                        eq(filtered),
+                        any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 两条同版完整证据指向不同物理表时，任何候选顺序都要先澄清。
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void asksWhichPhysicalTableRegardlessOfRerankOrder(boolean reverse) throws SQLException {
+        ready();
+        rerankPhysicalTables("biz_b", 21, reverse, false);
+        var clarification = "有多个符合条件的同名表。请用模式名.表名指定要查询的表。";
+        when(requests.waitForAnswer(id, 2, clarification)).thenReturn(1);
+
+        worker.work();
+
+        verify(requests).waitForAnswer(id, 2, clarification);
+        verify(models, never())
+                .check(any(), anyString(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any());
+        verify(requests, never()).permit(any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 历史追问沿用实际执行的物理表与日期字段，重排名次不会更改基准。
+     */
+    @ParameterizedTest
+    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void keepsTheExecutedTableWhenUsingHistoricalDates(boolean reverse, boolean adjacent) throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_b", 21, reverse, false);
+        var previous = historicalDeliveryDates(bases);
+        var question = adjacent ? "那前一天呢？" : "其他条件不变，查线路";
+        when(row.question()).thenReturn(question);
+        when(context.adjacentDay(question)).thenReturn(adjacent ? -1 : null);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(previous);
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        var snippet = bases.get(0).snippet();
+        var day = adjacent ? "2026-11-19" : "2026-11-20";
+        var expected = new Plan(
+                "READY",
+                null,
+                "6",
+                "VALUES",
+                null,
+                null,
+                List.of(label),
+                List.of(previous.filters().get(1)),
+                new TimeSelection(previous.filters().get(0).field(), "DAY", day, day, false));
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        anyString(),
+                        eq(List.of(snippet)),
+                        anyList(),
+                        eq(expected),
+                        any());
+        verify(jdbc, never()).compile(eq(bases.get(1)), any());
+        verify(requests, never()).waitForAnswer(anyString(), anyInt(), anyString());
+    }
+
+    /**
+     * 原物理表缺失时，沿用原日期和明确修改日期都停止派发。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"adjacent", "clarified", "new-date"})
+    void refusesToReplaceTheHistoricalTable(String mode) throws SQLException {
+        ready();
+        boolean clarified = "clarified".equals(mode);
+        var bases = rerankPhysicalTables("biz_b", 21, false, clarified);
+        var previous = historicalDeliveryDates(bases);
+        var question = "new-date".equals(mode) ? "改查昨天，其他条件不变" : "那前一天呢？";
+        when(row.question()).thenReturn(question);
+        when(context.adjacentDay("那前一天呢？")).thenReturn(-1);
+        when(models.retrieve(any(), anyString(), anyList(), anyInt()))
+                .thenReturn(List.of(new Hit("6", 1, "another-digest")));
+        if (clarified) {
+            // 明确日期后仍需沿用原物理表。
+            when(row.clarificationCommand()).thenReturn("clarified-command");
+            when(row.clarification()).thenReturn("上一轮无法确定唯一的日期基准。请说明要调整哪个日期条件，或直接给出查询日期。");
+            when(row.supplement()).thenReturn("按 2026-11-19 查");
+        }
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(previous);
+
+        worker.work();
+
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "INSUFFICIENT_KNOWLEDGE",
+                        new QueryOutput().signature(List.of()));
+        verify(jdbc, never()).compile(any(), any());
+        verify(requests, never()).permit(any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 核对派发阶段的 SQL 和绑定值，覆盖保留、修改及澄清后的完整历史计划。
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "keep-two",
+                "keep-mixed",
+                "change-time",
+                "change-filter",
+                "clarified",
+                "change-mixed",
+                "change-second",
+                "change-wrong",
+                "change-wrong-field",
+                "change-supplement",
+                "change-partial"
+            })
+    void dispatchesTheCompleteHistoricalConditions(String mode) throws SQLException {
+        ready();
+        boolean clarified = "clarified".equals(mode) || "change-supplement".equals(mode);
+        boolean changesDate = mode.startsWith("change") || clarified;
+        boolean mixed = "keep-mixed".equals(mode) || "change-mixed".equals(mode);
+        var bases = rerankPhysicalTables("biz_b", 21, true, clarified);
+        var previous = historicalDeliveryDates(bases);
+        var original = bases.get(0);
+        var business = previous.filters().get(0).field();
+        var arrival = previous.filters().get(1).field();
+        if (!mixed) {
+            // 两个日期列均来自上轮真实目录。
+            var withTwoDates = deliveryTable(
+                    "biz_a",
+                    11,
+                    new Column(13, 13, business.column(), "date", false, "", 2),
+                    new Column(14, 14, arrival.column(), "date", false, "", 3));
+            when(original.tables()).thenReturn(withTwoDates);
+            historicalExecution(original, previous);
+        }
+        var newDay = "2026-11-19";
+        var question = changesDate ? "业务日改为 " + newDay + "，其他条件不变，查线路" : "其他条件不变，查线路";
+        var filters = List.<Condition>of();
+        TimeSelection time = null;
+        switch (mode) {
+            case "keep-mixed" -> {
+                // 模型建议的无依据文本值不能覆盖真实筛选。
+                filters = List.of(new Condition(arrival, "错误批次"));
+            }
+            case "change-filter" -> {
+                // 日期也可以由规划节点以等值条件给出。
+                filters = List.of(new Condition(business, newDay));
+            }
+            case "clarified" -> {
+                // 用户仅选择日期字段，原追问的偏移仍由服务端计算。
+                question = "那前一天呢？";
+                when(context.adjacentDay(question)).thenReturn(-1);
+                when(row.clarificationCommand()).thenReturn("clarified-command");
+                when(row.clarification()).thenReturn("上一轮无法确定要调整的日期条件。请说明要调整哪一列，如有新日期请一并给出。");
+                when(row.supplement()).thenReturn("按业务日");
+            }
+            case "change-second" -> {
+                // 原业务日以结构化时间保存，修改不同的日期列仍应保留它。
+                var oldBusiness = new TimeSelection(business, "DAY", "2026-11-20", "2026-11-20", false);
+                var historical = new Plan(
+                        "READY",
+                        null,
+                        "6",
+                        "VALUES",
+                        null,
+                        null,
+                        List.of(label),
+                        List.of(previous.filters().get(1)),
+                        oldBusiness);
+                historicalExecution(original, historical);
+                question = "入库日改为 " + newDay + "，其他条件不变";
+                time = new TimeSelection(arrival, "DAY", newDay, newDay, false);
+            }
+            case "change-time", "change-mixed" -> {
+                // 本轮明确的日期变更可以和已说明的新文本筛选一起应用。
+                time = new TimeSelection(business, "DAY", newDay, newDay, false);
+                if (mixed) {
+                    // 用户确切提供的新值允许替换原值。
+                    question = "业务日改为 " + newDay + "，入库批次改为第二批，其他条件不变";
+                    filters = List.of(new Condition(arrival, "第二批"));
+                }
+            }
+            case "change-wrong", "change-wrong-field", "change-supplement", "change-partial" -> {
+                // 完整的用户日期覆盖错误草案。无法独立确认的日期只交语义节点核对。
+                String draft = "change-partial".equals(mode) ? newDay : "2026-11-18";
+                var draftField = "change-wrong-field".equals(mode) ? arrival : business;
+                time = new TimeSelection(draftField, "DAY", draft, draft, false);
+                if ("change-supplement".equals(mode)) {
+                    // 后来的明确补充优先于原问题和草案日期。
+                    question = "业务日改为 2026-11-18，其他条件不变";
+                    when(row.clarificationCommand()).thenReturn("clarified-command");
+                    when(row.supplement()).thenReturn("改为 " + newDay);
+                } else if ("change-partial".equals(mode)) {
+                    // 缺年份的表达继续交独立语义节点复核，不添加已确认日期。
+                    question = "业务日改为11月19日，其他条件不变";
+                }
+            }
+            default -> {
+                // 保留原条件时模拟规划没有重述任何筛选。
+            }
+        }
+        when(row.question()).thenReturn(question);
+        var proposed = new Plan("READY", null, "6", "VALUES", null, null, List.of(label), filters, time);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(proposed);
+        var captured = record("FINALIZING");
+        delivered(captured);
+        when(captured.state()).thenReturn("FINALIZING");
+        when(requests.permit(any())).thenReturn(1);
+        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
+            // 通过实际执行许可回调后返回合成行。
+            call.<Runnable>getArgument(4).run();
+            return data;
+        });
+        when(requests.capture(eq(id), eq(2), anyString())).thenAnswer(call -> {
+            // 用已捕获状态完成工作者的交付路径。
+            when(requests.get(id)).thenReturn(captured);
+            return 1;
+        });
+        when(requests.deliver(id, 2)).thenReturn(1);
+
+        worker.work();
+
+        var execution = ArgumentCaptor.forClass(Compiled.class);
+        verify(jdbc).execute(eq(source), eq(id), execution.capture(), any(), any());
+        assertThat(execution.getValue().sql())
+                .contains("FROM \"biz_a\".\"deliveries\"", "t0.\"business_date\" = ?", "t0.\"arrival_date\" = ?");
+        var oldArrival = mixed ? "2026-11-21" : LocalDate.parse("2026-11-21");
+        var day = LocalDate.parse(changesDate ? newDay : "2026-11-20");
+        if (!changesDate && !mixed) {
+            // 普通等值条件按列名排序。
+            assertThat(execution.getValue().parameters()).containsExactly(oldArrival, day);
+        } else {
+            // 业务日以结构化时间传递时，日期参数排在其他筛选前。
+            var retained =
+                    switch (mode) {
+                        case "change-second" -> LocalDate.parse("2026-11-20");
+                        case "change-mixed" -> "第二批";
+                        default -> oldArrival;
+                    };
+            assertThat(execution.getValue().parameters()).containsExactly(day, retained);
+        }
+        verify(requests).permit(any());
+        verify(requests).deliver(id, 2);
+        var semanticQuestion = ArgumentCaptor.forClass(String.class);
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        semanticQuestion.capture(),
+                        anyList(),
+                        anyList(),
+                        any(),
+                        any());
+        if (mode.startsWith("change-wrong") || "change-supplement".equals(mode)) {
+            // 独立审核看到的确认日期必须与实际 SQL 使用的日期一致。
+            assertThat(semanticQuestion.getValue())
+                    .contains("系统确认的查询业务日期：" + newDay)
+                    .doesNotContain("系统确认的查询业务日期：2026-11-18");
+        } else if ("change-partial".equals(mode)) {
+            // 模型提议的年份缺少用户依据时不做系统背书。
+            assertThat(semanticQuestion.getValue()).doesNotContain("系统确认的查询业务日期");
+        }
+    }
+
+    /**
+     * 有多个原日期列且用户未说明修改哪列时，模型不能自行选择。
+     */
+    @Test
+    void clarifiesAnExplicitDateThatDoesNotIdentifyTheHistoricalField() throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_b", 21, true, false);
+        var previous = historicalDeliveryDates(bases);
+        var original = bases.get(0);
+        var business = previous.filters().get(0).field();
+        var arrival = previous.filters().get(1).field();
+        var withTwoDates = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, business.column(), "date", false, "", 2),
+                new Column(14, 14, arrival.column(), "date", false, "", 3));
+        when(original.tables()).thenReturn(withTwoDates);
+        historicalExecution(original, previous);
+        when(row.question()).thenReturn("改成 2026-11-19，其他条件不变");
+        var time = new TimeSelection(business, "DAY", "2026-11-19", "2026-11-19", false);
+        var proposed = new Plan("READY", null, "6", "VALUES", null, null, List.of(label), List.of(), time);
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(proposed);
+        var clarification = "上一轮无法确定要调整的日期条件。请说明要调整哪一列，如有新日期请一并给出。";
+        when(requests.waitForAnswer(id, 2, clarification)).thenReturn(1);
+
+        worker.work();
+
+        verify(requests).waitForAnswer(id, 2, clarification);
+        verify(jdbc, never()).compile(any(), any());
+        verify(requests, never()).permit(any());
+    }
+
+    /**
+     * 原问题和澄清中都可明确指定模式，澄清中的限定名优先。
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void usesTheExplicitPhysicalTableEvenWhenItRanksSecond(boolean clarified) throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_b", 21, true, clarified);
+        if (clarified) {
+            // 补充带双引号的限定名，替换原问题指向的模式。
+            when(row.question()).thenReturn("查询 biz_b.deliveries 的线路");
+            when(row.clarificationCommand()).thenReturn("clarified-command");
+            when(row.supplement()).thenReturn("查\"biz_a\".\"deliveries\"的线路");
+        } else {
+            // 原问题已经给出明确的模式。
+            when(row.question()).thenReturn("查biz_a.deliveries的线路");
+        }
+        // 让真实工作者走完选片，只核对复核收到的实际证据。
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        var snippet = bases.get(0).snippet();
+        verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(List.of(snippet)), anyList(), any());
+        verify(corpus, never()).targetedScope(anyLong(), anyList(), anyList(), anyString(), any());
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        anyString(),
+                        eq(List.of(snippet)),
+                        anyList(),
+                        eq(plan),
+                        any());
+        verify(requests, never()).waitForAnswer(anyString(), anyInt(), anyString());
+    }
+
+    /**
+     * 两条完整证据实际使用同一个物理表时保留重排名次。
+     */
+    @Test
+    void keepsTheRerankOrderForTheSamePhysicalTable() throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_a", 11, true, false);
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        var snippet = bases.get(1).snippet();
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        anyString(),
+                        eq(List.of(snippet)),
+                        anyList(),
+                        eq(plan),
+                        any());
+        verify(requests, never()).waitForAnswer(anyString(), anyInt(), anyString());
+    }
+
+    /**
+     * 指定表没有可用依据时，即使另一模式的同名表完整也不能派发。
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "查询 biz_a.deliveries 的线路",
+                "查biz_a.deliveries的线路",
+                "查询unknown_schema.deliveries里的线路",
+                "请看\"未召回\".\"deliveries\"的数据"
+            })
+    void neverSubstitutesAnotherTableForAnUnavailableQualifiedTable(String question) throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_b", 21, true, false);
+        when(row.question()).thenReturn(question);
+        when(jdbc.compile(bases.get(0), plan)).thenThrow(QueryFailure.knowledge());
+        when(corpus.targetedScope(eq(SOURCE), eq(List.of(BINDING)), anyList(), eq(question), eq(null)))
+                .thenThrow(QueryFailure.knowledge());
+
+        worker.work();
+
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "INSUFFICIENT_KNOWLEDGE",
+                        new QueryOutput().signature(List.of()));
+        verify(requests, never()).permit(any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 表名只由原话和已核验目录决定，即使模型编译到不同名的表也不能派发。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"recalled", "missing", "supplement", "related-table"})
+    void neverUsesAnotherLogicalTableForAnExplicitlyQualifiedRequest(String scenario) throws SQLException {
+        ready();
+        boolean clarified = "supplement".equals(scenario);
+        var bases = rerankPhysicalTables("biz_b", 21, true, clarified);
+        if (!"missing".equals(scenario)) {
+            // 正确表在召回结果中，但模型选择另一表的投影，匹配时会排除它。
+            var requested = new Field("receipts", "route");
+            var object = new ObjectRef("logistics", "biz_a", "receipts", "TABLE", null, null, null);
+            var structure = new Structure(object, List.of(), List.of(), List.of(), List.of());
+            var observation = new Observation(31, 1, 1L, 31L, null, null, null, structure, null);
+            var column = new Column(32, 32, requested.column(), "character varying", false, "", 1);
+            var entry = new GovernanceCatalog.Entry(31, 1, false, observation, List.of(column));
+            var table = new QueryCorpus.Table(entry, Map.of(requested.column(), "线路"));
+            if ("related-table".equals(scenario)) {
+                // 即使片段也确认 B 表，实际计划仍必须使用用户指定的 A 表。
+                var related = bases.get(1).tables().get(label.table());
+                when(bases.get(0).tables()).thenReturn(Map.of(requested.table(), table, label.table(), related));
+                when(bases.get(0).labels()).thenReturn(Map.of(requested, "线路", label, "线路"));
+            } else {
+                // 仅 A 表属于本次规划输入。
+                when(bases.get(0).tables()).thenReturn(Map.of(requested.table(), table));
+                when(bases.get(0).labels()).thenReturn(Map.of(requested, "线路"));
+            }
+        }
+        if (clarified) {
+            // 澄清中的明确表名取代原提问选择。
+            when(row.question()).thenReturn("查询 biz_b.deliveries 的线路");
+            when(row.clarificationCommand()).thenReturn("clarified-command");
+            when(row.supplement()).thenReturn("查biz_a.receipts的线路");
+        } else {
+            // 准确表或整份目录缺失都不能执行模型选出的另一张表。
+            when(row.question()).thenReturn("查 biz_a.receipts 的线路");
+        }
+        boolean missing = "missing".equals(scenario);
+        if (missing) {
+            // 只有定向补查仍缺少指定表时才结算知识不足。
+            when(corpus.targetedScope(eq(SOURCE), eq(List.of(BINDING)), anyList(), anyString(), eq(null)))
+                    .thenThrow(QueryFailure.knowledge());
+        }
+
+        worker.work();
+
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        missing ? "KNOWLEDGE_INSUFFICIENT" : "TECHNICAL_FAILURE",
+                        "NOT_SUBMITTED",
+                        missing ? "INSUFFICIENT_KNOWLEDGE" : "QUERY_PLAN_TARGET_MISMATCH",
+                        new QueryOutput().signature(List.of()));
+        if (missing) {
+            // 没有依据时不调用规划模型猜测表名。
+            verify(models, never()).plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any());
+        } else {
+            // 验证模型只收到已限定过的依据，而且错误没有导致重复规划。
+            var snippet = bases.get(0).snippet();
+            verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(List.of(snippet)), anyList(), any());
+        }
+        verify(models, never())
+                .check(any(), anyString(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any());
+        verify(requests, never()).permit(any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 首轮单独召回异表或完全空召回时，补查后用原指定表完成正式执行。
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void findsTheRequestedTableBeforePlanningWhenVectorRecallMissesIt(boolean emptyRecall) throws SQLException {
+        ready();
+        var bases = rerankPhysicalTables("biz_b", 21, true, false);
+        var first = bases.get(0);
+        var second = bases.get(1);
+        List<Hit> hits = emptyRecall ? List.of() : List.of(new Hit("6", 1, "another-digest"));
+        List<QueryCorpus.Basis> recalled = emptyRecall ? List.of() : List.of(second);
+        var question = "查biz_a.deliveries的线路";
+        when(row.question()).thenReturn(question);
+        when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(hits);
+        when(corpus.targetedScope(SOURCE, List.of(BINDING), recalled, question, null))
+                .thenReturn(new Scope(List.of(first), Set.of("11")));
+        var captured = record("FINALIZING");
+        delivered(captured);
+        when(captured.state()).thenReturn("FINALIZING");
+        when(requests.permit(any())).thenReturn(1);
+        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
+            // 走真实许可回调，返回合成业务行。
+            call.<Runnable>getArgument(4).run();
+            return data;
+        });
+        when(requests.capture(eq(id), eq(2), anyString())).thenAnswer(call -> {
+            // 按已捕获状态校验最终交付。
+            when(requests.get(id)).thenReturn(captured);
+            return 1;
+        });
+        when(requests.deliver(id, 2)).thenReturn(1);
+
+        worker.work();
+
+        var snippet = first.snippet();
+        var order = inOrder(models, corpus, requests, jdbc);
+        order.verify(models).retrieve(any(), anyString(), anyList(), anyInt());
+        order.verify(corpus).targetedScope(SOURCE, List.of(BINDING), recalled, question, null);
+        order.verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(List.of(snippet)), anyList(), any());
+        var execution = ArgumentCaptor.forClass(Compiled.class);
+        order.verify(jdbc).execute(eq(source), eq(id), execution.capture(), any(), any());
+        assertThat(execution.getValue().sql()).contains("FROM \"biz_a\".\"deliveries\"");
+        verify(models, never()).rerank(any(), anyLong(), anyInt(), anyString(), anyList());
+        verify(requests).permit(any());
+        verify(requests).deliver(id, 2);
+    }
+
+    /**
+     * 使用同一发布的两份目录引用，通过实际 SQL 编译器确认各自使用的物理对象。
+     */
+    private List<QueryCorpus.Basis> rerankPhysicalTables(
+            String secondSchema, long secondId, boolean reverse, boolean clarified) {
+        var hits = rerankCandidates();
+        var first = corpus.basis(SOURCE, hits.get(0));
+        var second = corpus.basis(SOURCE, hits.get(1));
+        var binding = first.binding();
+        when(second.binding()).thenReturn(binding);
+        when(second.source()).thenReturn(source);
+        when(second.labels()).thenReturn(Map.of(label, "线路"));
+        when(first.tables()).thenReturn(deliveryTable("biz_a", 11));
+        when(second.tables()).thenReturn(deliveryTable(secondSchema, secondId));
+        var compiler = new QuerySql();
+        when(jdbc.compile(eq(first), any()))
+                .thenAnswer(call -> compiler.compile(first, call.getArgument(1), false, "logistics"));
+        when(jdbc.compile(eq(second), any()))
+                .thenAnswer(call -> compiler.compile(second, call.getArgument(1), false, "logistics"));
+        when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
+                .thenReturn(new RerankOrder(reverse ? List.of(1, 0) : List.of(0, 1)));
+        when(requests.freezeRerank(eq(id), eq(2), eq(clarified ? "$.clarifiedRerank" : "$.rerank"), anyString()))
+                .thenReturn(1);
+        return List.of(first, second);
+    }
+
+    /**
+     * 创建带线路字段的物理表，根据场景补充目录中的其他列。
+     */
+    private Map<String, QueryCorpus.Table> deliveryTable(String schema, long id, Column... extraColumns) {
+        var ref = new ObjectRef("logistics", schema, "deliveries", "TABLE", null, null, null);
+        var structure = new Structure(ref, List.of(), List.of(), List.of(), List.of());
+        var observation = new Observation(id, 1, 1L, id, null, null, null, structure, null);
+        var columns =
+                new ArrayList<>(List.of(new Column(id + 1, id + 1, label.column(), "character varying", false, "", 1)));
+        columns.addAll(List.of(extraColumns));
+        var entry = new GovernanceCatalog.Entry(id, 1, false, observation, columns);
+        return Map.of(label.table(), new QueryCorpus.Table(entry, Map.of(label.column(), "线路")));
+    }
+
+    /**
+     * 模拟上轮通过等值筛选记录日期的计划，同名表的两列在目录中具有不同原生类型。
+     */
+    private Plan historicalDeliveryDates(List<QueryCorpus.Basis> bases) {
+        var business = new Field(label.table(), "business_date");
+        var arrival = new Field(label.table(), "arrival_date");
+        var labels = Map.of(label, "线路", business, "业务日", arrival, "入库日");
+        when(bases.get(0).labels()).thenReturn(labels);
+        when(bases.get(1).labels()).thenReturn(labels);
+        var firstTable = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, business.column(), "date", false, "", 2),
+                new Column(14, 14, arrival.column(), "character varying", false, "", 3));
+        var secondTable = deliveryTable(
+                "biz_b",
+                21,
+                new Column(23, 23, business.column(), "character varying", false, "", 2),
+                new Column(24, 24, arrival.column(), "date", false, "", 3));
+        when(bases.get(0).tables()).thenReturn(firstTable);
+        when(bases.get(1).tables()).thenReturn(secondTable);
+        var previous = new Plan(
+                "READY",
+                null,
+                "6",
+                "VALUES",
+                null,
+                null,
+                List.of(label),
+                List.of(new Condition(business, "2026-11-20"), new Condition(arrival, "2026-11-21")));
+        historicalExecution(bases.get(0), previous);
+        return previous;
+    }
+
+    /**
+     * 历史计划与执行血缘由相同目录和实际编译器生成。
+     */
+    private void historicalExecution(QueryCorpus.Basis original, Plan previous) {
+        var turn = new MemoryTurn("old-with-typed-date", "查询线路", null, previous);
+        var memory = new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(turn), List.of());
+        var usage =
+                new QuerySql().compile(original, previous, false, "logistics").usage();
+        when(context.capture(eq(row), anyString())).thenReturn(memory);
+        when(context.executionUsage(eq(row), anyString(), eq(turn))).thenReturn(usage);
+    }
+
+    /**
+     * 双日期历史在首个片段缺一列时仍应澄清，候选顺序不能决定要调整的日期。
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void clarifiesAmbiguousHistoricalDateEvenWithAnIncompleteFragment(boolean partialFirst) throws SQLException {
+        ready();
+        var hits = rerankCandidates();
+        var complete = corpus.basis(SOURCE, hits.get(0));
+        var partial = corpus.basis(SOURCE, hits.get(1));
+        var businessDate = new Field("deliveries", "business_date");
+        var arrivalDate = new Field("deliveries", "arrival_date");
+        var tables = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, businessDate.column(), "date", false, "", 2),
+                new Column(14, 14, arrivalDate.column(), "date", false, "", 3));
+        var binding = complete.binding();
+        when(partial.binding()).thenReturn(binding);
+        when(complete.tables()).thenReturn(tables);
+        when(partial.tables()).thenReturn(tables);
+        when(complete.labels()).thenReturn(Map.of(label, "线路", businessDate, "业务日", arrivalDate, "入库日"));
+        when(partial.labels()).thenReturn(Map.of(label, "线路", businessDate, "业务日"));
+        var oldPlan = new Plan(
+                "READY",
+                null,
+                "6",
+                "VALUES",
+                null,
+                null,
+                List.of(label),
+                List.of(new Condition(businessDate, "2026-11-20"), new Condition(arrivalDate, "2026-11-21")));
+        historicalExecution(complete, oldPlan);
+        var question = "那前一天呢？";
+        var clarification = "上一轮无法确定要调整的日期条件。请说明要调整哪一列，如有新日期请一并给出。";
+        when(row.question()).thenReturn(question);
+        when(context.adjacentDay(question)).thenReturn(-1);
+        var order = partialFirst ? List.of(1, 0) : List.of(0, 1);
+        when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList())).thenReturn(new RerankOrder(order));
+        when(requests.freezeRerank(eq(id), eq(2), eq("$.rerank"), anyString())).thenReturn(1);
+        when(requests.waitForAnswer(id, 2, clarification)).thenReturn(1);
+
+        worker.work();
+
+        verify(requests).waitForAnswer(id, 2, clarification);
+        verify(jdbc, never()).compile(any(), any());
+        verify(requests, never()).permit(any());
+    }
+
+    /** 使用同源两段已批准正文替换默认单条召回。 */
+    private List<Hit> rerankCandidates() {
+        var first = new Hit("6", 0, "digest");
+        var second = new Hit("6", 1, "another-digest");
+        var initial = corpus.basis(SOURCE, first);
+        var alternate = mock(QueryCorpus.Basis.class);
+        when(initial.text()).thenReturn("第一段");
+        when(alternate.text()).thenReturn("第二段");
+        when(alternate.snippet()).thenReturn(new QueryEvidenceSnippetDTO("6", "第二段", Map.of(), List.of()));
+        when(corpus.basis(SOURCE, second)).thenReturn(alternate);
+        var hits = List.of(first, second);
+        when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(hits);
+        when(models.rerankRevision()).thenReturn(51L);
+        return hits;
     }
 
     /**
@@ -546,6 +1372,9 @@ class QueryServiceTest {
                             List.of(BINDING),
                             1,
                             2,
+                            null,
+                            null,
+                            null,
                             null,
                             null,
                             null,

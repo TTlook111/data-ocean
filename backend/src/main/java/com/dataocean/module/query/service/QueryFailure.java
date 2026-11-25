@@ -60,6 +60,13 @@ final class QueryFailure extends RuntimeException {
         return new QueryFailure("TECHNICAL_FAILURE");
     }
 
+    /**
+     * 已提供指定表的发布依据，规划仍指向其他表或发布。
+     */
+    static QueryFailure planTargetMismatch() {
+        return new QueryFailure("TECHNICAL_FAILURE", false, "QUERY_PLAN_TARGET_MISMATCH");
+    }
+
     /** 必需模型或调用配置不可用，后台只收到固定诊断。 */
     static QueryFailure modelUnavailable() {
         return new QueryFailure("TECHNICAL_FAILURE", false, "MODEL_CONFIGURATION_UNAVAILABLE");

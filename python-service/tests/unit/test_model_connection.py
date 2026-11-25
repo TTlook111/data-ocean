@@ -36,8 +36,16 @@ def test_connection_uses_protocol_adapter(
             # 向量值符合 OpenAI 返回格式，可由现用 SDK 直接解析。
             return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.6]}]})
         if protocol == "COHERE_RERANK":
-            # 真实协议只需本次两个合成文档中的命中项和分值。
-            return httpx.Response(200, json={"results": [{"index": 0, "relevance_score": 0.9}]})
+            # 连接测试和真实调用都核对完整候选序号。
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"index": 0, "relevance_score": 0.9},
+                        {"index": 1, "relevance_score": 0.3},
+                    ]
+                },
+            )
         if protocol == "OPENAI_CHAT_COMPLETIONS":
             # Chat Completions 返回 assistant 消息和已知用量。
             return httpx.Response(

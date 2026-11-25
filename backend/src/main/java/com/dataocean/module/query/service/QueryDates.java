@@ -1,5 +1,6 @@
 package com.dataocean.module.query.service;
 
+import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
@@ -17,6 +18,14 @@ final class QueryDates {
     private static final Pattern CALENDAR_DATE =
             Pattern.compile("(?:[0-9]{4}[-/.][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}(?![0-9])|"
                     + "[0-9一二三四五六七八九十]{1,3}\\s*月(?!奶)|[本上这下](?:个)?月)");
+
+    /**
+     * 只接受完整的日历日期，避开编码中的数字片段。
+     */
+    private static final Pattern FULL_DATE =
+            Pattern.compile("(?<![A-Za-z0-9_./-])(?:([0-9]{4})([-/.])([0-9]{1,2})\\2([0-9]{1,2})"
+                    + "|([0-9]{4})\\s*年\\s*([0-9]{1,2})\\s*月\\s*([0-9]{1,2})\\s*[日号])"
+                    + "(?![A-Za-z0-9_/-]|\\.[0-9])");
 
     /**
      * 日号标记不包含仓库、门店或商品编号。
@@ -53,6 +62,12 @@ final class QueryDates {
     private static final Pattern PERIOD =
             Pattern.compile("截至|从.{0,32}(?:至|到)|同比|环比|对比|比较|相比|(?i:\\b(?:since|until|through)\\b)");
 
+    /**
+     * 排除、示例和边界说明中的日期不能直接确定等值条件。
+     */
+    private static final Pattern NON_POINT_DATE = Pattern.compile(
+            "(?i)不查|不要|排除|不含|不包括|以前|以后|之前|之后|以外|之外|示例|例如|比如" + "|\\b(?:not|except|excluding|before|after)\\b");
+
     /** 只识别独立改变时间到上一个自然周的短追问。 */
     private static final Pattern PREVIOUS_WEEK_FOLLOWUP =
             Pattern.compile("^\\s*(?:那(?:么)?\\s*)?上(?:周|个星期)(?:的)?(?:呢)?[？?。.!！\\s]*$");
@@ -81,6 +96,53 @@ final class QueryDates {
     static boolean mentionsSpecificDate(String question) {
         return CALENDAR_DATE.matcher(question).find()
                 || DAY_ONLY.matcher(question).find();
+    }
+
+    /**
+     * 从请求原话解析能独立确定的单日，补充中的时间选择优先。
+     */
+    static LocalDate requestedDay(String question, String supplement, LocalDate anchor) {
+        if (supplement == null) {
+            // 首次请求仅使用用户原话。
+            return requestedDay(question, anchor);
+        }
+        var supplied = requestedDay(supplement, anchor);
+        if (supplied != null
+                || !THIS_MONTH.matcher(supplement).find()
+                        && (mentionsSpecificDate(supplement)
+                                || RELATIVE_DAY.matcher(supplement).find())) {
+            // 已补充独立的日期表达，不能再回退到原来的日期。
+            return supplied;
+        }
+        return requestedDay(question + "\n补充：" + supplement, anchor);
+    }
+
+    /**
+     * 只确认完整、唯一的日历日或既有可计算的相对日期。
+     */
+    static LocalDate requestedDay(String question, LocalDate anchor) {
+        var exact = FULL_DATE.matcher(question);
+        if (!exact.find()) {
+            // 保留相对日及补充月份的既有处理。
+            return singleRelativeDay(question, anchor);
+        }
+        boolean numeric = exact.group(1) != null;
+        int year = Integer.parseInt(exact.group(numeric ? 1 : 5));
+        int month = Integer.parseInt(exact.group(numeric ? 3 : 6));
+        int day = Integer.parseInt(exact.group(numeric ? 4 : 7));
+        if (exact.find()
+                || PERIOD.matcher(question).find()
+                || NON_POINT_DATE.matcher(question).find()
+                || RELATIVE_DAY.matcher(question).find()) {
+            // 多个日期或区间继续由语义复核处理，不能声明是已确认的单日。
+            return null;
+        }
+        try {
+            // 由日历校验实际年月日，防止错误日期变成数据库隐式转换。
+            return LocalDate.of(year, month, day);
+        } catch (DateTimeException invalid) {
+            throw QueryFailure.knowledge();
+        }
     }
 
     /**

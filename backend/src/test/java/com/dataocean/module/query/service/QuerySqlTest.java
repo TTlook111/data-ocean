@@ -193,6 +193,11 @@ class QuerySqlTest {
         var exact = compiler.compile(evidence, dateFromUser, true, "warehouse");
         assertThat(exact.parameters()).containsExactly(LocalDate.of(2026, 11, 20));
 
+        // 单个完整日期也约束没有历史依赖的计划，不能沿用模型旧值。
+        var corrected = compiler.resolveTime(evidence, specified, today, "只查 2026-11-19 日末库存", false);
+        assertThat(compiler.compile(evidence, corrected, true, "warehouse").parameters())
+                .containsExactly(LocalDate.of(2026, 11, 19));
+
         // SSE 或模型节点重用旧提议时，样例中的日期仍无法变成查询条件。
         var namesOnly = compiler.resolveTime(evidence, specified, today, "原味燕麦奶 1 L 的可售库存是多少箱？", false);
         assertThat(compiler.compile(evidence, namesOnly, true, "warehouse").parameters())
@@ -286,6 +291,31 @@ class QuerySqlTest {
         assertThat(week.time()).isEqualTo(new TimeSelection(date, "TREND", "2026-11-16", "2026-11-22", false));
         assertThat(week.filters()).containsExactly(new Condition(stock, "5"));
         assertThat(week.metric()).isEqualTo(previous.metric());
+    }
+
+    /** 已确认的指标名称与计算式要同时匹配，同片段的近义指标不能代替。 */
+    @Test
+    void rejectsFormulaOfAnotherMetricWhenTheRequestedNameIsKnown() {
+        var stock = new Field("stock_snapshot", "on_hand");
+        var locked = new Field("stock_snapshot", "locked");
+        var date = new Field("stock_snapshot", "business_date");
+        var json = JsonMapper.builder().build();
+        var available = new GovernanceFactVO(new GovernanceTargetVO("1", "METRIC", "8"), "9", 1, "10",
+                "可售库存", json.readTree("{\"rule\":\"SUM(stock_snapshot.on_hand - stock_snapshot.locked)\"}"),
+                List.of());
+        var onHand = new GovernanceFactVO(new GovernanceTargetVO("1", "METRIC", "9"), "10", 1, "10",
+                "实际在库", json.readTree("{\"rule\":\"SUM(stock_snapshot.on_hand)\"}"), List.of());
+        var section = basis("TABLE", stock, locked, date, available);
+        var evidence = new Basis(section.source(), section.binding(), section.ordinal(), section.text(),
+                section.tables(), section.fields(), Map.of("8", available, "9", onHand), section.labels());
+        var compiler = new QuerySql();
+        var mismatch = new Plan("READY", null, "1", "SUM", "可售库存", null, List.of(stock), List.of());
+        var alias = new Plan("READY", null, "1", "SUM", "实际在库总量", null, List.of(stock), List.of());
+
+        assertThatThrownBy(() -> compiler.compile(evidence, mismatch, true, "warehouse"))
+                .isInstanceOf(QueryFailure.class);
+        assertThat(compiler.compile(evidence, alias, true, "warehouse").columns().get(0).getLabel())
+                .isEqualTo("实际在库");
     }
 
     /** 日期解析与商品校验对「上周」使用同一组纯追问表达。 */
