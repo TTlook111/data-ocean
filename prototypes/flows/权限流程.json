@@ -1,0 +1,287 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "数据源授权与输出限制",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "prototypes/flows/权限流程.html",
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "界面操作"
+        },
+        "backend": {
+          "label": "业务处理"
+        },
+        "security": {
+          "label": "授权检查"
+        },
+        "database": {
+          "label": "授权生效"
+        },
+        "messagebus": {
+          "label": "状态变化"
+        }
+      }
+    },
+    "views": [
+      {
+        "id": "source-policy",
+        "label": "规则与初始授权",
+        "focus": [
+          "ruleEdit",
+          "assign",
+          "use"
+        ],
+        "note": "部门配置选择已有规则，生效后作为每次访问的授权来源。"
+      },
+      {
+        "id": "access-approval",
+        "label": "额外访问审批",
+        "focus": [
+          "request",
+          "map",
+          "approval",
+          "refused"
+        ],
+        "note": "审批通过即生效，批准人与生效结果合并留痕；驳回或本次提交失败就近回告。"
+      },
+      {
+        "id": "scope-boundary",
+        "label": "每次查询与失权处理",
+        "focus": [
+          "query",
+          "use",
+          "result",
+          "revoke",
+          "stop"
+        ],
+        "note": "查询独立发起并核验当前条件；撤权、调岗或停用独立触发失权处理。"
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "policy",
+      "label": "规则与初始授权"
+    },
+    {
+      "id": "employee",
+      "label": "额外访问申请"
+    },
+    {
+      "id": "usage",
+      "label": "每次查询"
+    },
+    {
+      "id": "changes",
+      "label": "未生效与访问中断",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "request",
+    "map",
+    "approval"
+  ],
+  "nodes": [
+    {
+      "id": "ruleEdit",
+      "lane": "policy",
+      "col": 1,
+      "label": "维护输出限制规则",
+      "sublabel": "名称与返回限制内容，统一复用",
+      "type": "frontend"
+    },
+    {
+      "id": "assign",
+      "lane": "policy",
+      "col": 4,
+      "label": "配置部门初始访问",
+      "sublabel": "选择数据源与规则，校验后保存",
+      "type": "backend"
+    },
+    {
+      "id": "request",
+      "lane": "employee",
+      "col": 0,
+      "label": "员工提交访问申请",
+      "sublabel": "说明业务用途及需要的数据",
+      "type": "frontend"
+    },
+    {
+      "id": "map",
+      "lane": "employee",
+      "col": 1,
+      "label": "负责人核定数据源及规则",
+      "sublabel": "依据业务用途，查看规则全文",
+      "type": "backend"
+    },
+    {
+      "id": "approval",
+      "lane": "employee",
+      "col": 2,
+      "label": "审批通过即生效",
+      "sublabel": "核验账号、审批修订与授予上限",
+      "type": "security"
+    },
+    {
+      "id": "query",
+      "lane": "usage",
+      "col": 3,
+      "label": "员工发起查询",
+      "sublabel": "输入业务问题",
+      "type": "frontend"
+    },
+    {
+      "id": "use",
+      "lane": "usage",
+      "col": 4,
+      "label": "校验本次查询",
+      "sublabel": "安全、功能、数据源与输出规则",
+      "type": "security"
+    },
+    {
+      "id": "result",
+      "lane": "usage",
+      "col": 5,
+      "label": "执行并交付结果",
+      "sublabel": "仅返回当前权限允许的内容",
+      "type": "backend"
+    },
+    {
+      "id": "refused",
+      "lane": "changes",
+      "col": 2,
+      "label": "回告审批处理结果",
+      "sublabel": "说明驳回理由或本次提交失败",
+      "type": "security"
+    },
+    {
+      "id": "stop",
+      "lane": "changes",
+      "col": 4,
+      "label": "中断受影响访问",
+      "sublabel": "重算剩余来源，阻断失权部分",
+      "type": "security"
+    },
+    {
+      "id": "revoke",
+      "lane": "changes",
+      "col": 5,
+      "label": "撤权、调岗或停用",
+      "sublabel": "复核受影响来源、任务及历史",
+      "type": "messagebus"
+    }
+  ],
+  "edges": [
+    {
+      "id": "select-initial",
+      "from": "ruleEdit",
+      "to": "assign",
+      "label": "选用规则",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "select-request",
+      "from": "ruleEdit",
+      "to": "map",
+      "label": "选用规则",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "initial-use",
+      "from": "assign",
+      "to": "use",
+      "label": "初始配置生效",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "submit",
+      "from": "request",
+      "to": "map",
+      "label": "",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "review",
+      "from": "map",
+      "to": "approval",
+      "label": "",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "effective",
+      "from": "approval",
+      "to": "use",
+      "label": "审批通过即可用",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "query-check",
+      "from": "query",
+      "to": "use",
+      "label": "",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "allow",
+      "from": "use",
+      "to": "result",
+      "label": "通过校验",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "decline",
+      "from": "approval",
+      "to": "refused",
+      "label": "驳回或提交失败",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "refuse",
+      "from": "revoke",
+      "to": "stop",
+      "label": "按实际失权处理",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "title": "每次访问分别核验",
+      "items": [
+        "角色控制页面、按钮和功能；部门只分配初始数据源及输出规则，查询不按所属部门或组织层级过滤业务记录。",
+        "数据源与输出限制按当前有效来源核验；分配时不逐项勾选表字段、不设置期限，输出按实际含义匹配规则。"
+      ],
+      "dot": "cyan"
+    },
+    {
+      "title": "规则用中文维护与选择",
+      "items": [
+        "规则示例：用户信息限制，不允许返回身份证和电话；产品成本限制，不允许返回产品成本。",
+        "有权限人员维护规则，授权时可多选。规则约束输出，相关字段仍可用于 WHERE 等合法条件。"
+      ],
+      "dot": "emerald"
+    },
+    {
+      "title": "授权生效与失权处理",
+      "items": [
+        "部门初始配置仅关联直属及直属兼任成员，下级成员不继承；额外申请审批通过即生效，联合申请全部必要审批通过时整组生效。",
+        "撤权仅阻断实际失权部分并重算其他来源；账号停用中断全部访问，保留历史。",
+        "同一数据源的有效来源限制全部适用，内容相同去重；共享规则保存后，所有有效引用立即采用最新内容，历史审批与查询保留当次快照。"
+      ],
+      "dot": "amber"
+    }
+  ]
+}

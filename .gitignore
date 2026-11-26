@@ -28,6 +28,8 @@ replay_pid*
 .DS_Store
 Thumbs.db
 Desktop.ini
+# Word 等 Office 应用的临时锁文件。
+~$*
 
 # IDE files
 .idea/
@@ -50,13 +52,20 @@ backend/**/src/main/resources/application-local.yaml
 # Legacy private profile; application.yml remains shared configuration.
 backend/DataOcean/src/main/resources/application-dev.yml
 backend/DataOcean/src/main/resources/application-dev.yaml
-.dataocean/local-environment.md
 !.env.example
 !.env.*.example
 !.env.template
 !.env.*.template
+# 已确认随项目提供的开发示例变量；真实凭据仍放本机配置。
+!/frontend/.env.development
+
+# 本机环境说明和私有密钥；仅保留共享说明模板。
+/.dataocean/*
+!/.dataocean/local-environment.example.md
 
 # Shared Node dependencies and package-manager caches
+# Project runtime selection belongs to each device; compatibility lives in engines.
+/frontend/.node-version
 .npm-cache/
 node_modules/
 npm-debug.log*
@@ -76,6 +85,7 @@ lerna-debug.log*
 # Java / Maven backend
 .m2/
 backend/**/target/
+/tools/technical-validation/**/target/
 backend/**/out/
 backend/**/.flattened-pom.xml
 backend/**/dependency-reduced-pom.xml
@@ -85,8 +95,9 @@ backend/**/*.versionsBackup
 # Machine-local Maven overrides, launch wrappers and process records
 /backend/DataOcean/.mvn/maven.config
 /backend/DataOcean/.mvn/settings.xml
-/.dataocean/runtime/
 start-backend.ps1
+# 正式开发入口随代码共享，不能被旧的本机启动脚本规则屏蔽。
+!/tools/dev/start-backend.ps1
 start-semantics-backend.ps1
 start-backend-v*.ps1
 *.local.ps1
@@ -98,29 +109,27 @@ frontend-process.json
 python-process.json
 *.pid
 
-# Python caches (including repository scripts)
+# Python 缓存与虚拟环境，覆盖正式服务和独立验证工具。
 __pycache__/
 *.py[cod]
+.venv*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.egg-info/
+.ipynb_checkpoints/
 
 # Python service
-python-service/.venv/
-python-service/.venv*/
 python-service/venv/
 python-service/env/
-python-service/.pytest_cache/
-python-service/.mypy_cache/
-python-service/.ruff_cache/
-python-service/.tox/
-python-service/.nox/
-python-service/htmlcov/
-python-service/.coverage
-python-service/coverage.xml
 python-service/build/
 python-service/dist/
-python-service/*.egg-info/
-python-service/**/*.egg-info/
-python-service/.ipynb_checkpoints/
-python-service/**/*.ipynb_checkpoints/
 
 # Local databases and generated data
 .playwright-cli/
@@ -138,3 +147,12 @@ output/
 .claude/
 
 .tmp/
+
+# Archify 的截图、浏览器调试和生成报告；保留图源及交付页面。
+/.archify/**/*.png
+/.archify/**/browser-check.json
+/.archify/**/ego-guide.txt
+/.archify/**/round-*.mjs
+/.archify/**/*.delivery.json
+/.archify/**/*.finalize.json
+/.archify/**/*.finalize-summary.json

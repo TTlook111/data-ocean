@@ -1,0 +1,280 @@
+/* 登录表单位于右侧，左侧浅海色水面占主要视口。 */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(296px, 32%);
+  height: 100dvh;
+  min-width: 0;
+  overflow: auto;
+  background: var(--do-panel);
+}
+
+/* 表单在 DOM 中优先，视图上固定到右栏。 */
+.panel {
+  grid-area: 1 / 2;
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  padding: 36px clamp(24px, 3.25vw, 60px);
+  border-left: 1px solid var(--do-line);
+  background: var(--do-panel);
+}
+
+/* 控制阅读宽度，较宽的登录区也使用统一输入轴。 */
+.form {
+  width: min(100%, 334px);
+  margin-inline: auto;
+}
+
+/* 标题和字段间距沿用项目登录页尺度。 */
+.form h1 {
+  margin-bottom: 24px;
+}
+
+/* 为单行校验保留空间，显示缺项时主按钮不下移。 */
+.form .field {
+  min-height: 94px;
+  margin-bottom: 1px;
+}
+
+/* 小面积色彩提示当前正在编辑的字段。 */
+.field:focus-within label {
+  color: var(--do-primary-hover);
+}
+
+/* 密码框和登录名使用同一控件高度，后缀不再增加垂直内距。 */
+.field .passwordControl {
+  height: var(--do-control-height);
+  padding-block: 0;
+}
+
+/* 固定眼睛按钮的宽度，显隐和禁用状态不改变输入边界。 */
+.field .reveal {
+  width: 32px;
+  padding-inline: 0;
+  color: var(--do-muted);
+}
+
+/* 空密码按钮保持图标有辨识度，并仍为原生禁用状态。 */
+.field .reveal:disabled {
+  color: #929aa6;
+}
+
+/* 次级入口与表单主轴对齐。 */
+.actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 14px;
+}
+
+/* 只有真正存在的开发示例入口才占用左侧位置。 */
+.actions .example,
+.actions .forgot {
+  padding-inline: 0;
+}
+
+/* 找回说明位于密码字段下方的右侧。 */
+.actions .forgot {
+  margin-left: auto;
+  color: var(--do-muted);
+}
+
+/* 等待期间通过按钮文字和组件加载图标反馈。 */
+.form .submit {
+  transition:
+    background-color 140ms,
+    box-shadow 140ms,
+    transform 140ms;
+}
+
+/* 按下反馈限制在按钮上，避免表单元素位移。 */
+.form .submit:enabled:active {
+  transform: translateY(1px);
+}
+
+/* 接口失败的反馈靠近提交按钮并保留必要的留白。 */
+.feedback {
+  min-height: 40px;
+  margin-top: 9px;
+}
+
+/* 保持 404 已建立的浅海色和渐隐轮廓。 */
+.school {
+  grid-area: 1 / 1;
+  position: relative;
+  min-height: 510px;
+  min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: radial-gradient(ellipse at 48% 39%, #f7faf6 7%, #e8f2ef 67%, #dcebea);
+}
+
+/* 低对比水纹贯穿左栏，不遮住鼠标操作。 */
+.school::before {
+  position: absolute;
+  inset: 0;
+  background: repeating-radial-gradient(
+    ellipse 112% 100% at 55% 127%,
+    transparent 0 23px,
+    #517e8226 24px 24.6px,
+    transparent 26px 34px
+  );
+  mask-image: radial-gradient(ellipse 76% 55% at 50% 53%, #0009, transparent 94%);
+  content: '';
+  pointer-events: none;
+}
+
+/* 品牌放在水面左上，和状态页延续同一阅读起点。 */
+.brand {
+  position: absolute;
+  z-index: 2;
+  top: clamp(24px, 4.2vh, 44px);
+  left: clamp(24px, 4.2vw, 76px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #17313c;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  pointer-events: none;
+}
+
+/* 小号品牌图形保持原始比例。 */
+.brand img {
+  object-fit: contain;
+}
+
+/* 图形能力不足时让锚形自然留在场景中。 */
+.schoolFallback {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: min(46%, 315px);
+  height: 67%;
+  object-fit: contain;
+  opacity: 0.22;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* 图层和输入层覆盖同一水域。 */
+.schoolCanvas,
+.schoolTarget {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 画布只绘图，将所有输入留给可聚焦的按钮。 */
+.schoolCanvas {
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 就绪后展示实时鱼群。 */
+.school[data-ready='true'] .schoolCanvas {
+  opacity: 1;
+}
+
+/* 全幅水面可以抓取，键盘轮廓不越过裁切范围。 */
+.schoolTarget {
+  padding: 0;
+  border: 0;
+  outline-offset: -6px;
+  background: transparent;
+  touch-action: none;
+}
+
+/* 静态场景不提示可以抓取。 */
+.schoolTarget:enabled {
+  cursor: grab;
+}
+
+/* 拖动时与 404 的抓握游标一致。 */
+.schoolTarget:enabled:active {
+  cursor: grabbing;
+}
+
+/* 键盘说明保留在无障碍树中，不增加可见文案。 */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 弹窗标题由浅蓝图标与简洁标题组成。 */
+.recoveryHeading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding-right: 28px;
+  font-size: 18px;
+}
+
+/* 围绕图标使用项目浅蓝选中色。 */
+.recoveryIcon {
+  display: grid;
+  flex: 0 0 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--do-selected);
+  color: var(--do-primary);
+  font-size: 16px;
+}
+
+/* 正文直接沿用弹窗的白色背景，与标题共享内距。 */
+.recoveryCopy {
+  color: var(--do-muted);
+  line-height: 1.65;
+}
+
+/* 大幅缩放后优先保留登录控件宽度及滚动可达性。 */
+@media (max-width: 700px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 窄视口先到达表单，再继续查看水面。 */
+  .panel {
+    grid-area: 1 / 1;
+    border: 0;
+  }
+
+  /* 保留一块完整的互动区域，页面统一滚动。 */
+  .school {
+    grid-area: 2 / 1;
+    min-height: 390px;
+  }
+
+  /* 保留窄窗口中的原生垂直滚动。 */
+  .schoolTarget {
+    touch-action: pan-y;
+  }
+}
+
+/* 减少动态效果时，保留按键和各类状态反馈。 */
+@media (prefers-reduced-motion: reduce) {
+  .form .submit {
+    transition: none;
+  }
+
+  /* 减少动态效果时仅通过颜色反馈按下。 */
+  .form .submit:enabled:active {
+    transform: none;
+  }
+
+  /* 弹窗和等待图标减少运动，状态仍由文字与焦点表达。 */
+  .recovery *,
+  .submit :global(.ant-btn-loading-icon) * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

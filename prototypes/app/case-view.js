@@ -1,0 +1,210 @@
+/* 每张事项卡跟随原问题。访问申请交由审批页办理，口径模拟仅在原型评审模式启用。 */
+(() => {
+  'use strict';
+
+  let sequence = 0;
+  const simulation = {
+    processing: [['publish', '候选回归通过并发布'], ['explain', '无需修改，回告核查结论']],
+    published: [['verify', '复验通过并回告'], ['fail', '复验未过，退回处理']]
+  };
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function button(label, key, primary = false) {
+    const node = el('button', 'case-action' + (primary ? ' case-primary' : ''), label);
+    node.type = 'button';
+    node.dataset.caseControl = key;
+    return node;
+  }
+
+  function disclosure(className, label, previous) {
+    const details = el('details', className);
+    const summary = el('summary', 'case-disclosure');
+    summary.dataset.caseControl = className;
+    summary.append(WorkbenchIcon('chevron-right', 14), document.createTextNode(label));
+    details.append(summary);
+    details.open = Boolean(previous?.querySelector('.' + className)?.open);
+    return details;
+  }
+
+  function field(label, control) {
+    const wrapper = el('label', 'case-field', label);
+    wrapper.append(control);
+    return wrapper;
+  }
+
+  function entryForm(item, onAction, previous) {
+    const action = 'supplement';
+    const wrap = el('div', 'case-entry');
+    const toggle = button('补充情况', 'open-' + action);
+    const form = el('form', 'case-form');
+    const previousForm = previous?.querySelector('form[data-case-form="' + action + '"]');
+    form.dataset.caseForm = action;
+    form.id = 'case-form-' + (++sequence);
+    toggle.setAttribute('aria-controls', form.id);
+    const text = el('textarea');
+    text.name = 'note';
+    text.dataset.caseControl = text.name;
+    text.rows = 2;
+    text.maxLength = 500;
+    text.required = true;
+    text.value = previousForm?.querySelector('textarea')?.value || '';
+    text.placeholder = '例如，希望明确跨周退货计入哪一周';
+    form.append(field('补充给处理人的情况', text));
+
+    const error = el('span', 'case-error');
+    error.id = form.id + '-error';
+    error.setAttribute('aria-live', 'polite');
+    text.setAttribute('aria-describedby', error.id);
+    function validate() {
+      const valid = Boolean(text.value.trim());
+      text.setAttribute('aria-invalid', String(!valid));
+      error.textContent = valid ? '' : '请填写要补充的情况。';
+      return valid;
+    }
+    text.addEventListener('input', () => {
+      if (text.getAttribute('aria-invalid') === 'true') validate();
+    });
+    text.addEventListener('blur', () => { if (text.value) validate(); });
+    form.noValidate = true;
+    const controls = el('div', 'case-form-buttons');
+    const cancel = button('取消', 'cancel-' + action);
+    const submit = button('提交补充', 'send-' + action, true);
+    submit.type = 'submit';
+    controls.append(cancel, submit);
+    form.append(error, controls);
+    function expand(open) {
+      form.hidden = !open;
+      toggle.hidden = open;
+      toggle.setAttribute('aria-expanded', String(open));
+    }
+    toggle.addEventListener('click', () => { expand(true); text.focus(); });
+    cancel.addEventListener('click', () => { expand(false); toggle.focus(); });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!validate()) return text.focus();
+      const value = text.value.trim();
+      text.value = '';
+      expand(false);
+      const result = onAction(action, value);
+      if (result?.ok === false) {
+        expand(true);
+        text.value = value;
+        text.focus();
+      }
+    });
+    expand(Boolean(previousForm && !previousForm.hidden));
+    wrap.append(toggle);
+    if (item.notes?.length) wrap.append(el('span', 'case-note-count', '已补充 ' + item.notes.length + ' 条'));
+    wrap.append(form);
+    return wrap;
+  }
+
+  function records(item, previous) {
+    const details = disclosure('case-records', '查看处理记录', previous);
+    if (item.purpose) {
+      const description = el('dl', 'case-description');
+      const fields = [['业务用途', item.purpose], ['需要的数据', item.requestedData || item.links?.[0]?.text], ['数据源', '经营业务库']];
+      for (const [label, value] of fields) {
+        description.append(el('dt', '', label), el('dd', '', value));
+      }
+      details.append(description);
+    }
+    if (item.events?.length) {
+      const events = el('ol', 'case-events');
+      events.setAttribute('aria-label', '处理进度');
+      for (const event of item.events) events.append(el('li', '', event.text));
+      details.append(events);
+    }
+    if (item.notes?.length) {
+      const notes = el('div', 'case-notes');
+      notes.append(el('strong', '', '我的补充'));
+      for (const note of item.notes) notes.append(el('p', '', note.text));
+      details.append(notes);
+    }
+    return details;
+  }
+
+  function render(item, dispatch, previous) {
+    const isAccess = item.type === 'access';
+    const card = el('section', 'case-card');
+    card.dataset.caseId = item.id;
+    card.dataset.caseStatus = item.status;
+    card.setAttribute('aria-label', isAccess ? '输出限制' : item.externalManaged ? '问题处理进度' : item.type === 'feedback' ? '反馈处理进度' : '口径治理事项');
+    const main = el('div', 'case-body');
+    const actionError = el('p', 'case-error');
+    actionError.setAttribute('aria-live', 'polite');
+    const onAction = (key, value) => {
+      const result = dispatch(key, value);
+      actionError.textContent = result?.ok === false ? result.message || '操作未完成，请查看最新状态。' : '';
+      return result;
+    };
+    const header = el('div', 'case-heading');
+    const symbol = el('span', 'case-symbol');
+    symbol.append(WorkbenchIcon(isAccess ? 'file-text' : 'layers', 18));
+    const title = el('h2', 'case-title', item.title);
+    title.tabIndex = -1;
+    header.append(symbol, title, el('span', 'case-status', item.statusLabel));
+    const summary = item.externalManaged ? item.summary : item.receipt?.text || item.summary;
+    main.append(header, el('p', 'case-summary', summary));
+
+    if (!isAccess) {
+      const linked = item.links?.length || 1;
+      const reference = (item.backendId || item.id) + (linked > 1 ? '（' + linked + ' 次提问）' : '');
+      main.append(el('p', 'case-owner', reference + ' · ' + item.owner));
+      if(item.externalManaged&&window.SourceApprovalDemo?.hasAbility(PeopleDemo.users.find(user=>user.id==='u01'),'feedback.view')){
+        const link=el('a','case-action','查看后台事项');link.href='../后台管理/index.html#feedback/'+encodeURIComponent(item.backendId);main.append(link);
+      } else if (!item.externalManaged && item.sourceId && item.type !== 'feedback') {
+        const link = el('a', 'case-action', '查看知识处理');
+        link.href = '../后台管理/index.html#knowledge/' + encodeURIComponent(item.sourceId); main.append(link);
+      }
+    }
+    if (isAccess && item.status === 'blocked') {
+      // 带入这张卡片的原问题和已知数据源，申请仍由后台表单核对提交。
+      const apply = el('a', 'case-action case-primary', '查看访问来源与限制');
+      apply.href = '../后台管理/index.html#my-access';
+      main.append(apply);
+    } else if (!isAccess && (item.externalManaged ? item.canSupplement : ['processing', 'published'].includes(item.status))) {
+      main.append(entryForm(item, onAction, previous));
+    } else if (item.receipt?.canRetry) {
+      const retry = button('重新查询原问题', 'retry', true);
+      retry.addEventListener('click', () => onAction('retry'));
+      main.append(retry);
+    }
+    main.append(actionError);
+    card.append(main);
+
+    if (item.purpose || item.notes?.length || item.events?.length) {
+      card.append(records(item, previous));
+    }
+    const transitions = !isAccess && !item.externalManaged && simulation[item.status];
+    if (transitions && document.documentElement.dataset.prototypeReview === 'true') {
+      const sim = disclosure('case-sim', '模拟负责人处理', previous);
+      const buttons = el('div', 'case-sim-buttons');
+      for (const [key, label] of transitions) {
+        const action = button(label, key);
+        action.addEventListener('click', () => onAction('simulate', key));
+        buttons.append(action);
+      }
+      sim.append(buttons);
+      card.append(sim);
+    }
+
+    // 跨会话的同一事项会同步刷新，仅在用户正操作本卡时恢复焦点。
+    const focused = previous?.contains(document.activeElement) && document.activeElement.dataset.caseControl;
+    if (focused) queueMicrotask(() => {
+      if (!card.isConnected) return;
+      const next = Array.from(card.querySelectorAll('[data-case-control]')).find(node =>
+        node.dataset.caseControl === focused && node.getClientRects().length);
+      (next || title).focus({ preventScroll: true });
+    });
+    return card;
+  }
+
+  window.CaseView = { render };
+})();

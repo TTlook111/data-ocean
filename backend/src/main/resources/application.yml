@@ -1,0 +1,175 @@
+# 完整配置入口：列出当前应用的配置项，公共默认值在此维护，本机差异由 local 覆盖。
+# 密码和密钥只使用环境变量或私有文件引用，不能在此填写真实值。
+
+# 一、框架与基础依赖。
+spring:
+  application:
+    # 应用标识，用于区分服务。
+    name: dataocean
+
+  # 平台 MySQL：连接信息可通过环境变量或各设备的 local 配置覆盖。
+  datasource:
+    # 新版平台库连接，时区保持 UTC；不得指向旧业务库。
+    url: ${DATAOCEAN_MYSQL_URL:jdbc:mysql://127.0.0.1:3307/dataocean?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
+    # 仅访问当前平台库的应用账号。
+    username: ${DATAOCEAN_MYSQL_USERNAME:dataocean}
+    # 数据库密码，不提供共用真实密码。
+    password: ${DATAOCEAN_MYSQL_PASSWORD:}
+    hikari:
+      # 新连接统一使用 UTC，避免不同设备时区影响持久化时间。
+      connection-init-sql: "SET time_zone = '+00:00'"
+      # 连接池允许同时持有的最大连接数。
+      maximum-pool-size: 10
+      # 等待可用连接的最长时间，单位：毫秒。
+      connection-timeout: 5000
+
+  flyway:
+    # 禁止执行 Flyway clean，防止误清数据库。
+    clean-disabled: true
+    # 校验迁移脚本命名，避免脚本因名称错误被跳过。
+    validate-migration-naming: true
+
+  servlet:
+    multipart:
+      # 企业业务说明单个原文件上限及整份表单容量。
+      max-file-size: 20MB
+      max-request-size: 101MB
+
+  # Redis 连接；各设备可在 local 中覆盖地址、端口和密码。
+  data:
+    redis:
+      # 默认连接本机 Redis，不访问远程实例。
+      host: ${DATAOCEAN_REDIS_HOST:127.0.0.1}
+      # Redis 服务端口。
+      port: ${DATAOCEAN_REDIS_PORT:6379}
+      # Redis 密码；仅在已核实实例未启用认证时留空。
+      password: ${DATAOCEAN_REDIS_PASSWORD:}
+      # 会话与缓存使用的逻辑数据库编号。
+      database: ${DATAOCEAN_REDIS_DATABASE:0}
+      # Redis 命令等待响应的最长时间，单位：秒。
+      timeout: 3s
+
+  # Redis 会话存储：同一 Redis 上的独立实例应使用不同前缀。
+  session:
+    redis:
+      # 会话键前缀，避免与同机其他项目混用会话。
+      namespace: ${DATAOCEAN_SESSION_NAMESPACE:dataocean:session}
+
+  # JSON 请求与响应的序列化约束。
+  jackson:
+    deserialization:
+      # 拒绝请求对象未声明的字段，避免静默忽略错误或越界输入。
+      fail-on-unknown-properties: true
+
+# 二、HTTP 服务与会话 Cookie：开发环境覆盖见文件末尾。
+server:
+  # 默认只监听本机，避免开发服务暴露到其他设备。
+  address: 127.0.0.1
+  # 基础服务端口；dev 默认改为 18080，local 可继续覆盖。
+  port: 8080
+  error:
+    # 不通过框架错误响应披露内部异常消息。
+    include-message: never
+    # 不向客户端返回异常堆栈。
+    include-stacktrace: never
+  servlet:
+    session:
+      cookie:
+        # 本应用专用会话 Cookie 名称。
+        name: DATAOCEAN_SESSION
+        # 禁止浏览器脚本读取会话 Cookie。
+        http-only: true
+        # 限制跨站请求携带 Cookie，配合服务端 CSRF 校验。
+        same-site: lax
+        # 默认仅通过 HTTPS 发送 Cookie；本机 HTTP 开发单独覆盖。
+        secure: true
+
+# 三、持久层映射与 SQL 日志。
+mybatis-plus:
+  configuration:
+    # 数据库下划线列名映射为 Java 小驼峰属性名。
+    map-underscore-to-camel-case: true
+    # 构造方法自动映射按参数名匹配，避免依赖列的位置。
+    arg-name-based-constructor-auto-mapping: true
+    # 平台事务内按语句读取当前数据库状态，避免复用会话级查询结果。
+    local-cache-scope: STATEMENT
+    # 关闭 MyBatis SQL 日志，避免记录业务数据及敏感参数。
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# 四、DataOcean 业务参数：会话、登录限流、操作核对与可靠事件。
+dataocean:
+  # HMAC 密钥文件路径；开发脚本注入本机文件，手动启动时须自行提供。
+  secret-key-file: ${DATAOCEAN_SECRET_FILE:}
+
+  # 企业业务说明原件使用 OSS；各环境配置自己的私有 Bucket 和凭据。
+  oss:
+    # Bucket 所在地域，例如 cn-hangzhou。
+    region: ${DATAOCEAN_OSS_REGION:}
+    # HTTPS 域名；留空时使用 SDK 根据地域推导的公网域名。
+    endpoint: ${DATAOCEAN_OSS_ENDPOINT:}
+    # 原件所在的私有 Bucket。
+    bucket: ${DATAOCEAN_OSS_BUCKET:}
+    # 同一 Bucket 内区分开发环境的对象键前缀。
+    object-prefix: ${DATAOCEAN_OSS_OBJECT_PREFIX:dataocean}
+    # endpoint 是已绑定 Bucket 的自定义域名时启用。
+    use-cname: ${DATAOCEAN_OSS_USE_CNAME:false}
+    # 仅授权对应 Bucket 与对象前缀的访问凭据。
+    access-key-id: ${DATAOCEAN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${DATAOCEAN_OSS_ACCESS_KEY_SECRET:}
+
+  # 无真实用户活动时的最大会话空闲时长，单位：秒（30 分钟）。
+  session-idle-seconds: 1800
+  # 一次登录的最长持续时长，单位：秒（8 小时）。
+  session-absolute-seconds: 28800
+
+  # 单个登录名在固定窗口内允许的最大尝试次数；来源地址按此值的 10 倍限流。
+  login-attempt-limit: 10
+  # 登录限流的固定窗口长度，单位：秒（5 分钟）。
+  login-window-seconds: 300
+
+  # 操作影响核对凭据的有效时长，单位：秒（5 分钟）。
+  review-seconds: 300
+  # 是否启用可靠事件派发；关闭只停止派发，不改变业务写入规则。
+  outbox-enabled: true
+  # 可靠事件写入的 Redis Stream 名称。
+  outbox-stream: dataocean:events:domain
+  # 两轮可靠事件派发之间的等待时长，单位：毫秒。
+  outbox-delay-ms: 1000
+
+# 五、日志级别。
+logging:
+  level:
+    # 保留安全框架警告与错误，避免调试日志输出认证过程细节。
+    org.springframework.security: WARN
+
+---
+# 六、开发环境覆盖：仅启用 dev 时生效，模块顺序与上方一致。
+# 启动脚本同时启用 local，加载同目录的 application-local.yml 覆盖本机差异。
+spring:
+  config:
+    activate:
+      # 正式环境不加载示例账号和本地 HTTP Cookie 设置。
+      on-profile: dev
+
+# HTTP 服务：使用独立开发端口，并允许本机 HTTP 携带会话 Cookie。
+server:
+  # 开发默认端口，可由本机 local 配置或显式 -Port 参数覆盖。
+  port: 18080
+  servlet:
+    session:
+      cookie:
+        # 仅为本机 HTTP 开发关闭 Secure 属性。
+        secure: false
+
+# 开发初始化：仅为空新库提供共用示例账号，不覆盖已有账号。
+dataocean:
+  # 空新库的首管理员登录名，已有账号不会在启动时重置。
+  bootstrap-username: admin
+  # 首管理员的显示名称。
+  bootstrap-display-name: 开发管理员
+  # 初始化根部门的名称。
+  bootstrap-department-name: 总公司
+  # 初始化根部门的业务编码。
+  bootstrap-department-code: ROOT
+  # 随项目提供的开发示例密码文件。
+  bootstrap-password-file: classpath:development/initial-password.txt

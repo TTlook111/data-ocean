@@ -1,0 +1,77 @@
+/* 接入原型上方左宽右窄，下方保留相同两列。 */
+.sources-overview .overview-grid {
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  grid-template-areas: 'hero ring' 'duration pending';
+}
+
+/* 统计时效的定位点使用接入模块的蓝青色。 */
+.sources-overview .overview-as-of::before {
+  background: #087e90;
+}
+
+/* 同行两侧共享外边界，数据表打开时也由同一行决定高度。 */
+.sources-overview .overview-panel {
+  align-self: stretch;
+}
+
+/* 接入的终态环图沿用白底及分隔线。 */
+.sources-overview .overview-panel.is-ring {
+  padding-left: 24px;
+  border-left: 1px solid var(--do-line);
+}
+
+/* 环图占比位于分区下沿，留出顶部的读数区。 */
+.sources-overview .overview-ring {
+  margin-top: 12px;
+}
+
+/* 采集运行主图采用接入原型高度。 */
+.sources-overview .is-hero .overview-plot {
+  height: 260px;
+}
+
+/* 结果环图保持可读的圆形刻度和占比。 */
+.sources-overview .overview-plot.is-ring {
+  height: 226px;
+}
+
+/* 两张次要趋势按各自区域分隔。 */
+.sources-overview .overview-panel:is(.is-duration, .is-pending) {
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 次要趋势图共用高度与日期位置。 */
+.sources-overview :is(.is-duration, .is-pending) .overview-plot {
+  height: 198px;
+}
+
+/* 待核实趋势处于右下方。 */
+.sources-overview .overview-panel.is-pending {
+  grid-area: pending;
+}
+
+/* 窄桌面按原型的四图顺序堆叠。 */
+@media (max-width: 1100px) {
+  .sources-overview .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero' 'ring' 'duration' 'pending';
+  }
+
+  /* 堆叠后的环图改用上分隔线，与下方两图一致。 */
+  .sources-overview .overview-panel.is-ring {
+    padding: 24px 0 0;
+    border-top: 1px solid var(--do-line);
+    border-left: 0;
+  }
+
+  /* 堆叠时恢复接入原型的常规单图尺度。 */
+  .sources-overview .is-hero .overview-plot {
+    height: 250px;
+  }
+
+  /* 堆叠时环图独立占用一行。 */
+  .sources-overview .overview-plot.is-ring {
+    height: 210px;
+  }
+}

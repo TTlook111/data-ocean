@@ -1,0 +1,70 @@
+# 每台设备在当前 resources 目录复制为 application-local.yml，再填写本机实际值。
+# 修改连接地址、端口、库名、账号及密码；local 不提交，example 不参与运行时加载。
+# 公共参数和开发账号继承 application.yml，本文件只列本机环境差异。
+
+# 一、框架与基础依赖。
+spring:
+  # 平台 MySQL：填写当前设备已核实的新版平台库。
+  datasource:
+    # 按本机实例修改主机、端口和库名，连接时区保持 UTC。
+    url: jdbc:mysql://127.0.0.1:3307/dataocean?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8
+    # 本机平台库的应用账号。
+    username: dataocean
+    # 复制为 local 后替换为该账号的真实密码，保留引号。
+    password: '替换为本机 MySQL 密码'
+
+  # Redis：填写当前设备的会话与缓存实例。
+  data:
+    redis:
+      # 本机 Redis 服务地址。
+      host: 127.0.0.1
+      # 本机 Redis 服务端口。
+      port: 6379
+      # 复制为 local 后替换为真实密码；实例未启用认证时填写空字符串 ''。
+      password: '替换为本机 Redis 密码'
+      # 当前设备使用的 Redis 逻辑数据库编号。
+      database: 0
+
+  # Redis 会话存储：同一实例上独立运行的开发环境应使用不同前缀。
+  session:
+    redis:
+      # 两台设备各用自己的 Redis 时可以保留相同前缀。
+      namespace: dataocean:session
+
+# 二、HTTP 服务。
+server:
+  # 本机后端开发端口；修改后同步前端代理地址。
+  port: 18080
+
+# 三、本机 OSS 和其他业务配置。
+dataocean:
+  # 企业业务说明原件。使用当前开发环境可访问、未启用版本控制的私有 Bucket。
+  oss:
+    region: 'cn-hangzhou'
+    endpoint: 'https://oss-cn-hangzhou.aliyuncs.com'
+    bucket: '替换为开发 Bucket'
+    object-prefix: 'dev/替换为个人英文标识'
+    # endpoint 使用已绑定 Bucket 的自定义域名时填 true。
+    use-cname: false
+    # 在启动后端的环境中提供凭据。
+    access-key-id: ${DATAOCEAN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${DATAOCEAN_OSS_ACCESS_KEY_SECRET:}
+
+# 启动脚本自动注入 HMAC 文件。IDE 手动启动时可设置 secret-key-file。
+# 运行 tools/dev/init-ai-service-identity.ps1 后按需启用 governance-ai。
+# 内部地址需与 Python 的监听地址一致，文件路径以 backend 为工作目录。
+# models.allowed-hosts 按部署允许的模型服务主机填写，协议、URL 和凭据由系统页面管理。
+#   secret-key-file: 'C:/your-project/data-ocean/.dataocean/hmac-key.txt'
+#   governance-ai:
+#     enabled: true
+#     python-url: http://127.0.0.1:18090
+#     java-private-key-file: ../.dataocean/java-private.pem
+#     java-public-key-file: ../.dataocean/java-public.pem
+#     python-public-key-file: ../.dataocean/python-public.pem
+#   knowledge-index:
+#     model-source-ids: '填已获准外发确认知识的来源编号'
+#     collection-prefix: dataocean_kn
+#     validation-allowed-rule-revisions:
+#       已获准的源编号: ['已核对的输出规则编号/版本']
+#   models:
+#     allowed-hosts: 'maas.qianwenaiapi.com,dashscope.aliyuncs.com,api.openai.com,api.anthropic.com'

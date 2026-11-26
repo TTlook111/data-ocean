@@ -1,80 +1,43 @@
-# AGENTS.md
+# DataOcean 工作约定
 
-Shared rules for coding agents. Read this file, then only the relevant topic in [文档导航](docs/README.md). Current state belongs in [项目现状](docs/项目现状.md).
+## 当前目标
 
-## Working rules
+DataOcean 的业务依据为[产品方案](docs/product/产品方案.docx)和负责人后续决定。当前阶段见[文档导航](docs/README.md#当前阶段)，现有代码定位见[源码地图](docs/source-map/README.md)。
 
-- Follow the user's latest explicit decisions. Check implementation against requirements; code existence or document dates do not establish approval or completion.
-- Preserve user changes and keep edits within the task. Use existing conventions and meaningful Chinese comments beside each new or changed logical block to explain purpose, constraints or design reasons.
-- Derive frontend design from user tasks and observed experience. Product renewal is authorized; preserve business and safety rules while improving layout and interaction.
-- Replace outdated instructions and documents directly. Keep each current fact in its owning document; use Git history when historical context is needed, without treating old procedures as operation authorization.
+1. 收到新方案后，先核对角色、业务流程、模块边界与矛盾，解决影响设计的问题。
+2. 按评审后的方案制作 HTML 原型，核对关键页面与交互。
+3. 原型确认后，再确定前后端技术栈、设计数据模型和全新的表结构。
+4. 逐个模块实现并验证。可以直接删除被取代的代码、接口、表结构和迁移脚本。新版无需兼容旧 API、旧数据或旧库升级路径。若继续使用 Flyway，从新模型编写建库基线。
 
-## Documentation Lookup Rule
+## 按任务读取文档
 
-Use Context7 MCP whenever the user asks about a library, framework, SDK, API, CLI tool or cloud service. Do not use it for refactoring, scripts from scratch, business-logic debugging, code review or general programming concepts.
+- 从[文档导航](docs/README.md#按需求逐层理解)定位任务所属模块，按需读取产品方案的对应小节、相关设计和验收条件；实现或重构时再查当前源码。维护文档前阅读[维护权限](docs/README.md#维护权限)。
+- 每次开始新增或修改代码前，必须先阅读[三端共用总则](docs/engineering/代码风格与项目组织规范.md)，按其中的代码风格、模块组织、依赖、配置、注释、测试和清理要求执行；Java 开发另读[Java 编码细则](docs/backend/编码规范.md)，核对排版与注释、分层、对象分类与复用、Lombok、异常边界、日志、命名后缀、参数及导入。通用原则只在总则维护，各端细则补充特有规则。
+- Python 开发另读[Python 编码细则](docs/backend/Python编码规范.md)，核对模型配置来源、LangChain 适配、LangGraph 编排、预算和恢复边界。
+- 每次新增或修改 DTO、VO、Query 及其他接口模型前，执行[对象复用要求](docs/backend/编码规范.md#dtovo-与-query-复用)：先检索已有定义和使用位置，由执行者结合业务含义、变化方向、边界和维护成本判断该分还是该复用。既不因名称不同机械复制，也不因字段相同强行合并；完成前主动检查本次变更及直接相关对象的重复定义与残留引用。
+- 已确认的仓库、目标目录、Java 模块、Python API/Worker、构建测试及版本维护位置见[工程组织与版本基线](docs/engineering/工程组织与版本基线.md)。目标设计不是实际源码地图，未经真实实现任务不生成工程骨架；具体版本由前后端入口分别维护。
+- 正式前端用 React 实现，以已确认原型为基准，优先复用项目共用组件和 Ant Design。保留页面结构和业务流程，局部优化需要参考案例时统一从 Awwwards 查找，具体边界见[设计约定](docs/frontend/设计约定.md#原型基准与界面打磨)。React 前端与 HTML 原型的新增、修改和重构，均按[前端开发入口](docs/frontend/README.md#开发前必读与完成验收)完成开发前核对和交付验收。
+- 文档只保留当前有效结论、必要理由及准确状态。被替代设计、重复内容和执行流水直接删除，不标过期、不建历史设计区；仍有效的源码和运行事实不能误删。
+- 错字、链接、结构整理及已确认决定的正文和状态同步可自主完成；改变业务含义、已定选择、技术架构或实施权限须有负责人明确决定。已有授权不重复请示，不能把实现偏差当成新规则。
+- 前后端技术选型分别维护，跨端协议和系统边界共用一份。实现说明随真实代码维护，不为尚未实施的模块预建空目录或说明；新增实施范围须有明确任务。
 
-Call `resolve-library-id` with the library name and full question unless an exact `/org/project` ID is supplied. Choose by name, relevance, snippet count, source reputation and benchmark score, using the requested version when available. Then call `query-docs` with that ID and full question, and use the retrieved documentation.
+后台的布局、间距、字体与组件尺寸按[后台界面设计规范](docs/frontend/界面规范.md)执行。新增后台页面复用现成组件与共用尺度。列表须考虑搜索、筛选、分页、详情回看和处理后的状态变化。
 
-## Architecture and safety boundaries
+DataOcean 仅面向 PC 桌面浏览器。页面设计和验收覆盖 PC 窗口尺寸、浏览器缩放、鼠标及键盘操作，保留后台常驻菜单和桌面表格结构。手机不在适配与验收范围。
 
-- Each question selects one MySQL datasource; joins stay inside that database. Frontend calls Java only.
-- Java owns identity, IAM, datasources, governance, review/publication, task state, masking, audit and durable persistence. Python owns S1 LangGraph, chunking, embedding, Milvus, retrieval/reranking, SQL validation, read-only execution and charts.
-- Java calls Python through RestClient and consumes SSE as a client, not Spring SseEmitter. Apply configured @Retryable policies to suitable knowledge/RAG calls, not blindly to SSE or health checks.
-- Query execution, conversation summaries and health checks use dedicated executors. Saturation must not run a full Agent or summary LLM call on a request thread.
-- Java/MySQL owns full conversations, messages and long-term summaries. Python receives request context and a stable threadId; do not add a second Python conversation store.
-- Query results are not cached. New best-effort caches use RedisTemplate<String, Object> or Python _get_redis(), with warning logs and safe degradation, not another cache algorithm.
-- S1 Redis checkpoint is a required recovery/safety boundary; initialization or recovery failure stops the query, never falls through without a checkpoint.
-- IAM decisions use isolated S1 facts only: no old roles, JWT authorities, grants, cache mapping/backfill or compatibility fallback. IamS1AuthorizationAspect must retain both @Aspect and @Component.
-- Knowledge publication and explicit RAG build confirmation are separate. Pin snapshot/version/build membership; verify replacement before pointer switching, and preserve active/in-flight collections until references end.
-- COMPLETED needs a nonblank attemptId and exact SQL hash matching the same task's PROTECTED attempt. Never weaken the completion contract.
-- V53 is permanently unused. Check the highest occupied migration before choosing a version; do not add placeholders or change executed migrations.
-- tokenVersion and the current JWT invalidation keys stay until a replacement session mechanism is implemented and verified.
+## 修改与验证
 
-## Read by task
+- 以用户最新决定为准。先核对实际实现，保留用户并行修改，控制改动范围。前端、Java、Python 的每个手写代码块均按[三端注释要求](docs/engineering/代码风格与项目组织规范.md#注释覆盖与写法)写中文注释。
+- 完成开发前，按共用总则和相应端细则逐项自查本次变更的注释、排版、复用、异常处理及日志；Java 另核对 Lombok 和 Bean 注入。编译、格式化或测试通过不能代替这些检查。
+- 优先完成用户任务和必要交互。保留可访问性、权限反馈和危险操作提示，删去多余文案。
+- 按变更范围验证。分别报告静态检查、测试、实际 API 和浏览器验证。界面操作证据放在 `output/playwright`。
+- 前端、Java 后端和 Python 端在技术选型、设计或实现中使用框架、组件、库及工具前，按[使用技术前查阅最佳实践](docs/engineering/代码风格与项目组织规范.md#使用技术前查阅最佳实践)执行。
+- 论文资料在 [paper](paper)。正式写作先读 `academic-writing` 及其工具说明。
 
-| Task | Read next |
-| --- | --- |
-| Architecture, versions, storage and async boundaries | [技术栈与模块职责](docs/技术栈与模块职责.md) |
-| Module implementation | [模块导航](docs/modules/README.md) |
-| IAM or protected query | [IAM](docs/modules/007-iam-s1.md), [问数与记忆](docs/modules/008-query-memory.md) |
-| Knowledge or vectors | [文档](docs/modules/006-knowledge.md), [RAG](docs/modules/009-schema-rag.md) |
-| Frontend | [前端规范](docs/development/前端开发规范.md), [frontend/CLAUDE.md](frontend/CLAUDE.md) |
-| Startup, tests or runtime diagnosis | [本地开发与验证](docs/development/本地开发与验证.md) |
-| Status, remaining work and evidence | [现状](docs/项目现状.md), [待办](docs/development/后续开发.md), [验收](docs/acceptance/README.md) |
-| Papers and formal writing | [论文写作](paper/README.md); use the available `academic-writing` skill for tool selection and keep project facts grounded in current docs and evidence |
+## 运行环境与数据
 
-## Security Constraints
-
-- Business database connections must use read-only accounts; passwords are AES-256 encrypted at rest.
-- SQL must pass AST validation: safe `SELECT` only, LIMIT 10000, timeout and maximum subquery depth. Python sandbox AST rewriting enforces row/column permissions; Java applies final masking.
-- `DEPRECATED` and `BLOCKED` tables/columns must not be retrieved, used for SQL generation, or approved through temporary access requests.
-- JWT blacklist lives in Redis; logout invalidates tokens. Never log passwords, raw JWTs, API keys or secrets.
-- `/internal/*` requires the same `X-Internal-Token` in Java and Python. Tracked config has no default (`${INTERNAL_TOKEN:}`; empty `.env.example`). Missing, blank, whitespace-containing or sub-32-character tokens fail startup regardless of Spring profile.
-- `InternalTokenFilter` grants `ROLE_INTERNAL`; `SecurityConfig` requires it on the same `RequestMatcher` for `/internal/**`, never `permitAll()`. Compare UTF-8 bytes in constant time; mismatching headers return 403 without throwing. Keep `schema_retriever` internal 401/403 logs at warn level.
-- Java-only `jwt.secret` uses `${JWT_SECRET:}` with no usable default. `JwtTokenProvider#buildSecretKey` rejects missing, blank, whitespace-containing or sub-32-byte values. Local values belong in gitignored `application-local.yml`; retain that file on the development classpath but exclude it and `application-local.example.yml` from final JARs.
-- AI settings are managed in the admin page, persisted in `sys_config` and pushed to Python. Missing AI config in `.env` warns but must not prevent startup.
-
-## Local Environment Rules
-
-- Before starting or diagnosing runtime, fully read `.dataocean/local-environment.md` if present, verify hostname and inspect current services/ports read-only. If absent, inspect without requiring its creation. Use `.dataocean/local-environment.example.md` as the template, never copy populated profiles across machines, and reverify after topology changes. Profiles contain no secrets and cannot override user or repository rules.
-- Machine paths, credentials and Docker inventory stay in private local configuration. Downloads, generated assets, caches, exports and temporary files use a verified local workspace/runtime directory or tool-created temporary directory.
-- Before Docker use, inspect `docker ps -a` and target status, labels, ports, mounts and Compose group; verify the intended isolated test service. Do not assume MySQL uses Docker. Permission to reuse running containers does not authorize starting stopped containers or creating/replacing containers or volumes.
-- If no suitable running container exists or its purpose is unverified, ask the user to start the exact needed service; continue independent work. Do not create, start, delete, seed or reset a replacement.
-- New containers or infrastructure require a separate explicit setup request. State the exact service/container, ports, data volume and reason, then wait for confirmation before the Docker command. Destructive database operations also require read-only verification of the disposable test purpose and target database; stop and ask if that cannot be established.
-- This project currently has no Figma prototype. Do not use Figma-related workflows by default.
-
-## Backend Layering Rules
-
-- Packages: Java `com.dataocean.*`, Python `dataocean.*`. Migrations: `backend/DataOcean/src/main/resources/db/migration/V{version}__{description}.sql`.
-- API prefixes: `/api/*` user, `/api/admin/*` admin, `/internal/*` Java/Python internal.
-- Entity-related Java objects live under `entity`: database entities and persistence projections in `entity.po`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`. Paginated query objects extend `com.dataocean.common.entity.query.PageQuery`; do not duplicate pagination fields or put query conditions in DTOs. Map client sort fields through an endpoint whitelist before constructing MyBatis-Plus orders.
-- Mapper classes live in `mapper`, controllers in `controller`, service interfaces in `service`, implementations in `service.impl` with `*ServiceImpl`.
-- External service clients such as Python clients live in a module-local `client` package, with implementations in `client.impl`; do not mix them into `service`.
-- Do not create database-level foreign key constraints. Keep association IDs and ordinary indexes, and validate relationship integrity in service-layer business logic.
-- Exception messages, code comments, and log messages in Java should use Chinese where the surrounding module does.
-
-## Validation and documentation updates
-
-- Run focused checks appropriate to the changed behavior. Code, unit tests, API acceptance and browser acceptance are distinct evidence; H2/Flyway-disabled tests do not verify MySQL migrations. Test config still requires both secrets.
-- Keep actual UI screenshots and interaction evidence under `output/playwright`, with scope and unverified limits.
-- Update the owning module for behavior, 项目现状 for status, 后续开发 for remaining work and the frontend guide for UX. Do not duplicate test counts, migration state or milestone tables in agent instructions.
+- 启动或诊断前完整读取本机 `.dataocean/local-environment.md`（若存在），只读核对主机、进程、端口及实际服务。机器路径、配置和凭据留在私有配置中。
+- Java 本机配置放在 `backend/src/main/resources/application-local.yml`，与主配置和 example 同目录，并由 Git 忽略。`.dataocean` 只保存本机环境说明、说明模板和私有密钥；临时脚本和开发日志放 `output/dev`，探针编译产物和依赖列表放 `backend/target/acceptance`，不再堆入 `.dataocean`。
+- 对接的业务数据库使用只读账户。保留现有系统的权限校验、查询范围、脱敏与审计保护。不得记录密码、令牌或密钥。
+- 使用 Docker 前核对容器状态、标签、端口、挂载和 Compose 归属。依赖停止时请用户启动准确的原有服务。新建或替换基础设施须单独授权。
+- 破坏性数据库操作先只读核对具体实例、库名及可弃用途。旧库已退役，运行旧脚本前须重新核对其目标。

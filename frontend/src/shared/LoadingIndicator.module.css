@@ -1,0 +1,77 @@
+/* 以 1em 对齐按钮图标，独立等待区域的尺寸由 Spin 决定。 */
+.indicator {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
+  vertical-align: -0.125em;
+}
+
+/* 行内状态跟随周围字号，保持图形与短文案对齐。 */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  vertical-align: middle;
+}
+
+/* 文案延续原有层级，图形用品牌色提示正在等待。 */
+.status > .indicator {
+  color: var(--do-primary);
+}
+
+/* 浅轨道在转动时仍给等待图形稳定的轮廓。 */
+.indicator::before,
+.indicator::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  content: '';
+}
+
+/* 轨道沿用图标颜色，主按钮上的白色也保留同样的层次。 */
+.indicator::before {
+  border: clamp(1.5px, 0.1em, 2.5px) solid color-mix(in srgb, currentColor 19%, transparent);
+}
+
+/* 渐淡的弧线平稳旋转，用运动表示正在等待。 */
+.indicator::after {
+  background: conic-gradient(
+    from 42deg,
+    transparent 22%,
+    color-mix(in srgb, currentColor 32%, transparent) 46%,
+    currentColor 99%,
+    transparent 99%
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - clamp(1.5px, 0.1em, 2.5px)),
+    #000 calc(100% - clamp(1.5px, 0.1em, 2.5px) + 0.5px)
+  );
+}
+
+/* 只有系统允许动效时才开始转动，静止时保留轨道和弧线。 */
+@media (prefers-reduced-motion: no-preference) {
+  .indicator::after {
+    animation: rotate 1s linear infinite;
+  }
+}
+
+/* 一周匀速旋转不改变图形和周围内容的占位。 */
+@keyframes rotate {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* 强制颜色模式用系统前景色绘制弧线，保留可见的等待图形。 */
+@media (forced-colors: active) {
+  .indicator::after {
+    forced-color-adjust: none;
+    border: 2px solid transparent;
+    border-block-start-color: currentColor;
+    background: none;
+    mask: none;
+  }
+}

@@ -1,0 +1,67 @@
+/* PC 后台共用尺度。业务页和规范样张使用同一套操作与浮层组件。 */
+:root {
+  --do-canvas: #f5f7fa;
+  --do-panel: #fff;
+  --do-ink: #1f2937;
+  --do-muted: #5b6575;
+  --do-line: #e5e7eb;
+  --do-primary: #2f63d5;
+  --do-primary-hover: #244eaa;
+  --do-selected: #eaf0fc;
+  --do-hover: #f3f5f8;
+  --do-radius: 6px;
+  --do-panel-radius: 8px;
+  --do-control: 40px;
+  --do-ease: cubic-bezier(.2,.8,.2,1);
+  --do-shadow: 0 8px 24px #1f293712, 0 2px 6px #1f29370a;
+}
+.do-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.do-action, .do-icon-action {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  flex: none; height: 32px; padding: 4px 8px; border: 1px solid transparent;
+  border-radius: var(--do-radius); background: transparent; color: var(--do-muted);
+  font: inherit; font-size: 14px; line-height: 22px; text-decoration: none; cursor: pointer;
+}
+.do-action.is-primary { color: var(--do-primary); font-weight: 500; }
+.do-action:hover, .do-icon-action:hover, .do-icon-action[aria-expanded="true"] {
+  color: var(--do-ink); background: var(--do-hover);
+}
+.do-action.is-primary:hover { color: var(--do-primary-hover); background: var(--do-selected); }
+.do-icon-action { width: 32px; padding: 0; border-color: var(--do-line); background: var(--do-panel); }
+.do-action svg, .do-icon-action svg, .do-menu svg, .do-feedback svg { width: 16px; height: 16px; flex: none; }
+.do-menu {
+  position: fixed; inset: auto; width: 200px; max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px); margin: 0; padding: 8px; overflow-y: auto;
+  border: 1px solid var(--do-line); border-radius: var(--do-panel-radius);
+  color: var(--do-ink); background: var(--do-panel); box-shadow: var(--do-shadow);
+  font-size: 14px; line-height: 22px;
+}
+.do-menu:popover-open { display: grid; gap: 0; }
+.do-menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px;
+  padding: 8px 12px; border: 0; border-radius: var(--do-radius); color: inherit;
+  background: transparent; font: inherit; text-align: left; cursor: pointer;
+}
+.do-menu svg { color: var(--do-muted); }
+.do-menu button:hover, .do-menu button:focus-visible { background: var(--do-hover); }
+.do-menu button:focus-visible { outline-offset: -2px; }
+.do-action:focus-visible, .do-icon-action:focus-visible, .do-menu button:focus-visible {
+  outline: 2px solid var(--do-primary); outline-offset: 2px;
+}
+.do-menu button:focus-visible { outline-offset: -2px; }
+.do-feedback {
+  position: fixed; inset: auto 24px 24px auto; max-width: calc(100vw - 48px);
+  margin: 0; padding: 12px 16px; border: 1px solid var(--do-line);
+  border-radius: var(--do-panel-radius); background: var(--do-panel);
+  color: var(--do-ink); box-shadow: var(--do-shadow); font-size: 14px; line-height: 22px;
+}
+.do-feedback:popover-open { display: flex; align-items: center; gap: 8px; }
+.do-feedback svg { color: #216449; }
+.do-feedback[data-error="true"] svg { color: #805610; }
+@media (prefers-reduced-motion: no-preference) {
+  .do-action, .do-icon-action, .do-menu button { transition: color 150ms var(--do-ease), background-color 150ms var(--do-ease), border-color 150ms var(--do-ease); }
+  .do-icon-action:active { transform: translateY(1px); }
+}
+@media (forced-colors: active) {
+  .do-icon-action[aria-expanded="true"] { outline: 1px solid Highlight; }
+}

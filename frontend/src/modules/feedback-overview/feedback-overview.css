@@ -1,0 +1,38 @@
+/* 反馈概览保留通栏趋势、左侧两张趋势与跨行暖底环图。 */
+.feedback-overview .overview-grid {
+  grid-template-columns: minmax(0, 2.25fr) minmax(260px, 1fr);
+  grid-template-areas: 'hero hero' 'backlog ring' 'duration ring';
+}
+
+/* 主趋势与下方两列用分隔线组织。 */
+.feedback-overview .overview-panel.is-hero {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 期末趋势位于环图左侧。 */
+.feedback-overview .overview-panel.is-backlog {
+  grid-area: backlog;
+}
+
+/* 结案分布使用原型的浅暖色区域。 */
+.feedback-overview .overview-panel.is-ring {
+  --overview-ring-surface: #faf8f3;
+  padding: 20px 24px 24px;
+  border-radius: 8px;
+  background: var(--overview-ring-surface);
+}
+
+/* 解决耗时与上方积压图以分隔线分区。 */
+.feedback-overview .overview-panel.is-duration {
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 窄桌面采用已验收的单列顺序。 */
+@media (max-width: 1100px) {
+  .feedback-overview .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero' 'backlog' 'ring' 'duration';
+  }
+}
