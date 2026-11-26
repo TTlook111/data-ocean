@@ -1,0 +1,649 @@
+/* 数据源枚举筛选沿用普通字段的 200px 基准和状态列的最小宽度。 */
+.ds-query-panel .ant-form-item:has(.ant-select) {
+  flex: 0 1 200px;
+  min-width: 160px;
+}
+
+/* 记录来源和主要操作处在同一工具栏。 */
+.panel.ds-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 12px 24px;
+}
+
+/* 源级操作始终与查询卡和分页的右边界对齐。 */
+.ds-toolbar > .ant-btn {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* 长来源名在选择框内收起，打开时可完整回看。 */
+.ds-source-picker {
+  width: clamp(188px, 27%, 300px);
+}
+
+/* 来源图标与名称相邻，高亮保持在当前页签或直接操作上。 */
+.ds-source-picker .ant-select-prefix {
+  color: var(--do-muted);
+}
+
+/* 没有可选源时为后续接入保留明确的导航去向。 */
+.ds-source-empty {
+  display: grid;
+  flex: 1;
+  min-height: 220px;
+  place-items: center;
+}
+
+/* 来源栏沿原型把可读标签与选择器成组，控件不足时可收缩。 */
+.ds-source-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 标签与数据源控件拥有各自的桌面宽度。 */
+.ds-source-context > span {
+  white-space: nowrap;
+  color: var(--do-muted);
+}
+.ds-source-context > .ds-source-picker {
+  width: clamp(188px, 22vw, 300px);
+  min-width: 0;
+}
+
+/* 目录的源级动作始终靠右，和结果页签分开。 */
+.ds-catalog-toolbar > .ant-space {
+  margin-inline-start: auto;
+}
+
+/* 目录页签归入结果面板，切源和筛选不与结果页签混排。 */
+.ds-catalog-tabs {
+  flex: none;
+  padding-inline: 24px;
+}
+
+/* 工具栏边界由面板提供，页签只保留选中指示线。 */
+.ds-catalog-tabs > .ant-tabs-nav {
+  margin: 0;
+}
+
+/* 搜索框给对象名称和长解释留空间，右侧筛选保持紧凑。 */
+.ds-catalog-query .ant-form > .ant-form-item:first-child {
+  flex: 1 1 220px;
+  max-width: 460px;
+}
+
+/* 行内识别图标与可打开的对象名称组成同一列。 */
+.ds-row-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 统一数据库与表对象的轻量图标框，蓝色仅用于当前身份。 */
+.ds-identity-icon {
+  display: grid;
+  flex: none;
+  inline-size: 32px;
+  block-size: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--do-selected);
+  color: var(--do-primary-hover);
+  font-size: 16px;
+}
+
+/* 长的实体名或来源注释由文本列自己截断，不挤压图标。 */
+.ds-row-name {
+  min-width: 0;
+}
+
+/* 对象名在行内优先阅读，悬停和焦点延续链接的主色反馈。 */
+.ds-row-identity .cell-title.ant-btn {
+  color: var(--do-ink);
+  font-weight: 600;
+}
+
+/* 默认态采用正文色，交互时显露链接轮廓。 */
+.ds-row-identity .cell-title.ant-btn:is(:hover, :focus-visible) {
+  color: var(--do-primary-hover);
+}
+
+/* 采集编号使用等宽字，表格中仍通过悬停和详情读到完整编号。 */
+.ds-task-number.ant-btn {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 13px;
+}
+
+/* 二级数据与主项保持同一阅读起点。 */
+.ds-secondary,
+.record-page .table-secondary {
+  display: block;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 列名和操作保持既有字号，字重区分表头和数据行。 */
+.record-page .records-panel .ant-table-thead > tr > th {
+  font-weight: 500;
+}
+
+/* 同类按钮用相同字重，原主次配色继续表达操作层级。 */
+:is(.ds-query-panel, .ds-toolbar, .ds-editor-actions) .ant-btn {
+  font-weight: 500;
+}
+
+/* 采集和分项测试的完成、等待及失败在各自文字之外保持一致色义。 */
+:is(.record-page, .ds-editor, .ds-object-page, .ds-task-drawer)
+  :is(.record-status-pass, .record-status-succeeded, .record-status-collected).ant-tag {
+  color: #216449;
+  background: #e8f4ee;
+}
+
+/* 活动状态使用浅蓝底，便于从历史终态中识别。 */
+:is(.record-page, .ds-editor, .ds-task-drawer)
+  :is(.record-status-queued, .record-status-running).ant-tag {
+  color: var(--do-primary-hover);
+  background: var(--do-selected);
+}
+
+/* 待人工核实的事项保留淡黄色提示。 */
+:is(.record-page, .ds-object-page)
+  :is(.record-status-pending_review, .record-status-identity_uncertain).ant-tag {
+  color: #825b24;
+  background: #fbf2dd;
+}
+
+/* 实际失败使用浅红色，仍以状态文字表达具体结论。 */
+:is(.record-page, .ds-editor, .ds-task-drawer)
+  :is(.record-status-fail, .record-status-failed).ant-tag {
+  color: #a32731;
+  background: #fceced;
+}
+
+/* 连接配置在模态内部，两列字段可按视口收缩。 */
+.ds-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+/* 编辑分组共享正文阅读轴，以留白和边界表达段落。 */
+.ds-editor-section + .ds-editor-section {
+  margin-block-start: 16px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+/* 字段标签使用后台正文字号和较稳的字重，输入本身保留原样。 */
+.ds-editor .ant-form-item-label > label,
+.ds-editor .ds-version-label {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+/* 连接分组与结构详情统一使用后台区块标题尺度。 */
+.ds-editor-section h3,
+.ds-section-heading {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+/* 表单区块标题贴近字段，给底部运行设置留出更多首屏空间。 */
+.ds-editor-section h3 {
+  margin-block-end: 8px;
+}
+
+/* 字段上下间隔一致，分组边界承担更大的留白。 */
+.ds-editor-section .ant-form-item {
+  margin-block-end: 12px;
+}
+
+/* 备注和密码等最后一项的外间距由分组边界承担。 */
+.ds-editor-section > .ant-form-item:last-child {
+  margin-block-end: 0;
+}
+
+/* 识别版本与类型控件同轴，使用可读的静态字段样式。 */
+.ds-version {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 版本标签沿用其他表单字段的次级文字颜色。 */
+.ds-version-label {
+  color: var(--do-muted);
+}
+
+/* 完整版本可断行，避免长版本挤压两列连接字段。 */
+.ds-version-value {
+  display: block;
+  min-height: var(--do-control-height);
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--do-canvas);
+  overflow-wrap: anywhere;
+}
+
+/* 折叠按钮占据本组整行并与字段左轴对齐。 */
+.ds-advanced-toggle.ant-btn {
+  justify-content: flex-start;
+  width: 100%;
+  padding-inline: 4px;
+  font-weight: 600;
+}
+
+/* 运行设置展开后与标题保持一个字段间距。 */
+.ds-advanced-section .ds-form-grid {
+  margin-block-start: 12px;
+}
+
+/* 折叠入口以单条分隔线建立层级，减少其上下的重复留白。 */
+.ds-editor-section.ds-advanced-section {
+  margin-block-start: 12px;
+  padding-block-start: 8px;
+}
+
+/* 取消与提交分居两端，右侧业务动作可在窄窗口中整组换行。 */
+.ds-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 底栏操作保持一致的点击宽度，长按钮仍按内容展开。 */
+.ds-editor.ant-modal .ds-editor-actions .ant-btn {
+  min-inline-size: 96px;
+}
+
+/* 操作反馈与底栏同宽，便于重试时读取原因。 */
+.ds-editor-error {
+  margin-block-end: 12px;
+  text-align: start;
+}
+
+/* 折叠时保留运行参数值。 */
+.ds-form-grid[hidden] {
+  display: none;
+}
+
+/* 数字控件使用配置区预留的完整列宽。 */
+.ds-form-grid .ant-input-number {
+  width: 100%;
+}
+
+/* 沿用弹窗正文的唯一滚动区，避免矮窗口出现两层滚动条。 */
+.ds-editor .ant-modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: #c8ced8 transparent;
+}
+
+/* 分项测试的名称、结果和原因分别对齐。 */
+.ds-check-row {
+  display: grid;
+  grid-template-columns: 116px 72px minmax(0, 1fr);
+  justify-items: start;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--do-line);
+  overflow-wrap: anywhere;
+}
+
+/* 结构详情独占工作区，给横向字段表留足宽度。 */
+.ds-object-page {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 对象身份、字段与约束像原型一样在一张连续结构详情内阅读。 */
+.panel.ds-object-content {
+  display: grid;
+  gap: 16px;
+  padding: 0 0 16px;
+  min-width: 0;
+}
+.ds-object-content > :is(.ds-object-header, .ds-fields-panel, .ds-keys-panel) {
+  border: 0;
+  border-radius: 0;
+}
+/* 来源信息和键表分段，字段少时保持连续而完整的结构页。 */
+.ds-object-content > .ds-object-origin {
+  margin-inline: 24px;
+  padding-block: 16px 8px;
+  border-block-start: 1px solid var(--do-line);
+}
+.ds-object-origin > h2 {
+  margin-block: 0 12px;
+}
+
+/* 对象标题和办理入口组成紧凑页头，长名称换行后按钮仍可达。 */
+.ds-object-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 24px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
+  overflow-wrap: anywhere;
+}
+
+/* 对象图标贴合标题，类型和状态作为同组副行。 */
+.ds-object-identity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* 页头图标使用比列表更大的同一轮廓。 */
+.ds-object-identity .ds-identity-icon {
+  inline-size: 48px;
+  block-size: 48px;
+  border-radius: 10px;
+  font-size: 22px;
+}
+
+/* 对象名称紧接来源类型。 */
+.ds-object-header h1 {
+  margin: 0 0 2px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: -0.02em;
+}
+
+/* 类型与字段数量使用次级字号，状态由文字和色彩共同表达。 */
+.ds-object-meta,
+.ds-field-count {
+  color: var(--do-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 字段表占据主卡，表内容溢出时由表体内部横向滚动。 */
+.panel.ds-fields-panel {
+  overflow: hidden;
+  padding: 0;
+}
+
+/* 字段标题、数量和表格左边界使用相同的内容轴。 */
+.ds-fields-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-block-end: 1px solid var(--do-line);
+  background: var(--do-subtle);
+}
+
+/* 面板头已有内距，区块标题不再额外增加留白。 */
+.ds-fields-heading .ds-section-heading {
+  margin: 0;
+}
+
+/* 字段表连续贴合外框，并突出易扫读的表头。 */
+.ds-field-table .ant-table-thead > tr > th {
+  background: var(--do-canvas);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 表头和字段、注释两端沿用列表的 24px 对齐线。 */
+.ds-fields-panel .ds-field-table .ant-table .ant-table-cell:first-child {
+  padding-inline-start: 24px;
+}
+
+/* 注释列末端以字段卡的右阅读边界对齐。 */
+.ds-fields-panel .ds-field-table .ant-table .ant-table-cell:last-child {
+  padding-inline-end: 24px;
+}
+
+/* 最后一行已由面板外框收边。 */
+.ds-field-table .ant-table-tbody > tr:last-child > td {
+  border-block-end: 0;
+}
+
+/* 字段标识与主键属性共同排列，字段名过长时允许换行。 */
+.ds-field-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 等宽字区分源库字段、类型和业务文字。 */
+.ds-field-table code {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* 主键只在真实键成员旁标注，避免和目录处理状态混淆。 */
+.ds-field-key {
+  padding-inline: 6px;
+  border-radius: 4px;
+  background: var(--do-selected);
+  color: var(--do-primary-hover);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 键与索引紧跟字段面板，三类在同一行平等展示。 */
+.panel.ds-keys-panel {
+  padding: 16px 24px;
+  overflow-wrap: anywhere;
+}
+
+/* 次级来源区与字段卡同边界，展开后长注释可读。 */
+.ds-object-origin {
+  background: var(--do-panel);
+  overflow-wrap: anywhere;
+}
+
+/* 来源注释按原文换行，始终可以直接阅读。 */
+.ds-object-comment {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* 采集结果作为事实摘要，与基本信息分区展示。 */
+.ds-task-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #d9e9de;
+  border-radius: 8px;
+  background: #f3f8f4;
+}
+
+/* 成功标记与任务状态沿用绿色语义。 */
+.ds-task-result .ds-identity-icon {
+  background: #e3f0e8;
+  color: #216449;
+}
+
+/* 成功结果的事实结论优先，快照号为次级阅读内容。 */
+.ds-task-result .ds-section-heading {
+  margin: 0 0 2px;
+}
+
+/* 对象数和快照并列，内容不额外占高。 */
+.ds-task-result p {
+  margin: 0;
+  color: var(--do-muted);
+}
+
+/* 连接和定时信息随弹窗正文排布，操作在内容后自然衔接。 */
+.ds-source-detail {
+  overflow-wrap: anywhere;
+}
+
+/* 维护入口和常用动作共用固定页脚，窄窗口内成组换行。 */
+.ds-source-actions {
+  flex-wrap: wrap;
+}
+
+/* 基本连接信息作为独立分区，定时采集在下方展示。 */
+.ds-source-detail > .ant-descriptions:first-child {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-subtle);
+}
+
+/* 详情中的进度和证据与基础信息保持可读间距。 */
+.ds-detail-block {
+  margin-top: 20px;
+}
+
+/* 字段主标题和所属表保留相同的阅读起点，完整路径允许换行。 */
+.ds-change-title {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* 所属表使用和其他来源说明一致的次要层级。 */
+.ds-change-title small {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  font-weight: 400;
+}
+
+/* 变化前后的原始事实并列阅读。 */
+.ds-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+/* 变化两列各有独立边界，保留原记录和现状的阅读顺序。 */
+.ds-compare > section {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 可比较属性使用统一的标签列，长字段和值在比较列内换行。 */
+.ds-change-properties {
+  margin: 0;
+}
+
+.ds-change-properties > div {
+  display: grid;
+  grid-template-columns: minmax(64px, 34%) minmax(0, 1fr);
+  gap: 8px;
+  padding-block: 6px;
+}
+
+/* 只分隔属性行，允许新增前的空状态保持安静。 */
+.ds-change-properties > div + div {
+  border-block-start: 1px solid var(--do-line);
+}
+
+.ds-change-properties dt,
+.ds-compare .ds-change-empty {
+  color: var(--do-muted);
+}
+
+.ds-change-properties dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 保留真实前后值的空白和换行，限制侧栏正文溢出。 */
+.ds-compare pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 12px;
+  background: #f5f7fb;
+  border-radius: 6px;
+}
+
+/* 新增前或删除后用可读状态提示，无值也有明确含义。 */
+.ds-compare .ds-change-empty {
+  font: inherit;
+}
+
+/* 允许动效时给按钮极短的按压反馈，页面布局和焦点始终保持稳定。 */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.record-page, .ds-object-page, .ds-editor-actions) .ant-btn:not(:disabled):active {
+    transform: translateY(1px);
+  }
+}
+
+/* 来源所限定的变化范围贴着结果显示，完整列表入口保留在同一行。 */
+.ds-change-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--do-line);
+  color: var(--do-muted);
+}
+
+/* 新增或移除只在一侧有属性，把宽度留给有证据的一侧。 */
+.ds-compare:has(> section:first-child .ds-change-empty) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+/* 移除后的空状态采用镜像宽度，前后列顺序保持一致。 */
+.ds-compare:has(> section:last-child .ds-change-empty) {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+/* 连接和定时采集的标签同轴，值不受标签字数影响。 */
+.ds-detail-facts .ant-descriptions-item-label {
+  flex: 0 0 116px;
+  padding-inline-end: 12px;
+}
+
+/* 采集字段的标签预算更紧凑，正文仍留出 16px 行距。 */
+.ds-task-facts .ant-descriptions-item-label {
+  flex-basis: 88px;
+}
+
+/* 描述项之间使用统一的阅读间隔。 */
+.ds-detail-facts .ant-descriptions-row:not(:last-child) > .ant-descriptions-item {
+  padding-block-end: 16px;
+}
+
+/* 定时区域复用连接卡片的内容轴，边框占位保持相同。 */
+.ds-source-detail > .ds-detail-block {
+  padding-inline: 16px;
+  border-inline: 1px solid transparent;
+}

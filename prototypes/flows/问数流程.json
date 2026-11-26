@@ -1,0 +1,652 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "员工问数 · LangGraph 执行节点",
+    "output": "output/diagrams/query/graph.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "backend": {
+          "label": "执行节点"
+        },
+        "security": {
+          "label": "校验节点"
+        },
+        "frontend": {
+          "label": "人工追问"
+        },
+        "database": {
+          "label": "知识与数据"
+        },
+        "messagebus": {
+          "label": "修复与预算"
+        },
+        "external": {
+          "label": "结束状态"
+        }
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "prepare",
+      "label": "准备上下文",
+      "type": "backend",
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "understand",
+      "label": "理解问题",
+      "type": "backend",
+      "pos": [
+        208,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "retrieve",
+      "label": "检索知识",
+      "type": "backend",
+      "pos": [
+        376,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "enrich",
+      "label": "补齐同版治理知识",
+      "type": "backend",
+      "pos": [
+        544,
+        460
+      ],
+      "size": [
+        176,
+        144
+      ],
+      "sublabel": "字段标签 · 关系 · 指标口径"
+    },
+    {
+      "id": "generate",
+      "label": "生成 SQL",
+      "type": "backend",
+      "pos": [
+        784,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "semantic",
+      "label": "核对查询意图",
+      "type": "security",
+      "pos": [
+        952,
+        460
+      ],
+      "size": [
+        120,
+        76
+      ]
+    },
+    {
+      "id": "security",
+      "label": "权限与输出校验",
+      "type": "security",
+      "pos": [
+        1136,
+        460
+      ],
+      "size": [
+        152,
+        88
+      ],
+      "sublabel": "按规则检查输出"
+    },
+    {
+      "id": "execute",
+      "label": "执行查询",
+      "type": "backend",
+      "pos": [
+        1352,
+        460
+      ],
+      "size": [
+        104,
+        76
+      ]
+    },
+    {
+      "id": "answer",
+      "label": "核对并回答",
+      "type": "backend",
+      "pos": [
+        1520,
+        460
+      ],
+      "size": [
+        120,
+        76
+      ]
+    },
+    {
+      "id": "identity",
+      "label": "身份与访问规则",
+      "type": "database",
+      "pos": [
+        34,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "knowledge",
+      "label": "已发布知识库",
+      "type": "database",
+      "pos": [
+        370,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "governance",
+      "label": "同版治理成果",
+      "type": "database",
+      "pos": [
+        544,
+        40
+      ],
+      "size": [
+        176,
+        60
+      ]
+    },
+    {
+      "id": "businessDb",
+      "label": "业务数据库",
+      "type": "database",
+      "pos": [
+        1346,
+        40
+      ],
+      "size": [
+        116,
+        60
+      ]
+    },
+    {
+      "id": "outputRules",
+      "label": "本次中文输出规则",
+      "type": "database",
+      "pos": [
+        1128,
+        40
+      ],
+      "size": [
+        168,
+        64
+      ]
+    },
+    {
+      "id": "clarify",
+      "label": "人工追问",
+      "type": "frontend",
+      "pos": [
+        760,
+        200
+      ],
+      "size": [
+        352,
+        124
+      ],
+      "sublabel": "补缺项回原节点；改原意回理解"
+    },
+    {
+      "id": "repair",
+      "label": "SQL 修复与预算控制",
+      "type": "messagebus",
+      "pos": [
+        860,
+        760
+      ],
+      "size": [
+        252,
+        96
+      ],
+      "sublabel": "预算内修改后完整复检"
+    },
+    {
+      "id": "reconcile",
+      "label": "核查或取消原任务",
+      "type": "backend",
+      "pos": [
+        1320,
+        690
+      ],
+      "size": [
+        192,
+        76
+      ]
+    },
+    {
+      "id": "end",
+      "label": "按原因结束",
+      "type": "external",
+      "pos": [
+        1504,
+        848
+      ],
+      "size": [
+        144,
+        116
+      ],
+      "icon": "stop"
+    }
+  ],
+  "connections": [
+    {
+      "id": "prepare-understand",
+      "from": "prepare",
+      "to": "understand",
+      "label": "有权",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "understand-retrieve",
+      "from": "understand",
+      "to": "retrieve",
+      "label": "明确",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "retrieve-enrich",
+      "from": "retrieve",
+      "to": "enrich",
+      "variant": "emphasis",
+      "label": "候选",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "enrich-generate",
+      "from": "enrich",
+      "to": "generate",
+      "label": "首次／续作",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "generate-semantic",
+      "from": "generate",
+      "to": "semantic",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "semantic-security",
+      "from": "semantic",
+      "to": "security",
+      "label": "通过",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "security-execute",
+      "from": "security",
+      "to": "execute",
+      "label": "通过",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "execute-answer",
+      "from": "execute",
+      "to": "answer",
+      "label": "结果",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "identity-prepare",
+      "from": "identity",
+      "to": "prepare",
+      "label": "当前规则",
+      "variant": "dashed"
+    },
+    {
+      "id": "knowledge-retrieve",
+      "from": "knowledge",
+      "to": "retrieve",
+      "label": "RAG",
+      "variant": "dashed"
+    },
+    {
+      "id": "governance-enrich",
+      "from": "governance",
+      "to": "enrich",
+      "label": "同版治理标签",
+      "variant": "dashed"
+    },
+    {
+      "id": "businessDb-execute",
+      "from": "businessDb",
+      "to": "execute",
+      "label": "只读",
+      "variant": "dashed"
+    },
+    {
+      "id": "outputRules-security",
+      "from": "outputRules",
+      "to": "security",
+      "label": "匹配输出信息",
+      "variant": "dashed"
+    },
+    {
+      "id": "understand-clarify",
+      "from": "understand",
+      "to": "clarify",
+      "label": "缺关键条件",
+      "variant": "security"
+    },
+    {
+      "id": "enrich-clarify",
+      "from": "enrich",
+      "to": "clarify",
+      "label": "缺口径选择",
+      "variant": "security"
+    },
+    {
+      "id": "generate-clarify",
+      "from": "generate",
+      "to": "clarify",
+      "label": "缺查询条件",
+      "variant": "security"
+    },
+    {
+      "id": "semantic-clarify",
+      "from": "semantic",
+      "to": "clarify",
+      "label": "缺用户选择",
+      "variant": "security"
+    },
+    {
+      "id": "security-clarify",
+      "from": "security",
+      "to": "clarify",
+      "label": "缺用户选择",
+      "variant": "security"
+    },
+    {
+      "id": "semantic-enrich",
+      "from": "semantic",
+      "to": "enrich",
+      "label": "缺口径依据",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "security-enrich",
+      "from": "security",
+      "to": "enrich",
+      "label": "输出含义待补",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "enrich-semantic",
+      "from": "enrich",
+      "to": "semantic",
+      "label": "恢复意图校验",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "enrich-security",
+      "from": "enrich",
+      "to": "security",
+      "label": "仅补输出含义，原意凭据有效",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "semantic-repair",
+      "from": "semantic",
+      "to": "repair",
+      "label": "意图不符可修复",
+      "variant": "security"
+    },
+    {
+      "id": "security-repair",
+      "from": "security",
+      "to": "repair",
+      "label": "输出可等价改写",
+      "variant": "security"
+    },
+    {
+      "id": "execute-repair",
+      "from": "execute",
+      "to": "repair",
+      "label": "已停止且 SQL 可修复",
+      "variant": "security"
+    },
+    {
+      "id": "repair-generate",
+      "from": "repair",
+      "to": "generate",
+      "label": "重新生成",
+      "variant": "dashed"
+    },
+    {
+      "id": "execute-reconcile",
+      "from": "execute",
+      "to": "reconcile",
+      "label": "执行状态未知",
+      "variant": "security"
+    },
+    {
+      "id": "reconcile-answer",
+      "from": "reconcile",
+      "to": "answer",
+      "label": "完成且有权交付",
+      "variant": "dashed"
+    },
+    {
+      "id": "prepare-end",
+      "from": "prepare",
+      "to": "end",
+      "label": "无权或停用",
+      "variant": "security"
+    },
+    {
+      "id": "enrich-end",
+      "from": "enrich",
+      "to": "end",
+      "label": "知识不足或预算耗尽",
+      "variant": "security"
+    },
+    {
+      "id": "security-end",
+      "from": "security",
+      "to": "end",
+      "label": "真实无权或禁用",
+      "variant": "security"
+    },
+    {
+      "id": "repair-end",
+      "from": "repair",
+      "to": "end",
+      "label": "预算不足或不可修复",
+      "variant": "security"
+    },
+    {
+      "id": "reconcile-end",
+      "from": "reconcile",
+      "to": "end",
+      "label": "不可交付或仍未知",
+      "variant": "security"
+    },
+    {
+      "id": "clarify-understand",
+      "from": "clarify",
+      "to": "understand",
+      "label": "改原意／原暂停于此",
+      "variant": "dashed"
+    },
+    {
+      "id": "answer-repair",
+      "from": "answer",
+      "to": "repair",
+      "label": "结果暴露 SQL 错误",
+      "variant": "dashed"
+    },
+    {
+      "id": "reconcile-repair",
+      "from": "reconcile",
+      "to": "repair",
+      "label": "未取消且确认 SQL 错误",
+      "variant": "dashed"
+    },
+    {
+      "id": "execute-end",
+      "from": "execute",
+      "to": "end",
+      "label": "失权或不可恢复失败",
+      "variant": "security"
+    },
+    {
+      "id": "clarify-prepare",
+      "from": "clarify",
+      "to": "prepare",
+      "label": "明确切源：新请求",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-end",
+      "from": "clarify",
+      "to": "end",
+      "label": "取消、到期或失权",
+      "variant": "security"
+    },
+    {
+      "id": "retrieve-end",
+      "from": "retrieve",
+      "to": "end",
+      "label": "无依据或检索超限",
+      "variant": "security"
+    },
+    {
+      "id": "generate-enrich",
+      "from": "generate",
+      "to": "enrich",
+      "label": "缺正式依据",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    },
+    {
+      "id": "generate-end",
+      "from": "generate",
+      "to": "end",
+      "label": "超限、无进展或失败",
+      "variant": "security"
+    },
+    {
+      "id": "understand-end",
+      "from": "understand",
+      "to": "end",
+      "label": "超出问数范围",
+      "variant": "security"
+    },
+    {
+      "id": "semantic-end",
+      "from": "semantic",
+      "to": "end",
+      "label": "无法满足原意",
+      "variant": "security"
+    },
+    {
+      "id": "answer-end",
+      "from": "answer",
+      "to": "end",
+      "label": "失权或结果不可交付",
+      "variant": "security"
+    },
+    {
+      "id": "understand-prepare",
+      "from": "understand",
+      "to": "prepare",
+      "label": "识别换题：新请求",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-enrich",
+      "from": "clarify",
+      "to": "enrich",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-generate",
+      "from": "clarify",
+      "to": "generate",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-semantic",
+      "from": "clarify",
+      "to": "semantic",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    },
+    {
+      "id": "clarify-security",
+      "from": "clarify",
+      "to": "security",
+      "label": "仅补缺项",
+      "variant": "dashed"
+    }
+  ],
+  "cards": []
+}

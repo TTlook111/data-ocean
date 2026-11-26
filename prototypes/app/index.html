@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>问数工作台 · DataOcean</title>
+  <link rel="icon" href="assets/dataocean-mark.png">
+  <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
+  <link rel="stylesheet" href="workbench.css?v=query-workbench-final-20261115">
+  <link rel="stylesheet" href="answers.css?v=query-workbench-final-20261115">
+  <link rel="stylesheet" href="case-view.css?v=prototype-audit-20261110">
+  <link rel="stylesheet" href="../后台管理/admin-system.css?v=element-controls-20261108-r3">
+  <link rel="stylesheet" href="../后台管理/record-controls.css?v=site-consistency-20261111">
+  <link rel="stylesheet" href="../后台管理/record-table.css?v=scroll-20261111">
+  <script defer src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
+  <script defer src="../shared/vendor/element-plus-2.14.0.min.js"></script>
+  <script defer src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
+  <script defer src="../shared/element-adapter.js?v=element-controls-20261108-r3"></script>
+  <script defer src="icons.js?v=element-controls-20261108-r3"></script>
+  <script defer src="../后台管理/people-data.js?v=feedback-records2-20261115"></script>
+  <script defer src="../后台管理/role-data.js?v=feedback-records2-20261115"></script>
+  <script defer src="../后台管理/source-approval-data.js?v=approval-copy-20261111"></script>
+  <script defer src="../后台管理/access-request-data.js?v=access-closure-20261116"></script>
+  <script defer src="../后台管理/feedback-data.js?v=prototype-closure-history-20261115"></script>
+  <script defer src="../shared/query-knowledge-bridge.js?v=prototype-closure-history-20261115"></script>
+  <script defer src="dialogue.js?v=element-controls-20261108-r3"></script>
+  <script defer src="query-flow.js?v=query-workbench-final-20261115"></script>
+  <script defer src="answers.js?v=query-workbench-final-20261115"></script>
+  <script defer src="cases.js?v=feedback-records2-20261115"></script>
+  <script defer src="case-view.js?v=feedback-records2-20261115"></script>
+  <script defer src="workbench.js?v=prototype-closure-history-20261115"></script>
+</head>
+<body>
+  <div class="screen" id="manager-page">
+    <aside class="side" id="sidebar" aria-label="问数会话">
+      <div class="brand">
+        <img src="assets/dataocean-mark.png" alt=""><span lang="en">DataOcean</span>
+      </div>
+      <button type="button" class="new" id="new-chat"><i data-icon="square-pen"></i>新建问数 <span class="key" aria-hidden="true">＋</span></button>
+      <button type="button" class="finder" id="find-chat" aria-expanded="false" aria-controls="history-filter"><i data-icon="search"></i>搜索对话</button>
+      <input class="search-box" id="history-filter" type="search" placeholder="按标题查找" aria-label="按标题搜索对话" hidden>
+      <nav class="history-list" id="history" aria-label="最近的对话"></nav>
+      <details class="profile profile-more">
+        <summary aria-label="林管理员，总部，用户菜单" aria-controls="profile-options">
+          <span class="face" aria-hidden="true">林</span>
+          <span class="profile-label"><strong>林管理员</strong><small>总部</small></span>
+          <i data-icon="chevron-down"></i>
+        </summary>
+        <div id="profile-options">
+          <a id="enter-admin" href="../后台管理/index.html#dashboard"><i data-icon="layers"></i><span>后台管理</span></a>
+        </div>
+      </details>
+      <details class="prototype-tools" id="prototype-tools" hidden>
+        <summary>原型评审</summary>
+        <div><a href="../项目运行图.html">项目运行图</a><div id="query-review-controls" class="prototype-ui"></div><button type="button" id="review-access">模拟撤回当前源访问</button><button type="button" id="review-sql">收起 SQL 查看权限</button><button type="button" id="review-expire">将当前等待设为到期</button><button type="button" id="review-retention">将当前结果设为到期</button><button type="button" id="reset-demo">重置问数演示</button></div>
+      </details>
+    </aside>
+    <main class="main" id="workspace">
+      <header class="bar">
+        <div class="crumb">
+          <span>问数工作台</span><i data-icon="chevron-right"></i><b id="thread-title">牛奶净销量</b>
+        </div>
+        <div class="bar-tools">
+          <div class="source-picker"><i data-icon="database"></i><div id="data-source-picker" class="prototype-ui"></div></div>
+          <button type="button" id="open-receipts" class="receipt-trigger" aria-haspopup="dialog" aria-controls="receipts" aria-label="处理回告"><i data-icon="bell"></i><span class="receipt-label">回告</span><span id="receipt-count" hidden></span></button>
+        </div>
+      </header>
+      <section class="transcript" id="transcript" aria-label="当前对话记录" tabindex="0"></section>
+      <footer class="composer-area">
+        <div id="query-activity" class="query-activity" hidden></div>
+        <form class="composer" id="composer">
+          <textarea id="message" rows="1" aria-label="提问、补充或修改条件" placeholder="继续提问，也可以补充或修改条件…"></textarea>
+          <div class="compose-tools"><button type="submit" class="send" aria-label="发送消息" title="发送消息（Enter）" disabled><i data-icon="arrow-up"></i></button></div>
+        </form>
+        <p class="sample">离线交互原型 · 固定样例数据</p>
+      </footer>
+    </main>
+  </div>
+  <dialog id="receipts" class="receipt-dialog" aria-labelledby="receipt-title">
+    <header><h2 id="receipt-title">处理回告</h2><button type="button" class="receipt-close" aria-label="关闭处理回告"><i data-icon="x"></i></button></header>
+    <div id="receipt-list"></div>
+  </dialog>
+</body>
+</html>

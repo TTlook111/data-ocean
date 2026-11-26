@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "按实际修改位置选择任务",
+    "output": "repair-location.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "lanes": [
+    {
+      "id": "decide",
+      "label": "先核实原因"
+    },
+    {
+      "id": "place",
+      "label": "在对应位置完成实际修正"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "choose",
+      "lane": "decide",
+      "col": 2,
+      "type": "security",
+      "icon": "decision",
+      "label": "需要改哪里?",
+      "width": 152,
+      "height": 64
+    },
+    {
+      "id": "knowledge",
+      "lane": "place",
+      "col": 1,
+      "type": "backend",
+      "icon": "briefcase",
+      "label": "修改业务定义",
+      "width": 172,
+      "height": 64
+    },
+    {
+      "id": "program",
+      "lane": "place",
+      "col": 2,
+      "type": "external",
+      "icon": "person",
+      "label": "安排技术处理",
+      "width": 172,
+      "height": 64
+    },
+    {
+      "id": "data",
+      "lane": "place",
+      "col": 3,
+      "type": "external",
+      "icon": "database",
+      "label": "跟进数据修正",
+      "width": 172,
+      "height": 64
+    }
+  ],
+  "edges": [
+    {
+      "from": "choose",
+      "to": "knowledge",
+      "label": "定义",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "from": "choose",
+      "to": "program",
+      "label": "程序",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "choose",
+      "to": "data",
+      "label": "业务记录",
+      "fromSide": "right",
+      "toSide": "top"
+    }
+  ]
+}

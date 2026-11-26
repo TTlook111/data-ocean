@@ -1,0 +1,1296 @@
+/* 表格内主名称与文档列左边对齐，长名称保留完整提示和键盘入口。 */
+.knowledge-record-link.ant-btn {
+  display: inline-block;
+  max-inline-size: 100%;
+  padding-inline: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.knowledge-record-link[aria-current='true'] {
+  font-weight: 600;
+}
+
+/* 文档正文贴合详情面板边缘，次要页签使用共用工作区尺度。 */
+.knowledge-document.panel {
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.knowledge-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 8px 8px 0 0;
+  background: var(--do-subtle);
+}
+
+.knowledge-heading-main {
+  display: flex;
+  flex: 1 1 220px;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.knowledge-heading :is(h1, h2) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-heading h1 {
+  font-size: 24px;
+  line-height: 32px;
+}
+
+/* 可编程焦点保留键盘可见提示，避免焦点回到页面根节点。 */
+.knowledge-heading :is(h1, h2):focus-visible,
+.knowledge-section:focus-visible {
+  box-shadow: -2px 0 var(--do-primary);
+  outline: none;
+}
+
+.knowledge-document > .ant-tabs {
+  padding-inline: 24px;
+}
+
+.knowledge-content {
+  min-inline-size: 0;
+  max-inline-size: 848px;
+  padding: 16px 24px 0;
+}
+
+.knowledge-content :is(.ant-alert, .knowledge-facts-summary) {
+  margin-block-end: 16px;
+}
+
+/* 多章节通过目录定位，单章节直接显示正文。 */
+.knowledge-reader:has(> nav) {
+  display: grid;
+  grid-template-columns: clamp(156px, 16vw, 208px) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.knowledge-reader > nav > .ant-btn {
+  inline-size: 100%;
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  block-size: auto;
+  min-block-size: 36px;
+}
+
+.knowledge-section {
+  padding-block: 16px;
+  border-bottom: 1px solid var(--do-line);
+  scroll-margin-block-start: 16px;
+}
+
+.knowledge-section p {
+  margin-block-start: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 用途、适用边界和代表性问题同列对齐，依据始终保留实际修订。 */
+.knowledge-facts-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.knowledge-facts-summary > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.knowledge-facts-summary dd,
+.knowledge-preflight-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-facts-summary dt,
+.knowledge-preflight-summary dt,
+.knowledge-action-note {
+  color: var(--do-muted);
+}
+
+/* 操作和当前改动状态靠底边，在长编辑区仍然可达。 */
+.knowledge-actions {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  margin-block-start: 16px;
+  padding-block: 12px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-panel);
+}
+
+.knowledge-action-note {
+  flex: 1 1 180px;
+}
+
+/* 创建按钮接在范围预览后，与当前弹窗内容一同滚动。 */
+.knowledge-release-create-actions {
+  position: static;
+  margin-block-start: 16px;
+  padding-block-end: 0;
+}
+
+/* 提交反馈与范围预览、操作按钮各占一行。 */
+.knowledge-prepare-feedback {
+  flex-basis: 100%;
+}
+
+/* 候选记录标题与表头共用阅读轴，避免另起页面标题。 */
+.knowledge-candidates-heading {
+  padding: 16px 24px;
+}
+
+/* 矮桌面先展示候选记录，保持原有查询轴、控件高度和正文间距。 */
+@media (max-height: 680px) {
+  .knowledge-release-page {
+    gap: 16px;
+  }
+
+  .knowledge-release-page > .knowledge-preflight {
+    padding-block: 16px;
+  }
+
+  .knowledge-candidates-heading {
+    padding-block: 12px;
+  }
+}
+
+/* 同一文档可以有多个候选，用次级编号区分记录，保持文档名为第一阅读层级。 */
+.knowledge-candidate-identity {
+  display: grid;
+  min-inline-size: 0;
+  gap: 4px;
+}
+
+/* 任务名称与次级编号沿同一阅读轴。 */
+.knowledge-candidate-identity > .knowledge-record-link {
+  justify-self: start;
+  max-width: 100%;
+  height: 24px;
+  line-height: 22px;
+}
+
+/* 发布和知识模块按原型保留来源栏、操作和下方查询。 */
+.knowledge-source-toolbar > .ant-space {
+  margin-inline-start: auto;
+}
+
+/* 发布任务的编号和文档搜索留出状态及操作组所需的宽度。 */
+.release-task-filters form > .ant-form-item {
+  flex: 0 1 248px;
+  min-inline-size: min(100%, 156px);
+}
+
+/* 发布与版本的两个检索框和状态操作组在 1024px 桌面仍能共用一行。 */
+:is(.release-task-filters, .effective-version-filters) .status-tail {
+  flex-basis: 300px;
+  min-inline-size: min(100%, 300px);
+}
+
+/* 状态选项在窄窗口也有足够的文字和下拉空间。 */
+:is(.release-task-filters, .effective-version-filters) .status-query {
+  min-inline-size: 144px;
+}
+
+/* 来源和页签共享面板，所有筛选紧接当前结果。 */
+.panel.release-navigation {
+  flex: none;
+  padding: 0;
+}
+
+.release-source-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+.release-task-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding-inline: 24px;
+}
+
+.release-task-tabs .ant-tabs-nav::before {
+  border-bottom: 0;
+}
+
+/* 新建任务的条件核对与原型一样留在短任务浮层。 */
+.release-modal-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block: 16px;
+}
+.release-modal-source > .release-document-select {
+  flex: 1;
+  min-width: 0;
+}
+.release-modal-preflight {
+  margin-block-end: 8px;
+}
+
+/* 发布详情沿用阅读分区，固定底部按钮不会挡住长正文。 */
+.knowledge-build-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 文档和来源固定在左侧，阶段状态留在详情页头右侧。 */
+.knowledge-build-heading,
+.knowledge-build-identity,
+.knowledge-build-header-actions,
+.knowledge-build-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 页头与任务阅读内容的分隔沿用后台详情。 */
+.knowledge-build-heading {
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 正式版本的标题和来源分行，长标题留在当前工作区。 */
+.knowledge-build-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.knowledge-build-identity > h1 {
+  font-size: 22px;
+  line-height: 30px;
+  overflow-wrap: anywhere;
+}
+
+/* 短的正式版本页显示完整摘要，长正文走工作区的滚动。 */
+.knowledge-version-workspace {
+  flex: none;
+}
+
+/* 发布任务优先展示文档名，长标题在窄桌面换行。 */
+.knowledge-release-task-identity {
+  flex: 1 1 280px;
+  min-inline-size: 0;
+}
+
+.knowledge-release-task-identity > h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  line-height: 28px;
+}
+
+/* 阶段、范围与记录沿相同阅读轴排列。 */
+.knowledge-build-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  align-content: start;
+  gap: 24px;
+  padding: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 步骤使用原型的浅色轨道；服务状态更新不会更换步骤序列。 */
+.knowledge-build-stages {
+  padding: 12px 16px;
+  border-radius: 4px;
+  background: var(--do-subtle);
+}
+
+/* 保持窄桌面阶段名称整词显示。 */
+@media (max-width: 1040px) {
+  .knowledge-build-stages {
+    padding-inline: 8px;
+  }
+  .knowledge-build-stages .ant-steps-item-title {
+    white-space: nowrap;
+  }
+  .knowledge-build-stages .ant-steps-item-icon {
+    margin-inline-end: 4px;
+  }
+}
+
+/* 范围前置用简短摘要显示实际固定的审核题。 */
+.knowledge-build-readiness {
+  justify-content: space-between;
+  padding: 16px 24px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 表格和失败提示保持在构建记录的标题下。 */
+.knowledge-build-section {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+/* 逐题数量和运行选择沿用详情的阅读轴。 */
+.knowledge-validation-summary,
+.knowledge-validation-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.knowledge-validation-summary {
+  padding: 12px 16px;
+  background: var(--do-panel-subtle, #f5f7fa);
+  border-radius: 6px;
+}
+.knowledge-validation-heading {
+  justify-content: space-between;
+}
+.knowledge-validation-heading > .ant-select {
+  min-width: 200px;
+}
+
+/* 裁定的两份证据独立滚动，底部表单保持可达。 */
+.knowledge-validation-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-block: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+.knowledge-validation-comparison > section {
+  min-width: 0;
+  min-height: 160px;
+  max-height: clamp(160px, 37vh, 416px);
+  padding: 16px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+/* 只读结果可以使用原裁定表单的空间，长片段仍独立滚动。 */
+.knowledge-validation-comparison-readonly > section {
+  max-height: clamp(160px, 54vh, 560px);
+}
+
+.knowledge-validation-comparison > section + section {
+  border-inline-start: 1px solid var(--do-line);
+}
+.knowledge-validation-comparison p,
+.knowledge-validation-comparison pre {
+  white-space: pre-wrap;
+}
+.knowledge-validation-excerpt {
+  margin-block-start: 12px;
+}
+
+/* 实际去重数和期望值共用同一档位，比较时保持视觉对称。 */
+.knowledge-validation-count {
+  margin-block: 4px 16px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 摘要保留引用总数，展开后用细线区分不同的治理类型。 */
+.knowledge-validation-references {
+  margin-block: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+/* 原生摘要保留键盘交互，层级与同栏正文区分。 */
+.knowledge-validation-references > summary {
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* 行内编号按真实修订阅读，长编号在较窄的结果列换行。 */
+.knowledge-validation-references > section {
+  margin-block-start: 10px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+.knowledge-validation-references h5,
+.knowledge-validation-references ul {
+  margin: 0;
+}
+
+.knowledge-validation-references ul {
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-validation-references li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-block: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.knowledge-validation-references :is(h5 span, small) {
+  color: var(--do-muted);
+}
+
+.knowledge-validation-decision {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  margin-block-start: 16px;
+}
+
+/* 发布确认沿用原型的范围与两栏结果，内容从实际预检取得。 */
+.knowledge-publication-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-publication-preview > div:first-child {
+  grid-column: 1 / -1;
+}
+.knowledge-publication-preview dd {
+  margin: 4px 0 0;
+}
+
+/* 仅完成态的长过程可按需展开，核对结果和当前版本信息始终可见。 */
+.knowledge-release-disclosure {
+  min-inline-size: 0;
+  background: var(--do-subtle);
+}
+
+.knowledge-release-disclosure .ant-collapse-title {
+  font-weight: 600;
+}
+
+.knowledge-release-process-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.knowledge-version-content .knowledge-publication-preview {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-subtle);
+}
+
+/* 验证状态和回看操作沿用原版本阅读轴。 */
+.knowledge-version-recovery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 危险确认保持影响、范围和原因的阅读顺序。 */
+.knowledge-version-control-form {
+  margin-block-start: 16px;
+}
+
+/* 影响清单保留完整文档名称，长文档也有独立的行。 */
+.knowledge-withdrawal-scope {
+  margin-block: 16px;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-withdrawal-scope > h3 {
+  margin: 0 0 8px;
+}
+
+/* 绑定正文保持可读，长章节保留自然换行。 */
+.knowledge-published-copy {
+  max-width: 800px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 创建时间归属处理记录而不是独立提示。 */
+.knowledge-build-created {
+  margin: 0;
+}
+
+/* 任务页底栏保留右侧主操作与桌面留白。 */
+.knowledge-build-workspace .knowledge-build-actions {
+  position: static;
+  flex: none;
+  margin: 0;
+  padding: 16px 24px;
+}
+
+/* 取消原因与影响提示分开阅读。 */
+.knowledge-cancel-reason {
+  margin-block-start: 16px;
+}
+
+/* 矮窗口把底栏放在记录之后，避免滚动时遮住最后一条。 */
+@media (max-height: 640px) {
+  .knowledge-build-workspace {
+    flex: none;
+  }
+}
+
+.knowledge-preflight-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}
+
+/* 无待处理事项时摘要直接结束卡片，保留统一的底部内距。 */
+.knowledge-preflight-summary:last-child {
+  margin-block-end: 0;
+}
+
+.knowledge-preflight-summary > div {
+  min-inline-size: 0;
+  padding: 12px 16px;
+}
+
+.knowledge-preflight-summary > div + div {
+  border-inline-start: 1px solid var(--do-line);
+}
+
+.knowledge-preflight-summary dd {
+  margin-block-start: 4px;
+  font-weight: 600;
+}
+
+.knowledge-preflight-summary dd > .ant-btn {
+  block-size: auto;
+  min-block-size: 22px;
+}
+
+.knowledge-issue-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 办理中的题单在左侧保留来源与队列，右侧从首屏展示题目和预期。 */
+/* 题目导航和右侧表单共用外框，内容短时白底铺到工作区下边。 */
+.knowledge-test-workspace.panel {
+  display: grid;
+  grid-template-columns: clamp(176px, 20vw, 224px) minmax(0, 1fr);
+  align-items: stretch;
+  flex: 1 0 auto;
+  padding: 0;
+}
+
+/* 新增题目沿用详情工作面的白色背景。 */
+.knowledge-test-editor {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+/* 左侧使用类似表格的标题栏和连续行。 */
+.knowledge-test-queue {
+  min-inline-size: 0;
+  padding: 12px;
+  border-inline-end: 1px solid var(--do-line);
+}
+
+/* 编辑区延续大面板，长题的表单仍采用固定阅读预算。 */
+.knowledge-test-editor > .knowledge-document {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.knowledge-test-workspace .knowledge-document {
+  border: 0;
+  border-radius: 0 8px 8px 0;
+}
+
+.knowledge-test-editor .knowledge-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.knowledge-test-editor .knowledge-actions {
+  margin-block-start: auto;
+  position: static;
+}
+
+.knowledge-test-queue header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 12px;
+}
+
+.knowledge-test-queue h2 {
+  font-size: 16px;
+}
+
+.knowledge-test-queue :is(header > span, nav > button > span) {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+.knowledge-test-queue nav {
+  display: grid;
+  gap: 4px;
+  max-block-size: min(55vh, 460px);
+  overflow: auto;
+}
+
+.knowledge-test-queue nav > button {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 0;
+  border-block-end: 1px solid var(--do-line);
+  border-radius: 0;
+  color: var(--do-ink);
+  background: var(--do-panel);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+/* 题名常态为正文尺度，选中对象使用现有强调字重。 */
+.knowledge-test-queue nav > button strong {
+  font-weight: 500;
+}
+
+.knowledge-test-queue nav > button[aria-current='true'] strong {
+  font-weight: 600;
+}
+
+.knowledge-test-queue nav > button:hover {
+  background: var(--do-hover);
+}
+
+.knowledge-test-queue nav > button[aria-current='true'] {
+  box-shadow: inset 2px 0 var(--do-primary);
+  color: var(--do-primary);
+  background: var(--do-selected);
+}
+
+.knowledge-test-queue nav > button:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: -2px;
+}
+
+.knowledge-test-queue > .ant-pagination {
+  margin-block-start: 12px;
+}
+
+/* 办理首屏优先露出判定要点，已绑定文档和短选项压缩到实际所需高度。 */
+.knowledge-test-editor .knowledge-edit .ant-form-item {
+  margin-block-end: 16px;
+}
+
+.knowledge-test-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* 阅读区保持章节选中及分节证据，与原型的目录和正文布局一致。 */
+.knowledge-reader > nav {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 4px;
+  padding: 8px;
+  background: var(--do-subtle);
+  border-radius: 6px;
+}
+
+.knowledge-reader > nav > .ant-btn[aria-current='true'],
+.knowledge-reader > nav > .ant-btn[aria-current='true']:hover {
+  font-weight: 600;
+  color: var(--do-primary);
+  background: var(--do-selected);
+}
+
+/* 阅读排版按目录之外的实际可用宽度调整。 */
+.knowledge-reading-pane {
+  min-inline-size: 0;
+  container: document-reading / inline-size;
+}
+
+/* 正文和本节依据共用阅读边界，避免单章节的重复目录占位。 */
+.knowledge-reading-layout {
+  display: grid;
+  align-items: start;
+  gap: 24px;
+  max-inline-size: 1104px;
+  margin-inline: auto;
+  padding-block: 8px 24px;
+}
+
+/* 没有附带依据的章节仍保留清晰的正文阅读轴。 */
+.knowledge-reading-layout:not(:has(.knowledge-reading-basis)) {
+  max-inline-size: 800px;
+}
+
+/* 章节标题与正文分层，保留原有文字和换行。 */
+.knowledge-reading-section {
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+}
+
+.knowledge-reading-section h2 {
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-reading-section p {
+  margin-block-start: 12px;
+  line-height: 24px;
+}
+
+/* 依据使用轻分隔线，类别和值按两端对齐。 */
+.knowledge-reading-basis {
+  min-inline-size: 0;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+/* 依据折到正文下方时按两列排布，减少纵向占用。 */
+.knowledge-reading-basis dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+  margin-block: 12px 8px;
+}
+
+.knowledge-reading-basis dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.knowledge-reading-basis dd {
+  margin: 0;
+  color: var(--do-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 宽桌面让正文与实际依据并排，窄桌面按阅读顺序展开。 */
+@container document-reading (min-width: 896px) {
+  .knowledge-reading-layout:has(.knowledge-reading-basis) {
+    grid-template-columns: minmax(0, 800px) minmax(208px, 1fr);
+    gap: 32px;
+  }
+
+  .knowledge-reading-basis {
+    padding-block-start: 0;
+    padding-inline-start: 24px;
+    border-block-start: 0;
+    border-inline-start: 1px solid var(--do-line);
+  }
+
+  /* 侧栏中的依据沿同一条轴逐行阅读。 */
+  .knowledge-reading-basis dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 正文保留依据入口，详细依据集中到可逐条核对的页签。 */
+.knowledge-basis-link.ant-btn {
+  padding-inline: 0;
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+  text-align: start;
+}
+
+.knowledge-basis-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+
+/* 发布准备保留结果和最近处理入口，以白底与细线分隔同等级事项。 */
+.knowledge-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding-block: 12px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+.knowledge-issue > div {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-issue > div > ul {
+  margin: 4px 0 0;
+  padding-inline-start: 20px;
+  color: var(--do-muted);
+}
+
+.knowledge-issue > .ant-btn {
+  flex: none;
+}
+
+.knowledge-test-tabs .ant-tabs-nav {
+  margin-block-end: 16px;
+}
+
+/* 文档白色面板覆盖工作区，长内容由工作区滚动承接。 */
+.knowledge-document-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+/* 正文和依据一律使用面板全宽，正文段落单独限制阅读行宽。 */
+.knowledge-document-detail > article {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-inline-size: 0;
+  max-inline-size: none;
+  gap: 16px;
+  padding-block-start: 16px;
+}
+
+/* 操作永远排在阅读内容之后，短内容时落在面板底边。 */
+.knowledge-document-detail > article > .knowledge-actions {
+  position: static;
+  margin-block-start: auto;
+}
+
+/* 跳转入口位于正文页签右侧，章节目录只保留章节。 */
+.knowledge-related-tests {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 36px;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* 范围摘要和依据表使用相同的内容宽度。 */
+.knowledge-detail-tab .knowledge-facts-summary {
+  padding: 16px;
+  margin-block-end: 0;
+  background: var(--do-subtle);
+  border-radius: 8px;
+}
+
+/* 长依据名称和所属章节各占一行。 */
+.knowledge-reference-title {
+  min-inline-size: 0;
+  display: grid;
+  gap: 4px;
+}
+
+/* 操作文字从表头相同位置起排。 */
+.knowledge-detail-table .knowledge-table-action .ant-btn {
+  padding-inline: 0;
+  border-width: 0;
+}
+
+/* 实际依据和修订列表使用明确表头与行边界。 */
+.knowledge-detail-table {
+  min-inline-size: 0;
+}
+
+/* 标题下方保留文档真实来源，长名称可自然换行。 */
+.knowledge-title {
+  min-inline-size: 0;
+}
+
+.knowledge-source-name {
+  display: block;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: var(--do-line-meta);
+  overflow-wrap: anywhere;
+}
+
+/* 极矮桌面由工作区承接滚动，底栏不遮挡输入和说明。 */
+@media (max-height: 700px) {
+  .knowledge-actions {
+    position: static;
+  }
+
+  .knowledge-test-queue nav {
+    max-block-size: none;
+    overflow: visible;
+  }
+}
+
+/* 长表单聚焦或定位错误时预留固定底栏空间。 */
+.knowledge-edit :is(input, textarea, .ant-select, .ant-input-number) {
+  scroll-margin-block-end: 88px;
+}
+
+/* 题单的筛选与对应源连续排列，问句标题和编辑控件各自有可读宽度。 */
+.knowledge-document-select {
+  width: min(264px, 100%);
+}
+
+.knowledge-test-toolbar > .ant-space {
+  flex: none;
+}
+
+.knowledge-test-editor .knowledge-content {
+  width: 100%;
+}
+
+.knowledge-test-editor .knowledge-heading-main {
+  display: grid;
+  grid-template-columns: fit-content(calc(100% - 80px)) auto;
+  justify-content: start;
+  gap: 4px 12px;
+}
+
+.knowledge-test-editor .knowledge-heading-main > .knowledge-source-name {
+  grid-row: 2;
+}
+
+.knowledge-test-editor .knowledge-heading-main > .ant-tag {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+}
+
+.knowledge-test-editor .knowledge-heading-main > h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+/* 搜索框按阅读预算限宽，查询按钮仍沿用列表工具栏的右侧轴。 */
+.knowledge-list-filters form > .ant-space {
+  margin-inline-start: auto;
+}
+
+.knowledge-list-filters form > .ant-form-item {
+  max-width: 320px;
+}
+
+/* 草稿编辑使用分段导航，已录入内容由同一个表单维护。 */
+.knowledge-draft-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+
+/* 导航面与当前编辑内容共享工作区底边。 */
+.knowledge-draft-workspace {
+  display: grid;
+  flex: 1;
+  grid-template-columns: clamp(188px, 18vw, 232px) minmax(0, 1fr);
+}
+
+/* 实际章节和引用入口沿竖向目录排列。 */
+.knowledge-draft-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-inline-size: 0;
+  padding: 16px;
+  border-inline-end: 1px solid var(--do-line);
+  background: var(--do-subtle);
+}
+
+/* 章节与文档范围用一条细线分隔。 */
+.knowledge-draft-chapters {
+  display: grid;
+  gap: 4px;
+  padding-block-start: 12px;
+  margin-block-start: 8px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+/* 章节组标题与添加动作并排，章节行的文字单独排布。 */
+.knowledge-draft-chapter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-inline-start: 12px;
+  margin-block-end: 4px;
+}
+
+/* 添加章节属于组操作，使用紧凑的点击高度。 */
+.knowledge-draft-nav .knowledge-draft-chapter-header > .ant-btn-text {
+  min-block-size: 32px;
+}
+
+/* 长标题允许换行，当前区块沿用已有选中态。 */
+.knowledge-draft-nav .ant-btn-text {
+  justify-content: start;
+  min-block-size: 40px;
+  height: auto;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 允许短标题自然换行，超长标题保留两行和完整悬停文本。 */
+.knowledge-draft-nav .knowledge-chapter-link {
+  min-inline-size: 0;
+  padding-block: 8px;
+}
+
+.knowledge-chapter-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-wrap: balance;
+}
+
+/* 保留左侧选中线和键盘焦点。 */
+.knowledge-draft-nav [aria-current='page'] {
+  background: var(--do-selected);
+  color: var(--do-primary);
+  box-shadow: inset 2px 0 var(--do-primary);
+}
+
+/* 可编辑区域位于自己的内容列，并限制长表单行宽。 */
+.knowledge-draft-pane {
+  width: 100%;
+  max-inline-size: 848px;
+  min-inline-size: 0;
+  margin-inline: auto;
+  padding: 24px;
+  border: 0;
+}
+
+/* 保存与取消沿整张编辑工作面的底边。 */
+.knowledge-draft-form > .knowledge-actions {
+  padding-inline: 24px;
+  margin-block-start: 0;
+}
+
+/* 长表单加载与失败反馈放在编辑工作区内。 */
+.knowledge-draft-form > .ant-alert {
+  margin: 0 24px 16px;
+}
+
+/* 队列标题与已应用的文档范围一起呈现。 */
+.knowledge-queue-document {
+  margin: 0 4px 12px;
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+/* 当前题目的关联文档在两个页签都可辨认。 */
+.knowledge-test-context {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 文档名作为阅读入口，短标签只标识含义。 */
+.knowledge-test-context > span:first-child {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+
+/* 判定内容和实际证据共同使用右侧工作区。 */
+.knowledge-test-editor .knowledge-content {
+  max-inline-size: none;
+  container-type: inline-size;
+}
+
+.knowledge-test-judgment {
+  display: grid;
+  gap: 24px;
+}
+
+/* 宽屏并排核对条件和依据，较窄时按顺序阅读。 */
+@container (min-width: 830px) {
+  .knowledge-test-judgment {
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+  }
+
+  /* 右侧分隔线标识独立依据，不占用文字网格。 */
+  .knowledge-test-evidence {
+    padding-inline-start: 24px;
+    border-inline-start: 1px solid var(--do-line);
+  }
+}
+/* 规划从当前源进入全宽确认区，建议采用统一正文阅读轴。 */
+.knowledge-plan-surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+/* 短填写区保持桌面可读宽度，提交错误与入口按标准间距排列。 */
+.knowledge-plan-surface > .ant-form {
+  max-width: 640px;
+}
+
+/* 保留开始按钮与实际失败反馈之间的距离。 */
+.knowledge-plan-surface > .ant-form > .ant-alert {
+  margin-bottom: 12px;
+}
+
+/* 每篇建议使用细分隔线，范围和依据可跟随正文连续读取。 */
+.knowledge-plan-suggestion + .knowledge-plan-suggestion {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 文档建议沿用后台区块标题尺度。 */
+.knowledge-plan-suggestion h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* 生成动作、进度和回执紧跟当前建议，区分其他文档的进度。 */
+.knowledge-generation,
+.knowledge-generation-review {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+/* 正文审核区和本轮规划的治理依据保持同一个阅读轴。 */
+.knowledge-generation {
+  margin-top: 16px;
+}
+
+/* 差异区使用完整工作宽度，避免短正文缩窄相邻的比较列。 */
+.knowledge-generation-review {
+  width: 100%;
+}
+
+/* 已采纳的建议可展开回查，默认让文档入口保持简洁。 */
+.knowledge-generation-record {
+  width: 100%;
+}
+
+/* 展开后将切换入口与逐节内容分开。 */
+.knowledge-generation-record[open] > summary {
+  margin-bottom: 12px;
+}
+
+/* 分节建议保持独立，便于逐条核对和选择。 */
+.knowledge-generation-change {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}
+
+/* 章节名与建议正文按既有后台字号阅读。 */
+.knowledge-generation-change h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 原文与建议并排，长文本可换行以适应桌面缩放。 */
+.knowledge-generation-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* 保留原正文的段落断行并处理较长业务标识。 */
+.knowledge-generation-change p {
+  margin: 4px 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 核对治理依据后可紧接选择这一节。 */
+.knowledge-generation-change .ant-checkbox-wrapper {
+  margin-top: 8px;
+}
+
+/* 生成对话框固定文档选择，候选列表在紧凑桌面窗口内独立滚动。 */
+.knowledge-test-suggestion-selection .ant-form-item {
+  margin-bottom: 16px;
+}
+
+/* 保留候选结果的阅读高度，底栏按钮始终可达。 */
+.knowledge-test-suggestion-results {
+  display: grid;
+  gap: 12px;
+  max-height: min(54vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 候选题按独立条目呈现，复用题单的状态标签与表格次级文字。 */
+.knowledge-test-suggestion-item {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 12px 16px;
+  min-width: 0;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 将题干与判断条件紧凑排列，省去元素默认间距。 */
+.knowledge-test-suggestion-item h3,
+.knowledge-test-suggestion-item p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 两种题目维度可靠换行，不截断题干。 */
+.knowledge-test-suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

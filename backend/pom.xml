@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.2</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.dataocean</groupId>
+  <artifactId>dataocean-backend</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+
+  <properties>
+    <java.version>17</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <maven.compiler.parameters>true</maven.compiler.parameters>
+    <!-- 按需由覆盖率探针填入测试 JVM 参数。 -->
+    <argLine></argLine>
+
+    <!-- MyBatis-Plus 组件通过 BOM 统一使用此版本。 -->
+    <mybatis-plus.version>3.5.18</mybatis-plus.version>
+    <!-- Hutool 通用工具库版本。 -->
+    <hutool.version>5.8.48</hutool.version>
+    <!-- 阿里云 OSS Java SDK V2 用于业务说明附件。 -->
+    <aliyun-oss.version>0.5.1</aliyun-oss.version>
+    <!-- Java 格式检查插件版本。 -->
+    <spotless.version>3.0.0</spotless.version>
+    <!-- Spotless 使用的 Java 格式化引擎版本。 -->
+    <palantir-java-format.version>2.50.0</palantir-java-format.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- 统一管理 MyBatis-Plus 及其配套模块的版本。 -->
+      <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-bom</artifactId>
+        <version>${mybatis-plus.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Web 接口与参数校验：处理 HTTP 请求并校验接口入参。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <!-- 身份认证、权限控制与 Redis 服务端会话。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- Java 与 Python 内部治理任务使用经验证的非对称服务令牌。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-session-data-redis</artifactId>
+    </dependency>
+
+    <!-- 数据访问与分页：MyBatis-Plus、SQL 解析扩展及 MySQL JDBC 驱动。 -->
+    <dependency>
+      <groupId>com.baomidou</groupId>
+      <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.baomidou</groupId>
+      <artifactId>mybatis-plus-jsqlparser</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- 业务源 PostgreSQL 驱动由 Spring Boot BOM 管理，平台库继续使用 MySQL。 -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- 数据库迁移：执行版本化 SQL，并提供 MySQL 支持。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-mysql</artifactId>
+    </dependency>
+
+    <!-- 通用工具：复用字符串、日期、集合与 IO 等基础能力。 -->
+    <dependency>
+      <groupId>cn.hutool</groupId>
+      <artifactId>hutool-all</artifactId>
+      <version>${hutool.version}</version>
+    </dependency>
+
+    <!-- Java 后端通过私有 Bucket 保存和读取原件。 -->
+    <dependency>
+      <groupId>com.aliyun</groupId>
+      <artifactId>alibabacloud-oss-v2</artifactId>
+      <version>${aliyun-oss.version}</version>
+    </dependency>
+
+    <!-- 编译期代码生成：由 Lombok 生成访问器、构造方法等样板代码。 -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- 自动化测试：提供通用测试能力及 Spring Security 测试支持。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <!-- 本机私有配置从 resources 源目录加载，不复制到构建目录或打入 JAR。 -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <excludes>
+          <exclude>application-local.yml</exclude>
+          <exclude>application-local.yaml</exclude>
+        </excludes>
+      </resource>
+    </resources>
+
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!-- Windows 测试进程也使用 UTF-8，中文日志重定向后保持可读。 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <argLine>@{argLine} -Dfile.encoding=UTF-8</argLine>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat>
+              <version>${palantir-java-format.version}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports/>
+            <importOrder>
+              <order>com,java,javax,jakarta,org,tools,</order>
+            </importOrder>
+          </java>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <argLine>@{argLine} -Dfile.encoding=UTF-8</argLine>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- 问数测试覆盖率独立验收，普通 Maven 构建沿用原入口。 -->
+    <profile>
+      <id>query-coverage</id>
+      <properties>
+        <query.coverage.line.minimum>0.90</query.coverage.line.minimum>
+        <query.coverage.data>${project.build.directory}/query-coverage.exec</query.coverage.data>
+        <query.coverage.report>${project.build.directory}/query-coverage</query.coverage.report>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.14</version>
+            <configuration>
+              <includes>
+                <include>com/dataocean/module/query/**</include>
+              </includes>
+              <destFile>${query.coverage.data}</destFile>
+              <dataFile>${query.coverage.data}</dataFile>
+              <outputDirectory>${query.coverage.report}</outputDirectory>
+              <append>true</append>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>prepare-agent</goal>
+                  <goal>report</goal>
+                  <goal>check</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <rule>
+                      <element>BUNDLE</element>
+                      <limits>
+                        <limit>
+                          <counter>LINE</counter>
+                          <value>COVEREDRATIO</value>
+                          <minimum>${query.coverage.line.minimum}</minimum>
+                        </limit>
+                      </limits>
+                    </rule>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

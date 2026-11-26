@@ -1,58 +1,95 @@
-# 仅启动本地开发基础设施；Java、Python（uv）和 Vue 在宿主机运行。
-# 先复制 .env.example 为 .env 并填写三个密码，详见 README.md。
-name: ${COMPOSE_PROJECT_NAME:-dataocean}
+# 仅启动本地开发基础设施；Java、Python（uv）和前端在宿主机运行。
+# 从 .env.example 填写本机密码和可选的应用库名。
+# 共享基础设施分别使用 redis / milvus 等项目名，不归入应用项目。
+name: ${COMPOSE_PROJECT_NAME:?请通过私有环境文件指定共享基础设施项目名}
 
 services:
   mysql:
     image: mysql:8.4.9
     restart: unless-stopped
+
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在根目录 .env 中设置 MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: dataocean
+      # 仅在首次初始化空数据卷且显式指定库名时创建应用库。
+      MYSQL_DATABASE: ${DB_NAME:-}
       MYSQL_USER: dataocean
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
       TZ: Asia/Shanghai
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
     ports:
       - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+
     volumes:
       - mysql-data:/var/lib/mysql
+
     healthcheck:
       test:
         - CMD-SHELL
         - >-
           MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=tcp
-          -h 127.0.0.1 -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}" -Nse 'SELECT 1'
+          -h 127.0.0.1 -u "$${MYSQL_USER}" $${MYSQL_DATABASE:+--database="$${MYSQL_DATABASE}"} -Nse 'SELECT 1'
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 60s
 
   redis:
-    image: redis:8.2.10-alpine
+    image: redis:8.10.3-alpine
     restart: unless-stopped
+
     # 保留镜像 entrypoint，由它加载 Redis 8 自带模块。
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - always
+      - --maxmemory-policy
+      - noeviction
+      - --aof-load-truncated
+      - "no"
+
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+
     volumes:
       - redis-data:/data
+
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli --raw ping | grep -qx PONG"]
+      test:
+        - CMD-SHELL
+        - redis-cli --raw ping | grep -qx PONG
       interval: 10s
       timeout: 5s
       retries: 10
     stop_grace_period: 30s
 
   redis-checkpoint:
-    image: redis:8.2.10-alpine
+    image: redis:8.10.3-alpine
     restart: unless-stopped
+
     # checkpoint 独立实例、独立数据卷，使用 DB 0；禁止自动淘汰恢复状态。
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - always
+      - --maxmemory-policy
+      - noeviction
+      - --aof-load-truncated
+      - "no"
+
     ports:
       - "127.0.0.1:${REDIS_CHECKPOINT_PORT:-6380}:6379"
+
     volumes:
       - checkpoint-data:/data
+
     healthcheck:
       # PING 之外还检查 JSON/Search 命令是否存在，全程只读。
       test:
@@ -69,64 +106,100 @@ services:
   etcd:
     image: quay.io/coreos/etcd:v3.5.25
     restart: unless-stopped
+
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
       ETCD_QUOTA_BACKEND_BYTES: "4294967296"
       ETCD_SNAPSHOT_COUNT: "50000"
+
     command:
       - etcd
       - --advertise-client-urls=http://etcd:2379
       - --listen-client-urls=http://0.0.0.0:2379
       - --data-dir=/etcd
+
     volumes:
       - etcd-data:/etcd
+
     healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
+      test:
+        - CMD
+        - etcdctl
+        - endpoint
+        - health
       interval: 10s
       timeout: 5s
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    # 使用 Milvus 2.6.26 官方 standalone 编排指定的固定 MinIO 构建。
+    image: milvusdb/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3
     restart: unless-stopped
+
     environment:
       MINIO_ROOT_USER: dataocean
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在根目录 .env 中设置 MINIO_ROOT_PASSWORD（至少 8 字符）}
-    command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
+
+    command:
+      - minio
+      - server
+      - /minio_data
+      - --console-address
+      - ":9001"
+
     volumes:
       - minio-data:/minio_data
+
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9000/minio/health/live
       interval: 10s
       timeout: 5s
       retries: 10
 
   milvus:
-    image: milvusdb/milvus:v2.6.15
+    image: milvusdb/milvus:v2.6.26
     restart: unless-stopped
-    command: ["milvus", "run", "standalone"]
+
+    command:
+      - milvus
+      - run
+      - standalone
+
     # 与该版本官方 standalone 编排保持一致。
     security_opt:
       - seccomp:unconfined
+
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
       MINIO_REGION: us-east-1
       MINIO_ACCESS_KEY_ID: dataocean
       MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?请在根目录 .env 中设置 MINIO_ROOT_PASSWORD}
+
     ports:
       - "127.0.0.1:${MILVUS_PORT:-19530}:19530"
       - "127.0.0.1:${MILVUS_HEALTH_PORT:-9091}:9091"
+
     volumes:
       - milvus-data:/var/lib/milvus
+
     depends_on:
       etcd:
         condition: service_healthy
       minio:
         condition: service_healthy
+
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9091/healthz
       interval: 15s
       timeout: 10s
       retries: 20

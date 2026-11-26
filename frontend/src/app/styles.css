@@ -1,0 +1,2239 @@
+/* 正式前端承接原型的颜色、字体、空间与桌面视口。 */
+:root {
+  /* 页面结构使用同一组已确认颜色，组件部分由主题配置承接。 */
+  --do-canvas: #f5f7fa;
+  --do-panel: #ffffff;
+  --do-ink: #1f2937;
+  --do-muted: #5b6575;
+  --do-line: #e5e7eb;
+  --do-primary: #2f63d5;
+  --do-primary-hover: #244eaa;
+  --do-selected: #eaf0fc;
+  --do-hover: #f3f5f8;
+  --do-subtle: #f8fafc;
+  --do-control-height: 40px;
+  --do-font-meta: 12px;
+  --do-line-meta: 18px;
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  color: var(--do-ink);
+  background: var(--do-canvas);
+  font-synthesis: none;
+}
+/* 所有容器按边框尺寸参与布局。 */
+* {
+  box-sizing: border-box;
+}
+/* 页面外框保持 PC 桌面结构，滚动由工作区承接。 */
+body {
+  margin: 0;
+  min-width: 0;
+  height: 100dvh;
+  overflow: hidden;
+  font:
+    14px/22px 'Segoe UI',
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+/* 标题由业务分区决定，移除浏览器默认外边距。 */
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+/* 独立任务页标题沿用原型的 24px 档位。 */
+h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+}
+/* 分区标题统一为 16px。 */
+h2,
+h3 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+/* 首次身份核验期间保持明确加载状态。 */
+.page-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+}
+/* 全宽顶栏和下方桌面主体占满窗口。 */
+.admin-shell {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 品牌、面包屑、问数入口和账号保持原型中的横向顺序。 */
+.topbar {
+  height: 64px;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 24px;
+  background: var(--do-panel);
+  border-bottom: 1px solid var(--do-line);
+  line-height: 22px;
+}
+/* 原型品牌位于顶栏左侧，不移入菜单。 */
+.admin-brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  color: #1f2937;
+}
+/* 复用已有 DataOcean 标识。 */
+.admin-brand img {
+  width: 25px;
+  height: 29px;
+  object-fit: contain;
+}
+/* 品牌字重和字距与原型一致。 */
+.admin-brand strong {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+/* 面包屑占据顶栏余宽并保留左侧分隔。 */
+.admin-breadcrumb {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid #e5e7eb;
+}
+/* 面包屑保持单行，独立编辑页的长名称不挤压账号入口。 */
+.admin-breadcrumb ol {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+/* 上级位置与当前页面保持清楚的字体层级。 */
+.admin-breadcrumb li {
+  flex: none;
+  white-space: nowrap;
+}
+/* 最后一级允许省略，完整名称保留给程序化导航。 */
+.admin-breadcrumb li:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--do-ink);
+  font-weight: 500;
+}
+/* 问数入口保留原位置，未接入时不伪造可用业务。 */
+.workbench-link {
+  flex: none;
+  white-space: nowrap;
+  margin-left: auto;
+}
+/* 头像和两行身份信息采用原型的紧凑结构。 */
+.admin-identity {
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+}
+
+/* 账号整块在键盘与菜单展开时都有连续的反馈。 */
+.admin-identity:is(:hover, [aria-expanded='true']) {
+  background: var(--do-subtle);
+}
+/* 身份文字保持左对齐。 */
+.identity-text {
+  display: block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  line-height: 20px;
+}
+/* 主部门在姓名下方显示。 */
+.identity-text small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #5b6575;
+  font-size: 12px;
+  line-height: 16px;
+}
+/* 原型头像使用浅蓝背景与文字。 */
+.admin-identity .ant-avatar {
+  color: #2f63d5;
+  background: #eaf0fc;
+}
+/* 主体从顶栏下方开始，侧栏不随内容滚动。 */
+.admin-body {
+  flex: 1;
+  min-height: 0;
+}
+/* 菜单维持 216px 宽度和相同内距。 */
+.admin-sidebar {
+  padding: 16px 12px 24px;
+  border-right: 1px solid #e5e7eb;
+  overflow: auto;
+}
+/* 菜单内层不增加重复边框或背景。 */
+.admin-sidebar .ant-menu {
+  border-inline-end: 0 !important;
+  background: transparent;
+}
+/* 子菜单白底保持原型的层级关系。 */
+.admin-sidebar .ant-menu-sub {
+  background: transparent !important;
+}
+/* 菜单项和分组统一 40px 点击高度。 */
+.admin-sidebar .ant-menu-item,
+.admin-sidebar .ant-menu-submenu-title {
+  height: 40px;
+  line-height: 40px;
+  margin: 2px 0;
+  width: 100%;
+  border-radius: 6px;
+}
+/* 导航当前项与可用项遵循主题，禁用入口不被普通文字颜色覆盖。 */
+.admin-sidebar .ant-menu-item-selected {
+  font-weight: 500;
+}
+/* 当前分组保留中性文字，页面高亮只出现在实际选中项目上。 */
+.admin-sidebar .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: var(--do-muted);
+}
+/* 子项文字承接原型的 38px 内缩，不随菜单库的层级倍数产生额外偏移。 */
+.admin-sidebar .ant-menu-sub .ant-menu-item {
+  padding-inline-start: 38px !important;
+}
+/* 当前菜单使用原型选中颜色。 */
+.admin-sidebar .ant-menu-item-selected {
+  background: var(--do-selected);
+  color: var(--do-primary);
+  box-shadow: inset 2px 0 0 var(--do-primary);
+}
+/* 工作区四周留白和区块间距保持 24px。 */
+.workspace {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+/* 结果区域的滚动条采用轻量样式，边界不再被粗深色轨道打断。 */
+.workspace,
+.admin-sidebar,
+.ant-drawer-body,
+.app-dialog .ant-modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: #c8ced8 transparent;
+}
+/* 共用面板沿用原型边框和圆角。 */
+.panel {
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  padding: 24px;
+}
+/* 查询与新增操作处于同一面板。 */
+.query-panel {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* 查询框与列表上沿形成同一条工具轴，清空和提交保持中性层级。 */
+.query-panel button[type='submit'] {
+  font-weight: 500;
+}
+/* 查询字段占据余宽并按表头顺序整组换行。 */
+.query-panel .ant-form {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+/* 原型筛选名称由占位和可访问名称表达，不增加上方标签行。 */
+.query-panel .ant-form-item {
+  margin: 0;
+  flex: 1 1 200px;
+  min-width: 200px;
+}
+/* 末项条件与查询操作成组换行，日期范围始终保持成对输入。 */
+.query-tail {
+  display: flex;
+  flex: 1 1 440px;
+  align-items: center;
+  gap: 16px;
+  min-width: min(100%, 440px);
+}
+/* 无日期时末项状态与按钮成组，按钮靠所在行右侧。 */
+.query-tail.status-tail {
+  flex-basis: 320px;
+  min-width: min(100%, 320px);
+}
+/* 查询按钮吸收所在行的尾部位置，不单独形成一行。 */
+.query-tail > .ant-space {
+  margin-left: auto;
+}
+/* 日期组件填满分配的字段宽度。 */
+.query-tail .ant-picker {
+  width: 100%;
+}
+/* 日期范围按已定预算伸缩，避免整行余宽将日历输入拉得过长。 */
+.query-tail .ant-form-item:has(.ant-picker) {
+  flex: 0 1 400px;
+  min-width: 280px;
+  max-width: 400px;
+}
+/* 状态筛选保持较紧凑预算。 */
+.query-panel .status-query {
+  flex: 0 1 200px;
+  min-width: 160px;
+}
+/* 查询图标只提供字段用途线索，不成为新的高亮元素。 */
+.query-panel .ant-input-prefix,
+.tree-search .ant-input-prefix,
+.permission-search .ant-input-prefix {
+  color: var(--do-muted);
+  margin-inline-end: 8px;
+}
+/* 查询操作整体保持 40px 高度。 */
+.query-panel .ant-space {
+  min-height: var(--do-control-height);
+  flex: none;
+}
+/* 使用统一的成品外框高度，单选框和日期不随内部文字基线变化。 */
+.query-panel :is(.ant-input-affix-wrapper, .ant-select-single, .ant-picker, .ant-btn),
+.query-panel .ant-form-item-control-input-content > .ant-input,
+:is(.ds-toolbar, .record-pagination, .ds-connection-form) .ant-select-single.ant-select-lg,
+.ds-connection-form
+  .ant-form-item-control-input-content
+  > :is(input.ant-input, .ant-input-number, .ant-input-affix-wrapper) {
+  block-size: var(--do-control-height);
+}
+/* 主操作保持在查询区右侧。 */
+.query-panel > .ant-btn {
+  flex: none;
+  margin-left: auto;
+}
+/* 常用条件优先同排，空间不足时按顺序整体换行。 */
+.query-panel.compact-query > .ant-form {
+  gap: 12px 16px;
+}
+
+/* 关键词和数据源预留可辨识的文本宽度。 */
+.query-panel.compact-query > .ant-form > .ant-form-item {
+  flex: 1 1 180px;
+  min-width: min(100%, 180px);
+  max-width: 320px;
+}
+
+/* 状态列跟随桌面窗口收缩，保留完整的常用状态名称。 */
+.query-panel.compact-query > .ant-form > :is(.access-status-field, .status-query) {
+  flex: 0 1 144px;
+  min-width: 104px;
+}
+
+/* 操作区靠右，文字与图标保持完整。 */
+.compact-query .query-tail-actions {
+  display: flex;
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* 人员、角色及数据源在紧凑视口先排筛选条件，主次操作共用一条基线。 */
+.registry-query-panel {
+  container: registry-query-panel / inline-size;
+}
+
+.registry-query-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-inline-start: auto;
+}
+
+@container registry-query-panel (max-width: 880px) {
+  .query-panel > .registry-query {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .query-panel > .registry-query-three-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .query-panel.compact-query > .registry-query > .ant-form-item {
+    min-inline-size: 0;
+    max-inline-size: none;
+  }
+
+  .registry-query > .registry-query-actions {
+    grid-column: 1 / -1;
+    margin-inline-start: 0;
+  }
+}
+
+/* 将浮层放在触发器旁，Tab 可继续遍历展开的输入。 */
+.query-more-anchor {
+  position: relative;
+}
+
+/* 已生效的更多条件即使收起也有明确反馈。 */
+.compact-query .query-more-active {
+  color: var(--do-primary, #2f63d5);
+  border-color: currentColor;
+  background: var(--ant-color-primary-bg, #eaf0fc);
+}
+
+/* 模型列表和节点列表共用原型的紧凑页签工具条。 */
+.model-tabs > .ant-tabs-nav,
+.model-call-tabs > .ant-tabs-nav {
+  flex: none;
+  margin: 0 0 24px;
+  padding: 0 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: white;
+}
+/* 调用、测试与配置历史沿原型共享顶部导航位置。 */
+.model-call-tabs {
+  flex: none;
+}
+.model-call-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+/* 按原型独立显示模型条件，结果和分页共用下方卡片。 */
+.model-tabs .ant-tabs-content-active {
+  gap: 24px;
+}
+.model-query form > .ant-space {
+  margin-inline-start: auto;
+}
+/* 单个名称条件维持正常阅读宽度，不扩成整条空输入。 */
+.model-query form > .ant-form-item:first-child {
+  flex: 0 1 360px;
+  min-width: min(100%, 220px);
+}
+/* 节点搜索优先承接余宽，模块枚举保留同类下拉框的宽度。 */
+.model-node-query form > .ant-form-item:first-child {
+  flex: 1 1 224px;
+  max-width: 360px;
+}
+/* 模块名和下拉箭头完整显示，超出的空间留在工具栏中。 */
+.model-node-query form > .model-node-module {
+  flex: 0 1 224px;
+  min-width: min(100%, 160px);
+  max-width: 240px;
+}
+
+/* 节点与所属模块沿用共用列表的双行排版。 */
+.model-node-name {
+  font-weight: 500;
+}
+
+/* 当次模型和修订沿稳定的左右边界读取，长名称可悬停查看。 */
+.model-call-identity > .cell-text {
+  font-weight: 500;
+}
+
+/* 协议地址和诊断内容可读全文，长值在详情容器内断行。 */
+.model-detail-values .ant-descriptions-item-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 模型按短字段同排、连接地址和凭据独占一行组织。 */
+.model-editor-form {
+  column-gap: 16px;
+}
+
+/* 选中的页签用余高展示结果，表格与对应的无障碍页签面板保持关联。 */
+.model-tabs,
+.model-tabs > .ant-tabs-body-holder,
+.model-tabs .ant-tabs-body,
+.model-tabs .ant-tabs-content-active {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 低频筛选浮层内两项文字条件并列，日期独占一行。 */
+.query-more-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: min(416px, calc(100vw - 64px));
+  padding: 4px;
+}
+
+/* 浮层字段服从网格宽度，保留错误文案的行高。 */
+.query-panel.compact-query .query-more-fields > .ant-form-item {
+  min-width: 0;
+  max-width: none;
+}
+
+/* 开始日与结束日共享同一个有清除入口的控件。 */
+.query-more-fields > :is(.query-more-date, .ant-form-item:only-child) {
+  grid-column: 1 / -1;
+}
+
+/* 日期范围继承所在网格的宽度，清除按钮留在控件内。 */
+.query-more-date .query-range-picker {
+  width: 100%;
+}
+
+/* 日期区间沿用原型的图标、等宽输入及居中分隔。 */
+.query-range-picker .ant-picker-input > input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 让日历和范围分隔在线框内清晰可见。 */
+.query-range-picker .ant-picker-prefix,
+.query-range-picker .ant-picker-separator {
+  color: var(--ant-color-text-secondary, #5b6575);
+}
+
+/* 后台列表在独立进入时也使用完整工作区，分页留在结果面板底部。 */
+.record-page {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 表格面板去掉额外标题和内距，分页固定在表体下方。 */
+.records-panel {
+  flex: 1;
+  min-height: 280px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+}
+/* 数据列在实际表体宽度内按字段预算分配，操作区始终位于最右侧。 */
+.record-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* 表格内部同样承接余高，少量记录时分页仍位于面板底部。 */
+.records-panel .ant-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 加载包装不改变表格工作区的既定高度。 */
+.records-panel .ant-table-wrapper > .ant-spin-nested-loading {
+  height: 100%;
+  min-height: 0;
+}
+/* Ant Design 6 的实际加载外层同样必须获得表格面板余高。 */
+.records-panel .ant-table-wrapper > .ant-spin {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+/* 表格与分页分别占据可伸缩内容和固定页脚。 */
+.records-panel .ant-spin-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+/* 表格容器占满页脚上方的可用空间。 */
+.records-panel .ant-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 表头与表体保持独立纵向分配。 */
+.records-panel .ant-table-container {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 统一表格在结果面板内滚动，浏览器仅在实际溢出时显示滚动条。 */
+.records-panel .record-table[data-scrollable='true'] .ant-table-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #c8ced8 transparent;
+}
+
+/* 在同一张表内固定表头，表头和数据共享列宽及横向滚动位置。 */
+.records-panel .record-table[data-scrollable='true'] .ant-table-thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+}
+
+/* 显式限制高度的嵌入表格仍使用组件库的独立表头。 */
+.records-panel .ant-table-header {
+  flex: none;
+}
+/* 单行记录以 48px 为下限，双行内容和较高控件按实际内容撑开。 */
+.records-panel .ant-table-tbody > tr > td {
+  height: 48px;
+  padding: 12px 16px;
+}
+/* 表头沿用组件主题的中性浅底，和记录共享阅读轴。 */
+.records-panel .ant-table-thead > tr > th {
+  height: 48px;
+  padding: 12px 16px;
+  font-weight: 500;
+}
+
+/* 键盘进入行中的链接、菜单时，整行提供和悬停一致的位置提示。 */
+.records-panel .ant-table-tbody > tr[data-row-key]:focus-within > td {
+  background: var(--do-subtle);
+}
+/* 首末列外侧采用面板的 24px 阅读轴。 */
+.ant-table-wrapper .ant-table-cell:first-child {
+  padding-left: 24px;
+}
+/* 最右操作列与面板右边界保持相同留白。 */
+.ant-table-wrapper .ant-table-cell:last-child {
+  padding-right: 24px;
+}
+/* 查询业务标签保留给读屏，视觉上继续使用占位与结构表达。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* 空态与错误内容按实际高度呈现，留白继续属于同一结果面板。 */
+.records-panel .ant-table-placeholder .ant-table-cell {
+  height: auto;
+  padding: 24px;
+}
+/* 可用宽度已覆盖列预算时，消除浏览器亚像素舍入造成的装饰性横滚。 */
+.records-panel .record-table[data-columns-fit='true'] :is(.ant-table-content, .ant-table-body) {
+  overflow-x: hidden !important;
+}
+
+/* 状态内容以可见结果区为宽度，横向滚动时仍留在视口内。 */
+.record-body-state {
+  position: sticky;
+  inset-inline-start: 0;
+  display: grid;
+  place-items: center;
+  width: min(100%, var(--record-state-width, 100%));
+  min-height: 192px;
+}
+/* 空态文案和表头保持同档对比，空图不影响实际状态的辨识。 */
+.record-body-state .ant-empty-description {
+  color: var(--do-muted);
+}
+/* 内层状态自己负责留白，避免表格占位单元格再叠一份内距。 */
+.records-panel
+  .ant-table-tbody
+  > tr.ant-table-placeholder
+  > td.ant-table-cell:has(.record-body-state) {
+  padding: 0;
+}
+/* 复用组件为横向滚动提供的固定占位，状态布局自己负责内距。 */
+.records-panel .ant-table-expanded-row-fixed:has(.record-body-state) {
+  margin: 0;
+  padding: 0;
+}
+/* 无数据时组件不生成滚动补位 col，限制空白 th，避免整行余宽被其独占。 */
+.records-panel .ant-table-container:has(.ant-table-placeholder) .ant-table-cell-scrollbar {
+  width: 0;
+  padding-inline: 0;
+}
+/* 分页保留独立页脚，不跟随横向表体滚动。 */
+.records-panel .ant-table-pagination {
+  margin: 0 !important;
+  min-height: 64px;
+  padding: 12px 24px;
+  border-top: 1px solid #e5e7eb;
+  align-items: center;
+}
+/* 结果总数位于分页页脚左侧。 */
+.records-panel .ant-pagination-total-text {
+  margin-inline-end: auto;
+}
+/* 分页页脚独立于表格组件的空态，始终位于结果面板底部。 */
+.record-pagination {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 64px;
+  padding: 12px 24px;
+  border-top: 1px solid #e5e7eb;
+  background: var(--do-panel);
+}
+/* 每页条数、翻页和跳转按原型从左到右排列。 */
+.record-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+/* 每页条数保持足够阅读宽度。 */
+.record-pagination-controls > .ant-select {
+  width: 128px;
+}
+/* 总数、每页条数和页码都是辅助信息，点击区域仍沿用 40px。 */
+.record-pagination,
+.record-pagination .ant-select .ant-select-content,
+.record-pagination .ant-pagination :is(.ant-pagination-item, .ant-pagination-simple-pager) {
+  font-size: var(--do-font-meta);
+}
+/* 总数在固定高度内保持辅助文字行高。 */
+.record-pagination > span {
+  line-height: var(--do-line-meta);
+  color: var(--do-muted);
+}
+/* 分页数字采用原型的轻量选中样式，悬停和键盘焦点仍然明确。 */
+.record-pagination .ant-pagination-item {
+  border-color: transparent;
+  background: transparent;
+}
+/* 当前页使用浅底定位，翻页操作保留次级层级。 */
+.record-pagination .ant-pagination-item-active {
+  background: var(--do-selected);
+}
+
+/* 当前页文字与选中菜单使用同一主色。 */
+.record-pagination .ant-pagination-item-active a {
+  color: var(--do-primary);
+  font-weight: 600;
+}
+/* 独立分页不叠加表格默认外边距。 */
+.record-pagination-controls .ant-pagination {
+  margin: 0;
+}
+
+/* 分页动作靠近对应页码，键盘可识别当前按钮和当前页的区别。 */
+.record-pagination
+  .ant-pagination
+  :is(.ant-pagination-prev, .ant-pagination-next):not(.ant-pagination-disabled):hover {
+  background: var(--do-hover);
+  border-radius: 6px;
+}
+/* 人员与角色名称是原型中的记录查看入口。 */
+.cell-title.ant-btn {
+  display: block;
+  max-width: 100%;
+  height: 24px;
+  padding: 0;
+  border-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 登录名、兼任等第二行信息使用统一次级文字。 */
+.table-secondary {
+  display: block;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* 部门名称在指定列宽中截断，详情保留完整内容。 */
+.cell-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 行操作保留完整文字和相同的顺序。 */
+.row-actions {
+  white-space: nowrap;
+}
+/* 行内按钮采用 32px 紧凑尺寸。 */
+.row-actions .ant-btn {
+  height: 32px;
+  padding-inline: 8px;
+}
+/* 操作表头与按钮文字共用单元格阅读轴，避免组件内距造成额外缩进。 */
+.record-actions-cell .ant-btn-link {
+  height: 32px;
+  padding-inline: 8px;
+  border-width: 0;
+}
+/* 操作单元格使用 32px 点击区和 8px 上下留白，单行记录保持紧凑。 */
+.records-panel .ant-table-tbody > tr > td.record-actions-cell {
+  padding-block: 8px;
+  padding-inline-start: 16px;
+}
+/* 操作列表头优先于通用表头内距，补齐按钮的 8px，和实际文字起点重合。 */
+.records-panel .ant-table-thead > tr > th.record-actions-cell {
+  padding-inline-start: 24px;
+}
+/* 只读说明沿用操作按钮的文字起点，避免同列在不同状态下左右跳动。 */
+.table-action-note {
+  display: inline-block;
+  padding-inline: 8px;
+}
+/* 同行仅首个常用动作使用主色，其余动作维持中性层级。 */
+.row-actions .ant-btn-link {
+  color: var(--do-muted);
+}
+/* 编辑等常用入口保持可识别，更多操作不抢主色。 */
+.row-actions > .ant-space-item:first-child .ant-btn-link:not(.ant-dropdown-trigger) {
+  color: var(--do-primary);
+}
+/* 行内动作具有完整的 32px 点击区域和浅底悬停反馈。 */
+.record-actions-cell .ant-btn-link:hover {
+  background: var(--do-hover);
+  color: var(--do-primary-hover);
+}
+/* 文字菜单打开时保持可辨识的按钮轮廓，并沿用现有悬停底色。 */
+.ant-btn.ant-dropdown-trigger[aria-expanded='true'] {
+  background: var(--do-hover);
+  color: var(--do-primary-hover);
+}
+/* 危险动作继续使用风险颜色，不被中性操作样式覆盖。 */
+.record-actions-cell .ant-btn-dangerous {
+  color: #b43c3c;
+}
+/* 状态标签沿用原型的文字、留白与受控浅底色。 */
+.record-status.ant-tag {
+  margin: 0;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #edf0f4;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+/* 正常、启用、确认和成功使用相同的绿色语义。 */
+:is(.record-status-enabled, .record-status-confirmed, .record-status-succeeded).ant-tag {
+  color: #216449;
+  background: #e8f4ee;
+}
+
+/* 调用和连接失败在历史记录中可快速辨认。 */
+.record-status-failed.ant-tag {
+  color: #b43c3c;
+  background: #fdf0f0;
+}
+/* 需要首次登录或改密的人员保留待处理状态，区别于停用。 */
+.record-status-pending_first_login.ant-tag,
+.record-status-password_change_required.ant-tag {
+  color: #8b651b;
+  background: #fbf2dd;
+}
+/* 核对与审计差异保留全文，长编号及换行不撑出浮层。 */
+.full-text-table .ant-table-cell {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 列表工具栏仅供非查询区的局部业务操作使用。 */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+/* 表单失败反馈紧邻本次操作。 */
+.form-alert {
+  margin-bottom: 16px;
+}
+/* 核对后的值以轻量底色区分，避免把差异阅读变成左右来回寻找。 */
+.full-text-table td.review-change-after {
+  background: #f8fafc;
+  font-weight: 500;
+}
+/* 影响范围保持紧凑的一行事实，多类对象自然换行。 */
+.review-impact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 16px;
+  color: #5b6575;
+  font-size: 12px;
+  line-height: 20px;
+}
+/* 数量与业务单位紧邻对应影响类型。 */
+.review-impact > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 实际数量只做文字强调，不另起统计卡片。 */
+.review-impact strong {
+  color: #1f2937;
+  font-weight: 600;
+}
+/* 服务端额外警告与数量之间保留一档间距。 */
+.review-impact + .form-alert {
+  margin-top: 16px;
+}
+/* 详情里的长编号和全文能够换行阅读。 */
+.ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+/* 读取状态紧凑居中，保留页面或面板中的任务上下文。 */
+:is(.read-failure, .read-access-denied) {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 192px;
+  padding: 24px;
+  text-align: center;
+}
+/* 权限与读取故障共用图标尺度，各自保留独立文字。 */
+.read-state-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 50%;
+  background: #f5f7fa;
+  color: #5b6575;
+  font-size: 22px;
+}
+/* 标题和原因组成一个阅读组，长度受限，按钮就近恢复当前查询。 */
+.read-failure-copy {
+  max-width: 400px;
+  overflow-wrap: anywhere;
+}
+/* 状态标题在面板和表格占位内使用相同对比度。 */
+:is(.read-failure-copy, .read-access-denied) h3 {
+  color: var(--do-ink);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+/* 页面级失权提供一个紧随状态的返回入口。 */
+.workspace > .read-access-denied {
+  min-height: 240px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
+}
+/* 返回按钮与状态说明留出一个紧凑的间隔。 */
+.read-access-denied > .ant-btn {
+  margin-block-start: 8px;
+}
+/* 原因与标题分层，但维持正文的可读尺度。 */
+.read-failure-copy p {
+  margin-top: 8px;
+  color: #5b6575;
+  font-size: 14px;
+  line-height: 22px;
+}
+/* 恢复按钮保留完整文字和稳定点击区域。 */
+.read-failure > .ant-btn {
+  min-width: 112px;
+}
+/* 首次详情读取不展示空白资料，加载入口保持可识别。 */
+.read-loading {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+}
+/* 短配置的角色选项直接列出，数量增加时在弹窗正文中滚动。 */
+.role-assignment-body {
+  min-height: 176px;
+}
+/* 勾选清单在读取及搜索期间保留稳定的内容空间。 */
+.role-assignment-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-height: min(440px, 55dvh);
+  overflow: auto;
+  padding: 8px 0;
+}
+/* 每一项保留完整的桌面点击区域，减少清单中的零散留白。 */
+.role-assignment-options .ant-checkbox-wrapper {
+  min-height: 32px;
+  align-items: center;
+  margin-inline-start: 0;
+}
+/* 搜索时明确仍保留多少选择，避免把无匹配误解为清空分配。 */
+.role-selection-count {
+  margin-bottom: 12px;
+  color: #5b6575;
+  font-size: 12px;
+  line-height: 18px;
+}
+/* 弹窗标题与底栏保持可达，较矮桌面窗口由正文承接滚动。 */
+.ant-modal .ant-modal-container {
+  max-height: calc(100dvh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+/* 长表单与角色详情只滚动正文。 */
+.ant-modal .ant-modal-body {
+  min-height: 0;
+  overflow: auto;
+}
+/* 标题和操作不会随正文滚出视口。 */
+.ant-modal .ant-modal-header,
+.ant-modal .ant-modal-footer {
+  flex: none;
+}
+/* 弹窗与窗口上下分别保留可达的安全间距。 */
+.ant-modal {
+  top: 32px;
+  padding-bottom: 32px;
+}
+/* 嵌入成员表格也按容器宽度调整分页。 */
+.role-member-results {
+  container-type: inline-size;
+}
+/* 详情动作集中在底栏。 */
+.detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+/* 对象名称和当前状态保持同行。 */
+.detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+/* 详情中的长名称完整换行，连续英文不挤压状态和管理动作。 */
+.detail-heading h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* 人员详情沿用原型头像与姓名状态同组展示。 */
+.person-overview .ant-avatar {
+  flex: none;
+  color: #2f63d5;
+  background: #eaf0fc;
+}
+
+/* 先识别当前人员和状态，随后再阅读角色、部门及关联资料。 */
+.person-overview.detail-heading {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-subtle);
+}
+/* 备注等详情正文保留原有换行和完整连续编号。 */
+.detail-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 工具栏中的对象名称不叠加外间距。 */
+.list-toolbar .detail-heading {
+  margin: 0;
+}
+/* 连续详情以分隔线区分独立章节。 */
+.section-heading {
+  margin: 24px 0 16px;
+  padding-top: 24px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* 本人资料沿用原型的一块连续全宽面板。 */
+.account-panel {
+  padding: 0 24px;
+  flex: none;
+}
+/* 各组标题、资料和操作分别沿固定列对齐。 */
+.account-section {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr) 128px;
+  gap: 24px;
+  align-items: start;
+  padding: 24px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+/* 首组基本资料不增加额外上留白。 */
+.account-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px 40px;
+  min-width: 0;
+  max-width: 1040px;
+  margin: 0;
+}
+/* 最后一组不保留重复底边线。 */
+.account-section:last-child {
+  border-bottom: 0;
+}
+/* 宽桌面按原型将标签和值放在同一行。 */
+.account-fields > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+/* 窄窗保留完整标签和值，允许上下排列。 */
+@media (max-width: 1040px) {
+  .account-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+/* 资料组各行保留清楚的阅读间隔。 */
+.account-fields dt {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+}
+/* 角色标签使用克制中性样式。 */
+.account-role.ant-tag {
+  padding: 4px 12px;
+  background: #f5f7fa;
+  border-color: #e5e7eb;
+}
+/* 本人资料值与原型保持同一固定阅读轴。 */
+.account-fields dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+/* 姓名与状态同组展示。 */
+.account-name-field dd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 个人角色跨越资料区两列。 */
+.account-role-field {
+  grid-column: 1 / -1;
+}
+/* 简短资料组与操作按钮垂直对齐。 */
+.account-contact-section,
+.account-section:last-child {
+  align-items: center;
+}
+/* 表单双列布局沿用原型短任务容器。 */
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 24px;
+}
+/* 初始密码和个人角色沿用原型整行，组织及联系方式各占两列。 */
+.form-grid .form-field-wide {
+  grid-column: 1 / -1;
+}
+/* 纵向表单的标签保持 22px 阅读高度，修正 large 变体将标签撑至控件高度的问题。 */
+.ant-form-vertical .ant-form-item .ant-form-item-label > label {
+  height: 22px;
+}
+/* 可搜索选择器填满字段区域。 */
+.full-width {
+  width: 100%;
+}
+/* 仅用于非关键补充内容的次级文字。 */
+.muted {
+  color: #5b6575;
+}
+/* 部门组织保留左树与右侧内容，窄窗口给查询区腾出空间。 */
+.departments-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1050px) {
+  .departments-workspace {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .department-tree .tree-title {
+    gap: 4px;
+  }
+}
+/* 组织树在自己的面板内滚动。 */
+.department-tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 12px 16px;
+  background: var(--do-subtle);
+}
+
+/* 树的透明底延续组织区色面，不在根节点外围留下独立色块。 */
+.department-tree .ant-tree {
+  background: transparent;
+}
+/* 组织架构标题、真实部门数量和新增按钮按原型同行。 */
+.tree-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 12px;
+}
+.tree-title h2 {
+  white-space: nowrap;
+}
+/* 部门总数使用次级档位。 */
+.tree-title small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #5b6575;
+}
+/* 原型树搜索只保留一个搜索框。 */
+.tree-search {
+  padding: 0 8px 16px;
+}
+/* 树节点按原型维持 38px 阅读高度。 */
+.department-tree .ant-tree-node-content-wrapper {
+  min-width: 0;
+  min-height: 38px;
+  line-height: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 组织树的当前部门与右栏的业务详情一一对应。 */
+.department-tree .ant-tree-node-selected {
+  box-shadow: inset 2px 0 var(--do-primary);
+  font-weight: 500;
+}
+/* 树状态紧邻对应部门名称。 */
+.tree-status {
+  margin-left: 8px;
+  color: #7b8491;
+  font-size: 12px;
+}
+/* 部门资料和页签面板保持两块结构。 */
+.department-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  min-height: 0;
+  container: department-content / inline-size;
+}
+/* 宽窗显示四项资料，窄窗按行展开以保留可读的标签和值。 */
+.department-profile {
+  flex: none;
+}
+
+/* 对象摘要的标签和值分层，摘要末列保留部门操作边界。 */
+.department-profile .ant-descriptions-item-label {
+  font-size: var(--do-font-meta);
+}
+
+/* 摘要标题与四项资料之间保留原型间隔。 */
+.department-profile .list-toolbar {
+  margin-bottom: 24px;
+}
+/* 部门页签在摘要下方独立面板内承接余高。 */
+.department-panel .department-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 完整页签独占标题行，操作跟随当前页签内容。 */
+.department-tabs > .ant-tabs-nav {
+  flex: none;
+  min-height: 64px;
+  padding: 0 24px;
+  margin: 0;
+}
+/* 页签正文传递余高到成员或子部门表格。 */
+.department-tabs > .ant-tabs-body-holder {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+/* 当前页签保持连续工作区。 */
+.department-tabs .ant-tabs-body {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+/* 表格与分页在激活页签内分别分配高度。 */
+.department-tabs [role='tabpanel'].ant-tabs-content-active {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+/* 空结果在整个表体区域居中，不缩成顶部一小块。 */
+.records-panel :is(.ant-table-content, .ant-table-body):has(.ant-table-placeholder) > table {
+  height: 100%;
+}
+/* 成员范围切换与查询保持原型工具栏位置。 */
+.member-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+/* 成员范围与加入动作共用一行，必要时保留完整的按钮文字。 */
+.member-scope-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 100%;
+}
+.member-scope-actions > .ant-segmented {
+  flex: none;
+  white-space: nowrap;
+}
+.department-child-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* 宽区沿用原型页签右侧操作；窄区把操作放到选中页签内容中。 */
+.department-compact-action {
+  display: none;
+}
+/* 工具栏内筛选不再叠加一份内距和边框。 */
+.member-tools .member-query {
+  flex: 1;
+  min-width: min(100%, 440px);
+  padding: 0;
+  border: 0;
+}
+/* 尚未接入的数据访问页签保留原承载方式与准确状态。 */
+.template-content {
+  padding: 24px;
+}
+/* 成员范围可另占一行，实际查询字段和操作保持同一行。 */
+.member-query {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+/* 成员筛选字段的预算保持一致。 */
+.member-query .ant-form-item {
+  margin: 0;
+  flex: 1 1 150px;
+  min-width: 0;
+}
+/* 狭窄的详情面板给搜索输入留出整行，避免操作组覆盖输入或被侧边裁切。 */
+@container department-content (max-width: 540px) {
+  .department-wide-action {
+    display: none;
+  }
+  .department-compact-action {
+    display: flex;
+  }
+  .department-profile {
+    padding: 16px;
+  }
+
+  .department-profile .list-toolbar {
+    margin-bottom: 16px;
+  }
+
+  .department-tabs > .ant-tabs-nav,
+  .member-tools,
+  .department-child-actions {
+    padding-inline: 16px;
+  }
+
+  .member-scope-actions {
+    flex: 1 1 100%;
+  }
+
+  .member-tools .member-query {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-query .query-tail-actions {
+    min-width: 0;
+    margin-inline-start: 0;
+  }
+}
+/* 表头与至少一条成员记录保留阅读空间，空间不足由工作区滚动。 */
+.department-panel {
+  min-height: 500px;
+}
+/* 角色标题在有限列宽内截断，查看入口和受保护状态仍保持完整。 */
+.ant-table-cell > .ant-space {
+  max-width: 100%;
+}
+/* 可变文本可收缩，按钮文字继续使用完整点击区域。 */
+.ant-table-cell > .ant-space > .ant-space-item {
+  min-width: 0;
+}
+/* 角色编辑区保留工作区留白，页面不再单独设置底部操作栏。 */
+.role-editor {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 24px;
+  overflow: hidden;
+}
+/* 整体失败反馈与表单间距由编辑区统一控制。 */
+.role-editor > .form-alert {
+  flex: none;
+  margin: 0;
+}
+/* 表单分配余高给功能卡片，矮窗口不将卡片内操作区推到屏幕外。 */
+.role-editor > .ant-form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+/* 角色名称与说明保持原型的并排基本资料卡片。 */
+.role-editor-info {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+}
+/* 基本资料卡片不叠加表单项目的下边距。 */
+.role-editor-info .ant-form-item {
+  margin: 0;
+}
+/* 角色功能浏览器使用左侧页面目录、右侧操作的原型结构。 */
+.role-permission-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  overflow: hidden;
+}
+/* 配置区章节边界保留必要间距。 */
+.role-permission-card > header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: var(--do-subtle);
+}
+/* 功能项保持独立点击区域。 */
+.permission-form-item {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  min-height: 0;
+  flex: 1;
+}
+/* 表单包装逐层传递余高，校验反馈单独占位，不把卡片内按钮推出边界。 */
+.permission-form-item .ant-form-item-row,
+.permission-form-item .ant-form-item-control,
+.permission-form-item .ant-form-item-control-input,
+.permission-form-item .ant-form-item-control-input-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+/* 表单控制列在选择器下方保留校验反馈的位置。 */
+.permission-form-item .ant-form-item-row,
+.permission-form-item .ant-form-item-control {
+  flex-direction: column;
+}
+/* 选择器拉伸至输入容器高度，右栏底部操作区保持稳定。 */
+.permission-form-item .ant-form-item-control-input {
+  align-items: stretch;
+}
+/* 功能目录与用途清单沿用原型左右分栏。 */
+.permission-browser {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 240px minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+/* 页面目录拥有独立纵向滚动。 */
+.permission-pages-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid #e5e7eb;
+  background: var(--do-subtle);
+}
+/* 目录搜索位于左栏顶部。 */
+.permission-search {
+  flex: none;
+  padding: 16px;
+}
+/* 页面分组只在左侧目录中滚动。 */
+.permission-pages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 16px;
+}
+/* 分组名称使用原型次级尺度。 */
+.permission-pages section h3 {
+  margin: 16px 12px 8px;
+  color: #5b6575;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+/* 首组不额外增加顶部间隔。 */
+.permission-pages section:first-child h3 {
+  margin-top: 0;
+}
+/* 页面选择保留完整点击区域和当前计数。 */
+.permission-page {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #1f2937;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  line-height: 22px;
+}
+/* 页面项悬停反馈。 */
+.permission-page:hover {
+  background: #f3f5f8;
+}
+/* 当前页面高亮与原型一致。 */
+.permission-page.is-current {
+  background: var(--do-selected);
+  color: var(--do-primary-hover);
+  box-shadow: inset 2px 0 var(--do-primary);
+  font-weight: 500;
+}
+/* 当前选择数量采用次级文字。 */
+.permission-page small {
+  flex: none;
+  color: #5b6575;
+  font-size: 12px;
+}
+/* 右栏将可滚动清单与固定操作区分开，左侧目录始终保留完整高度。 */
+.permission-detail-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* 取消和核对操作位于功能卡片右栏底部，沿用正文的 24px 阅读轴。 */
+.permission-editor-footer {
+  flex: none;
+  padding: 16px 24px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-panel);
+}
+/* 受保护原因紧邻核对入口，字段保持 800px 以内的阅读宽度。 */
+.permission-editor-footer > .ant-form-item {
+  max-width: 800px;
+  margin-bottom: 16px;
+}
+/* 主次操作靠右排列，完整保留按钮间距。 */
+.permission-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* 取消和核对按钮沿用原型的 96px 最小宽度。 */
+.permission-editor-actions .ant-btn {
+  min-width: 96px;
+}
+
+/* 操作说明在右侧独立滚动，不推走底部动作。 */
+.permission-content {
+  flex: 1;
+  padding: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+/* 操作区标题明确当前页面和已选数量。 */
+.permission-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--do-line);
+}
+/* 数量文字保持次级档位。 */
+.permission-page-heading > span {
+  color: #5b6575;
+  font-size: 12px;
+}
+/* 具体功能使用带用途说明的纵向清单。 */
+.permission-operations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* 同页功能以浅边线和留白分开。 */
+.permission-operations li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--do-line);
+}
+/* 功能用途紧邻选择项。 */
+.permission-operations p {
+  margin: 4px 0 0 24px;
+  color: #5b6575;
+  font-size: 12px;
+  line-height: 18px;
+}
+/* 必要的受保护反馈采用克制色彩。 */
+.role-protected.ant-tag {
+  background: #fbf2dd;
+  color: #825b24;
+  border: 0;
+  font-size: 12px;
+  margin: 0;
+  flex: none;
+}
+/* 不在 Space 组件中的受保护标识，单独保留与功能名称的间距。 */
+.permission-operations .role-protected,
+.role-permission-card > header .ant-tag {
+  margin-inline-start: 8px;
+}
+/* 受保护流程说明只在相关页面出现。 */
+.permission-hint {
+  margin-top: 16px;
+  color: #825b24;
+  font-size: 12px;
+}
+/* 无匹配时仍保留左右分区。 */
+.permission-empty {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  color: #5b6575;
+}
+/* 未保存标识与已选数量保持一行。 */
+.role-unsaved {
+  margin-right: 16px;
+  color: #825b24;
+}
+/* 角色详情保留原型右侧抽屉内的两栏浏览器。 */
+.role-detail-permissions {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+/* 详情目录采用原型的较紧凑预算。 */
+.role-detail-permissions .permission-browser {
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 400px;
+}
+/* 角色抽屉沿用原型的标题内距和右侧关闭入口。 */
+.role-details-drawer .ant-drawer-header,
+.record-details-drawer .ant-drawer-header {
+  min-height: 72px;
+  padding: 20px 24px;
+}
+/* 抽屉底栏与标题、正文共用 24px 阅读轴，并保留原型的 80px 操作区。 */
+.role-details-drawer .ant-drawer-footer,
+.record-details-drawer .ant-drawer-footer {
+  min-height: 80px;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+}
+/* 底栏动作铺满抽屉宽度，主次按钮保持原型的固定阅读轴。 */
+.role-details-drawer .ant-drawer-footer > .detail-footer,
+.record-details-drawer .ant-drawer-footer > .detail-footer {
+  width: 100%;
+}
+/* 查看详情的右侧常用操作采用原型的 96px 最小点击宽度。 */
+.role-details-drawer .detail-footer > .ant-space .ant-btn,
+.record-details-drawer .detail-footer > .ant-space .ant-btn {
+  min-width: 96px;
+}
+/* 角色抽屉的页签区承接余高，功能目录保留完整桌面阅读空间。 */
+.role-details-drawer .ant-drawer-body {
+  display: flex;
+  flex-direction: column;
+}
+/* 已读取的角色资料与页签连续铺排，列表或功能区承接剩余空间。 */
+.role-details-drawer .ant-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 页签正文把可用高度传递给当前功能目录或成员结果区。 */
+.role-details-drawer .ant-tabs-body-holder,
+.role-details-drawer .ant-tabs-body,
+.role-details-drawer [role='tabpanel'].ant-tabs-content-active {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 功能浏览器按真实余高伸缩，较矮窗口由抽屉正文承接滚动。 */
+.role-details-drawer .role-detail-permissions {
+  flex: 1;
+  min-height: 280px;
+}
+/* 两栏内容保留完整阅读空间，不采用固定视口减法估算高度。 */
+.role-details-drawer .role-detail-permissions .permission-browser {
+  height: 100%;
+}
+/* 角色说明完整保留换行。 */
+.role-description {
+  color: #5b6575;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 角色元数据与页签保留明确间隔。 */
+.role-detail-meta {
+  margin-top: 24px;
+}
+/* 登录页不使用后台视口裁切，品牌与卡片沿原型定位。 */
+.login-shell {
+  height: 100dvh;
+  min-height: 0;
+  background: var(--do-canvas);
+  overflow: auto;
+}
+/* 原型品牌位于登录页左上角。 */
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 80px;
+  padding: 24px 40px;
+  border-bottom: 1px solid var(--do-line);
+  background: var(--do-panel);
+}
+/* 登录和后台使用同一原始图形标识。 */
+.login-brand img {
+  width: 26px;
+  height: 30px;
+  object-fit: contain;
+}
+/* 登录品牌保持 22px 字号。 */
+.login-brand strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+/* 登录卡片位于剩余视口中央。 */
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - 160px);
+  padding: 32px;
+}
+/* 原型登录卡片为单列 440px。 */
+.login-card {
+  width: min(440px, 100%);
+  padding: 40px;
+  border: 1px solid var(--do-line);
+  border-top: 3px solid var(--do-primary);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 8px 32px #1f293708;
+}
+/* 登录标题到凭据表单保留原型 32px 间距。 */
+.login-card h1 {
+  margin-bottom: 24px;
+}
+/* 登录字段保持原型垂直间隔。 */
+.login-card .ant-form-item {
+  margin-bottom: 24px;
+}
+/* 必要改密保留原型解释与登录名位置。 */
+.login-note {
+  margin: -16px 0 24px;
+  color: #5b6575;
+}
+/* 受限身份仅展示必要登录名。 */
+.login-name {
+  margin-bottom: 24px;
+  color: var(--do-muted);
+  overflow-wrap: anywhere;
+}
+/* 登录名正文与标签分开。 */
+.login-name strong {
+  margin-left: 12px;
+  color: #1f2937;
+  font-weight: 500;
+}
+/* 退出受限改密返回登录入口。 */
+.return-login {
+  margin-top: 24px;
+}
+/* 较矮窗口收紧改密卡片留白，确认与返回入口同时可见。 */
+@media (max-height: 640px) {
+  .login-brand {
+    height: 64px;
+    padding: 16px 32px;
+  }
+
+  .login-page {
+    padding: 24px;
+  }
+
+  .login-card {
+    padding: 24px 32px;
+  }
+
+  .login-note,
+  .login-name,
+  .login-card .ant-form-item {
+    margin-bottom: 16px;
+  }
+
+  .return-login {
+    margin-top: 16px;
+  }
+}
+/* 弹窗沿用原型的标题、正文和固定操作区，长表单只在正文滚动。 */
+.app-dialog .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 64px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}
+/* 标题区与正文使用共同的 24px 阅读轴。 */
+.app-dialog .ant-modal-header {
+  flex: none;
+  margin: 0;
+  padding: 20px 56px 20px 24px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+/* 核对、编辑与短任务的操作带与正文分层，可见范围不受滚动影响。 */
+.app-dialog .ant-modal-footer,
+.record-details-drawer .ant-drawer-footer,
+.role-details-drawer .ant-drawer-footer {
+  background: var(--do-subtle);
+}
+/* 关闭按钮与标题垂直居中，并保留完整的键盘点击区域。 */
+.app-dialog .ant-modal-close {
+  top: 16px;
+  inset-inline-end: 16px;
+  width: 32px;
+  height: 32px;
+}
+/* 正文承接长表单滚动，页脚始终可达。 */
+.app-dialog .ant-modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* 最后一个字段不再叠加正文之外的额外底部留白。 */
+.app-dialog .ant-modal-body > .ant-form > .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+/* 操作区独立于正文，短确认与长编辑共用一致的对齐。 */
+.app-dialog .ant-modal-footer {
+  flex: none;
+  margin: 0;
+  padding: 16px 24px;
+  border-top: 1px solid var(--do-line);
+}
+/* 弹窗主次操作具备稳定的点击宽度。 */
+.app-dialog .ant-modal-footer .ant-btn {
+  min-width: 88px;
+}
+/* 短任务标题表达动作，完整对象名称由下方摘要承接，减少重复分隔。 */
+.operation-dialog .ant-modal-header {
+  padding-bottom: 12px;
+  border-bottom: 0;
+}
+/* 任务正文与底栏仍沿用 24px 阅读轴，摘要紧随标题。 */
+.operation-dialog .ant-modal-body {
+  padding-top: 16px;
+}
+/* 一处浅底将对象身份、当前状态和必要后果归组。 */
+.operation-context {
+  margin-bottom: 24px;
+  padding: 16px;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+/* 图标与对象资料形成明确的横向层级。 */
+.operation-object {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+/* 对象图标保持中性色，不与主操作竞争。 */
+.operation-object-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  color: #5b6575;
+  font-size: 20px;
+}
+/* 对象资料吸收余宽，长名称自然换行。 */
+.operation-object-content {
+  flex: 1;
+  min-width: 0;
+}
+/* 名称比属性及表单标签高一档，全文可读。 */
+.operation-object-name {
+  display: block;
+  color: #1f2937;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+/* 状态与人数以一行紧凑属性呈现，窄窗口允许成组换行。 */
+.operation-object-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: #5b6575;
+  font-size: 12px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+/* 摘要标签与属性保持相同的 20px 高度。 */
+.operation-object-meta .record-status {
+  padding-block: 0;
+}
+/* 危险后果只保留一条必要提醒，与普通属性分层。 */
+.operation-consequence {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  color: #825b24;
+  font-size: 14px;
+  line-height: 22px;
+}
+/* 提醒图标与首行文字对齐，不撑高整段。 */
+.operation-consequence > .anticon {
+  flex: none;
+  margin-top: 4px;
+  font-size: 14px;
+}
+/* 原因输入去掉浏览器拖拽角，高度由组件的自适应行数承接。 */
+.operation-dialog textarea.ant-input {
+  resize: none;
+}
+/* 下一步及最终确认保留稳定的点击宽度。 */
+.operation-dialog .ant-modal-footer .ant-btn-primary {
+  min-width: 104px;
+}
+/* 浮层与页面上的中文按钮保持自然字距。 */
+.ant-btn {
+  font-weight: 400;
+}
+/* 用户选择减少动态效果时，局部反馈无需通过动画才能辨认。 */
+@media (prefers-reduced-motion: reduce) {
+  /* 导航、记录和按钮的状态即时切换。 */
+  .admin-shell *,
+  .app-dialog *,
+  .ant-drawer * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+/* 较窄 PC 窗口保留侧栏和组织结构，不切换为移动布局。 */
+@media (max-width: 1200px) {
+  .account-section {
+    grid-template-columns: 104px minmax(0, 1fr) 128px;
+  }
+  .account-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+/* 极矮桌面窗口中的部门页由工作区滚动承接，角色页仍保持正文与底栏分离。 */
+@media (max-height: 700px) {
+  .departments-workspace {
+    min-height: 700px;
+  }
+  /* 矮 PC 主列表按当前页内容自然展开，由工作区承接单层纵向滚动。 */
+  .workspace .records-panel:not(.approval-panel),
+  .workspace .records-panel .record-table[data-scrollable='true'],
+  .workspace .departments-workspace {
+    flex: none;
+    height: auto;
+    min-height: 0;
+  }
+  /* 保留表格内横向滚动，解除纵向余高压缩，避免空态与恢复按钮被裁切。 */
+  .workspace
+    .records-panel
+    .record-table[data-scrollable='true']
+    :is(
+      .ant-table-wrapper,
+      .ant-spin,
+      .ant-spin-nested-loading,
+      .ant-spin-container,
+      .ant-table,
+      .ant-table-container,
+      .ant-table-content
+    ) {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+  }
+  /* 部门页签的自然高度包含查询、记录或空态及分页，详情类浮层不受此规则影响。 */
+  .workspace .department-tabs,
+  .workspace .department-tabs > .ant-tabs-body-holder,
+  .workspace .department-tabs .ant-tabs-body,
+  .workspace .department-tabs [role='tabpanel'] {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+  }
+  /* 百分比空表高度在自然模式下不再挤压内容，横向滚动条单独占高。 */
+  .workspace .records-panel .record-table[data-scrollable='true'] .ant-table-content > table {
+    height: auto;
+  }
+}
+/* 窄结果区分为总数与条数、前后翻页与当前页两行。 */
+.record-pagination.is-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+/* 窄容器中的控件直接参与页脚网格，不再挤入同一行。 */
+.record-pagination.is-compact .record-pagination-controls {
+  display: contents;
+}
+/* 每页条数保持第一行右侧的位置。 */
+.record-pagination.is-compact .record-pagination-controls > .ant-select {
+  grid-row: 1;
+  grid-column: 2;
+}
+/* 原生简洁分页占据第二行，前后操作分别位于可用区两端。 */
+.record-pagination.is-compact .record-pagination-controls > .ant-pagination {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: var(--do-control-height) minmax(0, 1fr) var(--do-control-height);
+  width: 100%;
+}
+
+/* 去掉旧浮动清除节点在网格里的额外占位，页码居中。 */
+.record-pagination.is-compact .ant-pagination::after {
+  display: none;
+}
+
+/* 紧凑页脚的间距由网格提供，页码组件的默认外边距会偏移中线。 */
+.record-pagination.is-compact .ant-pagination > li {
+  margin-inline: 0;
+}
+
+/* 只读页码对齐两端翻页按钮之间的中线。 */
+.record-pagination.is-compact .ant-pagination-simple-pager {
+  justify-self: center;
+}
+/* 键盘焦点始终可见。 */
+:focus-visible {
+  outline: 2px solid #2f63d5;
+  outline-offset: 3px;
+}
+
+/* 居中详情统一标题、正文和办理区的阅读起点，只滚动正文。 */
+.record-detail-dialog .ant-modal-container {
+  padding: 0;
+  overflow: hidden;
+}
+
+.record-detail-dialog .ant-modal-header {
+  margin: 0;
+  padding: 20px 56px 16px 24px;
+  border-bottom: 1px solid var(--do-line);
+  overflow-wrap: anywhere;
+}
+
+.record-detail-dialog .ant-modal-close {
+  inset-inline-end: 14px;
+  inset-block-start: 14px;
+}
+
+.record-detail-dialog .ant-modal-body {
+  padding: 24px;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+}
+
+.record-detail-dialog .ant-modal-footer {
+  margin: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-subtle);
+}
+
+/* 详情说明的列位对齐，长编号和链接留在各自列内。 */
+:is(.record-detail-dialog, .audit-detail-drawer) .ant-descriptions-view table {
+  table-layout: fixed;
+}
+
+:is(.record-detail-dialog, .audit-detail-drawer) .ant-descriptions-item-label {
+  padding-inline-end: 12px;
+}
+
+.responsibility-detail .ant-descriptions-item-label {
+  inline-size: 106px;
+}
+
+/* 审计的差异保留单独标题，字段区和前后变化不相贴。 */
+.audit-change-section {
+  margin-block-start: 24px;
+}
+
+.audit-change-section h3 {
+  margin-block: 0 12px;
+}
+
+/* 模型列表头补足下拉的边框与 11px 内距，对齐实际选中值。 */
+.records-panel .ant-table-thead > tr > th.model-node-assignment {
+  padding-inline-start: 28px;
+}
+
+/* 未开放分配的状态与下拉选中值沿同一左轴显示。 */
+.records-panel td.model-node-assignment > .table-secondary {
+  padding-inline-start: 12px;
+}
+
+/* 分配模型的列宽围绕控件内容，描述继续使用剩余空间。 */
+.model-node-picker {
+  inline-size: 100%;
+  max-inline-size: 204px;
+}
+
+/* 分配确认在同一处对齐旧值、变更方向和目标值。 */
+.model-assignment-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 6px;
+  background: var(--do-canvas);
+}
+
+/* 模型长名称完整换行，避免将另一侧的名称挤出。 */
+.model-assignment-comparison dl {
+  min-width: 0;
+  margin: 0;
+}
+
+/* 属性名称比实际选择低一档。 */
+.model-assignment-comparison dt {
+  color: var(--do-muted);
+  font-size: var(--do-font-meta);
+  line-height: var(--do-line-meta);
+}
+
+/* 数值沿用正文尺度，并与各自标签对齐。 */
+.model-assignment-comparison dd {
+  margin: 4px 0 0;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+/* 主色只标出准备分配的模型，箭头提示变化方向。 */
+.model-assignment-target dd {
+  color: var(--do-primary);
+  font-weight: 600;
+}
+
+/* 方向提示保持次要色，避免抢占模型名称。 */
+.model-assignment-arrow {
+  color: var(--do-muted);
+}
+
+/* 清空影响放在对照下方，无额外外框。 */
+.model-assignment-warning {
+  margin: 12px 0 0;
+  color: var(--do-muted);
+  line-height: 22px;
+}

@@ -1,0 +1,829 @@
+/* 数据源页签沿用后台工作区背景。 */
+.access-source-tabs > .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+/* 来源分组和完整规则正文使用固定的内容间距。 */
+.access-stack,
+.access-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* 紧凑列的长标题和姓名仅在自身单元格内省略。 */
+.access-records .record-link,
+.access-person,
+.access-person > * {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 人员登录名作为次行身份信息。 */
+.access-person small {
+  color: var(--ant-color-text-secondary, #575e6b);
+  font-size: 12px;
+}
+
+/* 按钮文字由内层承载，保留真实可读标题。 */
+.access-records .record-link > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 名称按钮与普通表格文字使用同一左侧起点。 */
+.access-records .record-link {
+  height: auto;
+  min-height: 30px;
+  text-align: left;
+  padding-inline: 0;
+}
+
+/* 搜索结果保留限制全文并允许换行。 */
+.access-option small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 对象摘要、配置组和只读来源保持同一左侧起点。 */
+.access-context,
+.access-origin,
+.access-selection {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--ant-color-border-secondary, #e8ebef);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+/* 来源标题和规则由结构分开。 */
+.access-origin {
+  display: grid;
+  gap: 8px;
+}
+
+/* 来源回看入口独立右对齐。 */
+.access-origin > .ant-btn,
+.access-footer {
+  justify-self: end;
+  text-align: right;
+}
+
+/* 核对内容保护长规则的自然换行。 */
+.access-review {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 说明正文使用独立工作区，附件和操作与正文左边缘对齐。 */
+.panel.note-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 0;
+}
+
+/* 录入页面沿用原型的满宽外框、800px 表单和独立保存栏。 */
+.note-editor-form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.note-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-block: 24px;
+}
+
+.note-editor-inner {
+  width: min(800px, calc(100% - 48px));
+  margin-inline: auto;
+}
+
+.note-editor-inner > .ant-alert {
+  margin-bottom: 16px;
+}
+
+.note-editor-body input.ant-input,
+.note-editor-inner .ant-btn {
+  min-height: 40px;
+}
+
+.note-editor-footer {
+  flex: none;
+  padding-block: 16px;
+  border-top: 1px solid var(--do-line, #e5e7eb);
+}
+
+.note-editor-footer .ant-btn {
+  min-width: 96px;
+}
+
+/* 资料详情允许原文和文件名自然换行。 */
+.access-notes-detail {
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* 处理记录和最新办理表格保持清楚的间隔。 */
+.access-request-history {
+  margin-top: 16px;
+}
+/* 访问类查询沿用后台 200px 文字列，选择和日期采用各自宽度预算。 */
+.query-panel.access-toolbar .access-select-field {
+  flex: 0 1 260px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.query-panel.access-toolbar .access-status-field {
+  flex: 0 1 200px;
+  min-width: 160px;
+  max-width: 240px;
+}
+
+/* 选项控件跟随字段宽度，窄窗时不覆盖相邻条件。 */
+.access-toolbar .ant-form-item .ant-select {
+  width: 100%;
+}
+
+/* 有业务主操作时允许操作组换行；日期或状态与查询、重置共用一组。 */
+.access-query-tail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-inline-start: auto;
+  max-width: 100%;
+}
+
+.access-query-tail.has-status {
+  flex: 1 1 335px;
+  min-width: min(335px, 100%);
+}
+
+/* 新增等业务操作与状态、查询、重置在窄桌面整体换行。 */
+.access-query-tail.has-status:has(.ant-btn-primary) {
+  flex-basis: 480px;
+  min-width: min(480px, 100%);
+}
+
+.access-query-actions {
+  min-width: 0;
+  margin-inline-start: auto;
+}
+
+/* 单个主筛选字段在窄窗占满一行，操作组按实际可用宽度换行。 */
+.access-toolbar {
+  container: access-toolbar / inline-size;
+}
+
+@container access-toolbar (max-width: 560px) {
+  .query-panel.access-toolbar
+    > form
+    > .ant-form-item:first-child:has(+ .access-query-tail:last-child) {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .access-toolbar .access-query-tail.query-tail-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+/* 详情正文和固定底栏共享阅读轴，长说明和连续编号在正文内换行。 */
+.access-detail-drawer .ant-drawer-body {
+  padding: 24px;
+  overflow-wrap: anywhere;
+}
+
+.access-detail-drawer .ant-descriptions-view table {
+  table-layout: fixed;
+}
+
+/* 资料使用与目录和采集同宽的来源条，来源与具体资料查询各居一层。 */
+.notes-source-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 0 1 296px;
+}
+
+.notes-source-control > span {
+  white-space: nowrap;
+  color: var(--do-muted, #526072);
+}
+
+.panel.ds-toolbar.notes-source-context {
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.notes-source-control .ds-source-picker {
+  width: min(320px, calc(100% - 84px));
+}
+
+.notes-source-context > .ant-space {
+  margin-inline-start: auto;
+}
+
+.notes-page > .record-page {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 原文的行宽与阅读区一致，附件及版本入口保持可达。 */
+.access-notes-detail .detail-text {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-subtle);
+}
+
+/* 资料编辑动作位于阅读区下沿，长正文继续在正文容器滚动。 */
+.note-editor-footer {
+  background: var(--do-subtle);
+}
+
+.access-detail-section {
+  margin: 24px 0 12px;
+  font-size: 16px;
+}
+
+/* 当前规则集中阅读，限制正文与各来源的引用分清层级。 */
+.access-scope-rules {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-subtle);
+}
+
+.access-scope-rules dt {
+  margin-block-end: 4px;
+  font-weight: 600;
+}
+
+.access-scope-rules dd {
+  margin: 0;
+}
+
+.access-scope-rules > div + div {
+  margin-block-start: 12px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--do-line);
+}
+
+/* 来源和回看动作同排，长规则名留在来源内部换行。 */
+.access-scope-origin {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.access-scope-origin small {
+  display: block;
+  margin-block-start: 4px;
+  color: var(--do-muted);
+}
+
+/* 历史来源的页签和返回动作共用稳定边界，下面留给历史列表。 */
+.access-source-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding-inline: 24px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-panel);
+}
+
+/* 页签栏的外框已经承担边界，只保留当前页签的指示线。 */
+.access-source-tabs > .ant-tabs-nav::before {
+  border-bottom: 0;
+}
+
+/* 数据源及收件箱的页签与表体共用结果边框。 */
+.access-grid-tabs,
+.approval-panel-header {
+  flex: none;
+  min-width: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+}
+
+.access-grid-tabs > .ant-tabs-nav,
+.approval-panel-header .ant-tabs-nav,
+.approval-decision-heading + .ant-tabs > .ant-tabs-nav {
+  margin: 0;
+}
+
+.access-grid-tabs > .ant-tabs-nav::before,
+.approval-panel-header .ant-tabs-nav::before {
+  display: none;
+}
+
+.access-grid-tabs > .ant-tabs-nav .ant-tabs-tab,
+.approval-panel-header .ant-tabs-tab {
+  min-height: 55px;
+}
+
+/* 两行单元格的标题与次要信息使用原型的行间距。 */
+.access-cell-summary {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.access-cell-summary > small,
+.access-cell-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-cell-summary > small {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.access-cell-summary .record-link {
+  min-height: 21px;
+  line-height: 21px;
+  justify-self: start;
+}
+
+/* 状态色沿用原型的浅底深字，含义始终由文字表达。 */
+.access-status.ant-tag {
+  line-height: 20px;
+  border: 0;
+  padding-inline: 7px;
+}
+
+.access-status-success.ant-tag {
+  color: #216449;
+  background: #e8f4ee;
+}
+
+.access-status-warning.ant-tag {
+  color: #825b24;
+  background: #fbf2dd;
+}
+
+.access-status-error.ant-tag {
+  color: #a32731;
+  background: #fceced;
+}
+
+.access-status-processing.ant-tag {
+  color: #2157aa;
+  background: #e8effa;
+}
+
+.access-status-default.ant-tag {
+  color: #526072;
+  background: #edf1f5;
+}
+
+/* 审批区沿用原型的固定左队列、可滚动单据和下方分页。 */
+.approval-panel {
+  min-height: 340px;
+}
+
+.approval-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.approval-panel-header > .ant-tabs {
+  min-width: 0;
+}
+
+.approval-feedback {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.approval-feedback .ant-typography {
+  max-width: 120px;
+}
+
+.approval-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+}
+
+.approval-queue {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--do-line, #e5e7eb);
+  scrollbar-gutter: stable;
+  background: var(--do-subtle);
+}
+
+/* 空队列与单据区共享白色面板，保留原有分栏边界。 */
+.approval-queue:empty {
+  background: var(--do-panel);
+}
+
+/* 没有申请时保留与列表空态一致的文字对比度。 */
+.approval-document-empty .ant-empty-description {
+  color: var(--do-muted);
+}
+
+.approval-entry {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 16px;
+  row-gap: 4px;
+  border: 0;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+  background: #fff;
+  color: var(--do-ink, #182437);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.approval-entry:hover {
+  background: var(--do-hover, #f3f6fa);
+}
+
+.approval-entry[aria-current='true'] {
+  background: var(--do-selected, #e8effa);
+  box-shadow: inset 3px 0 var(--do-primary, #2e62cf);
+}
+
+/* 在连续单据间先定位当前事项，再读取编号和时间。 */
+.approval-entry[aria-current='true'] .approval-entry-title {
+  color: var(--do-primary-hover);
+  font-weight: 600;
+}
+
+.approval-entry:focus-visible {
+  outline: 2px solid var(--do-primary, #2e62cf);
+  outline-offset: -3px;
+}
+
+.approval-entry-identity,
+.approval-entry-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.approval-entry .ant-tag,
+.approval-part-meta .ant-tag {
+  margin: 0;
+}
+
+.approval-entry-title,
+.approval-entry-identity strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-entry-identity strong {
+  font-weight: 500;
+}
+
+.approval-entry-meta {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.approval-entry-meta small,
+.approval-entry-meta time {
+  font-size: inherit;
+}
+
+.approval-document,
+.approval-document-empty,
+.approval-unavailable {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.approval-document-empty,
+.approval-unavailable {
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+}
+
+.approval-document-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.approval-document-heading,
+.approval-section {
+  padding: 24px;
+  border-bottom: 1px solid var(--do-line, #e5e7eb);
+}
+
+/* 申请状态、事项与申请人形成一个可快速定位的单据摘要。 */
+.approval-document-heading {
+  background: var(--do-subtle);
+}
+
+.approval-section:last-child {
+  border-bottom: 0;
+}
+
+.approval-document-heading h2 {
+  margin: 8px 0 14px;
+  color: var(--do-ink, #182437);
+  font-size: 28px;
+  line-height: 36px;
+  overflow-wrap: anywhere;
+}
+
+.approval-document-heading small,
+.approval-metadata dt,
+.approval-request-fields dt,
+.approval-part-meta,
+.approval-reason {
+  color: var(--do-muted, #526072);
+  font-size: 12px;
+}
+
+.approval-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.approval-metadata > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.approval-document dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-request-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(170px, 1fr);
+  gap: 14px 24px;
+  margin: 0;
+}
+
+.approval-request-fields > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.approval-request-fields dd {
+  white-space: pre-wrap;
+}
+
+.approval-decision-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.approval-decision-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.approval-decision-heading .ant-btn-link {
+  padding-inline: 0;
+}
+
+.approval-part-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.approval-scope {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.32fr) minmax(0, 1fr);
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+}
+
+.approval-scope > div {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+.approval-scope dt {
+  padding: 12px 16px;
+  background: var(--do-canvas, #f5f7fa);
+  color: var(--do-muted, #526072);
+}
+
+.approval-scope dd {
+  padding: 13px 16px;
+}
+
+.approval-reason {
+  margin: 16px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--do-line, #e5e7eb);
+  background: var(--do-subtle);
+}
+
+.approval-actions > span {
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1240px) {
+  .approval-document-heading h2 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+  .approval-request-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .approval-feedback > .ant-typography {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) {
+  .workspace .records-panel.approval-panel {
+    flex: 1 1 0;
+    min-height: 310px;
+    overflow: hidden;
+  }
+}
+
+/* 详情标题直接识别数据源及状态，避免正文再次出现一张大标题卡。 */
+.access-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.access-rule-list,
+.access-rule-list dd {
+  margin: 0;
+}
+
+.access-rule-list > div + div {
+  margin-block-start: 12px;
+}
+
+.access-rule-list dt {
+  font-weight: 600;
+}
+
+.access-rule-list dd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--do-muted);
+}
+
+/* 资料正文、版本和引用信息各成一行，短正文不拉高弹窗。 */
+.access-notes-detail {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.access-notes-detail .detail-text {
+  margin: 0;
+}
+
+/* 补足状态标签的 7px 内距，让表头与正文文字起点对齐。 */
+.personal-scope-status-label {
+  padding-inline-start: 7px;
+}
+
+/* 个人范围的过滤与确认动作相邻，额外申请仍保持独立主操作。 */
+.personal-scope-page .access-query-tail {
+  margin-inline-start: 0;
+}
+
+.personal-scope-page .access-query-actions {
+  margin-inline-start: 0;
+}
+
+.personal-scope-page .access-toolbar form {
+  column-gap: 12px;
+}
+
+/* 审批责任只在对象条内显示数据源，姓名控件独占一行。 */
+.access-context:has(.responsibility-source) {
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 0;
+  background: transparent;
+  margin-block-end: 24px;
+}
+
+/* 对象标签和值分层，长来源名可以换行。 */
+.responsibility-source {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 数据源名与表单字段共用正文色。 */
+.responsibility-source strong {
+  color: var(--do-ink);
+  font-weight: 500;
+}
+
+/* 初始访问仅在原页签内重排，部门和组织树的工作区保持原样。 */
+.department-access-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-block-end: 16px;
+}
+
+/* 实际配置状态和人数在同一摘要行。 */
+.department-access-facts,
+.department-access-facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.department-access-facts > div {
+  gap: 8px;
+}
+
+/* 指标标签与值区分层级。 */
+.department-access-facts dt {
+  color: var(--do-muted);
+}
+
+.department-access-facts dd {
+  margin: 0;
+}
+
+/* 空态保留数据源和规则的列边界。 */
+.department-access-records {
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+}

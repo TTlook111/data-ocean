@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="zh-CN" data-type="software">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataOcean 后台界面规范样张</title>
+  <meta name="description" content="DataOcean PC 后台的查询、表格、记录详情与操作组件。">
+  <meta name="page-type" content="software">
+  <meta name="site-kind" content="software">
+  <meta name="theme-color" content="#f5f7fa">
+  <link rel="icon" href="../app/assets/dataocean-mark.png">
+  <link rel="stylesheet" href="../shared/vendor/element-plus-2.14.0.css">
+  <link rel="stylesheet" href="admin-system.css?v=element-controls-20261108-r3">
+  <link rel="stylesheet" href="record-controls.css?v=site-consistency-20261111">
+  <link rel="stylesheet" href="record-table.css?v=scroll-20261111">
+  <script src="../shared/vendor/vue-3.5.34.global.prod.js"></script>
+  <script src="../shared/vendor/element-plus-2.14.0.min.js"></script>
+  <script src="../shared/vendor/element-plus-zh-cn-2.14.0.min.js"></script>
+  <script src="../shared/element-adapter.js?v=element-controls-20261108-r3"></script>
+  <script src="../app/icons.js"></script>
+  <script src="record-controls.js?v=site-consistency-20261111"></script>
+  <script src="record-table.js?v=element-controls-20261108-r3"></script>
+  <style>
+    :root {
+      --space-0: 0;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --header-height: 64px;
+      --sidebar-width: 216px;
+      --control-height: 40px;
+      --table-header-height: 48px;
+      --table-row-height: 64px;
+      --table-footer-height: 64px;
+      --table-person-width: 128px;
+      --table-date-width: 176px;
+      --table-status-width: 112px;
+      --table-action-width: 176px;
+      --table-min-width: 880px;
+      --icon-size: 16px;
+      --logo-width: 25px;
+      --logo-height: 29px;
+      --brand-font-size: 21px;
+      --font-small: 12px;
+      --line-small: 18px;
+      --font-body: 14px;
+      --line-body: 22px;
+      --line-cell: 24px;
+      --font-key: 16px;
+      --line-key: 24px;
+      --font-title: 24px;
+      --line-title: 32px;
+      --font-detail: 28px;
+      --line-detail: 36px;
+      --weight-regular: 400;
+      --weight-medium: 500;
+      --weight-semibold: 600;
+      --color-primary: var(--do-primary);
+      --color-primary-hover: var(--do-primary-hover);
+      --color-canvas: var(--do-canvas);
+      --color-panel: var(--do-panel);
+      --color-border: var(--do-line);
+      --color-text: var(--do-ink);
+      --color-muted: var(--do-muted);
+      --color-selected: var(--do-selected);
+      --ap-ink: var(--do-ink);
+      --ap-text: var(--do-ink);
+      --ap-muted: var(--do-muted);
+      --ap-line: var(--do-line);
+      --ap-blue: var(--do-primary);
+      --color-table-head: #fafbfc;
+      --color-success: #216449;
+      --color-success-bg: #e8f5ee;
+      --color-pending: #805610;
+      --color-pending-bg: #fcf2dd;
+      --color-measure: #b45309;
+      --color-measure-bg: #fff7ed;
+      --radius-control: 6px;
+      --radius-panel: 8px;
+      --border-width: 1px;
+      --focus-width: 2px;
+      --app-height: 100dvh;
+      --query-keyword-min: 320px;
+      --query-keyword-max: 400px;
+      --query-status-min: 160px;
+      --query-status-max: 200px;
+      --empty-symbol-size: 32px;
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+      color: var(--color-text);
+      background: var(--color-canvas);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: var(--space-0); }
+    button, input, select { font: inherit; color: inherit; }
+    button, select { cursor: pointer; }
+    button:disabled { cursor: default; }
+    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+      outline: var(--focus-width) solid var(--color-primary);
+      outline-offset: var(--focus-width);
+    }
+    [hidden] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .specimen {
+      display: grid;
+      grid-template-rows: var(--header-height) minmax(var(--space-0), 1fr);
+      height: var(--app-height);
+      overflow: hidden;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: var(--space-4);
+      padding-inline: var(--space-6);
+      border-bottom: var(--border-width) solid var(--color-border);
+      background: var(--color-panel);
+    }
+    .brand { display: flex; align-items: center; gap: var(--space-2); min-width: var(--space-0); }
+    .brand img { width: var(--logo-width); height: var(--logo-height); object-fit: contain; }
+    .brand strong { font-size: var(--brand-font-size); font-weight: var(--weight-semibold); line-height: var(--line-title); letter-spacing: -.04em; }
+    .spec-caption { color: var(--color-muted); padding-inline-start: var(--space-4); border-inline-start: var(--border-width) solid var(--color-border); }
+    .top-actions { margin-inline-start: auto; }
+    .shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(var(--space-0), 1fr); min-height: var(--space-0); }
+    .sidebar { display: flex; flex-direction: column; gap: var(--space-6); min-height: var(--space-0); padding: var(--space-6) var(--space-4); border-inline-end: var(--border-width) solid var(--color-border); background: var(--color-panel); }
+    .nav { display: grid; gap: var(--space-1); }
+    .nav-heading { margin: var(--space-0) var(--space-3) var(--space-2); font-size: var(--font-small); color: var(--color-muted); font-weight: var(--weight-medium); line-height: var(--line-small); }
+    .nav button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--control-height); padding: var(--space-2) var(--space-3); border: var(--space-0); border-radius: var(--radius-control); background: transparent; text-align: left; }
+    .nav button:hover { background: var(--color-canvas); }
+    .nav button[aria-current="page"] { background: var(--color-selected); }
+    .nav svg { width: var(--icon-size); height: var(--icon-size); flex: none; }
+    .sample-controls { display: grid; gap: var(--space-2); margin-top: auto; padding: var(--space-3); border-top: var(--border-width) solid var(--color-border); }
+    .sample-controls label { color: var(--color-muted); font-size: var(--font-small); line-height: var(--line-small); }
+    .workspace { display: flex; flex-direction: column; gap: var(--space-6); min-width: var(--space-0); min-height: var(--space-0); padding: var(--space-6); position: relative; overflow: hidden; }
+    .page-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .spec-more.el-button { height: 32px; min-height: 32px; margin: 0; padding: 4px 8px; color: var(--color-muted); font: inherit; }
+    .spec-more-chevron { display: inline-flex; margin-left: 4px; }
+    h1 { margin: var(--space-0); font-size: var(--font-title); line-height: var(--line-title); font-weight: var(--weight-semibold); }
+    .panel { min-width: var(--space-0); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-panel); }
+    .spec-query-slot { position: relative; flex: none; min-width: 0; }
+    .sample-controls select { min-width: var(--space-0); height: var(--control-height); padding: var(--space-2) var(--space-3); border: var(--border-width) solid #cbd3df; border-radius: var(--radius-control); background: var(--color-panel); line-height: var(--line-body); }
+    .actions { display: flex; gap: var(--space-2); align-items: center; }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-height); padding: var(--space-2) var(--space-4); border: var(--border-width) solid #cbd3df; border-radius: var(--radius-control); background: var(--color-panel); line-height: var(--line-body); white-space: nowrap; }
+    .button:hover:enabled { background: var(--color-canvas); }
+    .button.primary { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-panel); }
+    .button.primary:hover:enabled { border-color: var(--color-primary-hover); background: var(--color-primary-hover); }
+    .button[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-selected); color: var(--color-primary); }
+    .button:disabled { color: #8b95a4; background: var(--color-table-head); }
+    .button svg { width: var(--icon-size); height: var(--icon-size); }
+    .results { position: relative; }
+    .results th[data-column="4"] { padding-inline-start: 25px; }
+    .cell-text { display: block; min-width: var(--space-0); max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    td strong { font-weight: var(--weight-medium); }
+    td small { font-size: var(--font-small); line-height: var(--space-4); color: var(--color-muted); }
+    .status { display: inline-block; padding: var(--space-0) var(--space-2); border-radius: var(--space-1); background: var(--color-pending-bg); color: var(--color-pending); font-size: var(--font-small); line-height: var(--line-cell); font-weight: var(--weight-medium); white-space: nowrap; }
+    .status.success { color: var(--color-success); background: var(--color-success-bg); }
+    .row-actions { min-width: var(--space-0); }
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); flex: 1; padding: var(--space-6); text-align: center; }
+    .empty svg { width: var(--empty-symbol-size); height: var(--empty-symbol-size); margin-bottom: var(--space-2); color: var(--color-muted); }
+    .empty h3 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
+    [data-measure]::before { display: none; }
+    .measures [data-measure] { outline: var(--border-width) dashed var(--color-measure); outline-offset: calc(var(--border-width) * -1); }
+    .measures [data-measure]::before { display: block; content: attr(data-measure); position: absolute; top: calc(var(--space-3) * -1); left: var(--space-3); z-index: 3; padding: var(--space-0) var(--space-1); border: var(--border-width) solid #fed7aa; border-radius: var(--space-1); background: var(--color-measure-bg); color: var(--color-measure); font-size: var(--font-small); line-height: var(--line-small); white-space: nowrap; pointer-events: none; }
+    .measures .workspace::before { top: var(--space-1); left: var(--space-1); }
+    .measures .results[data-measure]::before { top: var(--space-1); left: var(--space-6); }
+    .record-dialog { width: min(720px, calc(100% - var(--space-8))); max-height: calc(100dvh - var(--space-12)); padding: var(--space-0); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-panel); color: var(--color-text); background: var(--color-panel); }
+    .record-dialog[open] { display: flex; flex-direction: column; }
+    .record-dialog::backdrop { background: #1f293754; }
+    .record-dialog header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) var(--space-6); border-bottom: var(--border-width) solid var(--color-border); }
+    .record-dialog h2 { margin: var(--space-0); font-size: var(--font-key); line-height: var(--line-key); font-weight: var(--weight-semibold); }
+    .record-dialog .close-record { width: var(--control-height); padding-inline: var(--space-0); }
+    .record-body { min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-6); }
+    .record-body dl, .record-body dd { margin: var(--space-0); }
+    .record-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--space-4); }
+    .record-field + .record-field { margin-top: var(--space-6); }
+    .record-field dt { color: var(--color-muted); }
+    .record-field dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+    body:has(.record-dialog[open]) { overflow: hidden; }
+    @media (prefers-reduced-motion: no-preference) {
+      .button, .nav button { transition: color 150ms var(--do-ease), background-color 150ms var(--do-ease), border-color 150ms var(--do-ease); }
+    }
+    @media (forced-colors: active) {
+      .nav button[aria-current="page"], .button[aria-pressed="true"] { outline: var(--border-width) solid Highlight; }
+    }
+  </style>
+</head>
+<body>
+  <div class="specimen">
+    <header class="topbar">
+      <div class="brand"><img src="../app/assets/dataocean-mark.png" alt=""><strong>DataOcean</strong><nav id="spec-breadcrumb" class="spec-caption prototype-ui" aria-label="页面层级"></nav></div>
+      <div class="top-actions"><button id="measure" type="button" class="button" aria-pressed="false">间距标注</button></div>
+    </header>
+    <div class="shell">
+      <aside class="sidebar">
+        <nav class="nav" aria-label="规范样张菜单">
+          <h2 class="nav-heading">权限管理</h2>
+          <button type="button" data-view="requests" aria-current="page"><span data-icon="inbox"></span>访问申请</button>
+          <button type="button" data-view="grants"><span data-icon="layers"></span>授权记录</button>
+        </nav>
+        <div class="sample-controls"><label for="sample-count">示例数据状态</label><select id="sample-count" aria-label="示例数据数量"><option value="0">0 条 · 空状态</option><option value="1">1 条 · 少量记录</option><option value="10">10 条 · 整页记录</option><option value="11">11 条 · 分页边界</option><option value="105" selected>105 条 · 多页记录</option><option value="long">超长内容 · 全列检查</option></select></div>
+      </aside>
+      <main class="workspace" data-measure="工作区四边 24px · 区块间距 24px">
+        <div class="page-heading"><h1 id="page-title">访问申请</h1></div>
+        <div id="query-slot" class="spec-query-slot" data-measure="共用查询组件 · 四边内距 24px · 字段组间距 16px"></div>
+        <section class="rl-result-panel results" id="results-panel" aria-label="访问申请查询结果" data-measure="同一结果面板 · 表头、内容与分页">
+        </section>
+      </main>
+    </div>
+  </div>
+  <dialog id="record-dialog" class="record-dialog" aria-labelledby="record-dialog-title">
+    <header><h2 id="record-dialog-title">记录完整内容</h2><button id="close-record" class="button close-record" type="button" aria-label="关闭记录详情"><span data-icon="x"></span></button></header>
+    <div class="record-body"><dl id="record-fields"></dl></div>
+  </dialog>
+  <div id="action-feedback" class="do-feedback" popover="manual" role="status" aria-live="polite"></div>
+  <script>
+    (() => {
+      'use strict';
+      const examples = [
+        { id: 'SQ-001', person: '周店长', purpose: '核对上周门店经营周报', submitted: '11/08 09:30', status: 'pending' },
+        { id: 'SQ-002', person: '李店长', purpose: '准备上周毛利分析', submitted: '11/08 09:15', status: 'approved' },
+        { id: 'SQ-003', person: '王店长', purpose: '核对上周销售成本', submitted: '11/08 09:00', status: 'pending' },
+        { id: 'SQ-004', person: '陈店长', purpose: '复核上周经营数据', submitted: '11/07 16:45', status: 'pending' },
+        { id: 'SQ-005', person: '赵店长', purpose: '核对门店经营周报', submitted: '11/07 16:30', status: 'approved' },
+        { id: 'SQ-006', person: '杨店长', purpose: '复盘上周门店毛利', submitted: '11/07 16:15', status: 'pending' },
+        { id: 'SQ-007', person: '刘店长', purpose: '准备月度经营复盘', submitted: '11/07 16:00', status: 'approved' },
+        { id: 'SQ-008', person: '黄店长', purpose: '核对同期成本归属', submitted: '11/07 15:45', status: 'pending' },
+        { id: 'SQ-009', person: '吴店长', purpose: '核验上周毛利额', submitted: '11/07 15:30', status: 'pending' },
+        { id: 'SQ-010', person: '徐店长', purpose: '准备经营例会数据', submitted: '11/07 15:15', status: 'approved' }
+      ];
+      // 保留少量与长内容场景，默认用多页数据核对真实翻页和末页数量。
+      examples.push(...Array.from({ length: 95 }, (_, index) => ({
+        ...examples[index % 10], id: 'SQ-' + String(index + 11).padStart(3, '0'),
+        submitted: '2026/11/' + String(6 - Math.floor(index / 20)).padStart(2, '0') + ' 09:' + String(59 - index % 60).padStart(2, '0')
+      })));
+      const longExamples = [
+        {
+          id: 'SQ-20261108-' + 'DATAOCEAN-REVIEW-'.repeat(8) + '编号末尾',
+          title: '城南片区直营门店上周经营复盘及跨周退货归属核对的毛利汇总访问申请',
+          person: '城南片区直营事业部经营分析组负责人周店长',
+          purpose: ('用于核对上周各门店经营周报、跨周退货以及销售成本归属，形成经营例会所需的毛利说明。\n').repeat(8) + '原因完整末尾',
+          source: '华东零售事业部统一经营数据源与跨地区经营分析只读连接',
+          rules: '用户信息限制：不返回身份证号码与电话号码；产品成本限制：不返回产品成本信息',
+          submitted: '2026/11/08 09:30', status: 'pending'
+        },
+        {
+          id: 'SQ-' + 'LONGUNBROKENIDENTIFIER'.repeat(7) + '-END',
+          title: 'MONTHLYBUSINESSPERFORMANCEREVIEW'.repeat(8) + 'TITLE-END',
+          person: 'RegionalBusinessOperationsAnalysisManager'.repeat(3) + '-PERSON-END',
+          purpose: '连续英文与符号样例 [A+B] <记录>\n' + 'COSTANDRETURNSANALYSISEVIDENCE'.repeat(16) + 'PURPOSE-END',
+          source: 'AUTHORIZEDDATASOURCE'.repeat(7) + '-SOURCE-END',
+          rules: 'OUTPUTINFORMATIONRESTRICTION'.repeat(5) + '-RULE-END',
+          submitted: '2026/11/08 09:15', status: 'approved'
+        }
+      ];
+      let view = 'requests';
+      let sampleMode = '105';
+      const defaults = { keyword: '', status: 'all', fromDate: '', toDate: '', page: 1, pageSize: 10 };
+      let applied = { ...defaults };
+      const recordDialog = document.getElementById('record-dialog');
+      const recordFields = document.getElementById('record-fields');
+      const feedback = document.getElementById('action-feedback');
+      let activeDropdown;
+      let menuTrigger;
+      let feedbackTimer;
+      let recordReturnFocus;
+      const pageLocation = Vue.reactive({ title: '访问申请' });
+      PrototypeUI.mount(document.getElementById('spec-breadcrumb'), {
+        setup: () => () => Vue.h(ElementPlus.ElBreadcrumb, { separator: '/' }, { default: () => [
+          Vue.h(ElementPlus.ElBreadcrumbItem, null, { default: () => '规范样张' }),
+          Vue.h(ElementPlus.ElBreadcrumbItem, { 'aria-current': 'page' }, { default: () => pageLocation.title })
+        ] })
+      });
+      for (const slot of document.querySelectorAll('[data-icon]')) slot.replaceWith(WorkbenchIcon(slot.dataset.icon));
+
+      function text(tag, content, className) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        node.textContent = content;
+        return node;
+      }
+
+      function valuesFor(item, isRequests) {
+        return {
+          subject: isRequests ? item.title || '经营业务库访问申请' : item.source || '经营业务库',
+          description: isRequests ? item.purpose : item.rules || '用户信息限制、产品成本限制',
+          person: item.person,
+          date: item.submitted,
+          status: isRequests ? (item.status === 'pending' ? '待审批' : '已生效') : '已生效',
+          id: item.id
+        };
+      }
+
+      function clippedText(tag, value, className = '') {
+        const node = text(tag, value, 'cell-text ' + className);
+        node.title = value;
+        return node;
+      }
+
+      function showRecord(item, isRequests, returnFocus) {
+        closeActions();
+        recordReturnFocus = returnFocus || document.activeElement;
+        const value = valuesFor(item, isRequests);
+        const fields = [
+          [isRequests ? '申请事项' : '数据源', value.subject],
+          [isRequests ? '业务用途' : '输出限制规则', value.description],
+          ['申请人', value.person],
+          [isRequests ? '提交时间' : '生效时间', value.date],
+          ['状态', value.status],
+          [isRequests ? '申请编号' : '来源申请', value.id]
+        ];
+        recordFields.replaceChildren();
+        for (const [label, content] of fields) {
+          const field = text('div', '', 'record-field');
+          field.append(text('dt', label), text('dd', content));
+          recordFields.append(field);
+        }
+        recordDialog.showModal();
+      }
+
+      function notify(message, failed = false) {
+        clearTimeout(feedbackTimer);
+        feedback.dataset.error = String(failed);
+        feedback.replaceChildren(WorkbenchIcon(failed ? 'info' : 'circle-check', 16), text('span', message));
+        if (!feedback.matches(':popover-open')) feedback.showPopover();
+        feedbackTimer = setTimeout(() => feedback.hidePopover(), 3500);
+      }
+
+      function closeActions() {
+        activeDropdown?.handleClose();
+      }
+
+      async function copyValue(value, label, item, isRequests, returnFocus = document.activeElement) {
+        closeActions();
+        try {
+          await navigator.clipboard.writeText(value);
+          notify('已复制' + label);
+        } catch {
+          showRecord(item, isRequests, returnFocus);
+          notify('复制未完成，可在详情中选择文字复制。', true);
+        }
+      }
+
+      function rowActions(item, isRequests) {
+        const controls = text('div', '', 'row-actions do-actions');
+        const viewButton = text('button', '查看', 'do-action is-primary');
+        viewButton.type = 'button';
+        viewButton.dataset.rowAction = 'view';
+        viewButton.setAttribute('aria-label', '查看记录全文 ' + item.id);
+        viewButton.addEventListener('click', () => showRecord(item, isRequests, viewButton));
+        // 规范样张也复用真实下拉组件，低频复制动作集中在文字“更多”菜单中。
+        const more = text('span', '', 'prototype-ui');
+        PrototypeUI.mount(more, {
+          setup() {
+            const dropdown = Vue.ref();
+            const dismiss = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dropdown.value.handleClose(); more.querySelector('button').focus(); } };
+            Vue.onMounted(() => more.querySelector('.spec-more-chevron').append(WorkbenchIcon('chevron-down', 14)));
+            return () => Vue.h(ElementPlus.ElDropdown, { ref: dropdown, trigger: 'click', placement: 'bottom-end', popperClass: 'prototype-ui-popper',
+              onKeydownCapture: dismiss,
+              onVisibleChange: visible => { if (visible) { activeDropdown = dropdown.value; menuTrigger = more.querySelector('button'); } else if (activeDropdown === dropdown.value) activeDropdown = null; },
+              onCommand: key => { const value = valuesFor(item, isRequests); copyValue(key === 'id' ? item.id : key === 'description' ? value.description : item.person, key === 'id' ? '编号' : key === 'description' ? (isRequests ? '用途' : '输出限制规则') : '申请人', item, isRequests, menuTrigger); }
+            }, {
+              default: () => Vue.h(ElementPlus.ElButton, { link: true, nativeType: 'button', class: 'spec-more', 'data-row-action': 'more', 'aria-label': '更多记录操作 ' + item.id }, { default: () => ['更多', Vue.h('span', { class: 'spec-more-chevron', 'aria-hidden': 'true' })] }),
+              dropdown: () => Vue.h(ElementPlus.ElDropdownMenu, { onKeydownCapture: dismiss }, { default: () => [['id', '复制编号'], ['description', isRequests ? '复制用途' : '复制输出限制规则'], ['person', '复制申请人']].map(([command, label]) => Vue.h(ElementPlus.ElDropdownItem, { command }, { default: () => label })) })
+            });
+          }
+        });
+        controls.append(viewButton, more);
+        return controls;
+      }
+
+      function render(focusKey) {
+        closeActions();
+        const isRequests = view === 'requests';
+        const title = isRequests ? '访问申请' : '授权记录';
+        pageLocation.title = title;
+        document.getElementById('page-title').textContent = title;
+        document.getElementById('results-panel').setAttribute('aria-label', title + '查询结果');
+        document.querySelectorAll('[data-view]').forEach(button => {
+          if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
+          else button.removeAttribute('aria-current');
+        });
+        const headings = isRequests ? ['申请事项', '申请人', '提交时间', '状态', '操作'] : ['数据源', '申请人', '生效时间', '状态', '操作'];
+        const form = RecordControls.filters({
+          value: applied,
+          statuses: [{ value: 'all', label: '全部状态' }, ...(isRequests
+            ? [{ value: 'pending', label: '待审批' }, { value: 'approved', label: '已生效' }]
+            : [{ value: 'effective', label: '已生效' }])],
+          keywordLabel: '关键词', keywordPlaceholder: '申请编号、申请人或业务用途',
+          dateLabel: isRequests ? '提交日期' : '生效日期',
+          dateBeforeStatus: true,
+          onApply: value => { applied = value; render('keyword'); },
+          onReset: () => { applied = { ...defaults, pageSize: applied.pageSize }; render('keyword'); }
+        });
+        form.id = 'query';
+        document.getElementById('query-slot').replaceChildren(form);
+        const source = sampleMode === 'long' ? longExamples : examples.slice(0, Number(sampleMode));
+        const matches = source.filter(item => {
+          const value = valuesFor(item, isRequests);
+          const words = Object.values(value).join(' ').toLowerCase();
+          const date = isRequests ? (item.submitted.startsWith('2026') ? item.submitted : '2026/' + item.submitted) : '2026/11/08 09:30';
+          const day = date.slice(0, 10).replaceAll('/', '-');
+          return applied.keyword.toLowerCase().split(/\s+/).filter(Boolean).every(word => words.includes(word)) &&
+            (applied.status === 'all' || (!isRequests && applied.status === 'effective') || item.status === applied.status) &&
+            (!applied.fromDate || day >= applied.fromDate) && (!applied.toDate || day <= applied.toDate);
+        });
+        const pageCount = matches.length ? Math.ceil(matches.length / applied.pageSize) : 0;
+        applied.page = Math.min(Math.max(1, applied.page), Math.max(1, pageCount));
+        const empty = text('div', '', 'empty');
+        const filtered = applied.keyword || applied.status !== 'all' || applied.fromDate || applied.toDate;
+        empty.append(WorkbenchIcon('inbox', 32), text('h3', filtered ? '没有符合条件的示例' : '暂无' + title));
+        const widths = [null, '128px', '176px', '112px', '224px'];
+        const table = RecordTable.render({
+          caption: title + '规范样张', minWidth: '880px', bodyId: 'rows', headId: 'headings',
+          columns: headings.map((label, index) => ({ key: String(index), label, width: widths[index] })),
+          items: matches.slice((applied.page - 1) * applied.pageSize, applied.page * applied.pageSize), empty,
+          row(item) {
+            const value = valuesFor(item, isRequests);
+            return [[clippedText('strong', value.subject, 'cell-title'), clippedText('small', value.description, 'cell-description')],
+              clippedText('span', value.person), clippedText('span', value.date, 'cell-date'),
+              text('span', value.status, 'status' + (!isRequests ? ' success' : '')), rowActions(item, isRequests)];
+          }
+        });
+        table.addEventListener('scroll', closeActions);
+        const pager = RecordControls.pager({ total: matches.length, page: applied.page, pageCount, pageSize: applied.pageSize },
+          page => { applied.page = page; render('page'); },
+          size => { applied.pageSize = size; applied.page = 1; render('pageSize'); });
+        pager.dataset.measure = '共用分页 · 上下 12px · 左右 24px';
+        document.getElementById('results-panel').replaceChildren(table, pager);
+        if (focusKey) document.querySelector('[data-list-focus="' + focusKey + '"]')?.focus({ preventScroll: true });
+      }
+
+      document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+        view = button.dataset.view;
+        applied = { ...defaults };
+        render();
+      }));
+      document.getElementById('sample-count').addEventListener('change', event => {
+        sampleMode = event.target.value;
+        applied.page = 1;
+        render();
+      });
+      document.getElementById('measure').addEventListener('click', event => {
+        const shown = document.body.classList.toggle('measures');
+        event.currentTarget.setAttribute('aria-pressed', String(shown));
+      });
+      document.getElementById('close-record').addEventListener('click', () => recordDialog.close());
+      recordDialog.addEventListener('close', () => {
+        if (recordReturnFocus?.isConnected) recordReturnFocus.focus({ preventScroll: true });
+      });
+      window.addEventListener('resize', closeActions);
+      render();
+    })();
+  </script>
+</body>
+</html>

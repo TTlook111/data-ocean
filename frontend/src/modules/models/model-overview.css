@@ -1,0 +1,101 @@
+/* 看板沿用原型的通栏主图和左右辅助图，白底用线分隔。 */
+.model-usage-overview .overview-grid {
+  grid-template-areas: 'hero hero' 'rank outcome';
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* 辅助图沿同一上边线排布，模型多时由数据表回看完整排行。 */
+.model-usage-overview .is-rank {
+  grid-area: rank;
+}
+.model-usage-overview .is-trend {
+  grid-area: outcome;
+  border-left: 1px solid var(--do-line);
+  padding-left: 24px;
+}
+
+/* 主图使用品牌蓝的浅色背景，侧栏和日期控件沿用后台共用主题。 */
+.model-usage-overview .is-hero {
+  border-bottom: 1px solid var(--do-line);
+  padding-bottom: 24px;
+}
+.model-usage-overview .overview-panel.is-hero .overview-plot {
+  height: clamp(284px, 24vw, 360px);
+  background: radial-gradient(ellipse at 50% 78%, var(--do-selected), #f6f9ff 54%, transparent 80%);
+}
+
+/* 总用量尺寸高于分项，输入和输出以同色系的明度差表达。 */
+.model-usage-overview .is-hero h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+.model-usage-overview .is-hero .overview-headlines [data-measure='tokens'] {
+  color: var(--do-ink);
+  font-size: clamp(36px, 3.5vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+.model-usage-overview .is-hero .overview-headlines [data-measure='input'] {
+  color: var(--do-primary-hover);
+  font-size: 22px;
+}
+.model-usage-overview .is-hero .overview-headlines [data-measure='output'] {
+  color: #4369a5;
+  font-size: 22px;
+}
+
+/* 左侧标题对齐日期组，图例另起一行，堆叠柱使用色块。 */
+.model-usage-overview .is-hero > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 24px;
+}
+.model-usage-overview .is-hero .overview-panel-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-items: end;
+}
+.model-usage-overview .is-hero .overview-toolbar {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
+.model-usage-overview .is-hero .overview-legend li > span {
+  width: 8px;
+  border-top-width: 8px;
+  border-radius: 2px;
+}
+
+/* 两个辅助图绘图区等高，模型名称和结果读数保留各自空间。 */
+.model-usage-overview :is(.is-rank, .is-trend) .overview-plot {
+  height: 220px;
+}
+.model-usage-overview .is-rank .overview-plot {
+  margin-top: 44px;
+}
+
+/* 窄 PC 保留常驻侧栏，辅助图区按上到下顺序排列。 */
+@media (max-width: 1100px) {
+  .model-usage-overview .overview-grid {
+    grid-template-areas: 'hero' 'rank' 'outcome';
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-usage-overview .is-hero > header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-usage-overview .is-hero .overview-panel-actions {
+    justify-items: start;
+  }
+  .model-usage-overview .is-hero .overview-toolbar {
+    justify-content: flex-start;
+  }
+  .model-usage-overview .is-trend {
+    border-left: 0;
+    border-top: 1px solid var(--do-line);
+    padding: 24px 0 0;
+  }
+  .model-usage-overview .is-rank .overview-plot {
+    margin-top: 12px;
+  }
+}

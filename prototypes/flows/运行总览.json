@@ -1,0 +1,397 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "DataOcean 项目运行总览",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "prototypes/flows/运行总览.html",
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "frontend": {
+          "label": "人员操作"
+        },
+        "backend": {
+          "label": "系统处理"
+        },
+        "database": {
+          "label": "知识与业务数据"
+        },
+        "security": {
+          "label": "访问与校验"
+        },
+        "messagebus": {
+          "label": "问题处理"
+        }
+      }
+    },
+    "views": [
+      {
+        "id": "knowledge",
+        "label": "知识如何准备",
+        "focus": [
+          "catalog",
+          "govern",
+          "publish",
+          "knowledge",
+          "retrieve"
+        ],
+        "note": "元数据经过业务确认、候选测试与发布，成为问数检索和同版事实补取的依据。知识提供定义，业务库提供实际数值。"
+      },
+      {
+        "id": "query",
+        "label": "一次问数",
+        "focus": [
+          "ask",
+          "retrieve",
+          "sql",
+          "businessDb",
+          "answer"
+        ],
+        "note": "理解问题并检索、补齐知识，生成 SQL 后核对原意、安全、权限和输出；全部通过才只读执行，核对实际结果后回答。"
+      },
+      {
+        "id": "access",
+        "label": "本次访问边界",
+        "focus": [
+          "configure",
+          "boundary",
+          "retrieve",
+          "sql",
+          "businessDb",
+          "answer"
+        ],
+        "note": "后台维护数据源授权与中文输出规则；部门分配初始访问，角色控制功能。知识取用、执行和交付持续复核，不附加部门记录过滤。"
+      },
+      {
+        "id": "improve",
+        "label": "问题如何改进",
+        "focus": [
+          "issue",
+          "handle",
+          "fix",
+          "close",
+          "govern"
+        ],
+        "note": "知识缺口或本人反馈进入问题处理。知识修正经治理与发布，程序或源数据按责任修正；按真实生效结果复验并回告本人。"
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "prepare",
+      "label": "知识准备"
+    },
+    {
+      "id": "access",
+      "label": "身份、权限与运行约束"
+    },
+    {
+      "id": "query",
+      "label": "员工问数"
+    },
+    {
+      "id": "improve",
+      "label": "问题改进"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "catalog",
+      "lane": "prepare",
+      "col": 0,
+      "type": "database",
+      "label": "接入并采集元数据",
+      "sublabel": "只读连接、表字段与结构"
+    },
+    {
+      "id": "govern",
+      "lane": "prepare",
+      "col": 1,
+      "type": "frontend",
+      "label": "人工确认业务知识",
+      "sublabel": "含义、关系与指标口径",
+      "icon": "person"
+    },
+    {
+      "id": "publish",
+      "lane": "prepare",
+      "col": 2,
+      "type": "security",
+      "label": "测试并发布",
+      "sublabel": "候选通过后切换生效"
+    },
+    {
+      "id": "knowledge",
+      "lane": "prepare",
+      "col": 3,
+      "type": "database",
+      "label": "已发布知识",
+      "sublabel": "文档与对应治理修订"
+    },
+    {
+      "id": "configure",
+      "lane": "access",
+      "col": 3,
+      "type": "frontend",
+      "label": "维护授权与输出规则",
+      "sublabel": "后台配置、授权时选用",
+      "icon": "person"
+    },
+    {
+      "id": "boundary",
+      "lane": "access",
+      "col": 4,
+      "type": "security",
+      "label": "取得本次访问边界",
+      "sublabel": "数据源授权与输出规则"
+    },
+    {
+      "id": "ask",
+      "lane": "query",
+      "col": 0,
+      "type": "frontend",
+      "label": "员工选源提问",
+      "sublabel": "在同一对话中提问或补充",
+      "icon": "person"
+    },
+    {
+      "id": "retrieve",
+      "lane": "query",
+      "col": 1,
+      "type": "backend",
+      "label": "理解并检索知识",
+      "sublabel": "RAG 召回、同版事实补取"
+    },
+    {
+      "id": "sql",
+      "lane": "query",
+      "col": 2,
+      "type": "security",
+      "label": "生成并校验 SQL",
+      "sublabel": "核对原意、安全、权限与输出"
+    },
+    {
+      "id": "businessDb",
+      "lane": "query",
+      "col": 4,
+      "type": "database",
+      "label": "只读查询业务库",
+      "sublabel": "执行前复核，取得实际数值"
+    },
+    {
+      "id": "answer",
+      "lane": "query",
+      "col": 5,
+      "type": "frontend",
+      "label": "核对并交付答案",
+      "sublabel": "结果、口径与获准依据",
+      "icon": "success"
+    },
+    {
+      "id": "issue",
+      "lane": "improve",
+      "col": 1,
+      "type": "messagebus",
+      "label": "知识缺口或本人反馈",
+      "sublabel": "自动关联缺口、接收评价"
+    },
+    {
+      "id": "handle",
+      "lane": "improve",
+      "col": 2,
+      "type": "frontend",
+      "label": "核实并分类处理",
+      "sublabel": "知识、程序或源数据问题",
+      "icon": "person"
+    },
+    {
+      "id": "fix",
+      "lane": "improve",
+      "col": 3,
+      "type": "backend",
+      "label": "完成修正并生效",
+      "sublabel": "按责任修正，知识须经发布"
+    },
+    {
+      "id": "close",
+      "lane": "improve",
+      "col": 5,
+      "type": "frontend",
+      "label": "复验并回告本人",
+      "sublabel": "核对原问题及真实处理结果",
+      "icon": "person"
+    }
+  ],
+  "edges": [
+    {
+      "id": "catalog-govern",
+      "from": "catalog",
+      "to": "govern",
+      "role": "main"
+    },
+    {
+      "id": "govern-publish",
+      "from": "govern",
+      "to": "publish",
+      "role": "main"
+    },
+    {
+      "id": "publish-knowledge",
+      "from": "publish",
+      "to": "knowledge",
+      "role": "main"
+    },
+    {
+      "id": "configure-boundary",
+      "from": "configure",
+      "to": "boundary",
+      "role": "main"
+    },
+    {
+      "id": "ask-retrieve",
+      "from": "ask",
+      "to": "retrieve",
+      "role": "main"
+    },
+    {
+      "id": "retrieve-sql",
+      "from": "retrieve",
+      "to": "sql",
+      "label": "依据充分、条件明确",
+      "role": "main"
+    },
+    {
+      "id": "sql-businessDb",
+      "from": "sql",
+      "to": "businessDb",
+      "label": "全部检查通过",
+      "role": "main"
+    },
+    {
+      "id": "businessDb-answer",
+      "from": "businessDb",
+      "to": "answer",
+      "label": "实际查询结果",
+      "role": "main"
+    },
+    {
+      "id": "knowledge-retrieve",
+      "from": "knowledge",
+      "to": "retrieve",
+      "label": "检索与同版补取",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "boundary-retrieve",
+      "from": "boundary",
+      "to": "retrieve",
+      "label": "限定知识取用",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "boundary-sql",
+      "from": "boundary",
+      "to": "sql",
+      "label": "落实访问与输出约束",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "retrieve-issue",
+      "from": "retrieve",
+      "to": "issue",
+      "label": "确认知识缺口",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "answer-issue",
+      "from": "answer",
+      "to": "issue",
+      "label": "本人反馈",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "id": "issue-handle",
+      "from": "issue",
+      "to": "handle",
+      "role": "main"
+    },
+    {
+      "id": "handle-fix",
+      "from": "handle",
+      "to": "fix",
+      "role": "main"
+    },
+    {
+      "id": "fix-close",
+      "from": "fix",
+      "to": "close",
+      "label": "按实际生效结果",
+      "role": "main"
+    },
+    {
+      "id": "fix-govern",
+      "from": "fix",
+      "to": "govern",
+      "label": "知识修正走治理发布",
+      "role": "return",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "知识与数值各有来源",
+      "items": [
+        "知识库与同版治理成果提供定义和查询依据；实际业务数值来自本次选中的企业业务库。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "访问边界贯穿问数",
+      "items": [
+        "角色控制功能，部门分配初始数据源及规则；当前源授权、输出规则和治理禁止状态持续约束知识取用、查询与答案交付。"
+      ]
+    }
+  ],
+  "semanticChecks": {
+    "requiredEdges": [
+      {
+        "from": "knowledge",
+        "to": "retrieve"
+      },
+      {
+        "from": "boundary",
+        "to": "retrieve"
+      },
+      {
+        "from": "boundary",
+        "to": "sql"
+      },
+      {
+        "from": "fix",
+        "to": "govern"
+      }
+    ],
+    "requiredPaths": [
+      {
+        "from": "ask",
+        "to": "answer"
+      },
+      {
+        "from": "catalog",
+        "to": "knowledge"
+      },
+      {
+        "from": "issue",
+        "to": "close"
+      }
+    ]
+  }
+}

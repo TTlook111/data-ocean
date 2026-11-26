@@ -1,0 +1,55 @@
+/* 总览遵循原型的通栏主图和两列趋势，不给图表额外叠加卡片。 */
+.dashboard-overview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: 'hero hero';
+}
+
+/* 各行用分隔线和留白衔接，独立表格扩展时保持同行边界。 */
+.dashboard-overview-grid > .overview-panel {
+  align-self: stretch;
+}
+
+/* 主图下方以及第二排趋势上方留出清晰的阅读间距。 */
+.dashboard-overview-grid > .overview-panel:not(.is-hero) {
+  padding-top: 24px;
+  border-top: 1px solid var(--do-line);
+}
+
+/* 右列沿用原型的细分隔线，左边距与列间距一致。 */
+.dashboard-overview-grid > .overview-panel:nth-child(2n + 3) {
+  padding-left: 24px;
+  border-left: 1px solid var(--do-line);
+}
+
+/* 主图与辅助趋势使用原型对应的绘图区高度。 */
+.dashboard-overview-grid .overview-panel .overview-plot {
+  height: 196px;
+}
+
+/* 主趋势通栏并保留更多垂直读数空间。 */
+.dashboard-overview-grid .overview-panel.is-hero .overview-plot {
+  height: 260px;
+}
+
+/* 权限和范围反馈保留相应图表的空间。 */
+.dashboard-overview-placeholder {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  color: var(--do-muted);
+  font-size: 14px;
+}
+
+/* 窄桌面保留侧栏，图表按原型顺序垂直排列。 */
+@media (max-width: 1100px) {
+  .dashboard-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'hero';
+  }
+
+  /* 单列恢复共用阅读边线。 */
+  .dashboard-overview-grid > .overview-panel:nth-child(2n + 3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
