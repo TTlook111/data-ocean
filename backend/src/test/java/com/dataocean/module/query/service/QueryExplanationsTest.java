@@ -131,8 +131,14 @@ class QueryExplanationsTest {
         queued();
         when(row.question()).thenReturn("只统计已支付");
         when(row.supplement()).thenReturn("改成未支付，排除已退款");
-        var result = new QueryDataVO(List.of(new QueryColumnVO("value", "订单金额")),
-                List.of(List.of("40.00")), false, "元", "业务日期 2026-11-24", null, null);
+        var result = new QueryDataVO(
+                List.of(new QueryColumnVO("value", "订单金额")),
+                List.of(List.of("40.00")),
+                false,
+                "元",
+                "业务日期 2026-11-24",
+                null,
+                null);
         when(row.result()).thenReturn(json.write(result));
         var exact = "本次查询的订单金额为 40.00 元。";
         when(models.explain(id, 1, 5L, 22, "业务日期 2026-11-24", List.of(exact))).thenReturn(List.of(1));
@@ -146,10 +152,14 @@ class QueryExplanationsTest {
      * 外发前复核原规则修订与快照内容，普通部门名仍可用于说明。
      */
     @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "Cost Center A|false|true", "Cost Center A|true|false", "商品采购单价为 12.00 元|false|false",
-        "{\"采购单价\":12.00,\"币种\":\"CNY\"}|false|false"
-    })
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "Cost Center A|false|true",
+                "Cost Center A|true|false",
+                "商品采购单价为 12.00 元|false|false",
+                "{\"采购单价\":12.00,\"币种\":\"CNY\"}|false|false"
+            })
     void explanationChecksSnapshotContentAndRuleRevision(String value, boolean ruleChanged, boolean allowed) {
         queued();
         var originalRule = new OutputRuleVO("1", "采购限制", "不得返回商品采购成本或采购单价", 1, null);
@@ -161,7 +171,11 @@ class QueryExplanationsTest {
         var result = new QueryDataVO(
                 List.of(new QueryColumnVO("department_name", "部门名称")),
                 List.of(List.of(value)),
-                false, null, "部门名称查询", null, null);
+                false,
+                null,
+                "部门名称查询",
+                null,
+                null);
         when(row.result()).thenReturn(json.write(result));
         var exact = "本次查询的部门名称为 " + value + "。";
         when(models.explain(id, 1, 5L, 22, result.getScope(), List.of(exact))).thenReturn(List.of(1));
@@ -179,7 +193,9 @@ class QueryExplanationsTest {
         }
     }
 
-    /** 负值和小数尾零直接从快照交付。 */
+    /**
+     * 负值和小数尾零直接从快照交付。
+     */
     @Test
     void negativeValueKeepsItsOriginalPrecision() {
         queued();
@@ -189,18 +205,25 @@ class QueryExplanationsTest {
         verify(revisions).finish(id, 1, "COMPLETED", exact, null);
     }
 
-    /** 多行说明只交付选中行，业务日期不附带金额单位。 */
+    /**
+     * 多行说明只交付选中行，业务日期不附带金额单位。
+     */
     @Test
     void selectedTrendRowsKeepColumnMeaningAndUnits() {
         queued();
-        var result = new QueryDataVO(List.of(new QueryColumnVO("date", "业务日期"),
-                new QueryColumnVO("value", "订单金额")),
+        var result = new QueryDataVO(
+                List.of(new QueryColumnVO("date", "业务日期"), new QueryColumnVO("value", "订单金额")),
                 List.of(List.of("2026-11-24", "40.00"), List.of("2026-11-25", "60.00")),
-                false, "元", "业务日期 2026-11-24 至 2026-11-25", null, null);
+                false,
+                "元",
+                "业务日期 2026-11-24 至 2026-11-25",
+                null,
+                null);
         when(row.result()).thenReturn(json.write(result));
         var first = "第 1 行，业务日期为 2026-11-24，订单金额为 40.00 元。";
         var second = "第 2 行，业务日期为 2026-11-25，订单金额为 60.00 元。";
-        when(models.explain(id, 1, 5L, 22, result.getScope(), List.of(first, second))).thenReturn(List.of(2));
+        when(models.explain(id, 1, 5L, 22, result.getScope(), List.of(first, second)))
+                .thenReturn(List.of(2));
         service.work();
         verify(revisions).finish(id, 1, "COMPLETED", second, null);
     }
@@ -304,7 +327,9 @@ class QueryExplanationsTest {
         verify(models, never()).explain(anyString(), anyInt(), anyLong(), anyInt(), anyString(), any());
     }
 
-    /** 不交付越界编号对应的说明。 */
+    /**
+     * 不交付越界编号对应的说明。
+     */
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 2})
     void rejectsReferencesOutsideCurrentSnapshot(int index) {
@@ -391,11 +416,9 @@ class QueryExplanationsTest {
      * 首次说明按交付后预算和实际快照判断，两个临界值以内仍可入队。
      */
     @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "1|1999|UNAVAILABLE|本次说明的可用处理预算已用完",
-        "21|28000|UNAVAILABLE|结果超过 20 行，无法生成说明",
-        "20|2000|QUEUED|"
-    })
+    @CsvSource(
+            delimiter = '|',
+            value = {"1|1999|UNAVAILABLE|本次说明的可用处理预算已用完", "21|28000|UNAVAILABLE|结果超过 20 行，无法生成说明", "20|2000|QUEUED|"})
     void initialUsesDeliveryBudgetAndResultSize(int rows, int budget, String expected, String reason) {
         var data = dataWithRows(rows);
         when(row.remainingMillis()).thenReturn(budget);
@@ -423,7 +446,8 @@ class QueryExplanationsTest {
         assertThat(replay.getStatus()).isEqualTo("FAILED");
         assertThat(replay.getBlockedReason()).isEqualTo("本次说明的重试次数已用完");
         assertThatThrownBy(() -> service.retry(id, UUID.randomUUID().toString()))
-                .isInstanceOf(BizIllegalException.class).hasMessage(replay.getBlockedReason());
+                .isInstanceOf(BizIllegalException.class)
+                .hasMessage(replay.getBlockedReason());
         verify(revisions, never()).add(anyString(), anyInt(), anyString(), anyString());
     }
 
@@ -439,7 +463,8 @@ class QueryExplanationsTest {
         assertThat(view.getStatus()).isEqualTo("UNAVAILABLE");
         assertThat(view.getBlockedReason()).isEqualTo("结果超过 20 行，无法生成说明");
         assertThatThrownBy(() -> service.retry(id, command))
-                .isInstanceOf(BizIllegalException.class).hasMessage(view.getBlockedReason());
+                .isInstanceOf(BizIllegalException.class)
+                .hasMessage(view.getBlockedReason());
         verify(revisions, never()).add(anyString(), anyInt(), anyString(), anyString());
 
         // 升级前遗留的队列也会结束为不可用。
@@ -459,25 +484,28 @@ class QueryExplanationsTest {
      * 预算耗尽与次数耗尽使用各自原因，前端详情与接口拒绝保持一致。
      */
     @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "1999|1|本次说明的可用处理预算已用完",
-        "28000|4|本次说明的重试次数已用完"
-    })
+    @CsvSource(
+            delimiter = '|',
+            value = {"1999|1|本次说明的可用处理预算已用完", "28000|4|本次说明的重试次数已用完"})
     void exhaustedExplanationShowsExactReasonAndCannotRetry(int budget, int version, String reason) {
         when(row.remainingMillis()).thenReturn(budget);
         when(revisions.latest(id)).thenReturn(revision("FAILED", version));
         var view = service.snapshot(row, json.read(row.result(), QueryDataVO.class));
         assertThat(view.getBlockedReason()).isEqualTo(reason);
         assertThatThrownBy(() -> service.retry(id, command))
-                .isInstanceOf(BizIllegalException.class).hasMessage(reason);
+                .isInstanceOf(BizIllegalException.class)
+                .hasMessage(reason);
         verify(revisions, never()).add(anyString(), anyInt(), anyString(), anyString());
     }
 
-    /** 构造跨行数上限的合成结果。 */
+    /**
+     * 构造跨行数上限的合成结果。
+     */
     private QueryDataVO dataWithRows(int size) {
-        var rows = IntStream.rangeClosed(1, size).mapToObj(number -> List.of(Integer.toString(number))).toList();
-        return new QueryDataVO(
-                List.of(new QueryColumnVO("value", "净能耗")), rows, false, "kWh", "合成结果", null, null);
+        var rows = IntStream.rangeClosed(1, size)
+                .mapToObj(number -> List.of(Integer.toString(number)))
+                .toList();
+        return new QueryDataVO(List.of(new QueryColumnVO("value", "净能耗")), rows, false, "kWh", "合成结果", null, null);
     }
 
     /**

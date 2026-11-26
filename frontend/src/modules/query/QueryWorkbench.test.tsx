@@ -493,7 +493,9 @@ it('显示思考中并直接采用当前修订的 SSE 答复', async () => {
   expect(screen.queryByText('思考中')).not.toBeInTheDocument();
 });
 
-/** 回包丢失时先核对旧命令，每次点击只受理一个新修订。 */
+/**
+ * 回包丢失时先核对旧命令，每次点击只受理一个新修订。
+ */
 it.each([true, false])('恢复丢失的说明重试回执，旧命令已受理 %s', async (previousAccepted) => {
   const submitted: string[] = [];
   const receipts = new Map<string, Explanation>();
@@ -546,7 +548,9 @@ it.each([true, false])('恢复丢失的说明重试回执，旧命令已受理 %
   );
 });
 
-/** 切换往返多个轮次时，只使用该轮仍未核实的重试编号。 */
+/**
+ * 切换往返多个轮次时，只使用该轮仍未核实的重试编号。
+ */
 it('切到其他轮次重试后仍能核实原轮次的重试回执', async () => {
   const submitted: { id: string; key?: string }[] = [];
   const replies = new Map<string, Explanation>();
@@ -590,7 +594,75 @@ it('切到其他轮次重试后仍能核实原轮次的重试回执', async () =
   expect(submitted[2]?.key).toBe(submitted[0]?.key);
 });
 
-/** 页面重新挂载后，只核实原轮次的提交编号。 */
+/**
+ * 旧页面回执迟到时，保留新页面刚写入的待核实命令。
+ */
+it('保留重新挂载页面保存的待核实说明命令', async () => {
+  const submitted: (string | undefined)[] = [];
+  const explanation: Explanation = { revision: 2, status: 'FAILED', text: null };
+  let releaseOld!: (receipt: Explanation) => void;
+  const oldReceipt = new Promise<Explanation>((resolve) => {
+    // 允许新实例先核实旧命令并写入新编号。
+    releaseOld = resolve;
+  });
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    // 工作台继续显示同一个有资格生成说明的轮次。
+    if (path === '/query/sources') {
+      // 所有读取均限定同一个可用来源。
+      return [{ id: '1', name: '订单' }];
+    }
+    if (path.startsWith('/query/conversations')) {
+      // 当前测试通过轮次地址进入，无需额外历史。
+      return [];
+    }
+    if (path === '/query/requests/answer/explanations') {
+      // 两个实例回查同一旧修订，新命令的回执模拟丢失。
+      submitted.push(options?.command);
+      if (submitted.length === 1) {
+        // 保留旧实例请求直到新命令发出。
+        return oldReceipt;
+      }
+      if (submitted.length === 2) {
+        // 新实例先收到可继续的旧回执。
+        return explanation;
+      }
+      throw new Error('模拟新命令回执丢失');
+    }
+    const result = {
+      ...series,
+      columns: [{ name: 'value', label: '订单金额' }],
+      rows: [['40.00']],
+      series: null,
+      unit: '元',
+    };
+    return { ...ended('answer'), state: 'RESULT_DELIVERED', result, explanation };
+  });
+
+  const first = mount();
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  first.unmount();
+
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('模拟新命令回执丢失')).toBeVisible();
+
+  const storageKey = 'dataocean:query-explanation:7:answer';
+  expect(submitted[0]).toBe(submitted[1]);
+  expect(sessionStorage.getItem(storageKey)).toBe(submitted[2]);
+
+  await act(async () => {
+    // 旧实例收到同一回执后，续作资格已经属于新页面。
+    releaseOld(explanation);
+    await oldReceipt;
+  });
+
+  expect(sessionStorage.getItem(storageKey)).toBe(submitted[2]);
+  expect(submitted).toHaveLength(3);
+});
+
+/**
+ * 页面重新挂载后，只核实原轮次的提交编号。
+ */
 it('刷新页面后沿用原说明重试编号，确认回执后清理', async () => {
   const submitted: (string | undefined)[] = [];
   let explanation: Explanation = { revision: 1, status: 'FAILED', text: null };
@@ -765,7 +837,9 @@ it('解释失败仍显示原结果和查询依据，重试只触发解释动作'
   expect(requery).not.toHaveBeenCalled();
 });
 
-/** 未启用说明仍有原始金额及其操作，没有无效的说明重试入口。 */
+/**
+ * 未启用说明仍有原始金额及其操作，没有无效的说明重试入口。
+ */
 it('数据源未启用说明时保留金额和查询依据', () => {
   render(
     <QueryAnswer
@@ -793,7 +867,9 @@ it('数据源未启用说明时保留金额和查询依据', () => {
   expect(screen.getByRole('button', { name: '查询依据' })).toBeVisible();
 });
 
-/** 页面使用后端资格，而不是仅凭说明修订状态决定是否提供操作。 */
+/**
+ * 页面使用后端资格，而不是仅凭说明修订状态决定是否提供操作。
+ */
 it.each([
   ['UNAVAILABLE', '结果超过 20 行，无法生成说明', false],
   ['FAILED', '本次说明的可用处理预算已用完', false],

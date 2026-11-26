@@ -15,7 +15,9 @@ DISCOVERY_PROMPT = (
     "meaning 写关联用途和条件，rule 写完整键及已知数量关系，usage 写适用边界。"
     "资料明确日期适用期时填写 relationWindow，mode 为 DATE_RANGE，validFrom 和 validThrough 为"
     "包含当天的 YYYY-MM-DD，开放边界填 null。资料明确没有日期限制才填 mode=NONE。"
-    "不能确定日期或另有条件时留 null，由人工核对。METRIC 的 relationWindow 留 null。\n"
+    "独立的日期范围只写入 relationWindow。若另有状态或筛选条件，把它们写在 usage，"
+    "并将 relationWindow 留 null 供人工核对。日期无法确定时也留 null。"
+    "METRIC 的 relationWindow 留 null。\n"
     "METRIC：优先提取资料明确定义且能用当前表字段计算的指标。"
     "可根据当前表真实的主键、数量或金额字段提出有据的计算线索。"
     "pairs 为空数组，fields 填写公式和筛选所用的全部字段 ID。"
@@ -96,7 +98,9 @@ class DiscoveryScope(BaseModel):
 
 
 class MetricFilter(BaseModel):
-    """AI 建议的原字段等值条件，等待治理核对。"""
+    """
+    AI 建议的原字段等值条件，等待治理核对。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -108,7 +112,9 @@ class MetricFilter(BaseModel):
 
 
 class MetricRules(BaseModel):
-    """日期、固定筛选及计量单位的待确认候选。"""
+    """
+    日期、固定筛选及计量单位的待确认候选。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -126,7 +132,9 @@ class MetricRules(BaseModel):
 
 
 class RelationWindow(BaseModel):
-    """关系的待确认日期边界。"""
+    """
+    关系的待确认日期边界。
+    """
 
     model_config = ConfigDict(extra="forbid")
     # 仅已知明确窗口时填写，起止日期均包含当天。

@@ -152,11 +152,16 @@ record QueryRequestedScope(
             if (term.through() != null) {
                 // 有定位回执时，由原始文本而不是模型的列表顺序决定操作位置。
                 end = term.through().length();
-                if (!amendment || !source.startsWith(term.through()) || !term.through().endsWith(focus)
-                        || starts.stream().noneMatch(start -> end - focus.length() >= start
-                                && end <= start + term.phrase().length())
-                        || positions.stream().anyMatch(position -> position.supplement()
-                                && position.end() == end && position.term().through() != null)) {
+                if (!amendment
+                        || !source.startsWith(term.through())
+                        || !term.through().endsWith(focus)
+                        || starts.stream()
+                                .noneMatch(start -> end - focus.length() >= start
+                                        && end <= start + term.phrase().length())
+                        || positions.stream()
+                                .anyMatch(position -> position.supplement()
+                                        && position.end() == end
+                                        && position.term().through() != null)) {
                     // 两项不能共用同一个定位，否则无法证明实际执行次序。
                     return null;
                 }
@@ -208,7 +213,8 @@ record QueryRequestedScope(
             boolean uncertain = false;
             for (var undo : active.subList(index + 1, active.size())) {
                 // 只比较可能取消当前条件的后续撤销。
-                if (!"REMOVE".equals(undo.term().action()) || !edit.field().equals(undo.field())
+                if (!"REMOVE".equals(undo.term().action())
+                        || !edit.field().equals(undo.field())
                         || !edit.term().mode().equals(undo.term().mode())) {
                     continue;
                 }
@@ -221,7 +227,8 @@ record QueryRequestedScope(
                 var next = undo.match().values().keySet();
                 var pairs = previous.stream()
                         .flatMap(left -> next.stream()
-                                .map(right -> QuerySql.sameBoundFilter(edit.match().basis(), left, right, comparison)))
+                                .map(right ->
+                                        QuerySql.sameBoundFilter(edit.match().basis(), left, right, comparison)))
                         .toList();
                 if (!pairs.isEmpty() && pairs.stream().allMatch(Boolean.TRUE::equals)) {
                     // 不同字面但在源库上明确等价的定向撤销同样生效。
@@ -442,7 +449,7 @@ record QueryRequestedScope(
         var product = term.value() == null ? null : QueryProductNames.resolve(List.of(basis), term.value());
         basis.labels().forEach((field, label) -> {
             // 日期条件继续由现有业务日期逻辑绑定。
-            var column = QuerySql.confirmedColumn(basis, field);
+            var column = QueryCorpus.confirmedColumn(basis, field);
             if (column == null || "date".equalsIgnoreCase(column.nativeType())) {
                 return;
             }
@@ -478,14 +485,14 @@ record QueryRequestedScope(
                 values.add(product.code());
             }
             boolean knownValue = fixed.stream()
-                            .anyMatch(filter ->
-                                    field.equals(filter.field())
-                                            && sameLiteral(basis, field, term.value(), filter.value(), comparison))
+                            .anyMatch(filter -> field.equals(filter.field())
+                                    && sameLiteral(basis, field, term.value(), filter.value(), comparison))
                     || QuerySql.isProductCode(label) && QueryProductNames.declares(basis, term.value());
             if (values.isEmpty()
                     && (named
                             || knownValue
-                            || allowModel && plan.filters() != null
+                            || allowModel
+                                    && plan.filters() != null
                                     && plan.filters().stream()
                                             .anyMatch(filter -> filter != null
                                                     && field.equals(filter.field())
@@ -509,7 +516,8 @@ record QueryRequestedScope(
             }
             if (named || !values.isEmpty()) {
                 // 即使旧值无法绑定，确认的字段仍可让后续整列编辑覆盖它。
-                matches.computeIfAbsent(physical(basis, field), ignored -> new MatchedField(basis, new LinkedHashMap<>()));
+                matches.computeIfAbsent(
+                        physical(basis, field), ignored -> new MatchedField(basis, new LinkedHashMap<>()));
             }
         });
     }
@@ -517,7 +525,8 @@ record QueryRequestedScope(
     /**
      * 业务含义仍根据已确认映射识别，编码字面值按实际列的类型及等值规则比较。
      */
-    private static boolean sameLiteral(Basis basis, Field field, String input, String code, ValueComparison comparison) {
+    private static boolean sameLiteral(
+            Basis basis, Field field, String input, String code, ValueComparison comparison) {
         if (input.equals(code)) {
             // 相同字面无需再次连接源库，最终仍检查字段类型。
             return true;
@@ -546,7 +555,7 @@ record QueryRequestedScope(
      * 当前片段真实可用的物理字段及修订。
      */
     private static PhysicalField physical(Basis basis, Field field) {
-        var column = QuerySql.confirmedColumn(basis, field);
+        var column = QueryCorpus.confirmedColumn(basis, field);
         if (column == null) {
             return null;
         }

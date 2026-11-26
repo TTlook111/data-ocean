@@ -12,13 +12,23 @@ import static org.mockito.Mockito.when;
 
 import com.dataocean.module.datasource.entity.dto.RuntimePolicyDTO;
 import com.dataocean.module.datasource.entity.dto.SourceConfigurationDTO;
+import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper.CredentialRow;
 import com.dataocean.module.datasource.mapper.DatasourceMapper.RevisionRow;
+import com.dataocean.module.datasource.mapper.GovernanceCatalogMapper.Column;
+import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
+import com.dataocean.module.datasource.source.SourceConnection.Type;
 import com.dataocean.module.datasource.source.SourceJdbc;
+import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
+import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
 import com.dataocean.module.query.entity.vo.QueryColumnVO;
+import com.dataocean.module.query.service.QueryCorpus.Basis;
+import com.dataocean.module.query.service.QueryCorpus.Table;
+import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QuerySql.Compiled;
 
 import java.sql.Connection;
@@ -26,6 +36,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -157,6 +168,37 @@ class QueryJdbcTest {
                     .isInstanceOf(QueryFailure.class)
                     .hasMessage("KNOWLEDGE_INSUFFICIENT");
         }
+    }
+
+    /**
+     * 比较固定和用户筛选时使用实际源列与只读身份，故障不会降级为猜测等值。
+     */
+    @Test
+    void usesTheFrozenPhysicalColumnAndReadOnlySourceForTextComparison() throws SQLException {
+        var object = new ObjectRef("energy", "energy", "meter", "TABLE", null, null, null);
+        var structure = new Structure(object, List.of(), List.of(), List.of(), List.of());
+        var observation = new Observation(1, 1, 1L, 1L, null, null, null, structure, null);
+        var column = new Column(2, 3, "site", "varchar", false, "", 1);
+        var table = new Table(new Entry(1, 1, false, observation, List.of(column)), Map.of("site", "站点"));
+        var site = new Field("meter", "site");
+        var basis = new Basis(source, null, 0, "", Map.of("meter", table), Map.of(), Map.of(), Map.of(site, "站点"));
+        var plan = new Plan("READY", null, "6", "VALUES", null, null, List.of(site), List.of());
+        assertThat(query.compile(basis, plan).sql()).contains("FROM `energy`.`meter`");
+
+        when(sourceJdbc.open(any(), any(), eq("do-query-compare"))).thenReturn(connection);
+        when(sourceJdbc.compareText(connection, Type.MYSQL, object, "site", "华东", "華東", 3))
+                .thenReturn(true)
+                .thenThrow(new SQLException("no confirmed collation"));
+        assertThat(query.sameTextValue(basis, site, "华东", "華東", 3)).isTrue();
+        assertThatThrownBy(() -> query.sameTextValue(basis, site, "华东", "華東", 3))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("TECHNICAL_FAILURE");
+
+        when(sourceJdbc.readOnlySafety(eq(connection), any())).thenReturn(false);
+        assertThatThrownBy(() -> query.sameTextValue(basis, site, "华东", "華東", 3))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("PERMISSION_DENIED");
+        verify(statement, never()).executeQuery();
     }
 
     /**

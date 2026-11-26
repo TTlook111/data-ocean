@@ -54,13 +54,21 @@ type Definition = {
    * 当前指标是否指定为适用条件内的默认口径。
    */
   defaultMetric?: boolean;
-  /** 当前提取或人工核对的指标执行口径。 */
+  /**
+   * 当前提取或人工核对的指标执行口径。
+   */
   metricRules?: MetricRules | null;
-  /** 关系确认的含端点日期窗口。 */
+  /**
+   * 关系确认的含端点日期窗口。
+   */
   relationWindow?: {
-    /** 不限日期或按业务日期范围适用。 */
+    /**
+     * 不限日期或按业务日期范围适用。
+     */
     mode?: 'NONE' | 'DATE_RANGE' | null;
-    /** 开放端点留空。 */
+    /**
+     * 开放端点留空。
+     */
     validFrom?: string | null;
     validThrough?: string | null;
   } | null;
@@ -91,7 +99,9 @@ function metricRules(values: FormDefinition): MetricRules {
   };
 }
 
-/** 输入与保存都沿用同一日期类型，未选择的模式保持待确认。 */
+/**
+ * 输入与保存都沿用同一日期类型，未选择的模式保持待确认。
+ */
 function relationWindow(values: FormDefinition): Definition['relationWindow'] {
   const window = values.relationWindow;
   if (!window) return null;
@@ -102,7 +112,9 @@ function relationWindow(values: FormDefinition): Definition['relationWindow'] {
   };
 }
 
-/** 使用已有表单状态保存 ISO 日期，关联窗口支持开放起止端点。 */
+/**
+ * 使用已有表单状态保存 ISO 日期，关联窗口支持开放起止端点。
+ */
 function RelationWindowFields() {
   const mode = Form.useWatch(['relationWindow', 'mode']);
   return (

@@ -120,7 +120,9 @@ def test_intent_receipt_reference_keeps_original_fingerprint():
 
 
 def test_supplement_preserves_edit_and_full_list_context(monkeypatch, http):
-    """补充理解允许明确编辑动作，列表否定保留在同一原句。"""
+    """
+    补充理解允许明确编辑动作，列表否定保留在同一原句。
+    """
     question = "在原范围上再排除下列状态：\n已退款，已取消"
     result = {
         "retrievalQuery": "原范围排除退款和取消订单",
@@ -152,19 +154,23 @@ def test_supplement_preserves_edit_and_full_list_context(monkeypatch, http):
 
 
 def test_supplement_retries_bad_format_and_binds_repeated_edits(monkeypatch, http):
-    """格式错误后重提取一次，各次编辑按原话位置生成前缀。"""
+    """
+    格式错误后重提取一次，各次编辑按原话位置生成前缀。
+    """
     text = "改成只统计未支付，再撤销支付状态限制，再改成只统计未支付，最后排除已退款"
     replace = {"action": "REPLACE", "value": "未支付", "mode": "INCLUDE"}
-    reply = api.SupplementIntent.model_validate({
-        "retrievalQuery": "未支付且排除退款",
-        "ambiguous": False,
-        "edits": [
-            {"segment": 3, **replace},
-            {"segment": 1, **replace},
-            {"segment": 2, "action": "REMOVE", "field": "支付状态"},
-            {"segment": 4, "action": "APPEND", "value": "已退款", "mode": "EXCLUDE"},
-        ],
-    })
+    reply = api.SupplementIntent.model_validate(
+        {
+            "retrievalQuery": "未支付且排除退款",
+            "ambiguous": False,
+            "edits": [
+                {"segment": 3, **replace},
+                {"segment": 1, **replace},
+                {"segment": 2, "action": "REMOVE", "field": "支付状态"},
+                {"segment": 4, "action": "APPEND", "value": "已退款", "mode": "EXCLUDE"},
+            ],
+        }
+    )
     generate = AsyncMock(side_effect=[ModelFailure("MODEL_FORMAT"), (reply, None)])
     monkeypatch.setattr(api, "generate", generate)
     response = http.post(
@@ -329,7 +335,9 @@ def test_model_routes_use_only_fixed_scope(monkeypatch, http, step):
 
 
 def test_semantic_scope_receives_exclusions_without_changing_legacy_shape(monkeypatch, http):
-    """复核节点保留范围方向和排除理由，旧请求的空字段不进入回执指纹。"""
+    """
+    复核节点保留范围方向和排除理由，旧请求的空字段不进入回执指纹。
+    """
     model = model_config("OPENAI_CHAT_COMPLETIONS")
     field = {"table": "orders", "column": "payment_state"}
     condition = {"field": field, "value": "PAID"}
@@ -380,10 +388,12 @@ def test_semantic_scope_receives_exclusions_without_changing_legacy_shape(monkey
                         "relations": [
                             {
                                 "revision": "12",
-                                "keys": [[
-                                    {"table": "outlets", "column": "region_id"},
-                                    {"table": "regions", "column": "id"},
-                                ]],
+                                "keys": [
+                                    [
+                                        {"table": "outlets", "column": "region_id"},
+                                        {"table": "regions", "column": "id"},
+                                    ]
+                                ],
                                 "rule": "多对一",
                                 "usage": "仅适用于 2026-11-26 起",
                                 "applicable": False,
@@ -413,7 +423,9 @@ def test_semantic_scope_receives_exclusions_without_changing_legacy_shape(monkey
 
 
 def test_model_and_explanation_error_contracts(monkeypatch, http, caplog):
-    """审查仍返回真实失败类型，说明模型只收到本次可披露快照。"""
+    """
+    审查仍返回真实失败类型，说明模型只收到本次可披露快照。
+    """
     config = model_config("ANTHROPIC_MESSAGES")
     job = api.ModelJob.model_validate({"model": config, "question": "妥投量多少"})
     monkeypatch.setattr(api, "generate", AsyncMock(side_effect=ModelFailure("TIMEOUT")))
@@ -435,21 +447,27 @@ def test_model_and_explanation_error_contracts(monkeypatch, http, caplog):
 
 @pytest.mark.parametrize("wrong_text", ["已支付订单金额为 40 元", "未支付订单金额为 40 万元"])
 def test_explanation_selection_rejects_model_authored_facts(wrong_text):
-    """错口径与错单位的模型文字不能进入编号回执。"""
+    """
+    错口径与错单位的模型文字不能进入编号回执。
+    """
     with pytest.raises(ValidationError):
         api.ExplanationSelection.model_validate({"factIds": [1], "text": wrong_text})
 
 
 @pytest.mark.parametrize("fact_ids", [[0], [2], [1, 1]])
 def test_explanation_rejects_unknown_or_duplicate_fact_ids(monkeypatch, fact_ids):
-    """只接受当前快照中的唯一合法引用。"""
-    monkeypatch.setattr(api, "generate", AsyncMock(return_value=(
-        api.ExplanationSelection(factIds=fact_ids), None
-    )))
-    job = api.ExplanationJob.model_validate({
-        "model": model_config("ANTHROPIC_MESSAGES"),
-        "facts": ["本次查询的订单金额为 40.00 元。"],
-    })
+    """
+    只接受当前快照中的唯一合法引用。
+    """
+    monkeypatch.setattr(
+        api, "generate", AsyncMock(return_value=(api.ExplanationSelection(factIds=fact_ids), None))
+    )
+    job = api.ExplanationJob.model_validate(
+        {
+            "model": model_config("ANTHROPIC_MESSAGES"),
+            "facts": ["本次查询的订单金额为 40.00 元。"],
+        }
+    )
     with pytest.raises(ModelFailure, match="MODEL_FORMAT"):
         asyncio.run(api.explain_result(job))
 

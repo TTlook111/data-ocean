@@ -321,7 +321,9 @@ class ContextJob(BaseModel):
 
 
 class RequestedTerm(BaseModel):
-    """用户明确指定的筛选片段及肯定或否定方向。"""
+    """
+    用户明确指定的筛选片段及肯定或否定方向。
+    """
 
     model_config = ConfigDict(extra="forbid")
     # 原样复制包含或排除的完整表达。
@@ -341,7 +343,9 @@ class RequestedTerm(BaseModel):
 
     @model_serializer(mode="wrap")
     def keep_legacy_location_shape(self, handler: SerializerFunctionWrapHandler) -> dict:
-        """原问和旧回执未提供定位时，保留原响应与模型输入形状。"""
+        """
+        原问和旧回执未提供定位时，保留原响应与模型输入形状。
+        """
         data = handler(self)
         if self.through is None:
             # 仅新补充有有效定位时才写入该字段。
@@ -350,7 +354,9 @@ class RequestedTerm(BaseModel):
 
 
 class Intent(BaseModel):
-    """检索表述和独立于任何发布定义的明确用户筛选。"""
+    """
+    检索表述和独立于任何发布定义的明确用户筛选。
+    """
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     # 去掉无关口语后的业务检索表述。
@@ -362,7 +368,9 @@ class Intent(BaseModel):
 
 
 class ScopeEdit(BaseModel):
-    """模型只选择短片段及操作，原话位置由服务端核对。"""
+    """
+    模型只选择短片段及操作，原话位置由服务端核对。
+    """
 
     model_config = ConfigDict(extra="forbid")
     # 当前操作值或撤销字段所处的片段编号。
@@ -379,7 +387,9 @@ class ScopeEdit(BaseModel):
 
 
 class SupplementIntent(BaseModel):
-    """补充节点的模型返回形状，不含重复的原句和前缀。"""
+    """
+    补充节点的模型返回形状，不含重复的原句和前缀。
+    """
 
     model_config = ConfigDict(extra="forbid")
     # 只引用补充原文和合规历史的检索表达。
@@ -415,17 +425,15 @@ def supplement_terms(
     segments: list[re.Match[str]],
     edits: list[ScopeEdit],
 ) -> list[RequestedTerm]:
-    """用真实分段还原完整否定上下文及每次操作的绝对位置。"""
+    """
+    用真实分段还原完整否定上下文及每次操作的绝对位置。
+    """
     grounded: dict[int, RequestedTerm] = {}
     for edit in edits:
         # 整列撤销必须引用字段。值操作可以依据已确认编码绑定字段。
         clear = edit.action == "REMOVE" and edit.value is None
         focus = edit.field if clear else edit.value
-        if (
-            not focus
-            or edit.segment > len(segments)
-            or (edit.mode is None) != clear
-        ):
+        if not focus or edit.segment > len(segments) or (edit.mode is None) != clear:
             raise ModelFailure("MODEL_FORMAT")
         segment = segments[edit.segment - 1]
         positions = list(re.finditer(re.escape(focus), segment.group()))
@@ -440,17 +448,24 @@ def supplement_terms(
         clause = next(clause for clause in clauses if clause.start() < end <= clause.end())
         field = edit.field if edit.field and edit.field in segment.group() else None
         grounded[end] = RequestedTerm(
-            phrase=clause.group().strip(), through=question[:end], action=edit.action,
-            value=edit.value, mode=edit.mode, field=field,
+            phrase=clause.group().strip(),
+            through=question[:end],
+            action=edit.action,
+            value=edit.value,
+            mode=edit.mode,
+            field=field,
         )
     return [grounded[end] for end in sorted(grounded)]
 
 
 async def understand_supplement(job: ContextJob, model: ChatConfiguration) -> Intent:
-    """补充格式错误时在同一冻结模型和预算内重提取一次。"""
+    """
+    补充格式错误时在同一冻结模型和预算内重提取一次。
+    """
     clauses = list(re.finditer(r"[^。！？!?；;]+", job.question))
     segments = [
-        segment for segment in re.finditer(r"[^。！？!?；;，,]+", job.question)
+        segment
+        for segment in re.finditer(r"[^。！？!?；;，,]+", job.question)
         if segment.group().strip()
     ]
     data = job.model_dump(exclude={"model"}, exclude_none=True)
@@ -579,7 +594,9 @@ async def history_summary(job: ContextJob, request: Request) -> HistorySummary:
 
 
 class RelationEvidence(BaseModel):
-    """关联编译实际核对的已确认修订和键。"""
+    """
+    关联编译实际核对的已确认修订和键。
+    """
 
     # 关系所属发布的确认修订和全部等值键对。
     revision: Identity
@@ -595,7 +612,9 @@ class RelationEvidence(BaseModel):
 
 
 class JoinAssessment(BaseModel):
-    """关联失败时供独立复核重新判断适用性与连接范围。"""
+    """
+    关联失败时供独立复核重新判断适用性与连接范围。
+    """
 
     # 实际无法编译的原因和需要接入的表。
     reason: str
@@ -608,7 +627,9 @@ class JoinAssessment(BaseModel):
 
 
 class CandidateEvidence(BaseModel):
-    """候选的正式片段、物理列及实际编译的范围。"""
+    """
+    候选的正式片段、物理列及实际编译的范围。
+    """
 
     # 已获准的正文和指标规则。
     snippet: dict
@@ -626,7 +647,9 @@ class CandidateEvidence(BaseModel):
 
 
 class ConditionComparison(BaseModel):
-    """固定值与用户条件在实际源列规则下的比较事实。"""
+    """
+    固定值与用户条件在实际源列规则下的比较事实。
+    """
 
     # 与候选固定值核对的用户条件。
     requested: Condition
@@ -635,7 +658,9 @@ class ConditionComparison(BaseModel):
 
 
 class CandidateExclusion(BaseModel):
-    """Java 在本轮核对的候选身份和有限排除理由。"""
+    """
+    Java 在本轮核对的候选身份和有限排除理由。
+    """
 
     # 实际核验的发布绑定和正文片段位置。
     binding: Identity
@@ -651,7 +676,9 @@ class CandidateExclusion(BaseModel):
 
 
 class SelectionReview(BaseModel):
-    """供独立语义复核覆盖用户原话、绑定条件和未采用的候选。"""
+    """
+    供独立语义复核覆盖用户原话、绑定条件和未采用的候选。
+    """
 
     # 提取的真实原话片段及其方向。
     terms: list[RequestedTerm] = Field(max_length=16)
@@ -680,7 +707,9 @@ class ModelJob(BaseModel):
 
     @model_serializer(mode="wrap")
     def keep_legacy_receipt_shape(self, handler: SerializerFunctionWrapHandler) -> dict:
-        """省略旧节点输入中不存在的新空字段，以原有指纹恢复已登记请求。"""
+        """
+        省略旧节点输入中不存在的新空字段，以原有指纹恢复已登记请求。
+        """
         data = handler(self)
         for name in ("requestedTerms", "selection"):
             # 明确的空条件列表属于新请求，仍保留。
@@ -889,7 +918,9 @@ class ExplanationJob(BaseModel):
 
 
 class ExplanationSelection(BaseModel):
-    """说明模型只能选择授权结果中的事实。"""
+    """
+    说明模型只能选择授权结果中的事实。
+    """
 
     model_config = ConfigDict(extra="forbid")
     # 至多引用三条事实，正文由 Java 组装。
@@ -897,7 +928,9 @@ class ExplanationSelection(BaseModel):
 
 
 async def explain_result(job: ExplanationJob) -> ExplanationSelection:
-    """依据已执行范围选择最能说明结果的事实编号。"""
+    """
+    依据已执行范围选择最能说明结果的事实编号。
+    """
     prompt = (
         '以 JSON 对象 {"factIds":[1]} 返回说明用的事实编号。'
         "scope 和 facts 是已按最终有效条件执行的授权快照。按相关性选择一到三个事实，"

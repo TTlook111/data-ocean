@@ -21,6 +21,7 @@ import com.dataocean.common.security.IamPrincipal;
 import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.access.entity.vo.AccessScopeVO;
+import com.dataocean.module.access.entity.vo.AccessSourceOptionVO;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
@@ -44,7 +45,9 @@ import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
 import com.dataocean.module.query.entity.vo.QueryExplanationVO;
 import com.dataocean.module.query.mapper.QueryConversationMapper;
+import com.dataocean.module.query.mapper.QueryConversationMapper.Conversation;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
+import com.dataocean.module.query.mapper.QueryRequestMapper.History;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
@@ -56,9 +59,9 @@ import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
+import com.dataocean.module.query.service.QueryProtocol.RequestedTerm;
 import com.dataocean.module.query.service.QueryProtocol.RerankDecision;
 import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
-import com.dataocean.module.query.service.QueryProtocol.RequestedTerm;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
 import com.dataocean.module.query.service.QueryProtocol.SelectionReview;
 import com.dataocean.module.query.service.QueryProtocol.SummaryDecision;
@@ -185,6 +188,126 @@ class QueryServiceTest {
     @AfterEach
     void cleanup() {
         SecurityContextHolder.clearContext();
+    }
+
+    /**
+     * 工作台只保留可选来源和同一源本人历史，撤权或跨用户时不返回轮次。
+     */
+    @Test
+    void restoresOnlyAuthorizedHistoryAndConversationTurns() {
+        var conversationId = row.conversationId();
+        var own = new Conversation(conversationId, USER, SOURCE, "物流对话", id, time, time);
+        var other = new Conversation(conversationId, USER + 1, SOURCE, "他人对话", id, time, time);
+        var history = List.of(new History(id, "物流状态", "RESULT_DELIVERED", time));
+        var enabled = new AccessScopeVO(new AccessSourceOptionVO("72", "物流"), List.of(), List.of());
+        var inactive = new AccessScopeVO(new AccessSourceOptionVO("73", "归档"), List.of(), List.of());
+        when(access.current(USER)).thenReturn(List.of(enabled, inactive));
+        when(catalog.source(SOURCE, false)).thenReturn(source);
+        when(catalog.source(73L, false))
+                .thenReturn(new Source(73L, "归档", "DISABLED", 4L, 3L, 1, false, null, null, null, null));
+        when(requests.history(USER, SOURCE)).thenReturn(history);
+        when(conversations.history(USER, SOURCE)).thenReturn(List.of(own));
+        when(conversations.get(conversationId)).thenReturn(own, other, own);
+        when(conversations.turns(conversationId)).thenReturn(history);
+
+        assertThat(service.sources()).extracting(item -> item.getId()).containsExactly("72");
+        assertThat(service.history(SOURCE)).extracting(item -> item.getId()).containsExactly(id);
+        assertThat(service.conversations(SOURCE))
+                .extracting(item -> item.getLatestRequestId())
+                .containsExactly(id);
+        assertThat(service.turns(conversationId))
+                .extracting(item -> item.getQuestion())
+                .containsExactly("物流状态");
+
+        assertThatThrownBy(() -> service.turns(conversationId)).isInstanceOf(BizIllegalException.class);
+        when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+        assertThatThrownBy(() -> service.history(SOURCE)).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> service.conversations(SOURCE)).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> service.turns(conversationId)).isInstanceOf(BizIllegalException.class);
+        verify(conversations).turns(conversationId);
+    }
+
+    /**
+     * 有效回答使用当前授权和实际执行身份进行评价，过期或未知修订不能回用。
+     */
+    @Test
+    void bindsRatingsToTheReadableAnswerAndCurrentAuthorization() {
+        delivered(row);
+        when(row.executionId()).thenReturn("source-execution");
+        when(requests.lockOwned(id, USER)).thenReturn(row);
+
+        var answer = service.ratingAnswer(id, 1, true);
+        assertThat(answer.executionId()).isEqualTo("source-execution");
+        assertThat(answer.bindingId()).isEqualTo(BINDING);
+        assertThat(answer.evidence().getTitle()).isEqualTo("物流口径");
+        assertThatThrownBy(() -> service.ratingAnswer(id, 2, false)).isInstanceOf(BizIllegalException.class);
+
+        when(row.executedAt()).thenReturn(time.minusDays(2));
+        assertThatThrownBy(() -> service.ratingAnswer(id, 1, false))
+                .isInstanceOf(BizIllegalException.class)
+                .hasMessageContaining("超过保留期");
+    }
+
+    /**
+     * 反馈只回看当前允许披露的原问、依据和口径，发布失效时仍保留原问。
+     */
+    @Test
+    void restrictsFeedbackEvidenceToTheCurrentSourceAndRules() {
+        delivered(row);
+        grant.setSource(new AccessSourceOptionVO("72", "物流"));
+        when(row.supplement()).thenReturn("查三号线");
+        data.setScope("妥投口径");
+        when(row.result()).thenReturn(json.write(data));
+        when(permissions.has("query.sql")).thenReturn(true);
+
+        var visible = service.feedbackQuestion(id, grant);
+        assertThat(visible.getQuestion()).isEqualTo("物流状态");
+        assertThat(visible.getScope()).isEqualTo("妥投口径");
+        assertThat(visible.getSql()).isEqualTo("SELECT route");
+        assertThat(service.canOpenFeedbackAnswer(id, USER, grant)).isTrue();
+        assertThat(service.canOpenFeedbackAnswer(id, USER + 1, grant)).isFalse();
+        assertThat(service.canReplayFeedback(id, grant)).isTrue();
+
+        when(row.previousId()).thenReturn(UUID.randomUUID().toString());
+        when(row.inheritContext()).thenReturn(true);
+        assertThat(service.canReplayFeedback(id, grant)).isFalse();
+        assertThatThrownBy(() -> service.replayFeedback(id, grant, command)).isInstanceOf(BizIllegalException.class);
+
+        when(versions.requireForQuery(SOURCE, BINDING)).thenThrow(BizIllegalException.denied());
+        var unavailable = service.feedbackQuestion(id, grant);
+        assertThat(unavailable.getQuestion()).isEqualTo("物流状态");
+        assertThat(unavailable.getSql()).isNull();
+
+        var changed = List.of(new OutputRuleVO("1", "采购限制", "不得返回商品采购成本或采购单价", 1, null));
+        grant.setRules(changed);
+        assertThat(service.feedbackQuestion(id, grant)).isNull();
+        assertThat(service.feedbackText(grant, "商品采购单价")).isNull();
+        assertThat(service.feedbackText(grant, "妥投口径")).isEqualTo("妥投口径");
+    }
+
+    /**
+     * 业务查询在途撤权时尝试取消源端语句，租约仍由当前代次维护。
+     */
+    @Test
+    void cancelsTheInFlightStatementWhenTheSourceGrantChanges() throws SQLException {
+        ready();
+        when(requests.permit(any())).thenReturn(1);
+        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
+            // 许可后先核对仍有效的运行，再模拟查询返回之前撤权。
+            call.<Runnable>getArgument(4).run();
+            worker.observe();
+            verify(jdbc, never()).cancel(id);
+            when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+            worker.observe();
+            throw new SQLException("source cancelled");
+        });
+
+        worker.work();
+
+        verify(jdbc).cancel(id);
+        verify(requests, never()).capture(eq(id), anyInt(), anyString());
+        worker.observe();
+        verify(jdbc).cancel(id);
     }
 
     /**
@@ -333,10 +456,12 @@ class QueryServiceTest {
      * 新结果在入库前拦截，旧队列捕获的结果也不能从恢复分支交付。
      */
     @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "false|商品采购单价为 12.00 元", "true|商品采购单价为 12.00 元",
-        "false|{\"采购单价\":12.00,\"币种\":\"CNY\"}", "true|{\"采购单价\":12.00,\"币种\":\"CNY\"}"
-    })
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "false|商品采购单价为 12.00 元", "true|商品采购单价为 12.00 元",
+                "false|{\"采购单价\":12.00,\"币种\":\"CNY\"}", "true|{\"采购单价\":12.00,\"币种\":\"CNY\"}"
+            })
     void rejectsRestrictedResultsBeforeCaptureOrRecoveryDelivery(boolean previouslyCaptured, String cell)
             throws SQLException {
         String signature = restrictedResult(cell);
@@ -496,13 +621,25 @@ class QueryServiceTest {
 
         var ordered = inOrder(requests, models);
         ordered.verify(models).summarize(any(), eq(35L), anyInt(), eq("物流状态"), eq(raw));
-        ordered.verify(requests).freezeSummary(eq(id), eq(2), argThat(value ->
-                json.read(value, SummaryDecision.class).equals(new SummaryDecision(List.of("old"), succeeded))));
+        ordered.verify(requests).freezeSummary(eq(id), eq(2), argThat(value -> json.read(value, SummaryDecision.class)
+                .equals(new SummaryDecision(List.of("old"), succeeded))));
         ordered.verify(models).understand(any(), eq(31L), anyInt(), eq("物流状态"), eq(raw));
 
-        when(row.runInput()).thenReturn(json.write(new RunInput(new QueryOutput().signature(List.of()), raw,
-                List.of(BINDING), 1, 2, null, null, 31L, 35L, new SummaryDecision(List.of("old"), succeeded),
-                null, null, null)));
+        when(row.runInput())
+                .thenReturn(json.write(new RunInput(
+                        new QueryOutput().signature(List.of()),
+                        raw,
+                        List.of(BINDING),
+                        1,
+                        2,
+                        null,
+                        null,
+                        31L,
+                        35L,
+                        new SummaryDecision(List.of("old"), succeeded),
+                        null,
+                        null,
+                        null)));
         worker.work();
         verify(models).summarize(any(), eq(35L), anyInt(), anyString(), any());
     }
@@ -511,8 +648,8 @@ class QueryServiceTest {
     @Test
     void stopsWhenHistoryPermissionIsRevokedBeforeDelivery() throws SQLException {
         ready();
-        var memory = new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(),
-                List.of(new MemoryTurn("old", null, null, plan)));
+        var memory = new Memory(
+                time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of(new MemoryTurn("old", null, null, plan)));
         when(context.capture(eq(row), anyString())).thenReturn(memory);
         when(models.historySummaryRevision()).thenReturn(35L);
         when(models.summarize(any(), eq(35L), anyInt(), anyString(), any())).thenAnswer(call -> {
@@ -555,12 +692,24 @@ class QueryServiceTest {
 
         var ordered = inOrder(requests, models);
         ordered.verify(models).rerank(any(), eq(51L), anyInt(), anyString(), eq(List.of("第一段", "第二段")));
-        ordered.verify(requests).freezeRerank(eq(id), eq(2), eq("$.rerank"),
-                argThat(value -> json.read(value, RerankDecision.class).equals(decision)));
+        ordered.verify(requests)
+                .freezeRerank(eq(id), eq(2), eq("$.rerank"), argThat(value -> json.read(value, RerankDecision.class)
+                        .equals(decision)));
         ordered.verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(snippets), anyList(), any());
-        var input = new RunInput(new QueryOutput().signature(List.of()),
-                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING),
-                1L, 2L, null, null, 31L, 0L, null, 51L, decision, null);
+        var input = new RunInput(
+                new QueryOutput().signature(List.of()),
+                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()),
+                List.of(BINDING),
+                1L,
+                2L,
+                null,
+                null,
+                31L,
+                0L,
+                null,
+                51L,
+                decision,
+                null);
         when(row.runInput()).thenReturn(json.write(input));
         worker.work();
         verify(models).rerank(any(), eq(51L), anyInt(), anyString(), anyList());
@@ -577,10 +726,11 @@ class QueryServiceTest {
             when(corpus.basis(SOURCE, hits.get(1))).thenThrow(BizIllegalException.denied());
         } else {
             // 外发期间撤销来源访问，收到排序也不得交付。
-            when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList())).thenAnswer(call -> {
-                when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
-                return new RerankOrder(List.of(1, 0));
-            });
+            when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
+                    .thenAnswer(call -> {
+                        when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+                        return new RerankOrder(List.of(1, 0));
+                    });
         }
 
         worker.work();
@@ -601,22 +751,35 @@ class QueryServiceTest {
         when(row.supplement()).thenReturn("只看已妥投线路");
         when(row.clarificationCommand()).thenReturn("clarified-command");
         var original = new RerankDecision(List.of(hits.get(1), hits.get(0)), true);
-        var input = new RunInput(new QueryOutput().signature(List.of()),
-                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING),
-                1L, 2L, null, null, 31L, 0L, null, 51L, original, null);
+        var input = new RunInput(
+                new QueryOutput().signature(List.of()),
+                new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()),
+                List.of(BINDING),
+                1L,
+                2L,
+                null,
+                null,
+                31L,
+                0L,
+                null,
+                51L,
+                original,
+                null);
         when(row.runInput()).thenReturn(json.write(input));
         when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn(new Intent("妥投线路"));
         when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
                 .thenReturn(new RerankOrder(List.of(0, 1)));
-        when(requests.freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), anyString())).thenReturn(1);
+        when(requests.freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), anyString()))
+                .thenReturn(1);
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                 .thenThrow(QueryFailure.knowledge());
 
         worker.work();
 
         verify(models).rerank(argThat(QueryModels.Run::clarified), eq(51L), anyInt(), anyString(), anyList());
-        verify(requests).freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), argThat(value ->
-                json.read(value, RerankDecision.class).equals(new RerankDecision(hits, true))));
+        verify(requests).freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), argThat(value -> json.read(
+                        value, RerankDecision.class)
+                .equals(new RerankDecision(hits, true))));
     }
 
     /**
@@ -1183,7 +1346,8 @@ class QueryServiceTest {
                 1,
                 "11",
                 "订单金额",
-                mapper.readTree("""
+                mapper.readTree(
+                        """
                         {"rule":"SUM(deliveries.amount)",
                          "metricRules":{"dateMode":"BUSINESS_DAY","dateFieldId":"14","fixedFilters":[],"unitMode":"NONE"}}
                         """),
@@ -1194,7 +1358,8 @@ class QueryServiceTest {
                 1,
                 "11",
                 "订单金额",
-                mapper.readTree("""
+                mapper.readTree(
+                        """
                         {"rule":"SUM(deliveries.amount)","usage":"按业务日期汇总",
                          "metricRules":{"dateMode":"BUSINESS_DAY","dateFieldId":"14","fixedFilters":[],"unitMode":"NONE"}}
                         """),
@@ -1442,9 +1607,11 @@ class QueryServiceTest {
             when(basis.text()).thenReturn("");
         }
         // 真实规划有时重复用户的排除条件，实际 SQL 仍只采用独立绑定的方向和编码。
-        var filters = "only-omit".equals(scenario) ? List.<Condition>of()
-                : "exclude".equals(scenario) ? List.of(new Condition(field, "已支付", true))
-                : List.of(new Condition(field, firstValue));
+        var filters = "only-omit".equals(scenario)
+                ? List.<Condition>of()
+                : "exclude".equals(scenario)
+                        ? List.of(new Condition(field, "已支付", true))
+                        : List.of(new Condition(field, firstValue));
         when(row.question()).thenReturn(question);
         when(models.understand(any(), eq(31L), anyInt(), eq(question), any()))
                 .thenReturn(new Intent(question, terms, false));

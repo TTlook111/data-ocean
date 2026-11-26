@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.Ids;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
+import com.dataocean.module.datasource.mapper.GovernanceCatalogMapper.Column;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
@@ -249,6 +250,40 @@ public class QueryCorpus {
     /** 不同治理类型的数字目标可以重号，实际证据沿类型共同定位。 */
     private static String factKey(String kind, String targetId) {
         return kind + ":" + targetId;
+    }
+
+    /**
+     * 只在当前片段的已确认字段中读取可信目录列。
+     */
+    static Column confirmedColumn(Basis basis, Field field) {
+        if (field == null || !basis.labels().containsKey(field)) {
+            // 实际表有该列也不能替代当前片段对列的确认引用。
+            return null;
+        }
+        var table = basis.tables().get(field.table());
+        return table == null ? null : table.entry().named(field.column());
+    }
+
+    /**
+     * 日期维度必须来自同版治理引用与原生 DATE 字段。
+     */
+    static boolean isDateField(Basis basis, Field field) {
+        var column = confirmedColumn(basis, field);
+        return column != null && "date".equalsIgnoreCase(column.nativeType());
+    }
+
+    /**
+     * 普通表是当前编译器支持的物理连接对象。
+     */
+    static boolean ordinaryTable(Basis basis, String name) {
+        return "TABLE"
+                .equals(basis.tables()
+                        .get(name)
+                        .entry()
+                        .observation()
+                        .structure()
+                        .object()
+                        .type());
     }
 
     /** Java 唯一可信的片段结构，模型不能回填 SQL 标识。 */

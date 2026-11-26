@@ -201,7 +201,10 @@ public final class QueryProtocol {
      * @param relations 当前授权发布中编译器实际考察的关联
      */
     public record JoinAssessment(
-            String reason, List<String> requiredTables, Field dateField, List<String> dateBounds,
+            String reason,
+            List<String> requiredTables,
+            Field dateField,
+            List<String> dateBounds,
             List<RelationEvidence> relations) {}
 
     /**
@@ -216,7 +219,11 @@ public final class QueryProtocol {
      * @param validThrough 已确认的最晚适用日期，包含当天
      */
     public record RelationEvidence(
-            String revision, List<List<Field>> keys, String rule, String usage, boolean applicable,
+            String revision,
+            List<List<Field>> keys,
+            String rule,
+            String usage,
+            boolean applicable,
             @JsonInclude(JsonInclude.Include.NON_NULL) String validFrom,
             @JsonInclude(JsonInclude.Include.NON_NULL) String validThrough) {}
 

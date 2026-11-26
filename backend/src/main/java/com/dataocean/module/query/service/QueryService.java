@@ -460,7 +460,8 @@ public class QueryService {
         if (hasLiveResult(row)) {
             try {
                 // 查询口径与 SQL 模板沿用结果留存和当前发布资格，不返回原值及参数。
-                dataScope = feedbackText(scope, requireReadableResult(row, scope).getScope());
+                dataScope =
+                        feedbackText(scope, requireReadableResult(row, scope).getScope());
                 if (reasoning != null && permissions.has("query.sql")) {
                     sql = feedbackText(scope, reasoning.sql());
                 }

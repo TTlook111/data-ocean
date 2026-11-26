@@ -1,10 +1,10 @@
 package com.dataocean.module.governance.entity.vo;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
 import com.dataocean.module.governance.entity.dto.RelationWindowDTO;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Basis;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Pair;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 

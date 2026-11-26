@@ -298,7 +298,14 @@ class QuerySqlTest {
         var locked = new Field("stock_snapshot", "locked");
         var date = new Field("stock_snapshot", "business_date");
         var evidence = basis("TABLE", stock, locked, date, null);
-        var previous = new Plan("READY", null, "1", "SUM", "库存", null, List.of(stock),
+        var previous = new Plan(
+                "READY",
+                null,
+                "1",
+                "SUM",
+                "库存",
+                null,
+                List.of(stock),
                 List.of(new Condition(stock, "5"), new Condition(date, "2026-11-19")),
                 new TimeSelection(date, "DAY", "2026-11-19", "2026-11-19", false));
 
@@ -316,26 +323,49 @@ class QuerySqlTest {
         var locked = new Field("stock_snapshot", "locked");
         var date = new Field("stock_snapshot", "business_date");
         var json = JsonMapper.builder().build();
-        var available = new GovernanceFactVO(new GovernanceTargetVO("1", "METRIC", "8"), "9", 1, "10",
-                "可售库存", json.readTree("""
+        var available = new GovernanceFactVO(
+                new GovernanceTargetVO("1", "METRIC", "8"),
+                "9",
+                1,
+                "10",
+                "可售库存",
+                json.readTree(
+                        """
                         {"rule":"SUM(stock_snapshot.on_hand - stock_snapshot.locked)",
                          "metricRules":{"dateMode":"NONE","fixedFilters":[],"unitMode":"NONE"}}
                         """),
                 List.of());
-        var onHand = new GovernanceFactVO(new GovernanceTargetVO("1", "METRIC", "9"), "10", 1, "10",
-                "实际在库", json.readTree("""
+        var onHand = new GovernanceFactVO(
+                new GovernanceTargetVO("1", "METRIC", "9"),
+                "10",
+                1,
+                "10",
+                "实际在库",
+                json.readTree(
+                        """
                         {"rule":"SUM(stock_snapshot.on_hand)","metricRules":{"dateMode":"NONE","fixedFilters":[],"unitMode":"NONE"}}
-                        """), List.of());
+                        """),
+                List.of());
         var section = basis("TABLE", stock, locked, date, available);
-        var evidence = new Basis(section.source(), section.binding(), section.ordinal(), section.text(),
-                section.tables(), section.fields(), Map.of("8", available, "9", onHand), section.labels());
+        var evidence = new Basis(
+                section.source(),
+                section.binding(),
+                section.ordinal(),
+                section.text(),
+                section.tables(),
+                section.fields(),
+                Map.of("8", available, "9", onHand),
+                section.labels());
         var compiler = new QuerySql();
         var mismatch = new Plan("READY", null, "1", "SUM", "可售库存", null, List.of(stock), List.of());
         var alias = new Plan("READY", null, "1", "SUM", "实际在库总量", null, List.of(stock), List.of());
 
         assertThatThrownBy(() -> compiler.compile(evidence, mismatch, true, "warehouse"))
                 .isInstanceOf(QueryFailure.class);
-        assertThat(compiler.compile(evidence, alias, true, "warehouse").columns().get(0).getLabel())
+        assertThat(compiler.compile(evidence, alias, true, "warehouse")
+                        .columns()
+                        .get(0)
+                        .getLabel())
                 .isEqualTo("实际在库");
     }
 
@@ -345,16 +375,18 @@ class QuerySqlTest {
     void acceptsConfirmedProductForAllPreviousWeekFollowups(String question) {
         var code = new Field("product", "code");
         var evidence = new Basis(null, null, 0, "", Map.of(), Map.of(), Map.of(), Map.of(code, "SKU 编码"));
-        var plan = new Plan("READY", null, "1", "SUM", "库存", null,
-                List.of(code), List.of(new Condition(code, "DEMO-2")));
-        var memory = new Memory("2026-11-24T00:00:00Z",
-                List.of(new MemoryTurn("confirmed", "查 DEMO-2 的库存", null, plan)), List.of());
+        var plan =
+                new Plan("READY", null, "1", "SUM", "库存", null, List.of(code), List.of(new Condition(code, "DEMO-2")));
+        var memory = new Memory(
+                "2026-11-24T00:00:00Z", List.of(new MemoryTurn("confirmed", "查 DEMO-2 的库存", null, plan)), List.of());
 
         assertThat(QueryDates.previousWeekFollowup(question)).isTrue();
-        assertThat(new QuerySql().checkProductCodes(evidence, plan, question, memory).contextRequestIds())
+        assertThat(new QuerySql()
+                        .checkProductCodes(evidence, plan, question, memory)
+                        .contextRequestIds())
                 .containsExactly("confirmed");
-        assertThatThrownBy(() -> new QuerySql().checkProductCodes(evidence, plan,
-                question + "另查其他商品。", memory)).isInstanceOf(QueryFailure.class);
+        assertThatThrownBy(() -> new QuerySql().checkProductCodes(evidence, plan, question + "另查其他商品。", memory))
+                .isInstanceOf(QueryFailure.class);
     }
 
     /**
@@ -679,7 +711,10 @@ class QuerySqlTest {
                 1,
                 "10",
                 "订单金额",
-                JsonMapper.builder().build().readTree("""
+                JsonMapper.builder()
+                        .build()
+                        .readTree(
+                                """
                         {"rule":"SUM(orders.gross_amount)","metricRules":{"dateMode":"NONE","fixedFilters":[],"unitMode":"NONE"}}
                         """),
                 List.of());
@@ -731,24 +766,30 @@ class QuerySqlTest {
         var plan = orderRegionPlan();
         var today = LocalDate.of(2026, 11, 25);
         assertThatThrownBy(() -> compiler.resolveTime(basis, plan, today, "查华东区订单金额", false))
-                .isInstanceOf(QueryFailure.class).hasMessage("KNOWLEDGE_INSUFFICIENT");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("KNOWLEDGE_INSUFFICIENT");
 
         var mapper = JsonMapper.builder().build();
-        definition.set("metricRules", mapper.valueToTree(
-                new MetricRulesDTO("BUSINESS_DAY", "16", List.of(), "NONE", null, null)));
+        definition.set(
+                "metricRules",
+                mapper.valueToTree(new MetricRulesDTO("BUSINESS_DAY", "16", List.of(), "NONE", null, null)));
         assertThatThrownBy(() -> compiler.resolveTime(basis, plan, today, "查华东区订单金额", false))
-                .isInstanceOf(QueryFailure.class).hasMessage("KNOWLEDGE_INSUFFICIENT");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("KNOWLEDGE_INSUFFICIENT");
         // 日期列在目录中存在还不够，也必须属于该指标正式依赖。
         fact.setDependencies(List.of(new GovernanceTargetVO("1", "COLUMN", "16")));
         var dated = compiler.resolveTime(basis, plan, today, "查华东区订单金额", false);
         assertThat(compiler.compile(basis, dated, true, "sales").parameters()).contains(today);
         assertThatThrownBy(() -> compiler.compile(basis, plan, true, "sales"))
-                .isInstanceOf(QueryFailure.class).hasMessage("KNOWLEDGE_INSUFFICIENT");
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("KNOWLEDGE_INSUFFICIENT");
 
-        fact.setDependencies(List.of(new GovernanceTargetVO("1", "COLUMN", "18"),
-                new GovernanceTargetVO("1", "COLUMN", "19")));
-        definition.set("metricRules", mapper.valueToTree(new MetricRulesDTO("NONE", null,
-                List.of(new MetricFilterDTO("18", "PAID")), "COLUMN", null, "19")));
+        fact.setDependencies(
+                List.of(new GovernanceTargetVO("1", "COLUMN", "18"), new GovernanceTargetVO("1", "COLUMN", "19")));
+        definition.set(
+                "metricRules",
+                mapper.valueToTree(new MetricRulesDTO(
+                        "NONE", null, List.of(new MetricFilterDTO("18", "PAID")), "COLUMN", null, "19")));
         var compiled = compiler.compile(basis, plan, true, "sales");
         // 实际支付条件和同币种校验进入 SQL，无需模型重复输出这些条件。
         assertThat(compiled.sql())
@@ -838,7 +879,8 @@ class QuerySqlTest {
                     assertThat(review.relations()).hasSize(2).anySatisfy(relation -> {
                         // 该段未选用的键和正式适用期来自同一关联修订。
                         assertThat(relation.applicable()).isFalse();
-                        assertThat(relation.usage()).isEqualTo(definition.path("usage").asText());
+                        assertThat(relation.usage())
+                                .isEqualTo(definition.path("usage").asText());
                         assertThat(relation.validFrom()).isEqualTo("2026-11-25");
                         assertThat(relation.keys()).hasSize(1);
                     });
@@ -853,20 +895,20 @@ class QuerySqlTest {
         definition.remove("relationWindow");
         definition.put("usage", "此关系仅适用于 2026-11-25 起的已付款订单。");
         assertThatThrownBy(() -> compiler.compile(basis, inside, true, "sales"))
-                .isInstanceOfSatisfying(QueryFailure.class, failure ->
-                        assertThat(failure.diagnostic()).isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
+                .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.diagnostic())
+                        .isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
 
         definition.put("usage", "2026 年 11 月 25 日以后才能用于区域归属。");
         for (var plan : List.of(outside, inside)) {
-            // 中文“以后”要求晚于当天，标准 ISO 的“起”仍包含当天。
+            // 无结构化窗口时，正文日期不能用于选择关联。
             assertThatThrownBy(() -> compiler.compile(basis, plan, true, "sales"))
                     .isInstanceOf(QueryFailure.class)
                     .hasMessage("KNOWLEDGE_INSUFFICIENT");
         }
         var nextDay = orderRegionPlan(new Condition(date, "2026-11-26"));
         assertThatThrownBy(() -> compiler.compile(basis, nextDay, true, "sales"))
-                .isInstanceOfSatisfying(QueryFailure.class, failure ->
-                        assertThat(failure.diagnostic()).isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
+                .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.diagnostic())
+                        .isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
         definition.put("usage", "此关系仅适用于 2026 年 11 月 25 日起的订单，较早记录不得使用该关系归属区域另限已支付。");
         assertThatThrownBy(() -> compiler.compile(basis, nextDay, true, "sales"))
                 .isInstanceOf(QueryFailure.class)
@@ -879,6 +921,40 @@ class QuerySqlTest {
         assertThatThrownBy(() -> compiler.compile(basis, nextDay, true, "sales"))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("KNOWLEDGE_INSUFFICIENT");
+    }
+
+    /**
+     * 明确或缺失日期窗口都不能覆盖仍未结构化的支付状态限制。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"NONE", "DATE_RANGE"})
+    void refusesJoinsWithUnsupportedStatusConditions(String mode) {
+        var relation = relation("83", "{\"pairs\":[{\"left\":\"14\",\"right\":\"31\"}]}");
+        var content = (ObjectNode) relation.getContent();
+        var window = content.putObject("relationWindow").put("mode", mode);
+        if ("DATE_RANGE".equals(mode)) {
+            // 计划日期在窗口内，应只因为支付条件无法执行而拒绝。
+            window.put("validFrom", "2026-11-25");
+        }
+        var plan = orderRegionPlan(new Condition(new Field("orders", "business_day"), "2026-11-26"));
+        for (var name : List.of("meaning", "rule", "usage")) {
+            // 三处都可能保存治理文字中的额外条件。
+            content.put(name, "仅适用于已支付订单");
+            assertThatThrownBy(() -> new QuerySql().compile(orderBasis(relation), plan, true, "sales"))
+                    .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.diagnostic())
+                            .isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
+            content.remove(name);
+        }
+        content.put("rule", "orders.payment_state = 'PAID'");
+        assertThatThrownBy(() -> new QuerySql().compile(orderBasis(relation), plan, true, "sales"))
+                .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.diagnostic())
+                        .isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
+        content.remove("rule");
+
+        assertThat(new QuerySql()
+                        .compile(orderBasis(relation), plan, true, "sales")
+                        .sql())
+                .contains(" JOIN ");
     }
 
     /**

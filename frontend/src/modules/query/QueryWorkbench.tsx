@@ -37,7 +37,9 @@ type QueryUpdate = Pick<Snapshot, 'id' | 'runVersion' | 'state'> & {
   explanationText: string | null;
 };
 
-/** 恢复本标签页中同一用户同一轮次尚未核实的命令编号。 */
+/**
+ * 恢复本标签页中同一用户同一轮次尚未核实的命令编号。
+ */
 function readExplanationCommand(storageKey: string) {
   try {
     const command = sessionStorage.getItem(storageKey);
@@ -50,11 +52,18 @@ function readExplanationCommand(storageKey: string) {
   }
 }
 
-/** 只存命令编号。收到了受理回执后清除当前轮次的恢复记录。 */
+/**
+ * 只存命令编号。收到了受理回执后清除当前轮次的恢复记录。
+ */
 function saveExplanationCommand(storageKey: string, command?: string) {
   try {
-    if (command) sessionStorage.setItem(storageKey, command);
-    else sessionStorage.removeItem(storageKey);
+    if (command) {
+      // 记录与本轮接口请求相同的命令编号。
+      sessionStorage.setItem(storageKey, command);
+    } else {
+      // 收到当前编号的确认后清理对应恢复记录。
+      sessionStorage.removeItem(storageKey);
+    }
   } catch {
     // 存储不可用时保留内存中的原编号。
   }
@@ -111,10 +120,14 @@ export function QueryWorkbench({
     mayView && access.data?.some((item) => item.id === source) && !access.isError,
   );
   const context = `${source}/${id}`;
-  const visibleContext = useRef(context);
+  const visibleContext = useRef<string | null>(context);
   useLayoutEffect(() => {
     // 浏览器回退及直接改址也会更新晚到回执的适用范围。
     visibleContext.current = context;
+    return () => {
+      // 原页面卸载后，未完成的请求只能核对原轮次，不能替新页面申请修订。
+      visibleContext.current = null;
+    };
   }, [context]);
   const draft = input.context === context ? input.text : '';
   const mayAsk = mayView && session.permissionCodes.includes('query.ask');
@@ -299,7 +312,10 @@ export function QueryWorkbench({
     const visibleRevision = row?.explanation?.revision;
     const storageKey = `dataocean:query-explanation:${session.userId}:${id}`;
     const pendingCommand = explainCommands.current.get(storageKey);
-    if (!visibleRevision || pendingCommand?.sending) return;
+    if (!visibleRevision || pendingCommand?.sending) {
+      // 说明修订尚未读取或该轮已有请求时，等待当前动作完成。
+      return;
+    }
 
     // 每个轮次各自保留未核实的命令，切换到其他轮次仍可操作。
     const command = pendingCommand ?? {
@@ -318,10 +334,12 @@ export function QueryWorkbench({
         method: 'POST',
         command: command.key,
       });
+      const storedCommand = readExplanationCommand(storageKey);
       if (
         receipt.revision <= visibleRevision &&
         !receipt.blockedReason &&
-        visibleContext.current === context
+        visibleContext.current === context &&
+        (storedCommand === null || storedCommand === command.key)
       ) {
         // 已看到这份旧修订的结果，本次点击需要新编号。此处也保留未确认的新编号。
         command.key = crypto.randomUUID();

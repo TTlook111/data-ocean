@@ -14,7 +14,6 @@ import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Permit;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
-import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
@@ -254,8 +253,7 @@ class QueryWorker {
         if ((adjacentDay != null || asksPreviousWeek) && previous == null) {
             // 纯追问没有上文时先向本人求证，不从别的对话或文档示例猜测。
             updateStage(row, "GENERATING");
-            waitForAnswer(row, asksPreviousWeek ? "上周你想查什么指标？请补充商品或范围。"
-                    : "你想查什么数据？请补充商品或范围，以及要查询的日期。");
+            waitForAnswer(row, asksPreviousWeek ? "上周你想查什么指标？请补充商品或范围。" : "你想查什么数据？请补充商品或范围，以及要查询的日期。");
             return null;
         }
         Long outputRevision = frozen.outputRevision();
@@ -353,7 +351,7 @@ class QueryWorker {
             }
             dateFollowup = new DateFollowup(previous, offset, followsWeek, changesConfirmedDate, usage);
         }
-        CheckedPlan checked;
+        QueryCandidate checked;
         try {
             // 先尝试按当前观测结构核验生成参数。
             checked = compile(scope, proposed, dateFollowup, memory, question, row, terms, signature);
@@ -374,9 +372,15 @@ class QueryWorker {
                     run, repair, remaining(row), planningQuestion, evidence, rules, proposed, memory);
             usedRepair = repair;
             runAccess.requireRules(row, signature);
-            checked =
-                    compile(scope, QuerySql.normalize(revised, terms != null), dateFollowup, memory, question, row,
-                            terms, signature);
+            checked = compile(
+                    scope,
+                    QuerySql.normalize(revised, terms != null),
+                    dateFollowup,
+                    memory,
+                    question,
+                    row,
+                    terms,
+                    signature);
         }
         if (checked == null) {
             // 日期或物理表有歧义时已暂停本轮。
@@ -427,15 +431,7 @@ class QueryWorker {
             verifyHistory(row, signature, memory);
             if (!"ALLOW"
                     .equals(models.check(
-                            run,
-                            "output",
-                            outputRevision,
-                            remaining(row),
-                            question,
-                            selected,
-                            rules,
-                            plan,
-                            memory))) {
+                            run, "output", outputRevision, remaining(row), question, selected, rules, plan, memory))) {
                 throw QueryFailure.denied();
             }
         }
@@ -607,8 +603,8 @@ class QueryWorker {
     }
 
     /** 外发前及回包后都从当前授权下的发布版本回看候选正文。 */
-    private List<QueryCorpus.Basis> verifiedBasis(Request row, String signature, QueryProtocol.Memory memory,
-            List<QueryProtocol.Hit> hits) {
+    private List<QueryCorpus.Basis> verifiedBasis(
+            Request row, String signature, QueryProtocol.Memory memory, List<QueryProtocol.Hit> hits) {
         return runAccess.asActor(row, () -> {
             // 复核查询权限、检索表述依赖的历史，以及每条片段的确切身份。
             runAccess.requireRules(row, signature);
@@ -618,8 +614,14 @@ class QueryWorker {
     }
 
     /** 复用已有召回集合，只在多候选且配置可用时尝试排序。 */
-    private RetrievedBasis rankBasis(Request row, String signature, String search, RunInput frozen, QueryModels.Run run,
-            QueryProtocol.Memory memory, List<QueryProtocol.Hit> hits) {
+    private RetrievedBasis rankBasis(
+            Request row,
+            String signature,
+            String search,
+            RunInput frozen,
+            QueryModels.Run run,
+            QueryProtocol.Memory memory,
+            List<QueryProtocol.Hit> hits) {
         var bases = verifiedBasis(row, signature, memory, hits);
         Long revision = frozen.rerankRevision();
         if (revision == null || revision == 0L || hits.size() < 2) {
@@ -633,7 +635,11 @@ class QueryWorker {
             if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
                 try {
                     // 仅向第三方提交已核验正文以及本轮相同检索表述。
-                    order = models.rerank(run, revision, seconds, search,
+                    order = models.rerank(
+                            run,
+                            revision,
+                            seconds,
+                            search,
                             bases.stream().map(QueryCorpus.Basis::text).toList());
                 } catch (QueryFailure | BizIllegalException unavailable) {
                     // 外部不可用时不重新发出请求，使用原始候选次序。
@@ -774,7 +780,7 @@ class QueryWorker {
     /**
      * 分别解析并完整编译同版候选，日期或物理身份有歧义时在原轮次澄清。
      */
-    private CheckedPlan compile(
+    private QueryCandidate compile(
             Scope scope,
             QueryProtocol.Plan plan,
             DateFollowup followup,
@@ -797,7 +803,8 @@ class QueryWorker {
             // 按原计划的真实投影核对有哪些候选提供同一物理来源的字段映射。
             var projection = compiler.withTime(plan, List.of(), null);
             var relevant = scope.bases().stream()
-                    .filter(basis -> candidates.stream().anyMatch(anchor -> samePlanInputs(anchor, basis, projection)))
+                    .filter(basis -> candidates.stream()
+                            .anyMatch(anchor -> QueryCandidate.sameInputs(anchor, basis, projection)))
                     .toList();
             requested =
                     QueryRequestedScope.resolve(relevant, plan, terms, row.question(), row.supplement(), comparison);
@@ -814,7 +821,7 @@ class QueryWorker {
         boolean needsHistoricalDate = false;
         QueryFailure parameterFailure = null;
         QueryFailure unsupported = null;
-        var complete = new ArrayList<CheckedPlan>();
+        var complete = new ArrayList<QueryCandidate>();
         var anchors = new ArrayList<PlanAnchor>();
         for (var candidate : candidates) {
             // 完整核对时间、筛选、指标、关联和参数来源，每次只用一份片段的依据。
@@ -832,7 +839,7 @@ class QueryWorker {
                     // 排除不会进入实际查询的模型日期，再以真实物理输入比较其他发布。
                     var dated = compiler.dateInputs(basis, plan, question, hasHistory, requestedDay);
                     var inputs = requested == null ? compiler.independentBindingFilters(basis, dated, question) : dated;
-                    if (samePlanInputs(basis, basis, inputs)) {
+                    if (QueryCandidate.sameInputs(basis, basis, inputs)) {
                         // 后备发布从同一输入独立解析自己确认的默认日期和固定规则。
                         anchors.add(new PlanAnchor(basis, inputs));
                     }
@@ -865,7 +872,7 @@ class QueryWorker {
                 }
                 var parameterUse = compiler.checkProductCodes(
                         basis, resolved, question, memory, requested == null ? List.of() : requested.conditions());
-                complete.add(new CheckedPlan(resolved, basis, compiled, followup != null, parameterUse, null));
+                complete.add(new QueryCandidate(resolved, basis, compiled, followup != null, parameterUse, null));
             } catch (QueryFailure failure) {
                 if ("OUT_OF_SCOPE".equals(failure.state())) {
                     // 视图等不支持的对象不能作为完整依据，也不会遮挡可编译的普通表。
@@ -890,15 +897,13 @@ class QueryWorker {
                 var anchor = anchors.get(0);
                 if (anchors.stream()
                         .allMatch(item -> anchor.plan().equals(item.plan())
-                                && samePlanInputs(anchor.basis(), item.basis(), anchor.plan()))) {
+                                && QueryCandidate.sameInputs(anchor.basis(), item.basis(), anchor.plan()))) {
                     var alternatives = compileOtherBindings(
                             scope, anchor, requestedDay, question, memory, requested, exclusions, comparison);
                     if (!alternatives.isEmpty()) {
                         // 多份等价证据可以复用，实际路径或结果口径不同则停止派发。
                         var fallback = alternatives.get(0);
-                        if (alternatives.stream()
-                                .anyMatch(other -> !sameAnswerShape(fallback, other, comparison)
-                                        || !sameJoinPath(fallback.compiled(), other.compiled()))) {
+                        if (alternatives.stream().anyMatch(other -> !fallback.sameOutcome(other, comparison))) {
                             if (requested != null) {
                                 waitForAnswer(row, "有多个已发布的统计口径，你想查哪个范围？");
                                 return null;
@@ -924,14 +929,14 @@ class QueryWorker {
             throw parameterFailure == null ? QueryFailure.knowledge() : parameterFailure;
         }
         var selected = QueryTableSelection.select(
-                complete.stream().map(CheckedPlan::compiled).toList(), scope.requiredObjects());
+                complete.stream().map(QueryCandidate::compiled).toList(), scope.requiredObjects());
         if (selected.isEmpty()) {
             // 所有完整候选都参与比较，排序不能消解物理表歧义。
             waitForAnswer(row, TABLE_CLARIFICATION);
             return null;
         }
         var chosen = complete.get(selected.getAsInt());
-        var viable = new ArrayList<CheckedPlan>();
+        var viable = new ArrayList<QueryCandidate>();
         for (var candidate : complete) {
             // 同一发布的不同片段也可能是不同筛选或计量口径。
             if (candidate.compiled().usage().objects().stream()
@@ -949,8 +954,7 @@ class QueryWorker {
                         candidate.compiled());
             }
         }
-        if (requested != null && viable.stream().anyMatch(other -> !sameAnswerShape(chosen, other, comparison)
-                || !sameJoinPath(chosen.compiled(), other.compiled()))) {
+        if (requested != null && viable.stream().anyMatch(other -> !chosen.sameOutcome(other, comparison))) {
             // 排名不能在同一发布内掩盖已编译口径的差异。
             waitForAnswer(row, "有多个已发布的统计口径，你想查哪个范围？");
             return null;
@@ -965,9 +969,7 @@ class QueryWorker {
                 // 同一模型输入不带入首选发布的固定值，防止漏判支付条件等冲突。
                 var alternatives = compileOtherBindings(
                         scope, anchor, requestedDay, question, memory, requested, exclusions, comparison);
-                if (alternatives.stream()
-                        .anyMatch(other -> !sameAnswerShape(chosen, other, comparison)
-                                || !sameJoinPath(chosen.compiled(), other.compiled()))) {
+                if (alternatives.stream().anyMatch(other -> !chosen.sameOutcome(other, comparison))) {
                     if (requested != null) {
                         waitForAnswer(row, "有多个已发布的统计口径，你想查哪个范围？");
                         return null;
@@ -983,7 +985,7 @@ class QueryWorker {
     /**
      * 独立编译本轮其他获准发布，保留原物理输入、指标名称、筛选和日期，不拼接证据。
      */
-    private List<CheckedPlan> compileOtherBindings(
+    private List<QueryCandidate> compileOtherBindings(
             Scope scope,
             PlanAnchor anchor,
             LocalDate requestedDay,
@@ -994,7 +996,7 @@ class QueryWorker {
             ValueComparison comparison) {
         var plan = anchor.plan();
         var compiler = new QuerySql();
-        var alternatives = new ArrayList<CheckedPlan>();
+        var alternatives = new ArrayList<QueryCandidate>();
         var day = businessDay(memory);
         boolean hasHistory = !memory.recent().isEmpty() || !memory.earlier().isEmpty();
         var label = "VALUES".equals(plan.operation()) ? null : comparisonMetric(compiler, anchor);
@@ -1004,7 +1006,7 @@ class QueryWorker {
             if (binding.equals(plan.binding())) {
                 continue;
             }
-            if (!samePlanInputs(anchor.basis(), basis, plan)) {
+            if (!QueryCandidate.sameInputs(anchor.basis(), basis, plan)) {
                 // 不同物理输入未用于此轮查询。
                 addExclusion(requested, basis, exclusions, "PHYSICAL_INPUT_MISMATCH");
                 continue;
@@ -1048,7 +1050,7 @@ class QueryWorker {
                 }
                 var parameterUse = compiler.checkProductCodes(
                         basis, resolved, question, memory, requested == null ? List.of() : requested.conditions());
-                alternatives.add(new CheckedPlan(resolved, basis, other, false, parameterUse, null));
+                alternatives.add(new QueryCandidate(resolved, basis, other, false, parameterUse, null));
             } catch (QueryFailure failure) {
                 if ("OUT_OF_SCOPE".equals(failure.state())
                         || "KNOWLEDGE_INSUFFICIENT".equals(failure.state()) && failure.diagnostic() == null) {
@@ -1153,12 +1155,12 @@ class QueryWorker {
     /**
      * 交付给独立语义节点的实际范围和排除理由保持和选路一致。
      */
-    private CheckedPlan withSelection(
-            CheckedPlan chosen,
+    private QueryCandidate withSelection(
+            QueryCandidate chosen,
             QueryRequestedScope requested,
             List<QueryProtocol.CandidateExclusion> exclusions,
             Scope scope,
-            List<CheckedPlan> viable) {
+            List<QueryCandidate> viable) {
         if (requested == null) {
             return chosen;
         }
@@ -1191,7 +1193,7 @@ class QueryWorker {
                 requested.conditions(),
                 List.copyOf(exclusions),
                 QueryRequestedScope.candidateEvidence(chosen.basis(), chosen.plan(), chosen.compiled()));
-        return new CheckedPlan(
+        return new QueryCandidate(
                 chosen.plan(),
                 chosen.basis(),
                 chosen.compiled(),
@@ -1242,100 +1244,6 @@ class QueryWorker {
      */
     private record TextComparison(
             long object, long generation, long configuration, Field field, String left, String right) {}
-
-    /**
-     * 比较实际提问使用的列身份，而非 JOIN 后所有物理表的集合。
-     */
-    private boolean samePlanInputs(Basis first, Basis second, QueryProtocol.Plan plan) {
-        if (plan.filters() == null
-                || plan.filters().stream().anyMatch(filter -> filter == null || filter.field() == null)
-                || plan.time() != null && plan.time().field() == null) {
-            // 不完整的模型提议无法作为跨发布的物理输入依据。
-            return false;
-        }
-        var fields = new ArrayList<>(plan.fields());
-        plan.filters().stream().map(Condition::field).forEach(fields::add);
-        if (plan.time() != null) {
-            // 日期列也属于当前业务范围，不能从另一物理列读取相同日期值来替代。
-            fields.add(plan.time().field());
-        }
-        for (var field : fields) {
-            // 只承认证据已确认且来自相同对象世代的确切目录列。
-            if (!first.labels().containsKey(field) || !second.labels().containsKey(field)) {
-                return false;
-            }
-            var left = first.tables().get(field.table());
-            var right = second.tables().get(field.table());
-            if (left == null
-                    || right == null
-                    || left.entry().id() != right.entry().id()
-                    || left.entry().generation() != right.entry().generation()) {
-                return false;
-            }
-            var leftColumn = left.entry().named(field.column());
-            var rightColumn = right.entry().named(field.column());
-            if (leftColumn == null
-                    || rightColumn == null
-                    || leftColumn.columnId() != rightColumn.columnId()
-                    || leftColumn.revisionId() != rightColumn.revisionId()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * 比较实际筛选、日期列、结果和单位，发布中的“元”与“万元”是不同口径。
-     */
-    private boolean sameAnswerShape(CheckedPlan first, CheckedPlan second, ValueComparison comparison) {
-        var left = first.compiled();
-        var right = second.compiled();
-        if (!left.columns().equals(right.columns())
-                || !left.projection().equals(right.projection())
-                || !Objects.equals(left.unit(), right.unit())
-                || left.verifiesUnit() != right.verifiesUnit()) {
-            return false;
-        }
-        var leftFilters = QuerySql.boundFilters(first.basis(), first.plan());
-        var rightFilters = QuerySql.boundFilters(second.basis(), second.plan());
-        if (comparison == null) {
-            // 旧回执沿用既有等价性规则。
-            return left.parameters().equals(right.parameters()) && leftFilters.equals(rightFilters);
-        }
-        return Objects.equals(
-                        comparisonTime(first.plan().time()),
-                        comparisonTime(second.plan().time()))
-                && containsFilters(first.basis(), leftFilters, rightFilters, comparison)
-                && containsFilters(second.basis(), rightFilters, leftFilters, comparison);
-    }
-
-    /**
-     * 比较日期实际范围，展示用默认标记不改变筛选含义。
-     */
-    private QueryProtocol.TimeSelection comparisonTime(QueryProtocol.TimeSelection time) {
-        return time == null
-                ? null
-                : new QueryProtocol.TimeSelection(time.field(), time.mode(), time.start(), time.end(), null);
-    }
-
-    /**
-     * 同列同方向筛选按真实源列规则比较类型化值。
-     */
-    private boolean containsFilters(
-            Basis basis,
-            Set<QuerySql.BoundFilter> required,
-            Set<QuerySql.BoundFilter> available,
-            ValueComparison comparison) {
-        return required.stream().allMatch(first -> available.stream()
-                .anyMatch(second -> QuerySql.sameBoundFilter(basis, first, second, comparison)));
-    }
-
-    /**
-     * 实际连接同时包含所选中间表的物理身份及连接字段对。
-     */
-    private boolean sameJoinPath(QuerySql.Compiled first, QuerySql.Compiled second) {
-        return first.usage().sameObjects(second.usage()) && first.joinKeys().equals(second.joinKeys());
-    }
 
     /**
      * 确定日期变更后，与原轮次的实际筛选合并成完整执行计划。
@@ -1399,17 +1307,6 @@ class QueryWorker {
                 .atZone(ZoneId.of("Asia/Shanghai"))
                 .toLocalDate();
     }
-
-    /**
-     * 已编译的实际候选进入独立的语义、输出和时序核验。
-     */
-    private record CheckedPlan(
-            QueryProtocol.Plan plan,
-            QueryCorpus.Basis basis,
-            QuerySql.Compiled compiled,
-            boolean usesHistoricalScope,
-            QueryUsage.ParameterUse parameterUse,
-            QueryProtocol.SelectionReview selection) {}
 
     /**
      * 模型所选发布中已解析日期和筛选的计划，作为其他发布的物理输入边界。
@@ -1510,16 +1407,21 @@ class QueryWorker {
     }
 
     /** 只有仍有权且剩余时间足够时才调用摘要，固定成功或回退结果。 */
-    private SummaryDecision selectHistory(Request row, String signature, QueryModels.Run run, long revision,
-            QueryProtocol.Memory input, SummaryDecision fallback) {
+    private SummaryDecision selectHistory(
+            Request row,
+            String signature,
+            QueryModels.Run run,
+            long revision,
+            QueryProtocol.Memory input,
+            SummaryDecision fallback) {
         int seconds = remaining(row);
         verifyHistory(row, signature, input);
         var selected = fallback;
         if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
             try {
                 // 用户补充不改变已登记的摘要输入，仍使用原问题。
-                selected = QueryHistorySummary.decide(input,
-                        models.summarize(run, revision, seconds, row.question(), input));
+                selected = QueryHistorySummary.decide(
+                        input, models.summarize(run, revision, seconds, row.question(), input));
             } catch (QueryFailure | BizIllegalException unavailable) {
                 // 可选节点超时、停用或回包不确定时保留可追溯的结构化口径。
                 log.info("问数历史摘要回退，request={}", row.id());

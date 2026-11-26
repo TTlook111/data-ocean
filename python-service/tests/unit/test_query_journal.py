@@ -107,6 +107,34 @@ def test_confirmed_receipt_cannot_be_used_for_a_changed_payload() -> None:
     assert rejected.value.status_code == 409
 
 
+def test_node_receipt_preserves_confirmed_value_or_failure() -> None:
+    """
+    回放实际成功值和可审计的失败状态，保持二者与输入摘要绑定。
+    """
+
+    async def success() -> dict[str, list[int]]:
+        """
+        模拟说明节点实际收到的事实编号。
+        """
+        return {"factIds": [2, 1]}
+
+    async def timed_out() -> None:
+        """
+        模拟节点已外发并收到确定的超时。
+        """
+        raise ModelFailure("TIMEOUT")
+
+    accepted = asyncio.run(journal.invoke_step(success, "digest"))
+    assert journal.receipt(accepted, "digest") == {"factIds": [2, 1]}
+
+    failed = asyncio.run(journal.invoke_step(timed_out, "digest"))
+    assert failed == {"digest": "digest", "value": None, "error": "TIMEOUT"}
+    with pytest.raises(HTTPException) as error:
+        # 超时回执在回查时保持原原因，避免外发被误认为未发生。
+        journal.receipt(failed, "digest")
+    assert (error.value.status_code, error.value.detail) == (503, "TIMEOUT")
+
+
 def test_concurrent_steps_keep_independent_receipts(monkeypatch: pytest.MonkeyPatch) -> None:
     """两个独立调用写同一个 LangGraph 线程时，保留两份实际回执。"""
     url = os.getenv("DO_QUERY_TEST_REDIS_URL")

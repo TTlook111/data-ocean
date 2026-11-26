@@ -14,6 +14,7 @@ import com.dataocean.module.governance.service.GovernanceKnowledgeService;
 import com.dataocean.module.governance.service.GovernanceTarget;
 import com.dataocean.module.governance.service.MetricFormula;
 import com.dataocean.module.governance.service.MetricRules;
+import com.dataocean.module.governance.service.RelationWindows;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeTestDraftDTO.CountRule;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper.Reference;
 
@@ -80,6 +81,13 @@ public class KnowledgeValidationQuery {
         var filter = reference(evidence, "COLUMN", rule.getCategoryId());
         var metric = definition(source, reference(evidence, "METRIC", rule.getMetricId()));
         var relation = definition(source, reference(evidence, "RELATION", rule.getRelationId()));
+        var window = RelationWindows.usable(
+                relation.getRelationWindow(), relation.getMeaning(), relation.getRule(), relation.getUsage());
+
+        if (window == null || !window.unrestricted()) {
+            // 计数题只绑定分类值，没有可用于证明关联适用的业务日期。
+            throw BizIllegalException.invalid("自动计数题只支持适用范围已核实且不限日期的关联");
+        }
         if (relation.getPairs() == null
                 || relation.getPairs().size() != 1
                 || metric.getFields() == null

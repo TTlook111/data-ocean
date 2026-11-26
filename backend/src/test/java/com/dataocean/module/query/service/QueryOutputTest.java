@@ -28,7 +28,9 @@ class QueryOutputTest {
     /** 实际编译使用的业务输出规则。 */
     private final QueryOutput output = new QueryOutput();
 
-    /** 单元格 JSON 按应用现有类型化解析方式读取。 */
+    /**
+     * 单元格 JSON 按应用现有类型化解析方式读取。
+     */
     private final JsonCodec json = new JsonCodec(JsonMapper.builder().build());
 
     /** 采购值不能交付，作为业务过滤条件时仍核对实际投影。 */
@@ -65,10 +67,20 @@ class QueryOutputTest {
      * 采购金额出现在普通文本列时仍执行限制，未配置规则的来源可正常返回。
      */
     @ParameterizedTest
-    @ValueSource(strings = {
-        "商品采购单价为 12.00 元", "采购成本：１２．５元", "进价十二元", "Purchase unit price = USD 12",
-        "{\"采购单价\":12.00,\"币种\":\"CNY\"}", "[{\"purchaseUnitPrice\":{\"amount\":\"12.00\"}}]"
-    })
+    @ValueSource(
+            strings = {
+                "商品采购单价为 12.00 元",
+                "采购成本：１２．５元",
+                "进价十二元",
+                "Purchase unit price = USD 12",
+                "{\"采购单价\":12.00,\"币种\":\"CNY\"}",
+                "[{\"purchaseUnitPrice\":{\"amount\":\"12.00\"}}]",
+                "{\"采购单价\":{\"年份\":2026,\"amount\":12.00}}",
+                "{\"采购单价\":{\"year\":{\"amount\":12.00}}}",
+                "{\"采购单价\":{\"year\":\"人民币 2026\"}}",
+                "{\"采购单价\":{\"date\":20261199}}",
+                "{\"采购单价\":[{\"year\":2026,\"value\":12.00}]}"
+            })
     void blocksExplicitProcurementValuesInTextCells(String text) {
         var data = new QueryDataVO();
         data.setRows(List.of(List.of(text)));
@@ -82,10 +94,16 @@ class QueryOutputTest {
      * 普通名称及日期保留原值，即使位于采购业务说明中也不视为金额。
      */
     @ParameterizedTest
-    @ValueSource(strings = {
-        "Cost Center A", "采购价格2026年版本，仅登记审批进度。", "采购单价：2026-11-26 生效",
-        "{\"cost_center\":12,\"采购价格版本\":2026}", "{\"采购单价\":null}"
-    })
+    @ValueSource(
+            strings = {
+                "Cost Center A",
+                "采购价格2026年版本，仅登记审批进度。",
+                "采购单价：2026-11-26 生效",
+                "{\"cost_center\":12,\"采购价格版本\":2026}",
+                "{\"采购单价\":null}",
+                "{\"采购单价\":{\"year\":2026,\"生效日期\":20261126}}",
+                "[{\"purchaseUnitPrice\":[{\"businessYear\":\"2026\",\"effectiveDate\":\"2026-11-26\"}]}]"
+            })
     void allowsDatesAndOrdinaryJsonValues(String text) {
         var data = new QueryDataVO();
         data.setRows(List.of(List.of(text)));

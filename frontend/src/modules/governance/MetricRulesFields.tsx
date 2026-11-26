@@ -5,17 +5,29 @@ import type { DependencyField } from './GovernanceDependencyDialog';
  * 已提取或待治理确认的指标执行口径。
  */
 export type MetricRules = {
-  /** 是否必须绑定已确认的业务日期列。 */
+  /**
+   * 是否必须绑定已确认的业务日期列。
+   */
   dateMode?: 'NONE' | 'BUSINESS_DAY' | null;
-  /** 业务日期的稳定字段编号。 */
+  /**
+   * 业务日期的稳定字段编号。
+   */
   dateFieldId?: string | null;
-  /** 固定筛选的真实列身份和源库取值，空数组表示已核对无条件。 */
+  /**
+   * 固定筛选的真实列身份和源库取值，空数组表示已核对无条件。
+   */
   fixedFilters?: { fieldId?: string; value?: string }[] | null;
-  /** 计量单位取固定值或按实际来源列校验。 */
+  /**
+   * 计量单位取固定值或按实际来源列校验。
+   */
   unitMode?: 'NONE' | 'FIXED' | 'COLUMN' | null;
-  /** 已声明的固定单位或币种。 */
+  /**
+   * 已声明的固定单位或币种。
+   */
   unit?: string | null;
-  /** 币种或计量单位的文本列。 */
+  /**
+   * 币种或计量单位的文本列。
+   */
   unitFieldId?: string | null;
 };
 

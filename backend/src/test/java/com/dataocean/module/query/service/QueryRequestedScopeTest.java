@@ -126,24 +126,35 @@ class QueryRequestedScopeTest {
         var supplement = change + "。" + clear + "。" + change;
         var add = "再排除已退款";
         var append = new RequestedTerm(add, "已退款", null, "EXCLUDE", "SUPPLEMENT", "APPEND", supplement + "。" + add);
-        var reset = new RequestedTerm(clear, null, "支付状态", null, "SUPPLEMENT", "REMOVE",
-                change + "。撤销支付状态");
+        var reset = new RequestedTerm(clear, null, "支付状态", null, "SUPPLEMENT", "REMOVE", change + "。撤销支付状态");
         var first = new RequestedTerm(change, "未支付", null, "INCLUDE", "SUPPLEMENT", "REPLACE", change);
         var last = new RequestedTerm(change, "未支付", null, "INCLUDE", "SUPPLEMENT", "REPLACE", supplement);
         ValueComparison exact = (source, field, left, right) -> left.equals(right);
 
         // 末尾替换和首次替换的完整句子相同，模型返回顺序也被打乱。
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(last, append, paid, reset, first),
-                        question, supplement + "。" + add, exact).conditions())
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis),
+                                PLAN,
+                                List.of(last, append, paid, reset, first),
+                                question,
+                                supplement + "。" + add,
+                                exact)
+                        .conditions())
                 .containsExactly(new Condition(PAY, "UNPAID"), new Condition(PAY, "REFUNDED", true));
 
         // 追加与替换也可同在一个包含逗号的完整句子内。
         var finalClause = change + "，" + add;
         var finalText = supplement + "，" + add;
-        var combinedReplace = new RequestedTerm(finalClause, "未支付", null, "INCLUDE", "SUPPLEMENT", "REPLACE", supplement);
+        var combinedReplace =
+                new RequestedTerm(finalClause, "未支付", null, "INCLUDE", "SUPPLEMENT", "REPLACE", supplement);
         var combinedAppend = new RequestedTerm(finalClause, "已退款", null, "EXCLUDE", "SUPPLEMENT", "APPEND", finalText);
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN,
-                        List.of(combinedAppend, combinedReplace, paid, reset, first), question, finalText, exact)
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis),
+                                PLAN,
+                                List.of(combinedAppend, combinedReplace, paid, reset, first),
+                                question,
+                                finalText,
+                                exact)
                         .conditions())
                 .containsExactly(new Condition(PAY, "UNPAID"), new Condition(PAY, "REFUNDED", true));
     }
@@ -161,13 +172,20 @@ class QueryRequestedScopeTest {
         var undo = new RequestedTerm("撤销只统计已支付", "已支付", null, "INCLUDE", "SUPPLEMENT", "REMOVE");
         ValueComparison exact = (source, field, left, right) -> left.equals(right);
 
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid), question, null, exact)).isNull();
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid, replace), question,
-                        replace.phrase(), exact).conditions()).containsExactly(new Condition(PAY, "UNPAID"));
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid, clear), question,
-                        clear.phrase(), exact).conditions()).isEmpty();
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid, undo), question,
-                        undo.phrase(), exact).conditions()).isEmpty();
+        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid), question, null, exact))
+                .isNull();
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis), PLAN, List.of(paid, replace), question, replace.phrase(), exact)
+                        .conditions())
+                .containsExactly(new Condition(PAY, "UNPAID"));
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis), PLAN, List.of(paid, clear), question, clear.phrase(), exact)
+                        .conditions())
+                .isEmpty();
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis), PLAN, List.of(paid, undo), question, undo.phrase(), exact)
+                        .conditions())
+                .isEmpty();
     }
 
     /**
@@ -180,14 +198,24 @@ class QueryRequestedScopeTest {
         var question = "只统计 paid";
         var paid = new RequestedTerm(question, "paid", null, "INCLUDE");
         var remove = new RequestedTerm("撤销只统计 PAID", "PAID", null, "INCLUDE", "SUPPLEMENT", "REMOVE");
-        ValueComparison insensitive = (source, field, left, right) -> left.toString().equalsIgnoreCase(right.toString());
+        ValueComparison insensitive =
+                (source, field, left, right) -> left.toString().equalsIgnoreCase(right.toString());
 
         assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid), question, null, insensitive)
-                        .conditions()).containsExactly(new Condition(PAY, "PAID"));
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid, remove), question,
-                        remove.phrase(), insensitive).conditions()).isEmpty();
-        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, List.of(paid), question, null,
-                        (source, field, left, right) -> left.equals(right))).isNull();
+                        .conditions())
+                .containsExactly(new Condition(PAY, "PAID"));
+        assertThat(QueryRequestedScope.resolve(
+                                List.of(basis), PLAN, List.of(paid, remove), question, remove.phrase(), insensitive)
+                        .conditions())
+                .isEmpty();
+        assertThat(QueryRequestedScope.resolve(
+                        List.of(basis),
+                        PLAN,
+                        List.of(paid),
+                        question,
+                        null,
+                        (source, field, left, right) -> left.equals(right)))
+                .isNull();
     }
 
     /**

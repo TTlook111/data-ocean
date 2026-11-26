@@ -28,6 +28,7 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
 import com.dataocean.module.governance.entity.dto.MetricFilterDTO;
 import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
+import com.dataocean.module.governance.entity.dto.RelationWindowDTO;
 import com.dataocean.module.governance.entity.po.GovernanceGenerationPO;
 import com.dataocean.module.governance.entity.po.GovernanceItemPO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
@@ -196,7 +197,15 @@ class GovernanceDiscoveryTest {
                 false);
         var rules = new MetricRulesDTO("NONE", null, List.of(new MetricFilterDTO("12", "PAID")), "FIXED", "元", null);
         var definition = new Definition(
-                "订单金额", "仅已支付订单", "SUM(sales.orders.amount)，仅已支付", "", List.of(), List.of("11", "12"), false, rules, null);
+                "订单金额",
+                "仅已支付订单",
+                "SUM(sales.orders.amount)，仅已支付",
+                "",
+                List.of(),
+                List.of("11", "12"),
+                false,
+                rules,
+                null);
         var rejected = assertThrows(
                 BizIllegalException.class,
                 () -> ReflectionTestUtils.invokeMethod(
@@ -234,9 +243,46 @@ class GovernanceDiscoveryTest {
         discovery.finish(task(), original, List.of(), List.of(relation()));
         discovery.finish(task(), updated, List.of(), List.of(relation()));
         discovery.finish(task(), updated, List.of(), List.of(relation()));
-        assertEquals(2, persisted.size());
-        verify(mapper, times(2))
+        // 同一结构和连接键的新日期窗口仍是独立草稿，重复生成保持幂等。
+        var originalDefinition = relation();
+        var window = new RelationWindowDTO();
+        window.setMode("DATE_RANGE");
+        window.setValidFrom("2026-11-01");
+        var dated = new Proposal(
+                originalDefinition.name(),
+                originalDefinition.meaning(),
+                originalDefinition.rule(),
+                originalDefinition.usage(),
+                originalDefinition.pairs(),
+                originalDefinition.fields(),
+                originalDefinition.evidence(),
+                null,
+                window);
+        discovery.finish(task(), updated, List.of(), List.of(dated));
+        discovery.finish(task(), updated, List.of(), List.of(dated));
+        assertEquals(3, persisted.size());
+        verify(mapper, times(3))
                 .add(anyLong(), anyString(), anyLong(), anyLong(), anyString(), anyString(), anyLong(), anyString());
+    }
+
+    /**
+     * 人工确认不限日期时，仍需要核清关联正文里的额外业务条件。
+     */
+    @Test
+    void leavesUnsupportedRelationConditionsInDraft() {
+        var source = mock(Source.class);
+        var window = new RelationWindowDTO();
+        window.setMode("NONE");
+        var definition =
+                new Definition("适用区域", "关联区域", "多对一", "仅适用于已支付订单", List.of(KEY), List.of(), false, null, window);
+        var basis = new Basis(List.of(), List.of(), false);
+
+        var rejected = assertThrows(
+                BizIllegalException.class,
+                () -> ReflectionTestUtils.invokeMethod(
+                        discovery, "confirmDefinition", source, "RELATION", definition, basis, false));
+        assertEquals("请核实关联适用条件。日期限制须填写有效适用期，其他筛选条件暂不能确认", rejected.getMessage());
+        verifyNoInteractions(entries);
     }
 
     /**
@@ -303,7 +349,15 @@ class GovernanceDiscoveryTest {
         var field = new StructureRef("1", "8", "11", "9", "products.product_id", "bigint");
         var basis = json.write(new Basis(List.of(field), List.of(), false));
         var definition = json.write(new Definition(
-                "商品数", "在册商品数", "COUNT(DISTINCT products.product_id)", "件", List.of(), List.of("11"), false, null, null));
+                "商品数",
+                "在册商品数",
+                "COUNT(DISTINCT products.product_id)",
+                "件",
+                List.of(),
+                List.of("11"),
+                false,
+                null,
+                null));
         var stored = new Candidate(
                 17L,
                 "fixture-task",

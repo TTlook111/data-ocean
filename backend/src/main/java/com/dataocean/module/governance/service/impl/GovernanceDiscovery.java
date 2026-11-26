@@ -212,6 +212,10 @@ public class GovernanceDiscovery {
                 // 结构化条件不同的指标候选不能按文字描述去重。
                 content.add(value.definition().getMetricRules());
             }
+            if (value.definition().getRelationWindow() != null) {
+                // 同一组关联键可能在不同日期适用，候选身份必须包含窗口。
+                content.add(value.definition().getRelationWindow());
+            }
             String definitionKey = digest(json.write(content));
             String identity = identity(definitionKey, value.basis(), notes);
             if (alreadyDiscovered(task, definitionKey, identity, value.basis(), notes)) {
@@ -484,11 +488,14 @@ public class GovernanceDiscovery {
             if (!MetricRules.complete(definition.getMetricRules(), types::get)) {
                 throw BizIllegalException.invalid("请确认指标的业务日期、固定筛选和计量单位，并选入对应依赖字段");
             }
-        } else if ((definition.getRelationWindow() != null
-                        || RelationWindows.requiresConfirmation(definition.getRule(), definition.getUsage()))
-                && RelationWindows.confirmed(definition.getRelationWindow()) == null) {
-            // 文字声明的适用限制必须落实到人工确认的日期边界。
-            throw BizIllegalException.invalid("请确认关联的日期适用期。日期须有效且结束日不得早于开始日");
+        } else if (RelationWindows.usable(
+                        definition.getRelationWindow(),
+                        definition.getMeaning(),
+                        definition.getRule(),
+                        definition.getUsage())
+                == null) {
+            // 有额外条件或日期待核实时，保留草稿供治理人员处理。
+            throw BizIllegalException.invalid("请核实关联适用条件。日期限制须填写有效适用期，其他筛选条件暂不能确认");
         }
         return dependencies(origin, basis);
     }
@@ -521,8 +528,9 @@ public class GovernanceDiscovery {
         boolean relation = "RELATION".equals(kind);
         boolean defaultMetric = input.getDefaultMetric() == null ? before.isDefaultMetric() : input.getDefaultMetric();
         if (relation && (defaultMetric || input.getMetricRules() != null)
-                || !relation && (input.getRelationWindow() != null
-                        || input.getPairs() != null && !input.getPairs().isEmpty())) {
+                || !relation
+                        && (input.getRelationWindow() != null
+                                || input.getPairs() != null && !input.getPairs().isEmpty())) {
             // 关联和指标只接受各自的专属定义。
             throw BizIllegalException.invalid("所选定义与当前治理类型不符");
         }
@@ -693,7 +701,8 @@ public class GovernanceDiscovery {
                     .anyMatch(key -> sameKey(key, pairs));
         } else {
             // 指标必须关联当前表，公式涉及的字段也必须来自当次目录。
-            if (proposal.relationWindow() != null || !pairs.isEmpty()
+            if (proposal.relationWindow() != null
+                    || !pairs.isEmpty()
                     || proposal.fields() == null
                     || proposal.fields().isEmpty()) {
                 return null;

@@ -26,8 +26,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import lombok.RequiredArgsConstructor;
 import tools.jackson.core.JacksonException;
+
+import lombok.RequiredArgsConstructor;
 
 /**
  * 独立解释队列只消费已经交付并重新核权的限量快照。
@@ -56,10 +57,14 @@ public class QueryExplanations {
     private final JsonCodec json;
     /** 强制保持原查询输出限制。 */
     private final QueryOutput output = new QueryOutput();
-    /** 一次说明向模型提供的结果行数上限。 */
+    /**
+     * 一次说明向模型提供的结果行数上限。
+     */
     private static final int MAX_RESULT_ROWS = 20;
 
-    /** 一段说明最多展示三条快照事实。 */
+    /**
+     * 一段说明最多展示三条快照事实。
+     */
     private static final int MAX_SELECTED_FACTS = 3;
 
     /**
@@ -67,16 +72,24 @@ public class QueryExplanations {
      */
     private static final int MAX_TEXT_LENGTH = 1000;
 
-    /** 至少预留两秒才可请求说明。 */
+    /**
+     * 至少预留两秒才可请求说明。
+     */
     private static final int MIN_BUDGET_MILLIS = 2000;
 
-    /** 初次说明及最多三次手动请求所用的修订上限。 */
+    /**
+     * 初次说明及最多三次手动请求所用的修订上限。
+     */
     private static final int MAX_REVISION = 4;
 
-    /** 说明外发未准入时的业务反馈。 */
+    /**
+     * 说明外发未准入时的业务反馈。
+     */
     private static final String SOURCE_BLOCK = "当前数据源未启用结果说明";
 
-    /** 已结束且可继续申请生成的持久化状态。 */
+    /**
+     * 已结束且可继续申请生成的持久化状态。
+     */
     private static final Set<String> REVISABLE = Set.of("FAILED", "STOPPED", "UNAVAILABLE");
 
     /**
@@ -96,19 +109,25 @@ public class QueryExplanations {
         revisions.add(delivered.id(), 1, delivered.id(), state);
     }
 
-    /** 订阅只需要说明进度，不必解码完整的查询结果。 */
+    /**
+     * 订阅只需要说明进度，不必解码完整的查询结果。
+     */
     QueryExplanationVO view(String request, long source) {
         var row = revisions.latest(request);
         return row == null ? null : viewRevision(row, source);
     }
 
-    /** 工作台详情复用查数快照及后端入队资格。 */
+    /**
+     * 工作台详情复用查数快照及后端入队资格。
+     */
     QueryExplanationVO snapshot(Request query, QueryDataVO data) {
         var row = revisions.latest(query.id());
         return row == null ? null : snapshotRevision(row, query, data);
     }
 
-    /** 在业务详情区分当前限制、已生成和待生成的说明。 */
+    /**
+     * 在业务详情区分当前限制、已生成和待生成的说明。
+     */
     private QueryExplanationVO snapshotRevision(Explanation row, Request query, QueryDataVO data) {
         var view = viewRevision(row, query.sourceId());
         if ("COMPLETED".equals(view.getStatus())) {
@@ -129,7 +148,9 @@ public class QueryExplanations {
         return view;
     }
 
-    /** 只有已交付说明保留正文，未调用过模型的修订按真实状态展示。 */
+    /**
+     * 只有已交付说明保留正文，未调用过模型的修订按真实状态展示。
+     */
     private QueryExplanationVO viewRevision(Explanation row, long source) {
         String state = row.status();
         if ("COMPLETED".equals(state)) {
@@ -140,7 +161,9 @@ public class QueryExplanations {
             return new QueryExplanationVO(row.revision(), "UNAVAILABLE", null, SOURCE_BLOCK);
         }
         if ("UNAVAILABLE".equals(state)
-                || "FAILED".equals(state) && row.modelRevisionId() == null && "NOT_AVAILABLE".equals(row.failureCode())) {
+                || "FAILED".equals(state)
+                        && row.modelRevisionId() == null
+                        && "NOT_AVAILABLE".equals(row.failureCode())) {
             // 新旧记录只要在调用前停止，就没有一次生成结果。
             state = "NOT_GENERATED";
         }
@@ -292,7 +315,9 @@ public class QueryExplanations {
         }
     }
 
-    /** 未派发模型的修订按已有领取和结算协议结束。 */
+    /**
+     * 未派发模型的修订按已有领取和结算协议结束。
+     */
     private void finishWithoutModel(Explanation job, String status) {
         revisions.claim(job.requestId(), job.revision(), null);
         revisions.finish(job.requestId(), job.revision(), status, null, "NOT_AVAILABLE");
@@ -381,7 +406,9 @@ public class QueryExplanations {
      * 校验引用并按模型顺序交付能完整放入正文的原句。
      */
     private String renderSelectedFacts(List<String> facts, List<Integer> selected) {
-        if (selected == null || selected.isEmpty() || selected.size() > MAX_SELECTED_FACTS
+        if (selected == null
+                || selected.isEmpty()
+                || selected.size() > MAX_SELECTED_FACTS
                 || new HashSet<>(selected).size() != selected.size()
                 || selected.stream().anyMatch(id -> id == null || id < 1 || id > facts.size())) {
             // 越界、重复或缺少有效引用时不交付说明。

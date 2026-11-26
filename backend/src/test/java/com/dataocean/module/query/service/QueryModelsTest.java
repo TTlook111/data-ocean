@@ -137,6 +137,64 @@ class QueryModelsTest {
     }
 
     /**
+     * 继续查回原排序和澄清回执时，不能重复发送凭据或混用问题理解的阶段。
+     */
+    @Test
+    void distinguishesRerankAndSupplementReceipts() {
+        when(registry.invocation(31L, 9))
+                .thenReturn(
+                        new ModelInvocation("31", "COHERE_RERANK", "https://provider.invalid", "sample", 9, "fixture"));
+        when(registry.revisionReference(31L))
+                .thenReturn(new RevisionReference("31", "COHERE_RERANK", "https://provider.invalid", "sample"));
+        when(steps.issue("query-a", 3, "rag-rerank")).thenReturn(1, 0);
+        var seen = new ArrayList<String>();
+        var models = client((request, bytes, execution) -> {
+            // 验证真实内部请求使用独立的步骤标识和正确的回读标志。
+            var step = request.getHeaders().getFirst("X-Query-Step");
+            var lookup = request.getHeaders().getFirst("X-Query-Lookup");
+            seen.add(step + ":" + lookup);
+            var body = new String(bytes, StandardCharsets.UTF_8);
+            if ("true".equals(lookup)) {
+                // 回执查询只带固定身份和原确认输入。
+                assertThat(body).doesNotContain("apiKey");
+            }
+            if ("rag-rerank".equals(step)) {
+                // 重排只能返回原候选已登记的顺序。
+                return response(HttpStatus.OK, "{\"order\":[1,0]}");
+            }
+            return response(HttpStatus.OK, "{\"retrievalQuery\":\"   \"}");
+        });
+
+        assertThat(models.rerank(run, 31, 26, "路线", List.of("甲", "乙")).order()).containsExactly(1, 0);
+        assertThat(models.rerank(run, 31, 6, "路线", List.of("甲", "乙")).order()).containsExactly(1, 0);
+        assertThatThrownBy(() -> models.understandSupplement(run, 31, 9, "华东区", memory))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("TECHNICAL_FAILURE");
+        assertThat(seen).containsExactly("rag-rerank:false", "rag-rerank:true", "supplement-scope:true");
+    }
+
+    /**
+     * 首次提问检验模型准入，缺少可选节点时使用已设计的回退决定。
+     */
+    @Test
+    void checksRequiredIntentAndOptionalNodesBeforeDispatch() {
+        var models = client((request, bytes, execution) -> {
+            // 准入或读取分配时只访问模型配置，不能外发业务问题。
+            throw new AssertionError("前置检查不得发起模型调用");
+        });
+        when(registry.requireBinding("intent")).thenReturn(31L);
+        models.requireIntentReady(10L);
+        verify(registry).verifyActive(31L);
+        assertThatThrownBy(() -> models.requireIntentReady(12L)).isInstanceOf(BizIllegalException.class);
+        when(registry.requireBinding("sql-generate")).thenThrow(BizIllegalException.state("未配置"));
+        assertThatThrownBy(() -> models.revision("sql-generate")).isInstanceOf(QueryFailure.class);
+
+        assertThat(models.repairRevision()).isZero();
+        assertThat(models.historySummaryRevision()).isZero();
+        assertThat(models.rerankRevision()).isZero();
+    }
+
+    /**
      * 真正断连只查回执，旧代次失败保留恢复待核实。
      */
     @Test
@@ -170,10 +228,12 @@ class QueryModelsTest {
     @Test
     void summaryUsesItsOwnStepAndOmitsCredentialsOnLookup() {
         when(steps.issue("query-a", 3, "history-summary")).thenReturn(1).thenReturn(0);
-        when(registry.revisionReference(31L)).thenReturn(
-                new RevisionReference("31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample"));
-        when(registry.invocation(31L, 9)).thenReturn(new ModelInvocation(
-                "31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample", 9, "fixture"));
+        when(registry.revisionReference(31L))
+                .thenReturn(
+                        new RevisionReference("31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample"));
+        when(registry.invocation(31L, 9))
+                .thenReturn(new ModelInvocation(
+                        "31", "OPENAI_CHAT_COMPLETIONS", "https://provider.invalid", "sample", 9, "fixture"));
         var seen = new ArrayList<String>();
         var models = client((request, bytes, execution) -> {
             assertThat(request.getURI().getPath()).endsWith("/history-summary");
@@ -190,7 +250,8 @@ class QueryModelsTest {
 
         assertThat(models.summarize(run, 31, 60, "那上周呢？", memory).requestIds()).containsExactly("old");
         var clarified = new QueryModels.Run("query-a", 3, true);
-        assertThat(models.summarize(clarified, 31, 60, "那上周呢？", memory).requestIds()).containsExactly("old");
+        assertThat(models.summarize(clarified, 31, 60, "那上周呢？", memory).requestIds())
+                .containsExactly("old");
         assertThat(seen).containsExactly("false", "true");
         verify(registry).invocation(31L, 9);
     }

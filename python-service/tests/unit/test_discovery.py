@@ -84,7 +84,9 @@ def test_discovery_returns_located_evidence_without_transient_identifiers() -> N
 
 
 def test_discovery_keeps_unknown_metric_rules_distinct_from_confirmed_none() -> None:
-    """缺少支付值依据和已知币种列在候选中保持独立。"""
+    """
+    缺少支付值依据和已知币种列在候选中保持独立。
+    """
     answer = DiscoveryAnswer.model_validate(
         {
             "candidates": [

@@ -2,6 +2,7 @@ package com.dataocean.module.governance.entity.dto;
 
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+
 import lombok.Data;
 
 /**

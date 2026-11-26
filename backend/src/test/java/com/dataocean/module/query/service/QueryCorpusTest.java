@@ -3,11 +3,14 @@ package com.dataocean.module.query.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
@@ -20,6 +23,7 @@ import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.governance.service.GovernanceKnowledgeService;
 import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.knowledge.entity.po.KnowledgeReleaseCandidatePO;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Build;
 import com.dataocean.module.knowledge.mapper.KnowledgeBuildMapper.Chunk;
@@ -34,6 +38,7 @@ import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -63,17 +68,24 @@ class QueryCorpusTest {
     private final JsonCodec json = new JsonCodec(mapper);
     private final Source source = new Source(SOURCE, "物流", "ENABLED", 4L, 3L, 1, false, null, null, null, null);
 
+    /**
+     * 可选择当前发布并核对实际候选快照。
+     */
+    private final KnowledgePublicationMapper publications = mock(KnowledgePublicationMapper.class);
+
+    /**
+     * 候选指纹来自平台库中的冻结快照。
+     */
+    private final KnowledgeReleaseCandidateMapper candidates = mock(KnowledgeReleaseCandidateMapper.class);
+
+    /**
+     * 核对向量模型请求使用原修订及受控预算。
+     */
+    private final ModelRegistry models = mock(ModelRegistry.class);
+
     /** 仅替换平台读写，使用实际补查、片段验证和 SQL 编译。 */
-    private final QueryCorpus corpus = new QueryCorpus(
-            mock(KnowledgePublicationMapper.class),
-            versions,
-            mock(KnowledgeReleaseCandidateMapper.class),
-            builds,
-            documents,
-            catalog,
-            governance,
-            mock(ModelRegistry.class),
-            json);
+    private final QueryCorpus corpus =
+            new QueryCorpus(publications, versions, candidates, builds, documents, catalog, governance, models, json);
 
     /**
      * 创建同一发布中两个不同物理对象的片段。
@@ -111,6 +123,44 @@ class QueryCorpusTest {
         when(governance.require(source, column))
                 .thenReturn(new GovernanceFactVO(
                         column.view(), "103", 1, "12", "线路", mapper.readTree("{\"meaning\":\"线路\"}"), List.of()));
+    }
+
+    /**
+     * 冻结只取获准发布，索引恢复须核对实际候选、片段摘要和当次向量修订。
+     */
+    @Test
+    void freezesOnlyUsablePublicationsAndVerifiedIndexFacts() {
+        var usable = versions.requireForQuery(SOURCE, BINDING);
+        when(usable.candidateId()).thenReturn(60L);
+        when(usable.embeddingRevisionId()).thenReturn(33L);
+        when(usable.collectionName()).thenReturn("fixture-index");
+
+        var withdrawn = mock(Binding.class);
+        when(withdrawn.id()).thenReturn(7L);
+        when(versions.requireForQuery(SOURCE, 7L)).thenThrow(BizIllegalException.denied());
+        var page = new Page<Binding>(1, 9, false).setRecords(List.of(usable, withdrawn));
+        when(publications.current(any(), eq(SOURCE), isNull(), eq(""), eq(""), isNull()))
+                .thenReturn(page);
+        assertThat(corpus.bindings(SOURCE)).containsExactly(BINDING);
+
+        var candidate = new KnowledgeReleaseCandidatePO();
+        candidate.setFingerprint("frozen-fingerprint");
+        when(candidates.selectById(60L)).thenReturn(candidate);
+        var index = corpus.indexes(SOURCE, List.of(BINDING), 20).get(0);
+        assertThat(index.collection()).isEqualTo("fixture-index");
+        assertThat(index.fingerprint()).isEqualTo("frozen-fingerprint");
+        assertThat(index.fragments()).extracting(item -> item.digest()).containsExactly("b", "a");
+        verify(models).invocation(33L, 16);
+
+        when(candidates.selectById(60L)).thenReturn(null);
+        assertThatThrownBy(() -> corpus.indexes(SOURCE, List.of(BINDING), 20))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("TECHNICAL_FAILURE");
+
+        page.setRecords(Collections.nCopies(9, usable));
+        assertThatThrownBy(() -> corpus.bindings(SOURCE))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("RESOURCE_EXCEEDED");
     }
 
     /**

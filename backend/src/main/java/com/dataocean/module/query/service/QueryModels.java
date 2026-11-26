@@ -3,9 +3,9 @@ package com.dataocean.module.query.service;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
+import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
 import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
 import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
-import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
 import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
 import com.dataocean.module.query.entity.dto.QueryRerankInputDTO;
 import com.dataocean.module.query.entity.vo.QueryExplanationSelectionVO;
@@ -116,7 +116,9 @@ class QueryModels {
         }
     }
 
-    /** 查询和结果说明均须在部署允许的数据源范围内。 */
+    /**
+     * 查询和结果说明均须在部署允许的数据源范围内。
+     */
     boolean explanationSourceAdmitted(long source) {
         return allowedSources.contains(source) && explanationSources.contains(source);
     }
@@ -161,8 +163,15 @@ class QueryModels {
 
     /** 澄清前后共用原问题和旧轮次，摘要只发起一次。 */
     HistorySummary summarize(Run run, long revision, int seconds, String question, Memory memory) {
-        return contextStep(run, ModelRegistry.HISTORY_SUMMARY, HISTORY_PATH, revision, Math.min(9, seconds),
-                question, memory, HistorySummary.class);
+        return contextStep(
+                run,
+                ModelRegistry.HISTORY_SUMMARY,
+                HISTORY_PATH,
+                revision,
+                Math.min(9, seconds),
+                question,
+                memory,
+                HistorySummary.class);
     }
 
     /**
