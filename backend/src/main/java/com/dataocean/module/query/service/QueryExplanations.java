@@ -343,7 +343,7 @@ public class QueryExplanations {
                     if (!output.signature(rules).equals(row.ruleSignature())) {
                         throw BizIllegalException.denied();
                     }
-                    knowledge.requireForQuery(row.sourceId(), row.bindingId());
+                    knowledge.requirePinnedForQuery(row.sourceId(), row.bindingId());
                     var data = json.read(row.result(), QueryDataVO.class);
                     output.checkResult(rules, data, json);
                     return data;

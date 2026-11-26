@@ -533,6 +533,11 @@ class QueryWorker {
             // 即使上游返回失败，也先落实在等待期间发生的取消与撤权。
             runAccess.requireRules(row, signature);
         }
+        var bindingIds = frozen.bindings().stream().map(Ids::text).collect(Collectors.toSet());
+        if (hits.stream().anyMatch(hit -> hit == null || !bindingIds.contains(hit.binding()))) {
+            // 即使其他发布仍有效，召回也不能把它加入本轮已冻结的发布集合。
+            throw QueryFailure.technical();
+        }
         var ranked = rankBasis(row, signature, search, frozen, run, memory, hits);
         return new RetrievedBasis(ranked.bases(), ranked.modelRevision(), intent);
     }

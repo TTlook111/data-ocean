@@ -134,16 +134,40 @@ public class KnowledgeVersionUse implements KnowledgeVersionService {
     }
 
     /**
-     * 正式问数使用绑定前及在途重新校验时通过同一权威入口。
-     * 反馈回看会捕获旧绑定等业务拒绝并裁剪结果，拒绝仍向调用方抛出，不将外层事务标记为回滚。
+     * 新问数及重新引用对话上下文时，只核对当前生效的绑定。
      */
     @Override
     @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
     public Binding requireForQuery(long sourceId, long id) {
+        requireQueryAccess(sourceId);
+        return requireQueryableBinding(sourceId, id);
+    }
+
+    /**
+     * 原轮次的真实绑定可跨普通切版续作，来源授权和实时使用限制继续生效。
+     */
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED, noRollbackFor = BizIllegalException.class)
+    public Binding requirePinnedForQuery(long sourceId, long id) {
+        requireQueryAccess(sourceId);
+
+        var source = catalog.source(sourceId, false);
+        var binding = binding(sourceId, id);
+        requireRetainedBasis(source, binding);
+        links.verifyRetainedPinned(binding, dependency -> {
+            // 继续核对原先固定的依赖组合，不引入新版本的事实。
+            requireRetainedBasis(source, dependency);
+        });
+        return binding;
+    }
+
+    /**
+     * 当前账号的问数及来源权限优先于任何历史快照。
+     */
+    private void requireQueryAccess(long sourceId) {
         permissions.require("query.view");
         permissions.require("query.ask");
         access.requireSource(UserContext.getUser(), sourceId);
-        return requireQueryableBinding(sourceId, id);
     }
 
     /**
@@ -181,21 +205,59 @@ public class KnowledgeVersionUse implements KnowledgeVersionService {
      */
     @Override
     public Binding current(long source, long id) {
-        var binding = bindings.get(source, id);
-        if (binding == null) {
-            throw BizIllegalException.missing();
-        }
-        if (!Objects.equals(binding.activeBindingId(), binding.id())
-                || binding.verifiedAt() == null
-                || batches.rollbackPending(binding.scopeId())) {
-            // 历史绑定及结果尚未核实的版本不能参与办理。
+        var binding = binding(source, id);
+        if (!Objects.equals(binding.activeBindingId(), binding.id())) {
+            // 新动作以当前入口为准，续作通过固定组合入口单独复核。
             throw BizIllegalException.state("当前生效版本已变化或尚未完成核实");
         }
-        if (isWithdrawn(id)) {
-            // 行为退出后只保留历史读取，不能发起恢复验证或参与问数。
-            throw BizIllegalException.state("该正式知识已撤下");
+        requireVerifiedBinding(binding);
+        return binding;
+    }
+
+    /**
+     * 用来源和绑定编号共同定位发布事实。
+     */
+    private Binding binding(long source, long id) {
+        var binding = bindings.get(source, id);
+        if (binding == null) {
+            // 旧产物清理或来源不符时结束续作。
+            throw BizIllegalException.missing();
         }
         return binding;
+    }
+
+    /**
+     * 无论运行是否已冻结，只有可用的正式版本才能使用。
+     */
+    private void requireVerifiedBinding(Binding binding) {
+        if (binding.verifiedAt() == null || batches.rollbackPending(binding.scopeId())) {
+            // 发布或回退尚未核实，保持范围限制。
+            throw BizIllegalException.state("当前生效版本已变化或尚未完成核实");
+        }
+        if (isWithdrawn(binding.id())) {
+            // 主动退出的知识不因旧请求仍在运行而恢复。
+            throw BizIllegalException.state("该正式知识已撤下");
+        }
+    }
+
+    /**
+     * 同一范围必须仍有已核实的生效入口，旧绑定的自身条件也须逐项复核。
+     */
+    private void requireRetainedBasis(Source source, Binding binding) {
+        requireVerifiedBinding(binding);
+        if (binding.activeBindingId() == null || isPaused(binding.scopeId())) {
+            // 无生效入口或范围已暂停，不能靠历史版本继续使用。
+            throw BizIllegalException.state("受影响的正式知识未生效或已暂停");
+        }
+        if (!Objects.equals(binding.activeBindingId(), binding.id())) {
+            // 普通切换应有该范围内已核实的当前入口。
+            var active = current(source.id(), binding.activeBindingId());
+            if (active.scopeId() != binding.scopeId()) {
+                // 指针异常时无法证明这次替换仍属于相同范围。
+                throw BizIllegalException.state("正式知识的当前生效范围已变化");
+            }
+        }
+        requireOwnBasis(source, binding);
     }
 
     /**

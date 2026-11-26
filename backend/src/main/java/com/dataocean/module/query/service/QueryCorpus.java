@@ -98,7 +98,7 @@ public class QueryCorpus {
     public List<Index> indexes(long source, List<Long> frozen, int remaining) {
         var allowed = new ArrayList<Index>();
         for (var id : frozen) {
-            var binding = versions.requireForQuery(source, id);
+            var binding = versions.requirePinnedForQuery(source, id);
             var candidate = candidates.selectById(binding.candidateId());
             var chunks = verifiedChunks(binding);
             if (candidate == null) {
@@ -128,7 +128,7 @@ public class QueryCorpus {
         var available = new ArrayList<TableHit>();
         for (var id : frozen) {
             // 撤权或发布失效时，不能用旧冻结结果继续外发。
-            var binding = versions.requireForQuery(sourceId, id);
+            var binding = versions.requirePinnedForQuery(sourceId, id);
             for (var chunk : verifiedChunks(binding)) {
                 // 根据固定片段实际发布的对象证据建立补查入口。
                 var tables = new ArrayList<Name>();
@@ -185,7 +185,7 @@ public class QueryCorpus {
 
     /** 只读取实际召回的固定片段并提供该片段确切治理依据。 */
     public Basis basis(long sourceId, Hit hit) {
-        var binding = versions.requireForQuery(sourceId, Ids.parse(hit.binding()));
+        var binding = versions.requirePinnedForQuery(sourceId, Ids.parse(hit.binding()));
         var source = catalog.source(sourceId, false);
         var chunk = builds.chunks(binding.buildId()).stream()
                 .filter(row -> row.ordinal() == hit.ordinal() && row.digest().equals(hit.digest()))

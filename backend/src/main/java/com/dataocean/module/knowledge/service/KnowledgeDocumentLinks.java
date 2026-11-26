@@ -97,7 +97,7 @@ public class KnowledgeDocumentLinks {
                     return target.id();
                 })
                 .toList();
-        walk(source, document, required, Map.of(), ignored -> {});
+        walk(source, document, required, Map.of(), false, ignored -> {});
         return required;
     }
 
@@ -123,10 +123,17 @@ public class KnowledgeDocumentLinks {
     }
 
     /**
+     * 已开始的问数继续沿用固定依赖，由调用方复核保留版本和当前限制。
+     */
+    public void verifyRetainedPinned(Binding owner, Consumer<Binding> check) {
+        walk(owner.sourceId(), owner.documentId(), links.requiredBindings(owner.id()), Map.of(), true, check);
+    }
+
+    /**
      * 回退前按整个目标组合检查原来冻结的正式引用。
      */
     public void verifyProjected(Binding owner, Map<Long, Long> targetByDocument, Consumer<Binding> check) {
-        walk(owner.sourceId(), owner.documentId(), links.requiredBindings(owner.id()), targetByDocument, check);
+        walk(owner.sourceId(), owner.documentId(), links.requiredBindings(owner.id()), targetByDocument, false, check);
     }
 
     /**
@@ -146,7 +153,7 @@ public class KnowledgeDocumentLinks {
                             if (current == null) {
                                 throw stale();
                             }
-                            walk(source, document, List.of(current.id()), Map.of(), target -> {
+                            walk(source, document, List.of(current.id()), Map.of(), false, target -> {
                                 if (revisions.containsKey(target.documentId())) {
                                     // 批次外的冻结引用不能静默改指向批次内的新绑定。
                                     throw BizIllegalException.state("批次外的必要引用仍指向将替换的版本，请重新核对范围");
@@ -185,7 +192,12 @@ public class KnowledgeDocumentLinks {
      * 迭代核对固定依赖，重叠路径只验证一次。
      */
     private void walk(
-            long source, long owner, List<Long> required, Map<Long, Long> targetByDocument, Consumer<Binding> check) {
+            long source,
+            long owner,
+            List<Long> required,
+            Map<Long, Long> targetByDocument,
+            boolean retainPinned,
+            Consumer<Binding> check) {
         var queue = new ArrayDeque<>(required);
         var visited = new HashSet<Long>();
         while (!queue.isEmpty()) {
@@ -196,9 +208,12 @@ public class KnowledgeDocumentLinks {
             }
             var target = bindings.get(source, id);
             if (target == null
-                    || !Objects.equals(targetByDocument.getOrDefault(target.documentId(), target.activeBindingId()), id)
+                    || !retainPinned
+                            && !Objects.equals(
+                                    targetByDocument.getOrDefault(target.documentId(), target.activeBindingId()), id)
                     || target.verifiedAt() == null
                     || withdrawals.withdrawn(id)) {
+                // 所有用途均拒绝缺失、未核实或已撤下的固定依赖。
                 throw stale();
             }
             if (target.documentId() == owner) {

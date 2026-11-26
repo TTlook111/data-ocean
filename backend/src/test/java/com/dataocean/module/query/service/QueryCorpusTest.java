@@ -97,6 +97,7 @@ class QueryCorpusTest {
         when(binding.buildId()).thenReturn("verified-build");
         when(binding.documentRevisionId()).thenReturn(4L);
         when(versions.requireForQuery(SOURCE, BINDING)).thenReturn(binding);
+        when(versions.requirePinnedForQuery(SOURCE, BINDING)).thenReturn(binding);
         var build = mock(Build.class);
         when(build.verifiedChunks()).thenReturn(2);
         when(builds.get("verified-build")).thenReturn(build);
@@ -196,7 +197,7 @@ class QueryCorpusTest {
      */
     @Test
     void rechecksAuthorizationBeforeReadingSupplementaryEvidence() {
-        when(versions.requireForQuery(SOURCE, BINDING)).thenThrow(BizIllegalException.denied());
+        when(versions.requirePinnedForQuery(SOURCE, BINDING)).thenThrow(BizIllegalException.denied());
         assertThatThrownBy(() -> corpus.targetedScope(SOURCE, List.of(BINDING), List.of(), "查 biz_a.deliveries", null))
                 .isInstanceOf(BizIllegalException.class);
         verify(builds, never()).chunks("verified-build");

@@ -108,7 +108,7 @@ class QueryRunAccess {
                 // 已经冻结的执行只能使用原来的实际连接修订。
                 throw QueryFailure.technical();
             }
-            return versions.requireForQuery(row.sourceId(), binding);
+            return versions.requirePinnedForQuery(row.sourceId(), binding);
         });
         return rules;
     }

@@ -104,6 +104,21 @@ def test_intent_uses_its_model_and_only_authorized_context(monkeypatch, http):
     generate.assert_awaited_once()
 
 
+def test_intent_restores_a_uniquely_grounded_short_phrase():
+    """
+    短引文恢复完整原句，重复引文保留歧义而不猜实际句子。
+    """
+    original = "查订单金额，不要华东区，华南照常统计"
+    condition = api.RequestedTerm(phrase="不要华东区", value="华东区", mode="EXCLUDE")
+    intent = api.Intent(retrievalQuery="排除华东区", conditions=[condition], ambiguous=False)
+
+    restored = api.restore_question_clauses(intent, [original])
+    assert restored.conditions[0].phrase == original
+    assert restored.conditions[0].mode == "EXCLUDE"
+    uncertain = api.restore_question_clauses(intent, [original, "不要华东区，另外看库存"])
+    assert uncertain.ambiguous is True
+
+
 def test_intent_receipt_reference_keeps_original_fingerprint():
     """回读身份不含凭据，仍匹配首次派发的检查点指纹。"""
     model = model_config("OPENAI_CHAT_COMPLETIONS", "31")

@@ -534,7 +534,7 @@ public class QueryService {
             // 旧输出签名无法代表当前限制。
             throw BizIllegalException.denied();
         }
-        versions.requireForQuery(row.sourceId(), row.bindingId());
+        versions.requirePinnedForQuery(row.sourceId(), row.bindingId());
         var data = json.read(row.result(), QueryDataVO.class);
         output.checkResult(rules, data, json);
         return data;

@@ -457,7 +457,12 @@ record QueryRequestedScope(
             boolean named = term.field() != null
                     && (term.field().equalsIgnoreCase(field.column())
                             || term.field().equalsIgnoreCase(label)
-                            || fact != null && term.field().equalsIgnoreCase(fact.getLabel())
+                            || fact != null
+                                    && (term.field().equalsIgnoreCase(fact.getLabel())
+                                            || term.field()
+                                                    .equalsIgnoreCase(fact.getContent()
+                                                            .path("businessName")
+                                                            .asText("")))
                             || "SKU".equalsIgnoreCase(term.field()) && QuerySql.isProductCode(label));
             if (term.field() != null && !named) {
                 // 原话已限定维度时，不向其他同值字段绑定。
@@ -474,8 +479,11 @@ record QueryRequestedScope(
                 // 从已确认编码和业务含义的对应关系取得实际参数。
                 for (var mapping : fact.getContent().path("valueMappings")) {
                     var code = mapping.path("code").asText();
+                    var meaning = mapping.path("meaning").asText();
                     if (sameLiteral(basis, field, term.value(), code, comparison)
-                            || term.value().equals(mapping.path("meaning").asText())) {
+                            || term.value().equals(meaning)
+                            || named && !meaning.isBlank() && term.value().equals(meaning + term.field())) {
+                        // 仅忽略紧随已确认值的明确维度名，例如“饮料品类”。
                         values.add(code);
                     }
                 }
