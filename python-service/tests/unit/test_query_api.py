@@ -119,6 +119,25 @@ def test_intent_restores_a_uniquely_grounded_short_phrase():
     assert uncertain.ambiguous is True
 
 
+def test_intent_discards_only_an_unspoken_dimension():
+    """保留明确的区域取值及原句，去掉模型补出的维度名。"""
+    clause = "2026-11-20 装配区的净能耗是多少"
+    term = api.RequestedTerm(phrase="装配区", value="装配区", field="区域", mode="INCLUDE")
+    intent = api.Intent(retrievalQuery=clause, conditions=[term], ambiguous=False)
+
+    restored = api.restore_question_clauses(intent, [clause])
+    assert restored.ambiguous is False
+    assert restored.conditions == [term.model_copy(update={"phrase": clause, "field": None})]
+
+    explicit = "区域是装配区"
+    assert api.restore_question_clauses(intent, [explicit]).conditions == [
+        term.model_copy(update={"phrase": explicit})
+    ]
+    assert api.restore_question_clauses(intent, ["冷却区的净能耗是多少"]).ambiguous is True
+    ambiguous = intent.model_copy(update={"ambiguous": True})
+    assert api.restore_question_clauses(ambiguous, [clause]).ambiguous is True
+
+
 def test_intent_receipt_reference_keeps_original_fingerprint():
     """回读身份不含凭据，仍匹配首次派发的检查点指纹。"""
     model = model_config("OPENAI_CHAT_COMPLETIONS", "31")
@@ -242,7 +261,8 @@ def test_history_summary_keeps_provenance_and_uses_own_scope(monkeypatch, http):
     generate.assert_awaited_once()
 
 
-def test_rerank_node_uses_its_own_receipt_and_complete_order(monkeypatch, http):
+@pytest.mark.parametrize("protocol", ["COHERE_RERANK", "JSON_RERANK"])
+def test_rerank_node_uses_its_own_receipt_and_complete_order(monkeypatch, http, protocol):
     """
     同一候选集合使用重排配置外发，续查身份不依赖凭据。
     """
@@ -255,13 +275,13 @@ def test_rerank_node_uses_its_own_receipt_and_complete_order(monkeypatch, http):
         assert model_receipts._scope.get() == model_receipts.CallScope(
             "QUERY", "rag-rerank", query_id
         )
-        assert config.revision_id == "61" and config.protocol == "COHERE_RERANK"
+        assert config.revision_id == "61" and config.protocol == protocol
         assert query == "日末可售库存" and documents == ["在库", "可售"]
         return [1, 0]
 
     transport = AsyncMock(side_effect=rank)
     monkeypatch.setattr(api, "rerank", transport)
-    model = model_config("COHERE_RERANK", "61")
+    model = model_config(protocol, "61")
     job = {"model": model, "query": "日末可售库存", "documents": ["在库", "可售"]}
     response = http.post("/internal/v1/query/rerank", json=job, headers={"X-Query-Id": query_id})
     assert response.status_code == 200 and response.json() == {"order": [1, 0]}

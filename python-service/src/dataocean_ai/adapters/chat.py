@@ -22,6 +22,9 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
 from dataocean_ai.adapters.model_receipts import ModelRecordingError, model_call_hooks
 
+# 业务重排和回执接口共用相同的协议约束。
+RerankProtocol = Literal["COHERE_RERANK", "JSON_RERANK"]
+
 
 class ModelConfiguration(BaseModel):
     """Java 在外发前签发的单次模型配置。"""
@@ -33,9 +36,9 @@ class ModelConfiguration(BaseModel):
     revision_id: str = Field(alias="revisionId")
     # 明确声明的可连接协议。
     protocol: Literal[
-        "OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES", "OPENAI_EMBEDDINGS", "COHERE_RERANK"
+        "OPENAI_CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES", "OPENAI_EMBEDDINGS", RerankProtocol
     ]
-    # 已校验的服务端 SDK 基址。
+    # 已校验的服务基址或通用重排的完整接口地址。
     endpoint: str
     # 发送给服务的模型标识。
     model_name: str = Field(alias="modelName")

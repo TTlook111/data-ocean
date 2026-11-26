@@ -6,6 +6,7 @@ export const modelProtocols = {
   ANTHROPIC_MESSAGES: 'Anthropic Messages',
   OPENAI_EMBEDDINGS: 'OpenAI Embeddings',
   COHERE_RERANK: 'Cohere Rerank',
+  JSON_RERANK: '通用 JSON Rerank',
 } as const;
 
 /**
@@ -28,6 +29,7 @@ export const protocolCapability: Record<
   ANTHROPIC_MESSAGES: 'GENERATION',
   OPENAI_EMBEDDINGS: 'EMBEDDING',
   COHERE_RERANK: 'RERANK',
+  JSON_RERANK: 'RERANK',
 };
 
 /**

@@ -14,7 +14,6 @@ import com.dataocean.module.model.mapper.ModelMapper;
 import com.dataocean.module.model.mapper.ModelMapper.Assignment;
 import com.dataocean.module.model.mapper.ModelMapper.Config;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -52,7 +51,15 @@ class ModelRegistryTest {
      * 已接通节点继续保存能力匹配且版本一致的选择。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write", "question-suggestion", "history-summary"})
+    @ValueSource(
+            strings = {
+                "intent",
+                "sql-generate",
+                "document-plan",
+                "document-write",
+                "question-suggestion",
+                "history-summary"
+            })
     void savesConnectedAssignment(String node) {
         var choice = availableChoice(node);
 
@@ -61,16 +68,21 @@ class ModelRegistryTest {
         verify(models).assign(node, choice.getModelId());
     }
 
-    /** 重排可以独立选择，但生成模型能力不匹配。 */
-    @Test
-    void assignsOnlyRerankModelsToRankingNode() {
+    /**
+     * 两种重排接口都能分配给同一节点，生成模型仍会被拒绝。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"COHERE_RERANK", "JSON_RERANK"})
+    void assignsOnlyRerankModelsToRankingNode(String protocol) {
         var node = ModelRegistry.RAG_RERANK;
         var choice = availableChoice(node);
         when(models.lockAssignment(node)).thenReturn(new Assignment(node, "RERANK", null, 3));
-        assertThatThrownBy(() -> registry.assign(node, choice)).isInstanceOf(BizIllegalException.class)
+        assertThatThrownBy(() -> registry.assign(node, choice))
+                .isInstanceOf(BizIllegalException.class)
                 .hasMessageContaining("类型不符合");
-        when(models.lockModel(7L)).thenReturn(new Config(7, 8, 1, "重排验收", "COHERE_RERANK",
-                "https://models.example.invalid/v2", "sample", 20, true, 1, 9));
+        when(models.lockModel(7L))
+                .thenReturn(new Config(
+                        7, 8, 1, "重排验收", protocol, "https://models.example.invalid/v2", "sample", 20, true, 1, 9));
         registry.assign(node, choice);
         verify(models).assign(node, choice.getModelId());
     }

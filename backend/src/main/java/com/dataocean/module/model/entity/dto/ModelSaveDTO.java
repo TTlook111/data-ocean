@@ -23,14 +23,14 @@ public class ModelSaveDTO {
     private String name;
 
     /**
-     * 生成接口格式。
+     * 接口格式决定模型能力和调用方式。
      */
     @NotBlank
-    @Pattern(regexp = "OPENAI_CHAT_COMPLETIONS|ANTHROPIC_MESSAGES|OPENAI_EMBEDDINGS|COHERE_RERANK")
+    @Pattern(regexp = "OPENAI_CHAT_COMPLETIONS|ANTHROPIC_MESSAGES|OPENAI_EMBEDDINGS|COHERE_RERANK|JSON_RERANK")
     private String protocol;
 
     /**
-     * 已准入服务的 SDK 基址。
+     * 已准入的服务地址，通用 JSON 重排填写完整的 POST 接口地址。
      */
     @NotBlank
     @Size(max = 500)

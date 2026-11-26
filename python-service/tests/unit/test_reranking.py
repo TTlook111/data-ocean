@@ -15,7 +15,16 @@ from dataocean_ai.adapters.reranking import rerank
 
 
 @pytest.mark.parametrize("mode", ["rank", "duplicate", "mixed_error"])
-def test_rerank_uses_complete_provider_order_and_records_real_usage(monkeypatch, mode):
+@pytest.mark.parametrize(
+    ("protocol", "endpoint", "path"),
+    [
+        ("COHERE_RERANK", "https://model.example/v2", "/v2/rerank"),
+        ("JSON_RERANK", "https://model.example/compat/v1/reranks", "/compat/v1/reranks"),
+    ],
+)
+def test_rerank_uses_complete_provider_order_and_records_real_usage(
+    monkeypatch, mode, protocol, endpoint, path
+):
     """
     真实适配器按原候选顺序发出，并区分候选格式故障和计费单位。
     """
@@ -44,10 +53,14 @@ def test_rerank_uses_complete_provider_order_and_records_real_usage(monkeypatch,
         return httpx.Response(
             200,
             json={
-                "meta": {"billed_units": {"input_tokens": 20, "search_units": 1}},
+                **(
+                    {"meta": {"billed_units": {"input_tokens": 20, "search_units": 1}}}
+                    if protocol == "COHERE_RERANK"
+                    else {"usage": {"prompt_tokens": 20}}
+                ),
                 **({"error": "provider reported failure"} if mode == "mixed_error" else {}),
                 "results": [
-                    {"index": 1, "relevance_score": 0.95},
+                    {"index": 1, "relevance_score": 0.95 if protocol == "COHERE_RERANK" else 9.5},
                     {"index": 1 if mode == "duplicate" else 0, "relevance_score": 0.12},
                 ],
             },
@@ -67,8 +80,8 @@ def test_rerank_uses_complete_provider_order_and_records_real_usage(monkeypatch,
     config = ModelConfiguration.model_validate(
         {
             "revisionId": "19",
-            "protocol": "COHERE_RERANK",
-            "endpoint": "https://model.example/v2",
+            "protocol": protocol,
+            "endpoint": endpoint,
             "modelName": "fixture",
             "timeoutSeconds": 9,
             "apiKey": "fixture-secret",
@@ -82,7 +95,7 @@ def test_rerank_uses_complete_provider_order_and_records_real_usage(monkeypatch,
         else:
             assert asyncio.run(rerank(config, "日末可售库存", ["实际在库", "可售库存"])) == [1, 0]
 
-    assert calls == ["/v2/rerank"]
+    assert calls == [path]
     assert [phase for _, phase, _ in receipts] == ["start", "finish"]
     assert receipts[0][2]["nodeCode"] == "rag-rerank"
     assert receipts[1][2]["failureCode"] == (None if mode == "rank" else "MODEL_FORMAT")
