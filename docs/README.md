@@ -36,7 +36,7 @@ F 批看板已接入[正式总览](frontend/pages/dashboard.md#正式总览)、[
 | 首批应用启动、共用开发账号、构建与真实验收命令 | [运行与验收](backend/运行与验收.md) |
 | 跨前后端系统边界、协议与数据流 | [系统架构](architecture/README.md) |
 | 登录态、退出失效、UserContext、服务认证与凭据注入 | [认证与身份上下文](architecture/认证与身份上下文.md) |
-| 当前正式实现、保留源码及复用评估 | [源码定位](source-map/README.md) |
+| 当前正式实现与源码入口 | [源码定位](source-map/README.md) |
 | 工作与环境约束 | [AGENTS](../AGENTS.md)；启动诊断时另读本机私有环境说明 |
 
 ## 按需求逐层理解

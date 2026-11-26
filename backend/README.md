@@ -91,5 +91,3 @@
 | [V3](src/main/resources/db/migration/V3__datasource_collection.sql)、[V6](src/main/resources/db/migration/V6__business_notes.sql)、[V8](src/main/resources/db/migration/V8__business_note_file_limits.sql) | 建立数据源、采集目录和企业业务说明相关表，调整原件容量 |
 | [V5](src/main/resources/db/migration/V5__data_access.sql)、[V7](src/main/resources/db/migration/V7__access_rule_references.sql)、[V9](src/main/resources/db/migration/V9__access_item_application_and_history.sql) | 建立访问授权、规则引用、申请子项和经办历史的表结构 |
 | [Java 测试](src/test/java/com/dataocean/) | 按源码职责覆盖公共能力、基础设施、身份权限、审计入口和源库适配 |
-
-旧 [DataOcean 工程](DataOcean/)保留供维护和复用评估，定位入口见[源码地图](../docs/source-map/README.md#模块定位专题)。

@@ -42,7 +42,6 @@ default = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
-addopts = ["--confcutdir=tests/unit"]
 
 [tool.ruff]
 target-version = "py313"

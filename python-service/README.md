@@ -23,8 +23,6 @@
 | [test_foundation.py](tests/unit/test_foundation.py) | 验证健康接口、追踪标识、错误响应和配置校验 |
 | [pyproject.toml](pyproject.toml)、[uv.lock](uv.lock) | 声明正式包的构建、启动入口及工具配置，锁定实际依赖 |
 
-保留代码的业务定位见[源码地图](../docs/source-map/README.md#模块定位专题)。
-
 ## 表说明和字段解释
 
 `dataocean_ai.governance` 通过 Redis Streams 接收表说明和单字段解释任务。LangGraph 编排固定目录、模型调用和建议校验，字段说明由 Agent 在当次获准证据内按需取证。API 和 Worker 分别由 `dataocean-ai-api`、`dataocean-ai-worker` 启动，模型回执经 Java 落库复核。
@@ -66,4 +64,4 @@ uv --directory python-service run --locked --python 3.13 --env-file .env dataoce
 
 进程日志默认写标准输出，可用 `AI_LOG_OUTPUT=stderr` 改写。需要本地文件时将进程输出重定向至 `output/dev`。
 
-旧 `dataocean` 与原有测试仍保留供后续模块评估，不被正式包导入或打入产物，也不作为新版业务验收。正式测试当前定位在 `tests/unit`，后续业务测试继续按实际模块组织。首批整体覆盖及剩余边界见[人员与权限验收](../docs/backend/iam/验收.md)。
+Redis 检查点集成探针需将 `LANGGRAPH_TEST_REDIS_URL` 指向专用验收实例，并显式运行 [test_langgraph_checkpointer_integration.py](tests/test_langgraph_checkpointer_integration.py)。

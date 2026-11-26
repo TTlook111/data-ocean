@@ -1,6 +1,6 @@
 # 源码定位
 
-这里定位当前正式实现与仓库保留的其他系统代码，供开发、运行维护和复用评估。业务与设计依据分别见[产品方案](../product/README.md)、[前端开发入口](../frontend/README.md#开发前必读与完成验收)、[后端设计](../backend/README.md)和[系统架构](../architecture/README.md)，不能用源码偏差改写已确认规则。
+这里定位当前正式实现，供开发与运行维护查询。业务与设计依据分别见[产品方案](../product/README.md)、[前端开发入口](../frontend/README.md#开发前必读与完成验收)、[后端设计](../backend/README.md)和[系统架构](../architecture/README.md)，不能用源码偏差改写已确认规则。
 
 各端 README 维护实际模块和文件职责。本页按业务串联各端入口。新增、移动、拆分或删除模块及关键文件时，同步更新所属 README 和受影响的跨端链接。
 
@@ -13,6 +13,8 @@
 | Python 正式 API 及公共能力 | [Python 源码导览](../../python-service/README.md#源码导览) |
 
 以上仅说明已存在的源码位置，不代表逐接口、界面或跨端链路全部验收通过。离线原型的定位仍由[页面专题](../frontend/pages/README.md#原型定位与衔接)维护。
+
+身份与权限专题见[用户与认证](001-user.md)及[人员、角色与功能权限](007-iam-s1.md)。
 
 ## 数据源接入与采集
 
@@ -49,19 +51,3 @@ F 批评价、入队和分派由 [React 回答评价](../../frontend/src/modules
 治理概览由 [React 治理概览](../../frontend/src/modules/governance/GovernanceOverview.tsx)、[概览接口](../../backend/src/main/java/com/dataocean/module/governance/controller/GovernanceOverviewController.java)、[确认 SQL](../../backend/src/main/java/com/dataocean/module/governance/mapper/GovernanceOverviewMapper.java)与[历史进度 SQL](../../backend/src/main/java/com/dataocean/module/governance/mapper/GovernanceProgressMapper.java)组成。见[治理运营统计](../backend/governance/运营统计.md)。
 
 知识概览由 [React 知识概览](../../frontend/src/modules/knowledge/KnowledgeOverview.tsx)、[概览接口](../../backend/src/main/java/com/dataocean/module/knowledge/controller/KnowledgeOverviewController.java)、[期间活动 SQL](../../backend/src/main/java/com/dataocean/module/knowledge/mapper/KnowledgeOverviewMapper.java)与[期末可用性](../../backend/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeOverviewHistory.java)组成。见[知识运营统计](../backend/knowledge/运营统计.md)。
-
-001 与 007 定位首批正式实现。其余专题仅说明仍保留在 `backend/DataOcean`、`python-service/dataocean` 的实现，用于后续评估，不代表已接入新版应用；原有 Vue 业务页面已被正式 React 工程替换，不再作为源码入口。后续模块的界面依据从[页面专题](../frontend/pages/README.md)进入，正式覆盖以[前端状态](../frontend/README.md#当前实现与验证边界)为准。
-
-| 模块 |
-| --- |
-| [001 用户与认证](001-user.md) |
-| [002 数据源与就绪检查](002-datasource.md) |
-| [003 元数据采集与资产目录](003-metadata-collection.md) |
-| [004 元数据治理与可信度](004-metadata-governance.md) |
-| [005 元数据版本与审核](005-metadata-versioning.md) |
-| [006 业务术语与知识文档](006-knowledge.md) |
-| [007 人员、角色与功能权限](007-iam-s1.md) |
-| [008 S1 问数与会话记忆](008-query-memory.md) |
-| [009 Schema RAG 构建与检索](009-schema-rag.md) |
-| [010 平台配置、通知与工作台](010-platform-operations.md) |
-| [011 查询审计与数据血缘](011-audit-lineage.md) |
