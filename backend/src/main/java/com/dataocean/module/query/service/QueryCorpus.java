@@ -19,8 +19,10 @@ import com.dataocean.module.knowledge.service.KnowledgeBuildWire.Evidence;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO;
+import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO.ConfirmedMetricRules;
 import com.dataocean.module.query.entity.dto.QueryEvidenceSnippetDTO.Metric;
 import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
+import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Fragment;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
@@ -281,11 +283,33 @@ public class QueryCorpus {
             var metrics = facts.values().stream()
                     .filter(fact -> "METRIC".equals(fact.getTarget().getKind()))
                     .map(fact -> new Metric(
-                            fact.getLabel(), fact.getContent().path("meaning").asText(),
+                            fact.getLabel(),
+                            fact.getContent().path("meaning").asText(),
                             fact.getContent().path("rule").asText(),
-                                    fact.getContent().path("usage").asText()))
+                            fact.getContent().path("usage").asText(),
+                            confirmedMetricRules(fact)))
                     .toList();
             return new QueryEvidenceSnippetDTO(Ids.text(binding.id()), text, columns, metrics);
+        }
+
+        /**
+         * 把已确认的列标识换成受控的逻辑表列，让两个模型节点可直接核对计划。
+         */
+        private ConfirmedMetricRules confirmedMetricRules(GovernanceFactVO fact) {
+            var rules = QuerySql.confirmedMetricRules(this, fact);
+            if (rules == null) {
+                // 证据不全时保留原指标正文，由编译器拒绝该执行口径。
+                return null;
+            }
+            return new ConfirmedMetricRules(
+                    rules.getDateMode(),
+                    "BUSINESS_DAY".equals(rules.getDateMode()) ? fields.get(rules.getDateFieldId()) : null,
+                    rules.getFixedFilters().stream()
+                            .map(filter -> new Condition(fields.get(filter.getFieldId()), filter.getValue()))
+                            .toList(),
+                    rules.getUnitMode(),
+                    rules.getUnit(),
+                    "COLUMN".equals(rules.getUnitMode()) ? fields.get(rules.getUnitFieldId()) : null);
         }
 
         /** 页面仅展示正式依据身份，不外发完整正文或索引字段。 */

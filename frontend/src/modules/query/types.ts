@@ -23,7 +23,10 @@ export type Conversation = {
  */
 export type Explanation = {
   revision: number;
-  status: 'QUEUED' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'STOPPED';
+  status:
+    'QUEUED' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'STOPPED' | 'UNAVAILABLE' | 'NOT_GENERATED';
+  /** 后端返回的当前生成限制。 */
+  blockedReason?: string | null;
   text: string | null;
 };
 

@@ -36,9 +36,9 @@ public interface QueryExplanationMapper {
     @Insert(
             """
             INSERT INTO qry_explanation(request_id,revision,command_id,status)
-            VALUES(#{id},#{revision},#{command},'QUEUED')
+            VALUES(#{id},#{revision},#{command},#{status})
             """)
-    void add(String id, int revision, String command);
+    void add(String id, int revision, String command, String status);
 
     /** 仅寻找候选，领取前按请求在先、解释在后的顺序锁定。 */
     @Select(

@@ -29,6 +29,8 @@ import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.datasource.source.SourceMetadata.Structure;
+import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
+import com.dataocean.module.governance.entity.vo.GovernanceTargetVO;
 import com.dataocean.module.iam.mapper.GuardMapper;
 import com.dataocean.module.iam.mapper.UserMapper;
 import com.dataocean.module.iam.service.PermissionService;
@@ -49,13 +51,16 @@ import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.HistorySummary;
 import com.dataocean.module.query.service.QueryProtocol.Hit;
 import com.dataocean.module.query.service.QueryProtocol.Index;
+import com.dataocean.module.query.service.QueryProtocol.Intent;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.MemoryTurn;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QueryProtocol.Reasoning;
 import com.dataocean.module.query.service.QueryProtocol.RerankDecision;
 import com.dataocean.module.query.service.QueryProtocol.RerankOrder;
+import com.dataocean.module.query.service.QueryProtocol.RequestedTerm;
 import com.dataocean.module.query.service.QueryProtocol.RunInput;
+import com.dataocean.module.query.service.QueryProtocol.SelectionReview;
 import com.dataocean.module.query.service.QueryProtocol.SummaryDecision;
 import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
 import com.dataocean.module.query.service.QuerySql.Compiled;
@@ -64,6 +69,7 @@ import com.dataocean.module.query.service.QueryTableSelection.Scope;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -293,13 +299,13 @@ class QueryServiceTest {
     void readsOnlyStillAuthorizedSnapshot() {
         delivered(row);
         when(permissions.effective(USER)).thenReturn(Set.of("query.view"), Set.of("query.view", "query.sql"));
-        when(explanations.view(id)).thenReturn(new QueryExplanationVO(1, "QUEUED", null));
+        when(explanations.view(id, SOURCE)).thenReturn(new QueryExplanationVO(1, "QUEUED", null, null));
         assertThat(service.read(id).getSql()).isNull();
         assertThat(service.read(id).getSql()).isEqualTo("SELECT route");
         assertThat(service.progress(id, USER).terminal()).isFalse();
         assertThat(service.progress(id, USER).explanationText()).isNull();
         assertThatThrownBy(() -> service.progress(id, USER + 1)).isInstanceOf(BizIllegalException.class);
-        when(explanations.view(id)).thenReturn(new QueryExplanationVO(1, "COMPLETED", "妥投线路为三号线。"));
+        when(explanations.view(id, SOURCE)).thenReturn(new QueryExplanationVO(1, "COMPLETED", "妥投线路为三号线。", null));
         assertThat(service.progress(id, USER).explanationText()).isEqualTo("妥投线路为三号线。");
         when(row.ruleSignature()).thenReturn("revoked");
         assertThatThrownBy(() -> service.read(id)).isInstanceOf(BizIllegalException.class);
@@ -307,6 +313,49 @@ class QueryServiceTest {
         when(row.executedAt()).thenReturn(time.minusDays(2));
         assertThat(service.read(id).getResult()).isNull();
         assertThat(service.progress(id, USER).explanationText()).isNull();
+    }
+
+    /**
+     * 历史快照含受限信息时，详情与已生成说明的订阅都不能再交付正文。
+     */
+    @Test
+    void refusesRestrictedLegacyResultsOnReadAndStream() {
+        String signature = restrictedResult("{\"采购单价\":12.00,\"币种\":\"CNY\"}");
+        delivered(row);
+        when(row.ruleSignature()).thenReturn(signature);
+        when(explanations.view(id, SOURCE)).thenReturn(new QueryExplanationVO(1, "COMPLETED", "已结束", null));
+
+        assertThatThrownBy(() -> service.read(id)).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> service.progress(id, USER)).isInstanceOf(BizIllegalException.class);
+    }
+
+    /**
+     * 新结果在入库前拦截，旧队列捕获的结果也不能从恢复分支交付。
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "false|商品采购单价为 12.00 元", "true|商品采购单价为 12.00 元",
+        "false|{\"采购单价\":12.00,\"币种\":\"CNY\"}", "true|{\"采购单价\":12.00,\"币种\":\"CNY\"}"
+    })
+    void rejectsRestrictedResultsBeforeCaptureOrRecoveryDelivery(boolean previouslyCaptured, String cell)
+            throws SQLException {
+        String signature = restrictedResult(cell);
+        ready();
+        when(requests.permit(any())).thenReturn(1);
+        when(row.executionId()).thenReturn("fixture-execution");
+        if (previouslyCaptured) {
+            // 模拟应用更新前已经捕获但尚未交付的结果。
+            delivered(row);
+            when(row.state()).thenReturn("FINALIZING");
+            when(row.ruleSignature()).thenReturn(signature);
+        }
+
+        worker.work();
+
+        verify(requests).stop(id, 2, "PERMISSION_DENIED", "SUCCEEDED", null, previouslyCaptured ? null : signature);
+        verify(requests, never()).capture(anyString(), anyInt(), anyString());
+        verify(requests, never()).deliver(anyString(), anyInt());
+        verify(explanations, never()).initial(any());
     }
 
     /**
@@ -324,13 +373,18 @@ class QueryServiceTest {
             when(requests.get(id)).thenReturn(captured);
             return 1;
         });
-        when(requests.deliver(id, 2)).thenReturn(1);
+        var deliveredRequest = record("RESULT_DELIVERED");
+        when(requests.deliver(id, 2)).thenAnswer(call -> {
+            // 交付后读到的是已结算预算的请求，而非交付前快照。
+            when(requests.get(id)).thenReturn(deliveredRequest);
+            return 1;
+        });
         worker.work();
         verify(requests)
                 .permit(argThat(permit ->
                         BINDING == permit.binding() && permit.reasoning().contains("SELECT route")));
         verify(requests).deliver(id, 2);
-        verify(explanations).initial(id);
+        verify(explanations).initial(deliveredRequest);
         worker.expire();
         verify(requests).expireResults();
         verify(explanations).expire();
@@ -370,7 +424,7 @@ class QueryServiceTest {
         when(row.question()).thenReturn("按线路呢？");
         when(context.capture(eq(row), anyString())).thenReturn(memory);
         when(models.understand(any(), eq(31L), anyInt(), eq("按线路呢？"), eq(memory)))
-                .thenReturn("按线路呢？");
+                .thenReturn(new Intent("按线路呢？"));
 
         worker.work();
 
@@ -551,7 +605,7 @@ class QueryServiceTest {
                 new Memory(time.toInstant(ZoneOffset.UTC).toString(), List.of(), List.of()), List.of(BINDING),
                 1L, 2L, null, null, 31L, 0L, null, 51L, original, null);
         when(row.runInput()).thenReturn(json.write(input));
-        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn("妥投线路");
+        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn(new Intent("妥投线路"));
         when(models.rerank(any(), eq(51L), anyInt(), anyString(), anyList()))
                 .thenReturn(new RerankOrder(List.of(0, 1)));
         when(requests.freezeRerank(eq(id), eq(2), eq("$.clarifiedRerank"), anyString())).thenReturn(1);
@@ -984,6 +1038,515 @@ class QueryServiceTest {
                         eq(plan),
                         any());
         verify(requests, never()).waitForAnswer(anyString(), anyInt(), anyString());
+    }
+
+    /**
+     * 两个有效发布用同一输入但连接或计量口径冲突时，选择哪个发布都不能取得执行许可。
+     */
+    @ParameterizedTest
+    @CsvSource({"6,keys", "7,keys", "6,bridge", "7,bridge", "6,unit", "7,unit", "6,unit-with-guessed-day"})
+    void rejectsConflictingResultsAcrossActiveBindings(String selectedBinding, String conflict) throws SQLException {
+        ready();
+        var candidates = crossBindingCandidates();
+        var chosen = candidates.get(0);
+        var sibling = candidates.get(1);
+        QueryProtocol.TimeSelection time = null;
+        if ("unit-with-guessed-day".equals(conflict)) {
+            // 只有首选发布有该日期列，实际问题未要求日期。
+            var day = new Field("deliveries", "business_date");
+            when(chosen.labels()).thenReturn(Map.of(label, "线路", day, "业务日期"));
+            when(chosen.tables())
+                    .thenReturn(deliveryTable("biz_a", 11, new Column(13, 13, day.column(), "date", false, "", 2)));
+            time = new QueryProtocol.TimeSelection(day, "DAY", null, null, null);
+        }
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(new Plan(
+                        "READY", null, selectedBinding, "VALUES", null, null, List.of(label), List.of(), time));
+
+        var roots = List.of(
+                new QueryUsage.ObjectRef("11", 1, "1", List.of()), new QueryUsage.ObjectRef("12", 1, "2", List.of()));
+        var left = new ArrayList<>(roots);
+        var right = new ArrayList<>(roots);
+        if ("bridge".equals(conflict)) {
+            // 指标表和筛选表不变，两段连接各自经过不同的中间表。
+            left.add(new QueryUsage.ObjectRef("13", 1, "3", List.of()));
+            right.add(new QueryUsage.ObjectRef("14", 1, "4", List.of()));
+        }
+        var region = new Field("region", "id");
+        var current = Set.of(Set.of(new Field("deliveries", "region_id"), region));
+        var historical = Set.of(Set.of(new Field("deliveries", "historical_region_id"), region));
+        when(jdbc.compile(eq(chosen), any())).thenReturn(crossBindingCompiled(left, current, "元"));
+        when(jdbc.compile(eq(sibling), any()))
+                .thenReturn(crossBindingCompiled(
+                        right,
+                        "keys".equals(conflict) ? historical : current,
+                        conflict.startsWith("unit") ? "万元" : "元"));
+
+        worker.work();
+
+        verify(jdbc)
+                .compile(eq(chosen), argThat(candidate -> "6".equals(candidate.binding()) && candidate.time() == null));
+        verify(jdbc)
+                .compile(
+                        eq(sibling), argThat(candidate -> "7".equals(candidate.binding()) && candidate.time() == null));
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "INSUFFICIENT_KNOWLEDGE",
+                        new QueryOutput().signature(List.of()));
+        verify(requests, never()).permit(any());
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 首选发布不适用时，只允许输入物理列一致的唯一可执行发布进入语义核验。
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void permitsFallbackOnlyWithIdenticalPhysicalInputs(boolean sameInput) throws SQLException {
+        ready();
+        var candidates = crossBindingCandidates();
+        var first = candidates.get(0);
+        var other = candidates.get(1);
+        if (!sameInput) {
+            // 同名表的物理身份不同，不能因为首选编译失败就换表。
+            when(other.tables()).thenReturn(deliveryTable("biz_b", 21));
+        }
+        when(jdbc.compile(eq(first), any())).thenThrow(QueryFailure.knowledge());
+        when(jdbc.compile(eq(other), any()))
+                .thenReturn(
+                        crossBindingCompiled(List.of(new QueryUsage.ObjectRef("11", 1, "1", List.of())), Set.of(), ""));
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        if (sameInput) {
+            // 真正使用后备发布的绑定及片段继续当前轮次的独立语义检查。
+            verify(jdbc).compile(eq(other), argThat(candidate -> "7".equals(candidate.binding())));
+            var evidence = List.of(other.snippet());
+            verify(models)
+                    .check(
+                            any(),
+                            eq("semantic"),
+                            anyLong(),
+                            anyInt(),
+                            anyString(),
+                            eq(evidence),
+                            anyList(),
+                            argThat(candidate -> "7".equals(candidate.binding())),
+                            any());
+        } else {
+            // 物理输入冲突在编译备用发布前就被挡住。
+            verify(jdbc, never()).compile(eq(other), any());
+            verify(requests)
+                    .stop(
+                            id,
+                            2,
+                            "KNOWLEDGE_INSUFFICIENT",
+                            "NOT_SUBMITTED",
+                            "INSUFFICIENT_KNOWLEDGE",
+                            new QueryOutput().signature(List.of()));
+        }
+        verify(requests, never()).permit(any());
+    }
+
+    /**
+     * 首选缺少日期依赖时，后备发布的指标按自己的已确认业务日规则绑定当天。
+     */
+    @Test
+    void resolvesFallbackBusinessDateFromItsOwnPublishedMetric() throws SQLException {
+        ready();
+        var candidates = crossBindingCandidates();
+        var first = candidates.get(0);
+        var other = candidates.get(1);
+        var amount = new Field("deliveries", "amount");
+        var businessDate = new Field("deliveries", "business_date");
+        var tables = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, amount.column(), "int", false, "", 2),
+                new Column(14, 14, businessDate.column(), "date", false, "", 3));
+        var labels = Map.of(amount, "订单金额", businessDate, "业务日期");
+        when(first.tables()).thenReturn(tables);
+        when(other.tables()).thenReturn(tables);
+        when(first.labels()).thenReturn(labels);
+        when(other.labels()).thenReturn(labels);
+        when(other.fields()).thenReturn(Map.of("14", businessDate));
+        var mapper = JsonMapper.builder().build();
+        var incomplete = new GovernanceFactVO(
+                new GovernanceTargetVO("11", "METRIC", "20"),
+                "30",
+                1,
+                "11",
+                "订单金额",
+                mapper.readTree("""
+                        {"rule":"SUM(deliveries.amount)",
+                         "metricRules":{"dateMode":"BUSINESS_DAY","dateFieldId":"14","fixedFilters":[],"unitMode":"NONE"}}
+                        """),
+                List.of());
+        var daily = new GovernanceFactVO(
+                new GovernanceTargetVO("11", "METRIC", "21"),
+                "31",
+                1,
+                "11",
+                "订单金额",
+                mapper.readTree("""
+                        {"rule":"SUM(deliveries.amount)","usage":"按业务日期汇总",
+                         "metricRules":{"dateMode":"BUSINESS_DAY","dateFieldId":"14","fixedFilters":[],"unitMode":"NONE"}}
+                        """),
+                List.of(new GovernanceTargetVO("11", "COLUMN", "14")));
+        when(first.facts()).thenReturn(Map.of("METRIC:20", incomplete));
+        when(other.facts()).thenReturn(Map.of("METRIC:21", daily));
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(new Plan("READY", null, "6", "SUM", "订单金额", null, List.of(amount), List.of()));
+        var today = time.toInstant(ZoneOffset.UTC)
+                .atZone(ZoneId.of("Asia/Shanghai"))
+                .toLocalDate();
+        when(jdbc.compile(eq(other), any())).thenAnswer(call -> {
+            // 读取实际 SQL 编译产物，避免只验证日期参数是否出现在模型计划中。
+            var compiled = new QuerySql().compile(other, call.getArgument(1), false, "logistics");
+            assertThat(compiled.sql()).contains("t0.\"business_date\" = ?");
+            assertThat(compiled.parameters()).containsExactly(today);
+            return compiled;
+        });
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        verify(jdbc)
+                .compile(
+                        eq(other),
+                        argThat(candidate -> "7".equals(candidate.binding())
+                                && candidate.time() != null
+                                && candidate.time().field().equals(businessDate)));
+        verify(models)
+                .check(
+                        any(),
+                        eq("semantic"),
+                        anyLong(),
+                        anyInt(),
+                        anyString(),
+                        anyList(),
+                        anyList(),
+                        argThat(candidate -> candidate.time() != null
+                                && today.toString().equals(candidate.time().start())),
+                        any());
+    }
+
+    /**
+     * 复述的固定条件不掩盖冲突，显式业务值、同值数值和已确认 SKU 都按各自依据核对。
+     */
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "varchar|PAID|UNPAID|查华东区的订单金额|true|false",
+                "varchar|PAID|UNPAID|查华东区已支付订单的金额|false|true",
+                "int|1|1.0|查华东区的订单金额|true|true",
+                "bigint|7|7|查华东区的订单金额|true|true"
+            })
+    void comparesConfirmedConditionsAcrossBindings(
+            String type,
+            String primaryValue,
+            String alternativeValue,
+            String question,
+            boolean compareSibling,
+            boolean accepts)
+            throws SQLException {
+        ready();
+        when(row.question()).thenReturn(question);
+        var candidates = crossBindingCandidates();
+        var amount = new Field("deliveries", "amount");
+        var scope = new Field("deliveries", "category");
+        var tables = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, amount.column(), "int", false, "", 2),
+                new Column(14, 14, scope.column(), type, false, "", 3));
+        var mapper = JsonMapper.builder().build();
+        var column = new GovernanceFactVO(
+                new GovernanceTargetVO("11", "COLUMN", "14"),
+                "40",
+                1,
+                "11",
+                "支付状态",
+                mapper.readTree(
+                        """
+                        {"valueMappings":[{"code":"PAID","meaning":"已支付"},{"code":"UNPAID","meaning":"未支付"}]}
+                        """),
+                List.of());
+        var fixedValues = List.of(primaryValue, alternativeValue);
+        for (int i = 0; i < candidates.size(); i++) {
+            // 两份发布共享物理字段，但各自携带确认过的固定值。
+            var basis = candidates.get(i);
+            var fact = new GovernanceFactVO(
+                    new GovernanceTargetVO("11", "METRIC", "20"),
+                    "30",
+                    1,
+                    "11",
+                    "订单金额",
+                    mapper.readTree(
+                            """
+                            {"rule":"SUM(deliveries.amount)","metricRules":{"dateMode":"NONE",
+                             "fixedFilters":[{"fieldId":"14","value":"%s"}],"unitMode":"FIXED","unit":"元"}}
+                            """
+                                    .formatted(fixedValues.get(i))),
+                    List.of(new GovernanceTargetVO("11", "COLUMN", "14")));
+            when(basis.tables()).thenReturn(tables);
+            when(basis.labels()).thenReturn(Map.of(amount, "订单金额", scope, "bigint".equals(type) ? "SKU ID" : "支付状态"));
+            when(basis.fields()).thenReturn(Map.of("14", scope));
+            when(basis.facts()).thenReturn(Map.of("METRIC:20", fact, "COLUMN:14", column));
+            when(basis.fact("COLUMN", 14)).thenReturn(column);
+        }
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(new Plan(
+                        "READY",
+                        null,
+                        "6",
+                        "SUM",
+                        "订单金额",
+                        null,
+                        List.of(amount),
+                        List.of(new Condition(scope, primaryValue))));
+        when(jdbc.compile(any(), any())).thenAnswer(call -> {
+            // 候选按实际 SQL 编译后再走冲突与商品校验。
+            return new QuerySql().compile(call.getArgument(0), call.getArgument(1), false, "logistics");
+        });
+        when(models.check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
+                .thenReturn("DENY");
+
+        worker.work();
+
+        if (compareSibling) {
+            // 普通问法的其他发布可独立应用自己的固定条件。
+            verify(jdbc).compile(eq(candidates.get(1)), argThat(plan -> plan.filters()
+                    .equals(List.of(new Condition(scope, alternativeValue)))));
+        } else {
+            // 用户明确要求已支付，按已确认值对照保留范围。
+            verify(jdbc, never()).compile(eq(candidates.get(1)), any());
+        }
+        if (accepts) {
+            // 通过候选与商品核验后，仍使用常规独立语义复核。
+            verify(models)
+                    .check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any());
+        } else {
+            // 不可用首选发布的复述值遮挡影响结果的后备口径冲突。
+            verify(models, never())
+                    .check(any(), eq("semantic"), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any());
+        }
+    }
+
+    /**
+     * 原话条件独立于模型是否复述，用同一份条件排除不适用的发布并送独立复核。
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "only-omit",
+                "only-echo",
+                "exclude",
+                "unlimited",
+                "sku",
+                "supplement",
+                "clipped",
+                "collated",
+                "same-release",
+                "same-release-reversed"
+            })
+    void selectsUsingGroundedUserConditionsAndIncludesExclusionInReview(String scenario) throws SQLException {
+        ready();
+        var candidates = crossBindingCandidates();
+        var amount = new Field("deliveries", "amount");
+        boolean sku = "sku".equals(scenario);
+        boolean clipped = "clipped".equals(scenario);
+        boolean collated = "collated".equals(scenario);
+        boolean negated = "exclude".equals(scenario) || collated;
+        boolean amended = "supplement".equals(scenario);
+        boolean sameRelease = scenario.startsWith("same-release");
+        boolean unlimited = "unlimited".equals(scenario);
+        var field = new Field("deliveries", sku ? "sku_code" : "payment_state");
+        var firstValue = sku ? "CODE-900" : collated ? "paid" : "PAID";
+        var otherValue = sku ? "CODE-500" : unlimited ? "PAID" : "UNPAID";
+        var value = sku ? "CODE-500" : "已支付";
+        var phrase = sku ? "指定 CODE-500" : negated || clipped ? "不统计已支付" : "只统计已支付";
+        var question = unlimited || sameRelease ? "查订单金额" : "查订单金额，" + phrase;
+        var terms = unlimited || sameRelease
+                ? List.<RequestedTerm>of()
+                : List.of(
+                        new RequestedTerm(clipped ? "统计已支付" : question, value, null, negated ? "EXCLUDE" : "INCLUDE"));
+        var correction = "改为只统计未支付";
+        var revised = new RequestedTerm(correction, "未支付", null, "INCLUDE", null, "REPLACE");
+        var plannedTerms = amended
+                ? List.of(terms.get(0).from("QUESTION"), revised.from("SUPPLEMENT"))
+                : terms.stream().map(term -> term.from("QUESTION")).toList();
+        var requested = new Condition(field, sku ? "CODE-500" : amended ? "UNPAID" : "PAID", negated ? true : null);
+        if (sameRelease) {
+            // 两段独立确认的指标共享发布，但片段序号不同，交换召回顺序应给出同一澄清结果。
+            var binding = candidates.get(0).binding();
+            var other = candidates.get(1);
+            var second = new Hit("6", 1, "second-fragment");
+            var first = new Hit("6", 0, "digest");
+            when(other.binding()).thenReturn(binding);
+            when(other.ordinal()).thenReturn(1);
+            when(corpus.basis(SOURCE, second)).thenReturn(other);
+            when(models.retrieve(any(), anyString(), anyList(), anyInt()))
+                    .thenReturn(scenario.endsWith("reversed") ? List.of(second, first) : List.of(first, second));
+        }
+        var tables = deliveryTable(
+                "biz_a",
+                11,
+                new Column(13, 13, amount.column(), "int", false, "", 2),
+                new Column(14, 14, field.column(), "varchar", false, "", 3));
+        var mapper = JsonMapper.builder().build();
+        for (int i = 0; i < candidates.size(); i++) {
+            // 两份候选针对同一物理指标，字段解释从正式确认的映射读取。
+            var basis = candidates.get(i);
+            var fixedValue = i == 0 ? firstValue : otherValue;
+            var fixed = i == 0 && unlimited ? "[]" : "[{\"fieldId\":\"14\",\"value\":\"" + fixedValue + "\"}]";
+            var metric = new GovernanceFactVO(
+                    new GovernanceTargetVO("11", "METRIC", "20"),
+                    "30",
+                    1,
+                    "11",
+                    "订单金额",
+                    mapper.readTree(
+                            """
+                            {"rule":"SUM(deliveries.amount)","metricRules":{"dateMode":"NONE",
+                             "fixedFilters":%s,"unitMode":"FIXED","unit":"元"}}
+                            """
+                                    .formatted(fixed)),
+                    List.of(new GovernanceTargetVO("11", "COLUMN", "14")));
+            var mapping = sku
+                    ? "{}"
+                    : """
+                    {"valueMappings":[{"code":"PAID","meaning":"已支付"},{"code":"UNPAID","meaning":"未支付"}]}
+                    """;
+            var column = new GovernanceFactVO(
+                    new GovernanceTargetVO("11", "COLUMN", "14"),
+                    "40",
+                    1,
+                    "11",
+                    sku ? "SKU 编码" : "支付状态",
+                    mapper.readTree(mapping),
+                    List.of());
+            when(basis.tables()).thenReturn(tables);
+            when(basis.labels()).thenReturn(Map.of(amount, "订单金额", field, column.getLabel()));
+            when(basis.fields()).thenReturn(Map.of("14", field));
+            when(basis.facts()).thenReturn(Map.of("METRIC:20", metric, "COLUMN:14", column));
+            when(basis.fact("COLUMN", 14)).thenReturn(column);
+            when(basis.text()).thenReturn("");
+        }
+        // 真实规划有时重复用户的排除条件，实际 SQL 仍只采用独立绑定的方向和编码。
+        var filters = "only-omit".equals(scenario) ? List.<Condition>of()
+                : "exclude".equals(scenario) ? List.of(new Condition(field, "已支付", true))
+                : List.of(new Condition(field, firstValue));
+        when(row.question()).thenReturn(question);
+        when(models.understand(any(), eq(31L), anyInt(), eq(question), any()))
+                .thenReturn(new Intent(question, terms, false));
+        if (amended) {
+            // 同一轮保留原问题回执，最新范围只从补充节点取得。
+            when(row.supplement()).thenReturn(correction);
+            when(models.understandSupplement(any(), eq(31L), anyInt(), eq(correction), any()))
+                    .thenReturn(new Intent(correction, List.of(revised), false));
+        }
+        if (collated) {
+            // 源端实际比较规则视两个不同大小写的参数为同值。
+            when(jdbc.sameTextValue(eq(candidates.get(0)), eq(field), eq("paid"), eq("PAID"), anyInt()))
+                    .thenReturn(true);
+        }
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), eq(plannedTerms)))
+                .thenReturn(new Plan("READY", null, "6", "SUM", "订单金额", null, List.of(amount), filters));
+        when(jdbc.compile(any(), any())).thenAnswer(call -> {
+            // 检查真实编译器生成的实际绑定，而非只看模型返回形状。
+            return new QuerySql().compile(call.getArgument(0), call.getArgument(1), false, "logistics");
+        });
+        when(models.checkSelection(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any(), any()))
+                .thenReturn("DENY");
+        when(requests.waitForAnswer(id, 2, "有多个已发布的统计口径，你想查哪个范围？")).thenReturn(1);
+        when(requests.waitForAnswer(id, 2, "你想包含或排除哪些业务范围？")).thenReturn(1);
+
+        worker.work();
+
+        if (clipped) {
+            // 截掉否定词的片段不满足完整原话核对，编译器不接收其相反口径。
+            verify(requests).waitForAnswer(id, 2, "你想包含或排除哪些业务范围？");
+            verify(jdbc, never()).compile(any(), any());
+        } else if (unlimited || sameRelease) {
+            // 模型复述任何发布的条件都不构成用户限定，必须停在选择口径前。
+            verify(requests).waitForAnswer(id, 2, "有多个已发布的统计口径，你想查哪个范围？");
+            verify(models, never())
+                    .checkSelection(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any(), any());
+        } else {
+            // 成功选路的复核输入必须带方向、确切绑定值和不采用另一候选的原因。
+            var review = ArgumentCaptor.forClass(SelectionReview.class);
+            var actual = ArgumentCaptor.forClass(Plan.class);
+            verify(models)
+                    .checkSelection(
+                            any(),
+                            anyLong(),
+                            anyInt(),
+                            eq(amended ? question + "\n补充：" + correction : question),
+                            anyList(),
+                            anyList(),
+                            actual.capture(),
+                            any(),
+                            review.capture());
+            var selected = negated || sku || amended ? "7" : "6";
+            assertThat(actual.getValue().binding()).isEqualTo(selected);
+            assertThat(actual.getValue().filters()).contains(requested);
+            assertThat(review.getValue().terms()).isEqualTo(plannedTerms);
+            assertThat(review.getValue().conditions()).containsExactly(requested);
+            assertThat(review.getValue().excluded()).singleElement().satisfies(reason -> {
+                // 复核模型可独立核对另一候选的物理字段和已确认固定口径。
+                assertThat(reason.binding()).isEqualTo("6".equals(selected) ? "7" : "6");
+                assertThat(reason.reason()).isEqualTo("USER_CONDITION_CONFLICT");
+                assertThat(reason.fixedFilters())
+                        .containsExactly(new Condition(field, "6".equals(selected) ? otherValue : firstValue));
+                assertThat(reason.evidence().snippet().getBinding()).isEqualTo(reason.binding());
+                assertThat(reason.evidence().columns())
+                        .anyMatch(identity -> identity.field().equals(field));
+                assertThat(reason.comparison().requested()).isEqualTo(requested);
+                assertThat(reason.comparison().equal()).isEqualTo(negated);
+            });
+        }
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 同一轮召回两份已获准发布，它们的原始物理输入一致。
+     */
+    private List<QueryCorpus.Basis> crossBindingCandidates() {
+        var first = new Hit("6", 0, "digest");
+        var second = new Hit("7", 0, "another-document");
+        var chosen = corpus.basis(SOURCE, first);
+        var sibling = mock(QueryCorpus.Basis.class);
+        var binding = mock(Binding.class);
+        when(binding.id()).thenReturn(7L);
+        when(binding.title()).thenReturn("另一有效发布");
+        when(sibling.binding()).thenReturn(binding);
+        when(sibling.labels()).thenReturn(Map.of(label, "线路"));
+        when(sibling.source()).thenReturn(source);
+        when(sibling.snippet()).thenReturn(new QueryEvidenceSnippetDTO("7", "另一有效发布", Map.of(), List.of()));
+        when(chosen.tables()).thenReturn(deliveryTable("biz_a", 11));
+        when(sibling.tables()).thenReturn(deliveryTable("biz_a", 11));
+        when(corpus.bindings(SOURCE)).thenReturn(List.of(BINDING, 7L));
+        when(corpus.basis(SOURCE, second)).thenReturn(sibling);
+        when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(List.of(first, second));
+        return List.of(chosen, sibling);
+    }
+
+    /**
+     * 模拟相同输出及筛选的两个编译产物，保留实际对象和连接键区别。
+     */
+    private Compiled crossBindingCompiled(List<QueryUsage.ObjectRef> objects, Set<Set<Field>> keys, String unit) {
+        var usage = new QueryUsage(1, List.of(), objects, List.of(), List.of());
+        return new Compiled(
+                "SELECT route", List.of(), data.getColumns(), List.of(label), unit, "", false, null, usage, keys);
     }
 
     /**
@@ -1445,7 +2008,9 @@ class QueryServiceTest {
         when(corpus.bindings(SOURCE)).thenReturn(List.of(BINDING));
         when(corpus.indexes(eq(SOURCE), anyList(), anyInt())).thenReturn(List.of(mock(Index.class)));
         when(models.revision("intent")).thenReturn(31L);
-        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn("按已确认线路统计物流状态");
+        when(models.understand(any(), eq(31L), anyInt(), anyString(), any())).thenReturn(new Intent("按已确认线路统计物流状态"));
+        when(models.understandSupplement(any(), eq(31L), anyInt(), anyString(), any()))
+                .thenReturn(new Intent("按已确认线路统计物流状态"));
         var hit = new Hit("6", 0, "digest");
         when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(List.of(hit));
         var basis = mock(QueryCorpus.Basis.class);
@@ -1463,8 +2028,8 @@ class QueryServiceTest {
         when(models.check(any(), anyString(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any(), any()))
                 .thenReturn("ALLOW");
         var usage = new QueryUsage(1, List.of(), List.of(), List.of(), List.of());
-        var compiled =
-                new Compiled("SELECT route", List.of(), data.getColumns(), List.of(label), "", "", false, null, usage);
+        var compiled = new Compiled(
+                "SELECT route", List.of(), data.getColumns(), List.of(label), "", "", false, null, usage, Set.of());
         when(jdbc.compile(eq(basis), any())).thenReturn(compiled);
         when(jdbc.execute(eq(source), eq(id), eq(compiled), any(), any())).thenAnswer(call -> {
             assertThat(call.<IntSupplier>getArgument(3).getAsInt()).isPositive();
@@ -1508,5 +2073,15 @@ class QueryServiceTest {
         when(request.reasoning())
                 .thenReturn(json.write(new Reasoning(
                         new QueryEvidenceVO("物流口径", 1, "4", 0), "SELECT route", List.of(label), List.of(), plan, 4L)));
+    }
+
+    /**
+     * 普通投影中混入实际受限数值，用与当前授权一致的签名进行复验。
+     */
+    private String restrictedResult(String cell) {
+        var rules = List.of(new OutputRuleVO("1", "采购限制", "不得返回商品采购成本或采购单价", 1, null));
+        grant.setRules(rules);
+        data.setRows(List.of(List.of(cell)));
+        return new QueryOutput().signature(rules);
     }
 }

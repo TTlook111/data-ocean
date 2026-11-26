@@ -10,7 +10,6 @@ import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.module.model.service.ModelInvocation;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.model.service.ModelRegistry.RevisionReference;
-import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryModels.Run;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
@@ -60,7 +59,11 @@ class QueryModelsTest {
                 return response(HttpStatus.OK, "{\"decision\":\"READY\",\"filters\":[],\"fields\":[]}");
             }
             if (path.endsWith("/explanation")) {
-                return response(HttpStatus.OK, "{\"text\":\"妥投量 4\"}");
+                // 说明节点只接收可披露范围和可信事实，返回引用。
+                assertThat(new String(bytes, StandardCharsets.UTF_8))
+                        .contains("\"scope\":\"末轮范围\"", "\"facts\":[\"妥投量为 4 件。\"]")
+                        .doesNotContain("\"question\"", "\"result\"");
+                return response(HttpStatus.OK, "{\"factIds\":[1]}");
             }
             return response(HttpStatus.OK, "{\"decision\":\"ALLOW\"}");
         });
@@ -84,9 +87,8 @@ class QueryModelsTest {
                 .isEqualTo("READY");
         assertThat(models.check(run, "semantic", 11, 12, "净能耗", List.of(), List.of(), plan, memory))
                 .isEqualTo("ALLOW");
-        assertThat(models.explain(
-                        "query-a", 2, 11, 8, "妥投量", new QueryDataVO(List.of(), List.of(), false, "件", "", null, null)))
-                .isEqualTo("妥投量 4");
+        assertThat(models.explain("query-a", 2, 11, 8, "末轮范围", List.of("妥投量为 4 件。")))
+                .containsExactly(1);
         assertThat(seen)
                 .containsExactly(
                         "retrieve:true",
@@ -126,8 +128,10 @@ class QueryModelsTest {
             return response(HttpStatus.OK, "{\"retrievalQuery\":\"按线路查询物流状态\"}");
         });
 
-        assertThat(models.understand(run, 31, 60, "物流状态", memory)).isEqualTo("按线路查询物流状态");
-        assertThat(models.understand(run, 31, 60, "物流状态", memory)).isEqualTo("按线路查询物流状态");
+        assertThat(models.understand(run, 31, 60, "物流状态", memory).retrievalQuery())
+                .isEqualTo("按线路查询物流状态");
+        assertThat(models.understand(run, 31, 60, "物流状态", memory).retrievalQuery())
+                .isEqualTo("按线路查询物流状态");
         assertThat(seen).containsExactly("false", "true", "true");
         verify(registry).invocation(31L, 28);
     }

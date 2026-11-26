@@ -1,5 +1,8 @@
 package com.dataocean.module.governance.entity.vo;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
+import com.dataocean.module.governance.entity.dto.RelationWindowDTO;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Basis;
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Pair;
 
@@ -74,7 +77,7 @@ public class GovernanceCandidateVO {
         private String meaning;
 
         /**
-         * 完整键、数量关系或公式和适用筛选。
+         * 关联的完整键与数量关系，或指标的纯计算公式。
          */
         private String rule;
 
@@ -97,5 +100,16 @@ public class GovernanceCandidateVO {
          * 人工确认的指标适用条件下可作为默认口径。
          */
         private boolean defaultMetric;
+
+        /**
+         * 当前指标候选的结构化口径，随确认修订一起固定。
+         */
+        private MetricRulesDTO metricRules;
+
+        /**
+         * 本条关系确认后随修订固定的日期窗口。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private RelationWindowDTO relationWindow;
     }
 }

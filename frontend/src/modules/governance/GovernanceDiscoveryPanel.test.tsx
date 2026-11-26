@@ -33,9 +33,18 @@ it.each([
     const definition = {
       name: '合成候选',
       meaning: '测试口径',
-      rule: '基于 products.product_id',
+      rule: kind === 'METRIC' ? 'COUNT(DISTINCT products.product_id)' : '基于 products.product_id',
       usage: '合成源',
       pairs: [],
+      metricRules:
+        kind === 'METRIC'
+          ? {
+              dateMode: 'NONE',
+              fixedFilters: [{ fieldId: '2', value: '23' }],
+              unitMode: 'FIXED',
+              unit: '件',
+            }
+          : undefined,
     };
     vi.mocked(mutation).mockImplementation(async () => {
       // 模拟持久任务受理，下次任务查询回读实际终态。
@@ -52,7 +61,23 @@ it.each([
       }
       if (url === path + '/1' && options?.method === 'PUT') {
         // 确认必须明确由人工按钮触发并带回原有并发版本。
-        expect(options.body).toMatchObject({ name: '人工核对候选', action: 'CONFIRM', version: 1 });
+        expect(options.body).toMatchObject({
+          name: '人工核对候选',
+          action: 'CONFIRM',
+          version: 1,
+          rule: definition.rule,
+        });
+        if (kind === 'METRIC') {
+          // 人审提交带上用户修改后的固定值，日期和单位保留已核对选择。
+          expect(options.body).toMatchObject({
+            metricRules: {
+              dateMode: 'NONE',
+              fixedFilters: [{ fieldId: '2', value: '24' }],
+              unitMode: 'FIXED',
+              unit: '件',
+            },
+          });
+        }
         reviewed = true;
         return { state: 'CONFIRMED' };
       }
@@ -73,6 +98,7 @@ it.each([
                   structures: [
                     {
                       fieldId: '2',
+                      objectId: '1',
                       objectRevision: '4',
                       fieldRevision: '8',
                       label: 'products.product_id',
@@ -113,6 +139,12 @@ it.each([
     expect(await screen.findByText('明确的测试定义')).toBeVisible();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /关闭|Close/ }));
     fireEvent.change(screen.getByLabelText(label + '名称'), { target: { value: '人工核对候选' } });
+    if (kind === 'METRIC') {
+      // AI 带入的源值可以在原表单中核对和改正。
+      const filter = screen.getByLabelText('必须等于 1');
+      expect(filter).toHaveValue('23');
+      fireEvent.change(filter, { target: { value: '24' } });
+    }
     fireEvent.click(screen.getByRole('button', { name: '确认治理' }));
     await waitFor(() => expect(reviewed).toBe(true));
     expect(await screen.findByText('已确认')).toBeVisible();

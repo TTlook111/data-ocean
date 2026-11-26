@@ -1,5 +1,8 @@
 package com.dataocean.module.governance.service;
 
+import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
+import com.dataocean.module.governance.entity.dto.RelationWindowDTO;
+
 import java.util.List;
 
 /**
@@ -45,11 +48,13 @@ public final class GovernanceDiscoveryWire {
     /**
      * @param name 候选业务名称
      * @param meaning 关联用途和条件或指标含义
-     * @param rule 数量关系和完整键或计算公式及条件
+     * @param rule 关联的数量关系与完整键，或指标的纯计算公式
      * @param usage 适用边界
      * @param pairs 同一关系的全部有序字段对
      * @param fields 指标使用的实际字段标识
      * @param evidence 模型明确采用的资料片段
+     * @param metricRules 模型提取的指标执行口径，只作为待确认草稿
+     * @param relationWindow 模型提取的关系日期窗口，只作为待确认草稿
      */
     public record Proposal(
             String name,
@@ -58,7 +63,9 @@ public final class GovernanceDiscoveryWire {
             String usage,
             List<Pair> pairs,
             List<String> fields,
-            List<GovernanceGenerationWire.Evidence> evidence) {}
+            List<GovernanceGenerationWire.Evidence> evidence,
+            MetricRulesDTO metricRules,
+            RelationWindowDTO relationWindow) {}
 
     /**
      * @param objectId 稳定表身份

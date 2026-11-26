@@ -1,5 +1,9 @@
 package com.dataocean.module.query.entity.dto;
 
+import com.dataocean.module.query.service.QueryProtocol.Condition;
+import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 import java.util.Map;
 
@@ -62,5 +66,29 @@ public class QueryEvidenceSnippetDTO {
          * 指标在真实场景中的用法。
          */
         private String usage;
+
+        /**
+         * 已确认且在当前片段可核对的执行规则。字段用模型表列协议表示。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private ConfirmedMetricRules metricRules;
     }
+
+    /**
+     * 规划和复核共用的已发布执行规则，字段在当前片段内可定位。
+     *
+     * @param dateMode 是否按已确认的业务日查询
+     * @param dateField 需要业务日时的实际日期列
+     * @param fixedFilters 指标实际必须满足的等值条件，空列表明确无固定筛选
+     * @param unitMode 固定单位、同列值核验或无单位
+     * @param unit 固定的单位或币种
+     * @param unitField 币种或单位来自源列时需核验的字段
+     */
+    public record ConfirmedMetricRules(
+            String dateMode,
+            Field dateField,
+            List<Condition> fixedFilters,
+            String unitMode,
+            String unit,
+            Field unitField) {}
 }

@@ -34,6 +34,9 @@ import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Structure
 import com.dataocean.module.governance.service.GovernanceDiscoveryWire.Table;
 import com.dataocean.module.governance.service.GovernanceGenerationWire.Evidence;
 import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.governance.service.MetricFormula;
+import com.dataocean.module.governance.service.MetricRules;
+import com.dataocean.module.governance.service.RelationWindows;
 import com.dataocean.module.iam.entity.vo.MutationVO;
 import com.dataocean.module.iam.service.MutationService;
 import com.dataocean.module.iam.service.PermissionService;
@@ -199,12 +202,17 @@ public class GovernanceDiscovery {
         }
         for (Prepared value : prepared) {
             // 同一口径换用新依据时保留旧记录，生成可办理的新候选。
-            String definitionKey = digest(json.write(List.of(
+            var content = new ArrayList<Object>(List.of(
                     value.definition().getPairs(),
                     value.definition().getFields(),
                     value.definition().getMeaning(),
                     value.definition().getRule(),
-                    value.definition().getUsage())));
+                    value.definition().getUsage()));
+            if (value.definition().getMetricRules() != null) {
+                // 结构化条件不同的指标候选不能按文字描述去重。
+                content.add(value.definition().getMetricRules());
+            }
+            String definitionKey = digest(json.write(content));
             String identity = identity(definitionKey, value.basis(), notes);
             if (alreadyDiscovered(task, definitionKey, identity, value.basis(), notes)) {
                 // 同一有效依据继续沿用原有草稿与审核。
@@ -324,7 +332,7 @@ public class GovernanceDiscovery {
         if (!"AVAILABLE".equals(anchor.availability())) {
             throw BizIllegalException.state("当前来源状态不允许新增治理定义");
         }
-        var empty = new Definition("", "", "", "", List.of(), List.of(), false);
+        var empty = new Definition("", "", "", "", List.of(), List.of(), false, null, null);
         var prepared = edited(origin, object, kind, empty, new Basis(List.of(), List.of(), false), input);
         var definition = prepared.definition();
         var basis = prepared.basis();
@@ -335,7 +343,7 @@ public class GovernanceDiscovery {
         List<Dependency> dependencies = List.of();
         if (confirm) {
             permissions.require("governance.confirm");
-            dependencies = confirmDefinition(origin, definition, basis, true);
+            dependencies = confirmDefinition(origin, kind, definition, basis, true);
         }
         long id = IdWorker.getId();
         String target = Long.toString(id);
@@ -410,7 +418,7 @@ public class GovernanceDiscovery {
             permissions.require("governance.confirm");
         }
         if (confirm) {
-            dependencies = confirmDefinition(origin, definition, basis, row.requestId() == null);
+            dependencies = confirmDefinition(origin, row.kind(), definition, basis, row.requestId() == null);
         }
         String state = reject ? "REJECTED" : confirm ? "CONFIRMED" : "DRAFT";
         String content = json.write(definition);
@@ -449,7 +457,8 @@ public class GovernanceDiscovery {
     /**
      * 审核复用业务字段、实际引用和依赖确认校验。
      */
-    private List<Dependency> confirmDefinition(Source origin, Definition definition, Basis basis, boolean manual) {
+    private List<Dependency> confirmDefinition(
+            Source origin, String kind, Definition definition, Basis basis, boolean manual) {
         if (definition.getName().isBlank()
                 || definition.getMeaning().isBlank()
                 || definition.getRule().isBlank()) {
@@ -463,7 +472,40 @@ public class GovernanceDiscovery {
             throw BizIllegalException.invalid("请为当前治理对象选择依赖字段");
         }
         references(definition, basis.structures());
+        if ("METRIC".equals(kind)) {
+            // 计算公式及独立的固定筛选均须能用已选目录字段执行。
+            var formula = MetricFormula.parse(definition.getRule());
+            if (formula == null || !validFormulaFields(formula, basis.structures())) {
+                throw BizIllegalException.invalid("请填写使用已选依赖的纯计算公式。固定条件请在固定筛选中填写");
+            }
+            // 只有实际选中的依赖字段才可定义业务日、固定筛选或币种约束。
+            var types =
+                    basis.structures().stream().collect(Collectors.toMap(StructureRef::fieldId, StructureRef::type));
+            if (!MetricRules.complete(definition.getMetricRules(), types::get)) {
+                throw BizIllegalException.invalid("请确认指标的业务日期、固定筛选和计量单位，并选入对应依赖字段");
+            }
+        } else if ((definition.getRelationWindow() != null
+                        || RelationWindows.requiresConfirmation(definition.getRule(), definition.getUsage()))
+                && RelationWindows.confirmed(definition.getRelationWindow()) == null) {
+            // 文字声明的适用限制必须落实到人工确认的日期边界。
+            throw BizIllegalException.invalid("请确认关联的日期适用期。日期须有效且结束日不得早于开始日");
+        }
         return dependencies(origin, basis);
+    }
+
+    /**
+     * 公式字段必须唯一对应已选依赖，求和与差额只接受数值字段。
+     */
+    private boolean validFormulaFields(MetricFormula formula, List<StructureRef> structures) {
+        return formula.fields().stream().allMatch(field -> {
+            // 无模式限定的同名字段也必须能唯一落到一个目录列。
+            var matching = structures.stream()
+                    .filter(ref -> MetricFormula.references(field, ref.label()))
+                    .toList();
+            return matching.size() == 1
+                    && ("COUNT_DISTINCT".equals(formula.operation())
+                            || MetricRules.numeric(matching.get(0).type()));
+        });
     }
 
     /**
@@ -478,8 +520,9 @@ public class GovernanceDiscovery {
             GovernanceCandidateDraftDTO input) {
         boolean relation = "RELATION".equals(kind);
         boolean defaultMetric = input.getDefaultMetric() == null ? before.isDefaultMetric() : input.getDefaultMetric();
-        if (relation && defaultMetric
-                || !relation && input.getPairs() != null && !input.getPairs().isEmpty()) {
+        if (relation && (defaultMetric || input.getMetricRules() != null)
+                || !relation && (input.getRelationWindow() != null
+                        || input.getPairs() != null && !input.getPairs().isEmpty())) {
             // 关联和指标只接受各自的专属定义。
             throw BizIllegalException.invalid("所选定义与当前治理类型不符");
         }
@@ -536,7 +579,9 @@ public class GovernanceDiscovery {
                 text(input.getUsage()),
                 pairs,
                 basis.structures().stream().map(StructureRef::fieldId).toList(),
-                defaultMetric);
+                defaultMetric,
+                input.getMetricRules() == null ? before.getMetricRules() : input.getMetricRules(),
+                input.getRelationWindow() == null ? before.getRelationWindow() : input.getRelationWindow());
         return new Prepared(definition, basis);
     }
 
@@ -617,7 +662,8 @@ public class GovernanceDiscovery {
         boolean foreignKey = false;
         if ("RELATION".equals(scope.kind())) {
             // 同一条关系只能连接两个真实同源表，完整字段对同向。
-            if (pairs.isEmpty()
+            if (proposal.metricRules() != null
+                    || pairs.isEmpty()
                     || pairs.size() > 12
                     || pairs.stream().distinct().count() != pairs.size()) {
                 return null;
@@ -647,14 +693,15 @@ public class GovernanceDiscovery {
                     .anyMatch(key -> sameKey(key, pairs));
         } else {
             // 指标必须关联当前表，公式涉及的字段也必须来自当次目录。
-            if (!pairs.isEmpty()
+            if (proposal.relationWindow() != null || !pairs.isEmpty()
                     || proposal.fields() == null
                     || proposal.fields().isEmpty()) {
                 return null;
             }
             fieldIds.addAll(proposal.fields());
+            fieldIds.addAll(MetricRules.fieldIds(proposal.metricRules()));
         }
-        if (!input.refs().keySet().containsAll(fieldIds)) {
+        if (fieldIds.size() > 30 || !input.refs().keySet().containsAll(fieldIds)) {
             return null;
         }
         var structures = fieldIds.stream().map(input.refs()::get).toList();
@@ -681,7 +728,9 @@ public class GovernanceDiscovery {
                 text(proposal.usage()),
                 pairs,
                 List.copyOf(fieldIds),
-                false);
+                false,
+                proposal.metricRules(),
+                proposal.relationWindow());
         if (List.of(definition.getMeaning(), definition.getRule(), definition.getUsage()).stream()
                 .anyMatch(value -> value.length() > 4000)) {
             return null;

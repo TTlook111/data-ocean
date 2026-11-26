@@ -6,7 +6,7 @@ import { api, ApiError } from '../../shared/api';
 import { QueryWorkbench } from './QueryWorkbench';
 import { QueryAnswer } from './QueryAnswer';
 import { downloadChart, downloadResult } from './download';
-import type { QueryResult, Snapshot } from './types';
+import type { Explanation, QueryResult, Snapshot } from './types';
 
 vi.mock('../../shared/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../shared/api')>()),
@@ -138,6 +138,7 @@ function readBlob(blob: Blob) {
 }
 
 afterEach(() => {
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -492,6 +493,142 @@ it('显示思考中并直接采用当前修订的 SSE 答复', async () => {
   expect(screen.queryByText('思考中')).not.toBeInTheDocument();
 });
 
+/** 回包丢失时先核对旧命令，每次点击只受理一个新修订。 */
+it.each([true, false])('恢复丢失的说明重试回执，旧命令已受理 %s', async (previousAccepted) => {
+  const submitted: string[] = [];
+  const receipts = new Map<string, Explanation>();
+  let explanation: Explanation = { revision: 1, status: 'FAILED', text: null };
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/query/sources') return [{ id: '1', name: '能耗' }];
+    if (path.startsWith('/query/conversations')) return [];
+    if (path === '/query/requests/answer/explanations') {
+      // 首次传输丢失回包，覆盖服务端已经受理和未收到请求两条分支。
+      const key = options?.command ?? '';
+      submitted.push(key);
+      if (submitted.length === 1) {
+        if (previousAccepted) {
+          // 服务端已生成并失败，详情会先展示这次失败。
+          explanation = { revision: 2, status: 'FAILED', text: null };
+          receipts.set(key, explanation);
+        }
+        throw new Error('模拟回包丢失');
+      }
+      const recorded = receipts.get(key);
+      if (recorded) return recorded;
+      // 只为第一次收到的命令创建修订，旧命令返回原记录。
+      explanation = { revision: explanation.revision + 1, status: 'QUEUED', text: null };
+      receipts.set(key, explanation);
+      return explanation;
+    }
+    return { ...ended('answer'), state: 'RESULT_DELIVERED', result: series, explanation };
+  });
+  const { client } = mount();
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('模拟回包丢失')).toBeVisible();
+  const detailKey = ['workbench-request', '1', 'answer'];
+  await waitFor(() => {
+    // 页面已回读实际修订且可以再次操作。
+    expect(client.isFetching({ queryKey: detailKey })).toBe(0);
+    expect(client.getQueryData<Snapshot>(detailKey)?.explanation?.revision).toBe(
+      previousAccepted ? 2 : 1,
+    );
+  });
+
+  fireEvent.click(screen.getByRole('button', { name: '重试说明' }));
+
+  expect(await screen.findByText('思考中')).toBeVisible();
+  expect(submitted[0]).toBeTruthy();
+  expect(submitted[1]).toBe(submitted[0]);
+  expect(submitted).toHaveLength(previousAccepted ? 3 : 2);
+  expect(new Set(submitted).size).toBe(previousAccepted ? 2 : 1);
+  expect(client.getQueryData<Snapshot>(detailKey)?.explanation?.revision).toBe(
+    previousAccepted ? 3 : 2,
+  );
+});
+
+/** 切换往返多个轮次时，只使用该轮仍未核实的重试编号。 */
+it('切到其他轮次重试后仍能核实原轮次的重试回执', async () => {
+  const submitted: { id: string; key?: string }[] = [];
+  const replies = new Map<string, Explanation>();
+  const failed: Explanation = { revision: 1, status: 'FAILED', text: null };
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/query/sources') return [{ id: '1', name: '能耗' }];
+    if (path.startsWith('/query/conversations')) return [];
+    const [, , , id, action] = path.split('/');
+    if (action === 'explanations') {
+      // A 的首次提交没有回包，B 与 A 的后续提交能够受理。
+      submitted.push({ id, key: options?.command });
+      if (submitted.length === 1) throw new Error('模拟 A 回包丢失');
+      const accepted: Explanation = { revision: 2, status: 'QUEUED', text: null };
+      replies.set(id, accepted);
+      return accepted;
+    }
+    return {
+      ...ended(id),
+      state: 'RESULT_DELIVERED',
+      result: series,
+      explanation: replies.get(id) ?? failed,
+    };
+  });
+  const { router, client } = mount('/query?source=1&request=A');
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('模拟 A 回包丢失')).toBeVisible();
+  await waitFor(() =>
+    expect(client.isFetching({ queryKey: ['workbench-request', '1', 'A'] })).toBe(0),
+  );
+
+  await act(async () => router.navigate('/query?source=1&request=B'));
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('思考中')).toBeVisible();
+
+  await act(async () => router.navigate('/query?source=1&request=A'));
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('思考中')).toBeVisible();
+  expect(submitted.map(({ id }) => id)).toEqual(['A', 'B', 'A']);
+  expect(submitted[0]?.key).toBeTruthy();
+  expect(submitted[1]?.key).not.toBe(submitted[0]?.key);
+  expect(submitted[2]?.key).toBe(submitted[0]?.key);
+});
+
+/** 页面重新挂载后，只核实原轮次的提交编号。 */
+it('刷新页面后沿用原说明重试编号，确认回执后清理', async () => {
+  const submitted: (string | undefined)[] = [];
+  let explanation: Explanation = { revision: 1, status: 'FAILED', text: null };
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/query/sources') return [{ id: '1', name: '订单' }];
+    if (path.startsWith('/query/conversations')) return [];
+    if (path === '/query/requests/answer/explanations') {
+      // 第一次请求丢包，重新发送原编号后成功受理。
+      submitted.push(options?.command);
+      if (submitted.length === 1) throw new Error('模拟刷新前请求丢包');
+      explanation = { revision: 2, status: 'QUEUED', text: null };
+      return explanation;
+    }
+    const result = {
+      ...series,
+      columns: [{ name: 'value', label: '订单金额' }],
+      rows: [['40.00']],
+      series: null,
+      unit: '元',
+    };
+    return { ...ended('answer'), state: 'RESULT_DELIVERED', result, explanation };
+  });
+  const first = mount();
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+  expect(await screen.findByText('模拟刷新前请求丢包')).toBeVisible();
+  const storageKey = 'dataocean:query-explanation:7:answer';
+  expect(submitted[0]).toBeTruthy();
+  expect(sessionStorage.getItem(storageKey)).toBe(submitted[0]);
+  first.unmount();
+
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: '重试说明' }));
+
+  expect(await screen.findByText('思考中')).toBeVisible();
+  expect(submitted).toEqual([submitted[0], submitted[0]]);
+  await waitFor(() => expect(sessionStorage.getItem(storageKey)).toBeNull());
+});
+
 /** 失效的结果和无图表的响应不能从下载入口复用旧结果。 */
 it('下载时重新检查结果，拒绝过期快照和非时序图表', async () => {
   vi.mocked(api).mockResolvedValueOnce({ result: null });
@@ -626,6 +763,74 @@ it('解释失败仍显示原结果和查询依据，重试只触发解释动作'
   expect(scope).toBeVisible();
   expect(explain).toHaveBeenCalledOnce();
   expect(requery).not.toHaveBeenCalled();
+});
+
+/** 未启用说明仍有原始金额及其操作，没有无效的说明重试入口。 */
+it('数据源未启用说明时保留金额和查询依据', () => {
+  render(
+    <QueryAnswer
+      row={{
+        ...ended('orders'),
+        state: 'RESULT_DELIVERED',
+        executionState: 'SUCCEEDED',
+        result: {
+          columns: [{ name: 'value', label: '订单金额' }],
+          rows: [['40.00']],
+          unit: '元',
+          scope: '未支付且排除退款',
+          truncated: false,
+          dataUpdatedAt: null,
+        },
+        explanation: { revision: 1, status: 'UNAVAILABLE', text: null },
+      }}
+      onDownload={vi.fn()}
+      onExplainAgain={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('40.00', { selector: 'strong' })).toBeVisible();
+  expect(screen.getByText('当前数据源未启用结果说明')).toBeVisible();
+  expect(screen.queryByRole('button', { name: '重试说明' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '查询依据' })).toBeVisible();
+});
+
+/** 页面使用后端资格，而不是仅凭说明修订状态决定是否提供操作。 */
+it.each([
+  ['UNAVAILABLE', '结果超过 20 行，无法生成说明', false],
+  ['FAILED', '本次说明的可用处理预算已用完', false],
+  ['STOPPED', '本次说明的重试次数已用完', false],
+  ['NOT_GENERATED', '尚未生成结果说明', true],
+] as const)('说明状态 %s 显示对应反馈及操作', (status, label, canGenerate) => {
+  const explain = vi.fn();
+  render(
+    <QueryAnswer
+      row={{
+        ...ended('orders'),
+        state: 'RESULT_DELIVERED',
+        executionState: 'SUCCEEDED',
+        result: {
+          columns: [{ name: 'value', label: '订单金额' }],
+          rows: [['40.00']],
+          unit: '元',
+          scope: '未支付且排除退款',
+          truncated: false,
+          dataUpdatedAt: null,
+        },
+        explanation: { revision: 1, status, text: null, blockedReason: canGenerate ? null : label },
+      }}
+      onDownload={vi.fn()}
+      onExplainAgain={explain}
+    />,
+  );
+  expect(screen.getByText(label)).toBeVisible();
+  expect(screen.queryByRole('button', { name: '重试说明' })).not.toBeInTheDocument();
+  if (canGenerate) {
+    // 首次实际生成使用同一受控入口，文案反映此前未生成。
+    fireEvent.click(screen.getByRole('button', { name: '生成说明' }));
+    expect(explain).toHaveBeenCalledOnce();
+  } else {
+    // 后端返回限制时两种入口都隐藏。
+    expect(screen.queryByRole('button', { name: '生成说明' })).not.toBeInTheDocument();
+  }
 });
 
 /** 单值结果生成完整答复后只显示一句，原值和口径可按需查看。 */

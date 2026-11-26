@@ -1,5 +1,7 @@
 package com.dataocean.module.query.service;
 
+import com.dataocean.module.query.service.QueryProtocol.JoinAssessment;
+
 /**
  * 本次轮次的公开终态，底层服务错误不进入结果。
  */
@@ -12,6 +14,11 @@ final class QueryFailure extends RuntimeException {
     /** 可供后台归类的固定诊断代码，独立于异常描述。 */
     private final String diagnostic;
 
+    /**
+     * 仅供当前获准候选的语义复核使用，不写入用户终态或诊断日志。
+     */
+    private final JoinAssessment joinAssessment;
+
     /** 只携带有限状态，调用侧不保存外部错误正文。 */
     QueryFailure(String state) {
         this(state, false, null);
@@ -19,10 +26,18 @@ final class QueryFailure extends RuntimeException {
 
     /** 区分公开终态与内部可修复分类。 */
     private QueryFailure(String state, boolean parameterMismatch, String diagnostic) {
+        this(state, parameterMismatch, diagnostic, null);
+    }
+
+    /**
+     * 内部取证与公开错误状态分开，保留原有候选回退行为。
+     */
+    private QueryFailure(String state, boolean parameterMismatch, String diagnostic, JoinAssessment joinAssessment) {
         super(state);
         this.state = state;
         this.parameterMismatch = parameterMismatch;
         this.diagnostic = diagnostic;
+        this.joinAssessment = joinAssessment;
     }
 
     /** 持久化的稳定终态。 */
@@ -38,6 +53,22 @@ final class QueryFailure extends RuntimeException {
     /** 诊断只取预定义枚举，可为空表示同类通用原因。 */
     String diagnostic() {
         return diagnostic;
+    }
+
+    /**
+     * 已授权关系的编译证据供独立复核核对。
+     */
+    JoinAssessment joinAssessment() {
+        return joinAssessment;
+    }
+
+    /**
+     * 关联不适用或无法确定时继续尝试其他候选，同时保留排除依据。
+     */
+    static QueryFailure join(JoinAssessment assessment) {
+        // 可能适用的关系尚无确认时，不能作为同源候选的确定排除理由。
+        var diagnostic = "RELATION_APPLICABILITY_UNVERIFIABLE".equals(assessment.reason()) ? assessment.reason() : null;
+        return new QueryFailure("KNOWLEDGE_INSUFFICIENT", false, diagnostic, assessment);
     }
 
     /** 当前筛选值无法按可信目录类型绑定。 */

@@ -3,6 +3,7 @@ package com.dataocean.module.query.service;
 import com.dataocean.common.Ids;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
+import com.dataocean.module.query.service.QuerySql.Compiled;
 
 import java.util.BitSet;
 import java.util.HashSet;
@@ -118,15 +119,16 @@ final class QueryTableSelection {
     }
 
     /**
-     * 只有物理表集合唯一才按输入顺序选用第一份证据。空结果表示需要澄清。
+     * 物理表集合不唯一时请用户定位表。同表使用不同实际连接键时，当前发布无法确认关联口径。
      */
-    static OptionalInt select(List<QueryUsage> compiled, Set<String> requiredObjects) {
+    static OptionalInt select(List<Compiled> compiled, Set<String> requiredObjects) {
         var objects = compiled.stream()
-                .map(usage -> usage.objects().stream()
+                .map(candidate -> candidate.usage().objects().stream()
                         .map(QueryUsage.ObjectRef::objectId)
                         .collect(Collectors.toUnmodifiableSet()))
                 .toList();
         int first = -1;
+        boolean conflictingKeys = false;
         for (int i = 0; i < objects.size(); i++) {
             // 同时核对用户明确指定的对象和候选实际使用的物理表。
             if (!objects.get(i).containsAll(requiredObjects)) {
@@ -139,11 +141,18 @@ final class QueryTableSelection {
             } else if (!objects.get(first).equals(objects.get(i))) {
                 // 都能编译但会读取不同物理对象时，排序不能进行消歧。
                 return OptionalInt.empty();
+            } else if (!compiled.get(first).joinKeys().equals(compiled.get(i).joinKeys())) {
+                // 比较实际等值键对，忽略 SQL 别名、联接顺序与等式方向。
+                conflictingKeys = true;
             }
         }
         if (first == -1) {
             // 计划输入已限定对象，编译后仍越出该范围属于规划失败。
             throw QueryFailure.planTargetMismatch();
+        }
+        if (conflictingKeys) {
+            // 同一物理表也可能存在当前归属与历史归属等不同口径。
+            throw QueryFailure.knowledge();
         }
         return OptionalInt.of(first);
     }

@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 查询许可保存的实际使用引用，仅记录历史编号和用途。
@@ -38,24 +40,77 @@ record QueryUsage(
     record ParameterUse(List<String> contextRequestIds, boolean published) {}
 
     /**
-     * 只允许在候选包含原物理对象及实际筛选列时推导历史日期。
+     * 沿用原物理对象、筛选列和关联修订，裁去候选内其他关系以免重新选路。
      */
-    boolean supportsHistoricalPlan(Basis basis, Plan previous) {
-        return objects.stream().allMatch(ref -> basis.tables().values().stream()
+    Basis historicalBasis(Basis basis, Plan previous) {
+        boolean sameScope = objects.stream().allMatch(ref -> basis.tables().values().stream()
                         .anyMatch(table -> sameObject(
                                 ref, Ids.text(table.entry().id()), table.entry().generation())))
                 && previous.filters() != null
                 && previous.filters().stream().allMatch(filter -> filter != null && usedFilter(basis, filter.field()))
                 && (previous.time() == null || usedFilter(basis, previous.time().field()));
+        var original = relationFacts();
+        if (!sameScope || original.size() != objects.size() - 1) {
+            // 旧记录没有完整关联血缘时，不能用当前片段重新选路来还原历史。
+            return null;
+        }
+        var remaining = new LinkedHashSet<>(original);
+        var selected = new LinkedHashMap<String, GovernanceFactVO>();
+        for (var entry : basis.facts().entrySet()) {
+            // 表、列和指标仍使用当前片段已核实的依据，关联使用原执行的确切修订。
+            var ref = factRef(entry.getValue());
+            if (!"RELATION".equals(ref.kind()) || remaining.remove(ref)) {
+                selected.put(entry.getKey(), entry.getValue());
+            }
+        }
+        if (!remaining.isEmpty()) {
+            // 名称相同或目标编号相同的其他修订不能替代原关联。
+            return null;
+        }
+        return selected.size() == basis.facts().size()
+                ? basis
+                : new Basis(
+                        basis.source(),
+                        basis.binding(),
+                        basis.ordinal(),
+                        basis.text(),
+                        basis.tables(),
+                        basis.fields(),
+                        selected,
+                        basis.labels());
     }
 
     /**
-     * 比较实际参与查询的对象及世代，忽略 SQL 列引用的顺序。
+     * 编译后复核实际查询的物理对象、世代和关联修订，忽略记录顺序。
+     */
+    boolean sameHistoricalScope(QueryUsage current) {
+        return sameObjects(current) && relationFacts().equals(current.relationFacts());
+    }
+
+    /**
+     * 比较两条实际查询的物理对象及世代，用于识别同表上的不同关联口径。
      */
     boolean sameObjects(QueryUsage current) {
         return objects.size() == current.objects.size()
                 && current.objects.stream().allMatch(ref -> objects.stream()
                         .anyMatch(prior -> sameObject(prior, ref.objectId(), ref.generation())));
+    }
+
+    /**
+     * 读取 JOIN 实际用到的关联修订，兼容缺少事实列表的旧单表记录。
+     */
+    private Set<FactRef> relationFacts() {
+        return facts == null
+                ? Set.of()
+                : facts.stream().filter(fact -> "RELATION".equals(fact.kind())).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * 发布依据与执行血缘使用相同的稳定治理身份。
+     */
+    private static FactRef factRef(GovernanceFactVO fact) {
+        var target = fact.getTarget();
+        return new FactRef(target.getKind(), target.getObjectId(), target.getTargetId(), fact.getRevisionId());
     }
 
     /**
@@ -167,9 +222,7 @@ record QueryUsage(
         void fact(GovernanceFactVO value) {
             if (value != null) {
                 // 使用治理确认时的原始目标及修订编号。
-                var target = value.getTarget();
-                facts.add(new FactRef(
-                        target.getKind(), target.getObjectId(), target.getTargetId(), value.getRevisionId()));
+                facts.add(factRef(value));
             }
         }
 

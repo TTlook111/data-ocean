@@ -5,7 +5,9 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.source.SourceConnection;
 import com.dataocean.module.datasource.source.SourceJdbc;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
+import com.dataocean.module.governance.service.MetricRules;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
+import com.dataocean.module.query.service.QueryProtocol.Field;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
 import com.dataocean.module.query.service.QuerySql.Compiled;
 
@@ -44,24 +46,39 @@ class QueryJdbc {
         return new QuerySql().compile(basis, plan, "MYSQL".equals(config.getDatabaseType()), config.getDatabaseName());
     }
 
+    /**
+     * 根据真实源列比较输入参数，使用同一只读连接和递减预算。
+     */
+    boolean sameTextValue(QueryCorpus.Basis basis, Field field, String first, String second, int remaining) {
+        var source = basis.source();
+        var revision = sources.revision(source.id(), source.configurationId());
+        var target = connectionTarget(revision, remaining);
+        var object = basis.tables()
+                .get(field.table())
+                .entry()
+                .observation()
+                .structure()
+                .object();
+        try (var connection = jdbc.open(target, password(source), "do-query-compare")) {
+            if (!jdbc.readOnlySafety(connection, target)) {
+                // 目录和参数比较同样必须确认源端账号可只读。
+                throw QueryFailure.denied();
+            }
+            return jdbc.compareText(
+                    connection, target.type(), object, field.column(), first, second, target.queryTimeoutSeconds());
+        } catch (SQLException unavailable) {
+            // 无法校验当前源的实际规则时，不能武断排除或采用候选。
+            throw QueryFailure.technical();
+        }
+    }
+
     /** 执行一次真实源端读，SQL 派发前由调用方登记许可。 */
     QueryDataVO execute(Source source, String request, Compiled compiled, IntSupplier remaining, Runnable permit)
             throws SQLException {
         var revision = sources.revision(source.id(), source.configurationId());
-        var config = revision.configuration();
         int seconds = Math.min(30, revision.limits().getQueryTimeoutSeconds());
-        var target = new SourceConnection(
-                SourceConnection.Type.valueOf(config.getDatabaseType()),
-                config.getHost(),
-                config.getPort(),
-                config.getDatabaseName(),
-                config.getSchemas(),
-                config.getAccount(),
-                seconds);
-        var credential = sources.credential(source.id(), source.configurationId());
-        String password = cipher.decrypt(
-                credential.ciphertext(), "datasource:credential:" + source.id(), credential.keyVersion());
-        try (var connection = jdbc.open(target, password, "do-query-" + request);
+        var target = connectionTarget(revision, seconds);
+        try (var connection = jdbc.open(target, password(source), "do-query-" + request);
                 var statement = connection.prepareStatement(compiled.sql())) {
             if (!jdbc.readOnlySafety(connection, target)) {
                 // 动态账号安全检查失败时不派发模型生成的当前业务请求。
@@ -103,12 +120,14 @@ class QueryJdbc {
                         rows.add(values);
                         if (compiled.verifiesUnit() && values.get(values.size() - 1) != null) {
                             var current = unit(result, compiled.columns().size());
-                            if (measuredUnit != null && !measuredUnit.equals(current)) {
-                                // 日序列整条曲线只能按同一个真实单位解释。
-                                throw QueryFailure.knowledge();
+                            if (current != null) {
+                                // 空计数行可以保留零，同一序列的实际参与行须使用同一个单位。
+                                if (measuredUnit != null && !measuredUnit.equals(current)) {
+                                    throw QueryFailure.knowledge();
+                                }
+                                measuredUnit = current;
+                                displayUnit = current;
                             }
-                            measuredUnit = current;
-                            displayUnit = current;
                         }
                     }
                     return new QueryDataVO(
@@ -120,17 +139,43 @@ class QueryJdbc {
         }
     }
 
-    /** 拒绝混合或缺失计量单位，只展示数据库同组实际单位。 */
+    /**
+     * 源连接由固定修订和当前剩余时间决定。
+     */
+    private SourceConnection connectionTarget(DatasourceMapper.RevisionRow revision, int budget) {
+        var config = revision.configuration();
+        return new SourceConnection(
+                SourceConnection.Type.valueOf(config.getDatabaseType()),
+                config.getHost(),
+                config.getPort(),
+                config.getDatabaseName(),
+                config.getSchemas(),
+                config.getAccount(),
+                Math.min(budget, revision.limits().getQueryTimeoutSeconds()));
+    }
+
+    /**
+     * 只在当前已授权只读连接建立时读取冻结的凭据修订。
+     */
+    private String password(Source source) {
+        var credential = sources.credential(source.id(), source.configurationId());
+        return cipher.decrypt(credential.ciphertext(), "datasource:credential:" + source.id(), credential.keyVersion());
+    }
+
+    /**
+     * 核验参与行的单位完整性和一致性。没有参与行时保留无单位的计数结果。
+     */
     private String unit(ResultSet rows, int resultColumns) throws SQLException {
-        var first = rows.getString(resultColumns + 1);
-        var last = rows.getString(resultColumns + 2);
-        if (first == null
-                || !first.equals(last)
-                || !rows.getBoolean(resultColumns + 3)
-                || !first.matches("[\\p{L}\\p{N} ./%-]{1,12}")) {
+        if (!rows.getBoolean(resultColumns + 3)) {
+            // 有参与行缺少单位，即使其余行单位一致也不能交付。
             throw QueryFailure.knowledge();
         }
-        return first;
+        var value = rows.getString(resultColumns + 1);
+        if (value != null && (!rows.getBoolean(resultColumns + 2) || !MetricRules.validUnit(value))) {
+            // 数据库按精确值检测混用，交付格式与治理固定单位统一。
+            throw QueryFailure.knowledge();
+        }
+        return value;
     }
 
     /** 发出对该轮真实 JDBC 语句的取消，调用成功不等同于源端最终状态。 */

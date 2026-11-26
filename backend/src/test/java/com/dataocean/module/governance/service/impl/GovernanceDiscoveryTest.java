@@ -2,9 +2,11 @@ package com.dataocean.module.governance.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -16,6 +18,7 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.PageQuery;
+import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.JsonCodec;
 import com.dataocean.module.audit.service.AuditService;
 import com.dataocean.module.datasource.mapper.CatalogMapper.Observation;
@@ -23,6 +26,8 @@ import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Entry;
 import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.service.GovernanceNotes;
+import com.dataocean.module.governance.entity.dto.MetricFilterDTO;
+import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
 import com.dataocean.module.governance.entity.po.GovernanceGenerationPO;
 import com.dataocean.module.governance.entity.po.GovernanceItemPO;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
@@ -44,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -114,6 +120,98 @@ class GovernanceDiscoveryTest {
     }
 
     /**
+     * AI 发现的三类规则以候选状态入库，执行字段自动纳入可审核依赖。
+     */
+    @Test
+    void recordsMetricRulesAsDraftAndIncludesRuleFieldsInEvidence() {
+        var columns = List.of(
+                new Field("11", "amount", "decimal", null, false),
+                new Field("12", "business_day", "date", null, false),
+                new Field("13", "payment_state", "varchar(12)", null, false),
+                new Field("14", "currency_code", "varchar(3)", null, false));
+        var scope = new Scope("METRIC", "1", List.of(new Table("1", "orders", columns, List.of())));
+        var refs = new HashMap<String, StructureRef>();
+        for (var column : columns) {
+            // 稳定列编号来自固定成功目录，模型规则只能使用这里的字段。
+            refs.put(
+                    column.id(),
+                    new StructureRef("1", "4", column.id(), column.id(), "orders." + column.name(), column.type()));
+        }
+        var rules = new MetricRulesDTO(
+                "BUSINESS_DAY", "12", List.of(new MetricFilterDTO("13", "PAID")), "COLUMN", null, "14");
+        var proposal = new Proposal(
+                "订单金额", "已支付订单", "SUM(orders.amount)", "按日和币种核对", List.of(), List.of("11"), List.of(), rules, null);
+        var task = task();
+        task.setDiscoveryKind("METRIC");
+        discovery.finish(task, new GovernanceDiscovery.DiscoveryInput(scope, refs), List.of(), List.of(proposal));
+
+        verify(mapper)
+                .add(
+                        anyLong(),
+                        eq("fixture-task"),
+                        eq(2L),
+                        eq(1L),
+                        eq("METRIC"),
+                        anyString(),
+                        eq(4L),
+                        argThat(evidence ->
+                                json.read(evidence, Basis.class).structures().size() == 4));
+        verify(mapper)
+                .revise(
+                        anyLong(),
+                        anyLong(),
+                        eq(1),
+                        eq("CANDIDATE"),
+                        argThat(content -> rules.equals(
+                                json.read(content, Definition.class).getMetricRules())),
+                        eq("[]"),
+                        eq(7L),
+                        isNull());
+    }
+
+    /**
+     * 审核语法时拒绝混入公式的筛选，修正为纯公式后绑定同一份支付依赖。
+     */
+    @Test
+    void confirmsOnlyExecutableFormulaSeparateFromFixedFilters() {
+        var source = mock(Source.class);
+        when(source.id()).thenReturn(2L);
+        var observation = new Observation(3L, 4L, 1L, 8L, null, null, null, null, null);
+        var entry = new Entry(1L, 1, false, observation, List.of());
+        var item = new GovernanceItemPO();
+        item.setHeadRevisionId(12L);
+        item.setLastConfirmedRevisionId(12L);
+        var context = mock(GovernanceEntries.Context.class);
+        when(context.item()).thenReturn(item);
+        when(context.entry()).thenReturn(entry);
+        when(context.columnRevision()).thenReturn(9L);
+        when(context.availability()).thenReturn("AVAILABLE");
+        when(entries.get(eq(source), any())).thenReturn(context);
+
+        var basis = new Basis(
+                List.of(
+                        new StructureRef("1", "8", "11", "9", "sales.orders.amount", "decimal"),
+                        new StructureRef("1", "8", "12", "9", "sales.orders.payment_state", "varchar(12)")),
+                List.of(),
+                false);
+        var rules = new MetricRulesDTO("NONE", null, List.of(new MetricFilterDTO("12", "PAID")), "FIXED", "元", null);
+        var definition = new Definition(
+                "订单金额", "仅已支付订单", "SUM(sales.orders.amount)，仅已支付", "", List.of(), List.of("11", "12"), false, rules, null);
+        var rejected = assertThrows(
+                BizIllegalException.class,
+                () -> ReflectionTestUtils.invokeMethod(
+                        discovery, "confirmDefinition", source, "METRIC", definition, basis, true));
+        assertEquals("请填写使用已选依赖的纯计算公式。固定条件请在固定筛选中填写", rejected.getMessage());
+        verifyNoInteractions(entries);
+
+        // 保持固定条件不变，纯公式才可固定表和两个字段的确认修订。
+        definition.setRule("SUM(sales.orders.amount)");
+        List<?> dependencies = ReflectionTestUtils.invokeMethod(
+                discovery, "confirmDefinition", source, "METRIC", definition, basis, true);
+        assertEquals(3, dependencies.size());
+    }
+
+    /**
      * 旧依据失效后，同一业务定义能形成新候选，重复发现仍只入库一次。
      */
     @Test
@@ -147,7 +245,7 @@ class GovernanceDiscoveryTest {
     @Test
     void guardsDefinitionEvenWhenModelDidNotCiteInputs() {
         when(catalog.source(2L, false)).thenReturn(mock(Source.class));
-        var definition = new Definition("商品数", "在册商品数", "COUNT(*)", "件", List.of(), List.of("11"), false);
+        var definition = new Definition("商品数", "在册商品数", "COUNT(*)", "件", List.of(), List.of("11"), false, null, null);
         var stored = new Candidate(
                 17L,
                 "fixture-task",
@@ -205,7 +303,7 @@ class GovernanceDiscoveryTest {
         var field = new StructureRef("1", "8", "11", "9", "products.product_id", "bigint");
         var basis = json.write(new Basis(List.of(field), List.of(), false));
         var definition = json.write(new Definition(
-                "商品数", "在册商品数", "COUNT(DISTINCT products.product_id)", "件", List.of(), List.of("11"), false));
+                "商品数", "在册商品数", "COUNT(DISTINCT products.product_id)", "件", List.of(), List.of("11"), false, null, null));
         var stored = new Candidate(
                 17L,
                 "fixture-task",
@@ -273,6 +371,14 @@ class GovernanceDiscoveryTest {
      */
     private Proposal relation() {
         return new Proposal(
-                "商品与展示", "products.product_id = display.product_id", "一对一", "", List.of(KEY), List.of(), List.of());
+                "商品与展示",
+                "products.product_id = display.product_id",
+                "一对一",
+                "",
+                List.of(KEY),
+                List.of(),
+                List.of(),
+                null,
+                null);
     }
 }

@@ -3,6 +3,9 @@ package com.dataocean.module.query.entity.dto;
 import com.dataocean.module.model.service.ModelInvocation;
 import com.dataocean.module.query.service.QueryProtocol.Memory;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
+import com.dataocean.module.query.service.QueryProtocol.RequestedTerm;
+import com.dataocean.module.query.service.QueryProtocol.SelectionReview;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 
@@ -49,4 +52,16 @@ public class QueryModelInputDTO {
      * 经过权限核对的同源历史上下文。
      */
     private Memory memory;
+
+    /**
+     * 检索前提取的用户条件，供规划区分发布固定口径。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<RequestedTerm> requestedTerms;
+
+    /**
+     * Java 核对后的实际范围和排除理由，仅随独立语义复核发送。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private SelectionReview selection;
 }

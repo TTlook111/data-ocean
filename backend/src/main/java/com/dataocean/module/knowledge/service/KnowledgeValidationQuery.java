@@ -12,12 +12,13 @@ import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.governance.entity.vo.GovernanceCandidateVO.Definition;
 import com.dataocean.module.governance.service.GovernanceKnowledgeService;
 import com.dataocean.module.governance.service.GovernanceTarget;
+import com.dataocean.module.governance.service.MetricFormula;
+import com.dataocean.module.governance.service.MetricRules;
 import com.dataocean.module.knowledge.entity.dto.KnowledgeTestDraftDTO.CountRule;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocumentMapper.Reference;
 
 import java.sql.SQLException;
 import java.util.List;
-import java.util.Locale;
 
 import org.springframework.stereotype.Service;
 
@@ -102,16 +103,30 @@ public class KnowledgeValidationQuery {
         String keyName = column(primary, key);
         String filterName = column(primary, filter);
         String foreignName = column(detail, foreign);
+        var rules = metric.getMetricRules();
+        if (!MetricRules.complete(
+                        rules,
+                        id -> rule.getCategoryId().equals(id)
+                                ? primary.column(filter.targetId()).nativeType()
+                                : null)
+                || !"NONE".equals(rules.getDateMode())
+                || "COLUMN".equals(rules.getUnitMode())
+                || rules.getFixedFilters().stream()
+                        .anyMatch(condition -> !rule.getCategoryValue().equals(condition.getValue()))) {
+            // 当前数值题只执行一个等值条件，不能略过指标确认的其他日期、币种或固定筛选。
+            throw unsupported();
+        }
         var primaryShape = primary.observation().structure();
         var object = primaryShape.object();
         var primaryKeys = primaryShape.primaryKeys();
-        String formula = metric.getRule().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
-        String field = (object.name() + "." + keyName).toLowerCase(Locale.ROOT);
-        String qualified = (object.schema() + "." + field).toLowerCase(Locale.ROOT);
+        var formula = MetricFormula.parse(metric.getRule());
+        String field = object.name() + "." + keyName;
+        String qualified = object.schema() == null || object.schema().isBlank() ? field : object.schema() + "." + field;
         if (primaryKeys.size() != 1
                 || !keyName.equals(primaryKeys.get(0).field())
-                || (!formula.equals("count(distinct" + field + ")")
-                        && !formula.equals("count(distinct" + qualified + ")"))) {
+                || formula == null
+                || !"COUNT_DISTINCT".equals(formula.operation())
+                || !MetricFormula.references(formula.fields().get(0), qualified)) {
             // 指标只作已审核语义的白名单检查，原公式不发送给 JDBC。
             throw unsupported();
         }

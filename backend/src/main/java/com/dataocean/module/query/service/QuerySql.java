@@ -2,17 +2,25 @@ package com.dataocean.module.query.service;
 
 import com.dataocean.common.Ids;
 import com.dataocean.module.datasource.mapper.GovernanceCatalogMapper.Column;
+import com.dataocean.module.governance.entity.dto.MetricRulesDTO;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
+import com.dataocean.module.governance.service.MetricFormula;
+import com.dataocean.module.governance.service.MetricRules;
+import com.dataocean.module.governance.service.RelationWindows;
 import com.dataocean.module.query.entity.vo.QueryColumnVO;
 import com.dataocean.module.query.entity.vo.QuerySeriesWindowVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
 import com.dataocean.module.query.service.QueryProtocol.Condition;
 import com.dataocean.module.query.service.QueryProtocol.Field;
+import com.dataocean.module.query.service.QueryProtocol.JoinAssessment;
 import com.dataocean.module.query.service.QueryProtocol.Plan;
+import com.dataocean.module.query.service.QueryProtocol.RelationEvidence;
 import com.dataocean.module.query.service.QueryProtocol.TimeSelection;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -26,14 +34,20 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 把经治理的有限关系和运算编译为参数化只读 SQL，任何模型文本都不成为 SQL。
  */
 final class QuerySql {
 
-    /** 输出列、实际血缘和参数固定后才允许派发。 */
+    /**
+     * 输出列、实际血缘和参数固定后才允许派发。
+     *
+     * @param joinKeys 实际等值连接键对，忽略键对顺序和等式方向
+     */
     record Compiled(
             String sql,
             List<Object> parameters,
@@ -43,21 +57,70 @@ final class QuerySql {
             String scope,
             boolean verifiesUnit,
             QuerySeriesWindowVO series,
-            QueryUsage usage) {}
+            QueryUsage usage,
+            Set<Set<Field>> joinKeys) {}
+
+    /**
+     * 实际筛选列及其 JDBC 类型化值，用于核对固定条件和跨发布等价性。
+     */
+    record BoundFilter(Field field, Object value, boolean excluded) {}
+
+    /**
+     * 按实际源列语义核对请求范围，字符串比较由源库提供。
+     */
+    @FunctionalInterface
+    interface ValueComparison {
+        boolean same(Basis basis, Field field, Object first, Object second);
+    }
+
+    /**
+     * 用户绑定、合并及候选比较共同核对实际列、方向和数据库等值。
+     */
+    static boolean sameBoundFilter(Basis basis, BoundFilter first, BoundFilter second, ValueComparison comparison) {
+        return first.field().equals(second.field())
+                && first.excluded() == second.excluded()
+                && comparison.same(basis, first.field(), first.value(), second.value());
+    }
 
     /** 关联由同版治理的确切字段对提供。 */
     private record Pair(Field left, Field right) {}
 
-    /** 关联组的全部键都要参与实际 JOIN。 */
-    private record Relation(String left, String right, List<Pair> keys, GovernanceFactVO fact) {}
+    /**
+     * 关联适用期校验使用的业务日期列和区间。
+     */
+    private record RelationDates(Field field, String start, String end) {}
+
+    /**
+     * 未核实的适用边界和已确认不适用需要区别处理。
+     */
+    private enum Applicability { APPLICABLE, OUTSIDE, UNVERIFIABLE }
+
+    /**
+     * 关联组的全部键都要参与实际 JOIN。
+     */
+    private record Relation(String left, String right, List<Pair> keys, GovernanceFactVO fact) {
+
+        /**
+         * 从关联的一端找到另一张表，保留原始键对方向以供 SQL 使用。
+         */
+        String other(String table) {
+            return left.equals(table) ? right : left;
+        }
+    }
 
     /** 标准聚合字段数，其他运算一律不接受。 */
     private static final Map<String, Integer> ARITY = Map.of("COUNT_DISTINCT", 1, "SUM", 1, "SUM_DIFFERENCE", 2);
 
     /**
-     * 指标文字明确要求同一单位时，需要一条可核实的计量字段。
+     * 可按精确数值比较的目录类型，避免把字符串转换和浮点舍入用于唯一性证明。
      */
-    private static final Pattern SAME_UNIT = Pattern.compile("单位(?:必须|须|应)一致|不能混加[^。；]{0,8}单位|不同单位[^。；]{0,5}不能混加");
+    private static final Pattern EXACT_JOIN_NUMBER = Pattern.compile(
+            "(?i)(tinyint|smallint|mediumint|int|integer|bigint|decimal|numeric)(\\(\\d+(,\\s*\\d+)?\\))?( unsigned)?( zerofill)?");
+
+    /**
+     * 指标修订把可执行规则存为固定 JSON，编译时按明确类型读取。
+     */
+    private static final JsonMapper RULES_JSON = JsonMapper.builder().build();
 
     /** 核对原话是否允许采用具体日期，日期值仍由独立语义节点核对。 */
     private static final Pattern REQUESTED_DATE = Pattern.compile(
@@ -115,6 +178,18 @@ final class QuerySql {
 
     /** 两列求和提议仍要通过既有相减指标的逐字段验证和独立语义核对。 */
     static Plan normalize(Plan plan) {
+        return normalize(plan, false);
+    }
+
+    /**
+     * 已有原话条件时在绑定后再核对剩余模型过滤，便于去掉对用户条件的重复表达。
+     */
+    static Plan normalize(Plan plan, boolean deferFilterValidation) {
+        if (!deferFilterValidation && plan.filters() != null
+                && plan.filters().stream().anyMatch(filter -> filter != null && filter.excluded())) {
+            // 规划模型不产生排除谓词，用户条件由 Java 另行绑定。
+            throw QueryFailure.knowledge();
+        }
         if ("SUM".equals(plan.operation())
                 && plan.fields() != null
                 && plan.fields().size() == 2) {
@@ -149,13 +224,11 @@ final class QuerySql {
             throw QueryFailure.knowledge();
         }
         var businessDay = businessDate(basis, plan);
+        plan = dateInputs(basis, plan, question, hasHistory, requestedDay);
         var time = plan.time();
         if (requestedDay != null) {
             // 绑定用户原话中唯一的日历日期，模型只提供候选结构。
-            var namedDates = basis.labels().keySet().stream()
-                    .filter(field -> dateField(basis, field) && mentionsField(basis, question, field))
-                    .toList();
-            var date = namedDates.size() == 1 ? namedDates.get(0) : time == null ? businessDay : time.field();
+            var date = time == null ? businessDay : time.field();
             if (date == null) {
                 // 明细计划可用唯一的已确认日期筛选列承接用户所给日期。
                 var fields = plan.filters().stream()
@@ -177,17 +250,6 @@ final class QuerySql {
                 return withTime(resolved, filters, resolvePeriod(basis, resolved, selection, today));
             }
         }
-        if (!REQUESTED_DATE.matcher(question).find()
-                && !(hasHistory && REFERENCED_DATE.matcher(question).find())) {
-            // 无日期时仅给确需业务日期的单值补当日。按跨日定义统计的指标保持原范围。
-            var filters = plan.filters().stream()
-                    .filter(filter -> !dateField(basis, filter.field()))
-                    .toList();
-            var selection = time != null && "TREND".equals(time.mode())
-                    ? new TimeSelection(time.field(), "TREND", null, null, null)
-                    : businessDay == null ? null : new TimeSelection(businessDay, "DAY", null, null, null);
-            plan = withTime(plan, filters, selection);
-        }
         var selected = plan.time();
         if (selected == null
                 && businessDay != null
@@ -202,25 +264,223 @@ final class QuerySql {
     }
 
     /**
-     * 指标定义明确需要单个业务日期，且同版依赖中恰有一个可信 DATE 字段时才补默认日期。
+     * 仅保留实际提出的日期输入。候选各自的业务日默认值在此之后计算。
+     */
+    Plan dateInputs(Basis basis, Plan plan, String question, boolean hasHistory, LocalDate requestedDay) {
+        if (requestedDay != null) {
+            // 原话明确点出日期列时，以该列替换模型猜测的列。
+            var namedDates = basis.labels().keySet().stream()
+                    .filter(field -> dateField(basis, field) && mentionsField(basis, question, field))
+                    .toList();
+            if (namedDates.size() == 1) {
+                return withTime(
+                        plan,
+                        plan.filters(),
+                        new TimeSelection(
+                                namedDates.get(0),
+                                timeMode(plan.time()),
+                                requestedDay.toString(),
+                                requestedDay.toString(),
+                                false));
+            }
+        } else if (plan.filters() != null
+                && !REQUESTED_DATE.matcher(question).find()
+                && !(hasHistory && REFERENCED_DATE.matcher(question).find())) {
+            // 没有实际日期要求时，清除猜测的筛选和单日列，趋势仍保留其分组列。
+            var filters = plan.filters().stream()
+                    .filter(filter -> filter == null || !dateField(basis, filter.field()))
+                    .toList();
+            var time = plan.time();
+            var trend = time != null && "TREND".equals(time.mode())
+                    ? new TimeSelection(time.field(), "TREND", null, null, null)
+                    : null;
+            return withTime(plan, filters, trend);
+        }
+        return plan;
+    }
+
+    /**
+     * 业务日期只取已确认执行规则中的稳定 DATE 列，缺少完整证据的指标不跨日执行。
      */
     private Field businessDate(Basis basis, Plan plan) {
         if (!ARITY.containsKey(plan.operation())) {
             // 明细和普通实时字段保持其原有查询范围。
             return null;
         }
-        var definition = metric(basis, plan);
-        if (!definition.getContent().path("usage").asText().contains("业务日期")) {
-            // 例如统计存在快照的 SKU，已发布定义允许跨日去重。
+        var rules = metricRules(basis, metric(basis, plan));
+        return "BUSINESS_DAY".equals(rules.getDateMode()) ? basis.fields().get(rules.getDateFieldId()) : null;
+    }
+
+    /**
+     * 将确认后的固定条件合并进实际计划。已提及同列时校验类型化值，拒绝替换指标范围。
+     */
+    Plan applyMetricFilters(Basis basis, Plan plan) {
+        if (plan.operation() == null || !ARITY.containsKey(plan.operation()) || plan.filters() == null) {
+            // 明细及无效计划仍走原有检查。
+            return plan;
+        }
+        var fixed = fixedFilters(basis, metricRules(basis, metric(basis, plan)));
+        if (fixed.isEmpty()) {
+            return plan;
+        }
+        var filters = new ArrayList<>(plan.filters());
+        for (var required : fixed) {
+            // 编译和复核统一使用已确认的源字段原值。
+            var field = required.field();
+            var bound = bindFilter(basis, required);
+            for (var filter : filters) {
+                if (filter == null || filter.field() == null || filter.value() == null) {
+                    throw QueryFailure.knowledge();
+                }
+                if (field.equals(filter.field())
+                        && bound.value().equals(bindFilter(basis, filter).value()) == filter.excluded()) {
+                    // 用户或模型给出的相反条件不能将已确认指标改成另一个口径。
+                    throw QueryFailure.knowledge();
+                }
+            }
+            filters.removeIf(filter -> field.equals(filter.field()) && !filter.excluded());
+            filters.add(required);
+        }
+        return withTime(plan, filters, plan.time());
+    }
+
+    /**
+     * 其他发布自行应用其固定条件。只保留用户可核实的条件和其它实际输入。
+     */
+    Plan independentBindingFilters(Basis basis, Plan plan, String question) {
+        if (plan.filters() == null || plan.filters().isEmpty()) {
+            // 原计划没有筛选时可直接比较。
+            return plan;
+        }
+        var fixed = provenFixedFilters(basis, plan);
+        if (fixed.isEmpty()) {
+            // 只删除能对账到当前发布的固定值。
+            return plan;
+        }
+        try {
+            var values = fixed.stream().collect(Collectors.toMap(Condition::field, value -> bindFilter(basis, value)));
+            var filters = plan.filters().stream()
+                    .filter(filter -> filter == null
+                            || !values.containsKey(filter.field())
+                            || filter.value() == null
+                            || !values.get(filter.field()).equals(bindFilter(basis, filter))
+                            || requestedFilter(basis, filter, question)
+                            || mentionsMappedValue(basis, filter, question))
+                    .toList();
+            return withTime(plan, filters, plan.time());
+        } catch (QueryFailure invalid) {
+            // 输入绑定失败时由原编译流程识别并走参数修复，保留原提议。
+            return plan;
+        }
+    }
+
+    /**
+     * 只认当前列确认修订里能够唯一指向请求取值的业务词。
+     */
+    private boolean mentionsMappedValue(Basis basis, Condition filter, String question) {
+        var column = confirmedColumn(basis, filter.field());
+        var fact = column == null ? null : basis.fact("COLUMN", column.columnId());
+        if (fact == null || !fact.getContent().path("valueMappings").isArray()) {
+            // 没有审核过的值对照时，不能用指标说明猜测用户指定了哪个值。
+            return false;
+        }
+        var mentioned = new LinkedHashSet<String>();
+        for (var value : fact.getContent().path("valueMappings")) {
+            if (mentionsText(question, value.path("meaning").asText())) {
+                // 同时出现多个不同业务值时保留歧义。
+                mentioned.add(value.path("code").asText());
+            }
+        }
+        return mentioned.equals(Set.of(filter.value()));
+    }
+
+    /**
+     * 溯源检查使用能完整证明的确认值。无可证口径时保留原有编译和商品核验。
+     */
+    List<Condition> provenFixedFilters(Basis basis, Plan plan) {
+        if (plan.operation() == null || !ARITY.containsKey(plan.operation())) {
+            // 明细等其他运算没有聚合指标的固定条件。
+            return List.of();
+        }
+        try {
+            return fixedFilters(basis, metricRules(basis, metric(basis, plan)));
+        } catch (QueryFailure incomplete) {
+            // 仅作为固定值来源的查验，缺证由各候选的编译规则处理。
+            return List.of();
+        }
+    }
+
+    /**
+     * 将验证过的治理依赖解析为实际筛选列和值。
+     */
+    private List<Condition> fixedFilters(Basis basis, MetricRulesDTO rules) {
+        return rules.getFixedFilters().stream()
+                .map(filter -> new Condition(basis.fields().get(filter.getFieldId()), filter.getValue()))
+                .toList();
+    }
+
+    /**
+     * 比较实际生效的列和值，日期维度的绑定由时间条件提供。
+     */
+    static Set<BoundFilter> boundFilters(Basis basis, Plan plan) {
+        return plan.filters().stream()
+                .filter(filter -> plan.time() == null || !plan.time().field().equals(filter.field()))
+                .map(filter -> bindFilter(basis, filter))
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * 固定条件匹配和跨发布比较使用编译时相同的目录列与参数类型。
+     */
+    static BoundFilter bindFilter(Basis basis, Condition filter) {
+        var column = confirmedColumn(basis, filter.field());
+        if (column == null) {
+            // 不给还未获得确认的列推断可比较的参数类型。
+            throw QueryFailure.knowledge();
+        }
+        return new BoundFilter(filter.field(), parameter(column.nativeType(), filter.value()), filter.excluded());
+    }
+
+    /**
+     * 指标执行规则必须完整，且每个字段均属于已确认指标依赖和当前片段。
+     */
+    private MetricRulesDTO metricRules(Basis basis, GovernanceFactVO fact) {
+        var rules = confirmedMetricRules(basis, fact);
+        if (rules == null) {
+            // 旧发布或失效依赖无法作为当前执行依据。
+            throw QueryFailure.knowledge();
+        }
+        return rules;
+    }
+
+    /**
+     * 规划证据和 SQL 使用同一份可验证的确认规则。旧发布不输出推测的规则。
+     */
+    static MetricRulesDTO confirmedMetricRules(Basis basis, GovernanceFactVO fact) {
+        var content = fact.getContent().path("metricRules");
+        if (!content.isObject() || fact.getDependencies() == null) {
+            // 旧发布缺少明确规则时不能用文字猜测默认日期或固定条件。
             return null;
         }
-        var dates = definition.getDependencies().stream()
-                .filter(fact -> "COLUMN".equals(fact.getKind()))
-                .map(fact -> basis.fields().get(fact.getTargetId()))
-                .filter(field -> field != null && dateField(basis, field))
-                .distinct()
-                .toList();
-        return dates.size() == 1 ? dates.get(0) : null;
+        try {
+            var rules = RULES_JSON.treeToValue(content, MetricRulesDTO.class);
+            var fields = fact.getDependencies().stream()
+                    .filter(dependency -> "COLUMN".equals(dependency.getKind()))
+                    .map(dependency -> dependency.getTargetId())
+                    .collect(Collectors.toSet());
+            return MetricRules.complete(rules, id -> {
+                        // 即使目录存在该字段，指标未确认引用时也不得作为执行口径。
+                        var column = fields.contains(id)
+                                ? confirmedColumn(basis, basis.fields().get(id))
+                                : null;
+                        return column == null ? null : column.nativeType();
+                    })
+                    ? rules
+                    : null;
+        } catch (JacksonException invalid) {
+            // 旧格式或非法治理正文不应成为模型参数修复任务。
+            return null;
+        }
     }
 
     /**
@@ -304,11 +564,19 @@ final class QuerySql {
                 return null;
             }
         }
-        if (time != null && "TREND".equals(time.mode()) && !ARITY.containsKey(plan.operation())) {
+        var base = change == null ? plan : previous;
+        if (time != null && "TREND".equals(time.mode()) && !ARITY.containsKey(base.operation())) {
             // 逐日趋势口径只能继续用于支持聚合的运算。
             return null;
         }
-        return withTime(plan, filters, time);
+        return withTime(base, filters, time);
+    }
+
+    /**
+     * 日期追问沿用原发布、公式及输出字段，只从本轮计划读取待核实的筛选和时间。
+     */
+    Plan withHistoricalMetric(Plan proposal, Plan previous) {
+        return withTime(previous, proposal.filters(), proposal.time());
     }
 
     /**
@@ -488,7 +756,7 @@ final class QuerySql {
     /**
      * 只改变业务日期条件，保留同一结构化计划中已确定的指标、字段和其他业务参数。
      */
-    private Plan withTime(Plan plan, List<QueryProtocol.Condition> filters, TimeSelection time) {
+    Plan withTime(Plan plan, List<QueryProtocol.Condition> filters, TimeSelection time) {
         return new Plan(
                 plan.decision(),
                 plan.clarification(),
@@ -505,6 +773,14 @@ final class QuerySql {
      * 仅允许来自用户、已确认上文或发布材料的商品编码。模型翻译名称后仍需独立语义核对。
      */
     QueryUsage.ParameterUse checkProductCodes(Basis basis, Plan plan, String question, QueryProtocol.Memory memory) {
+        return checkProductCodes(basis, plan, question, memory, List.of());
+    }
+
+    /**
+     * 本轮已从原话核实的商品条件直接采用用户依据，其余仍按原规则验证。
+     */
+    QueryUsage.ParameterUse checkProductCodes(
+            Basis basis, Plan plan, String question, QueryProtocol.Memory memory, List<Condition> requested) {
         boolean hasProduct = false;
         boolean published = false;
         var context = new LinkedHashSet<String>();
@@ -512,6 +788,7 @@ final class QuerySql {
         boolean followsProduct = PRODUCT_CONTINUATION.matcher(question).find()
                 || keepsOtherConditions(question)
                 || QueryDates.previousWeekFollowup(question);
+        var fixed = provenFixedFilters(basis, plan);
         for (var filter : plan.filters()) {
             // 只处理被确认为商品编码的列，其他等值业务条件沿用原有验证。
             String label = basis.labels().get(filter.field());
@@ -520,7 +797,16 @@ final class QuerySql {
             if (!code && !id) {
                 continue;
             }
-            hasProduct = true;
+            hasProduct |= !filter.excluded();
+            if (requested.contains(filter)) {
+                // 已按原话和发布字段核实，排除某个 SKU 本身不锁定单个商品。
+                continue;
+            }
+            if (fixed.contains(filter)) {
+                // 实际计划只在与确认固定值完全相符时采用发布依据。
+                published = true;
+                continue;
+            }
             Pattern exact = Pattern.compile("(?i)(?<![\\w-])" + Pattern.quote(filter.value()) + "(?![\\w-])");
             if (exact.matcher(question).find()
                     && (code || EXPLICIT_IDENTIFIER.matcher(question).find())) {
@@ -653,7 +939,7 @@ final class QuerySql {
     }
 
     /** 只在当前片段的已确认字段中读取可信目录列。 */
-    private Column confirmedColumn(Basis basis, Field field) {
+    static Column confirmedColumn(Basis basis, Field field) {
         if (field == null || !basis.labels().containsKey(field)) {
             // 实际表有该列也不能替代当前片段对列的确认引用。
             return null;
@@ -672,7 +958,8 @@ final class QuerySql {
     }
 
     /** 编译有限读操作，并按已确认指标及所有实际依赖检查口径。 */
-    Compiled compile(Basis basis, Plan plan, boolean mysql, String database) {
+    Compiled compile(Basis basis, Plan proposal, boolean mysql, String database) {
+        var plan = applyMetricFilters(basis, proposal);
         if (plan.operation() == null
                 || plan.fields() == null
                 || plan.filters() == null
@@ -710,7 +997,8 @@ final class QuerySql {
                 .sorted(Comparator.comparing(
                                 (QueryProtocol.Condition item) -> item.field().table())
                         .thenComparing(item -> item.field().column())
-                        .thenComparing(QueryProtocol.Condition::value))
+                        .thenComparing(QueryProtocol.Condition::value)
+                        .thenComparing(QueryProtocol.Condition::excluded))
                 .toList();
         filters.forEach(filter -> required.add(filter.field().table()));
         var columns = new ArrayList<QueryColumnVO>();
@@ -732,37 +1020,26 @@ final class QuerySql {
                     required.add(field.table());
                 }
             }
-            var metricUsage = metric.getContent().path("usage").asText();
-            if (!"COUNT_DISTINCT".equals(plan.operation()) && metricUsage.contains("单位")) {
-                // 定义要求单位一致时从实际同行回读确认的计量字段。
-                var candidates = metric.getDependencies().stream()
-                        .filter(fact -> "COLUMN".equals(fact.getKind()))
-                        .map(fact -> basis.fields().get(fact.getTargetId()))
-                        .filter(field -> measuresUnit(basis, field))
-                        .distinct()
-                        .toList();
-                if (candidates.size() == 1) {
-                    unitField = candidates.get(0);
-                    checkField(basis, unitField);
-                    projection.add(unitField);
-                    usage.field(unitField, "UNIT_CHECK");
-                } else if (SAME_UNIT.matcher(metricUsage).find()) {
-                    // 无法读取可信计量单位时，不执行可能混加的业务查询。
+            var rules = metricRules(basis, metric);
+            if ("BUSINESS_DAY".equals(rules.getDateMode())) {
+                // 即使调用者绕过日期解析，编译也不能生成缺少确认业务日的 SQL。
+                var date = basis.fields().get(rules.getDateFieldId());
+                if (plan.time() == null
+                        ? filters.stream().noneMatch(filter -> date.equals(filter.field()))
+                        : !date.equals(plan.time().field())) {
                     throw QueryFailure.knowledge();
                 }
             }
-            var matcher = java.util.regex.Pattern.compile("单位为([\\p{L}]{1,5})").matcher(metricUsage);
-            unit = matcher.find() ? matcher.group(1) : "";
-            if (unit.isEmpty()
-                    && plan.unit() != null
-                    && plan.unit().matches("[\\p{L}]{1,5}")
-                    && java.util.regex.Pattern.compile("\\d\\s*" + java.util.regex.Pattern.quote(plan.unit()))
-                            .matcher(basis.text())
-                            .find()) {
-                // 只有命中证据实际出现的单位才可以与本次结果一起交付。
-                unit = plan.unit();
+            if ("COLUMN".equals(rules.getUnitMode())) {
+                // 同行币种值必须一致，实际 SQL 负责提供单位核验列。
+                unitField = basis.fields().get(rules.getUnitFieldId());
+                projection.add(unitField);
+                usage.field(unitField, "UNIT_CHECK");
+            } else if ("FIXED".equals(rules.getUnitMode())) {
+                // 已确认固定单位优先，不由模型重新提议。
+                unit = rules.getUnit();
             }
-            meaning = metric.getContent().path("meaning").asText() + metricUsage;
+            meaning = metric.getContent().path("meaning").asText() + metric.getContent().path("usage").asText();
             columns.add(new QueryColumnVO("value", metric.getLabel()));
         } else {
             // 明细由确切的已确认字段集合决定，禁止星号和模型别名。
@@ -796,13 +1073,42 @@ final class QuerySql {
             select = date + ", " + select;
         }
         if (unitField != null) {
+            // SUM、差额和及 COUNT DISTINCT 都忽略空操作数，单位校验使用相同的参与行。
             var identifier = sqlField(unitField, aliases, mysql);
-            select += ", MIN(" + identifier + "), MAX(" + identifier + "), COUNT(" + identifier + ") = COUNT(*)";
+            var contributing =
+                    selected.stream().map(field -> field + " IS NOT NULL").collect(Collectors.joining(" AND "));
+            var contribution = "CASE WHEN " + contributing + " THEN ";
+            var unitValue = contribution + identifier + " END";
+            // 字节顺序能区别大小写不同的计量单位，完整性单独核算空值。
+            var exactUnit = mysql ? "CAST(" + unitValue + " AS BINARY)" : "(" + unitValue + ") COLLATE \"C\"";
+            select += ", MIN(" + unitValue + "), MIN(" + exactUnit + ") = MAX(" + exactUnit + "), COUNT(" + unitValue
+                    + ") = COUNT(" + contribution + "1 END)";
         }
         var sql = new StringBuilder("SELECT ").append(select).append(" FROM ");
         var first = required.iterator().next();
         sql.append(sqlTable(basis, first, mysql, database)).append(' ').append(aliases.get(first));
-        join(basis, required, aliases, first, mysql, database, sql, usage);
+        var relationDates = relationDates(basis, first, time, filters);
+        var applicability = new LinkedHashMap<Relation, Applicability>();
+        for (var relation : relations(basis)) {
+            // 复核收到的适用性来自本次真实判断。
+            applicability.put(relation, appliesToDates(relation, relationDates));
+        }
+        var path = applicableJoinPath(basis, required, first, relationDates, applicability);
+        join(basis, path, aliases, mysql, database, sql, usage);
+        if (!path.isEmpty() && ("SUM".equals(plan.operation()) || "SUM_DIFFERENCE".equals(plan.operation()))) {
+            // 按实际联接校验度量粒度，筛选或指标依赖引入的表同样可能放大行数。
+            try {
+                requireRowGrain(basis, plan.fields(), path.values());
+            } catch (QueryFailure failure) {
+                // 粒度证明未通过也应保留这次尝试使用的准确关系。
+                throw QueryFailure.join(joinAssessment(
+                        "RELATION_GRAIN_UNVERIFIABLE", required, relationDates, path.values(), applicability));
+            }
+        }
+        var joinKeys = path.values().stream()
+                .flatMap(relation -> relation.keys().stream())
+                .map(pair -> Set.of(pair.left(), pair.right()))
+                .collect(Collectors.toUnmodifiableSet());
 
         var predicates = new ArrayList<String>();
         var parameters = new ArrayList<Object>();
@@ -819,10 +1125,9 @@ final class QuerySql {
         for (var filter : filters) {
             // 采用真实列类型，避免依赖数据库隐式类型转换。
             var field = filter.field();
-            var column = basis.tables().get(field.table()).entry().named(field.column());
             usage.field(field, "FILTER");
-            predicates.add(sqlField(field, aliases, mysql) + " = ?");
-            var argument = parameter(column.nativeType(), filter.value());
+            predicates.add(sqlField(field, aliases, mysql) + (filter.excluded() ? " <> ?" : " = ?"));
+            var argument = bindFilter(basis, filter).value();
             parameters.add(argument);
             // 业务取值可能本身受限，只有执行逻辑使用形如 sku.code = ? 的实际值。
             if (argument instanceof LocalDate day) {
@@ -845,25 +1150,28 @@ final class QuerySql {
                 scopeText,
                 unitField != null,
                 trend ? new QuerySeriesWindowVO(time.start(), time.end()) : null,
-                usage.finish(required));
+                usage.finish(aliases.keySet()),
+                joinKeys);
     }
 
     /** 聚合必须匹配发布中已确认的指标公式。 */
-    private GovernanceFactVO metric(Basis basis, Plan plan) {
+    GovernanceFactVO metric(Basis basis, Plan plan) {
         Integer arity = ARITY.get(plan.operation());
         if (arity == null || plan.fields() == null || plan.fields().size() != arity) {
             throw QueryFailure.knowledge();
         }
-        var logical = aggregate(
-                plan.operation(),
-                plan.fields().stream().map(f -> f.table() + "." + f.column()).toList());
         var metrics = basis.facts().values().stream()
                 .filter(f -> "METRIC".equals(f.getTarget().getKind()))
                 .toList();
-        var named = metrics.stream().filter(f -> f.getLabel().equals(plan.metric())).toList();
-        var matches = (named.isEmpty() ? metrics : named).stream()
-                .filter(f -> normal(logical).equals(normal(f.getContent().path("rule").asText())))
-                .toList();
+        var named =
+                metrics.stream().filter(f -> f.getLabel().equals(plan.metric())).toList();
+        var matches = (named.isEmpty() ? metrics : named)
+                .stream()
+                        .filter(f -> matchesFormula(
+                                basis,
+                                plan,
+                                MetricFormula.parse(f.getContent().path("rule").asText())))
+                        .toList();
         if (matches.size() != 1) {
             // 指定了已确认的指标时，不用同片段里的其他指标替代它的计算口径。
             throw QueryFailure.knowledge();
@@ -872,45 +1180,52 @@ final class QuerySql {
     }
 
     /**
-     * 通过发布字段语义识别行业自己的单位列名，并兼容现有目录命名。
+     * 公式可写真实模式名，运算顺序和实际目录列须与计划一致。
      */
-    private boolean measuresUnit(Basis basis, Field field) {
-        return field.column().equals("unit")
-                || field.column().endsWith("_unit")
-                || basis.labels().getOrDefault(field, "").contains("计量单位");
+    private boolean matchesFormula(Basis basis, Plan plan, MetricFormula formula) {
+        if (formula == null || !plan.operation().equals(formula.operation())) {
+            // 只比较通过治理公式语法核对的同类运算。
+            return false;
+        }
+        for (int i = 0; i < plan.fields().size(); i++) {
+            // 以确切目录中的模式和物理列核对当前运算位置。
+            var field = plan.fields().get(i);
+            var reference = formula.fields().get(i);
+            var logical = field.table() + "." + field.column();
+            if (reference.equalsIgnoreCase(logical)) {
+                // 逻辑表名已由当前候选唯一确定，无须再补模式。
+                continue;
+            }
+            var table = basis.tables().get(field.table());
+            if (table == null) {
+                // 不能通过片段外的模式或同名表匹配公式。
+                return false;
+            }
+            var schema = table.entry().observation().structure().object().schema();
+            if (schema == null || !reference.equalsIgnoreCase(schema + "." + logical)) {
+                // 有模式限定时只接受目录中的实际模式。
+                return false;
+            }
+        }
+        return true;
     }
 
-    /** 用发布内唯一的已确认连接构造查询树，拒绝猜测任意连接。 */
+    /**
+     * 按已核实的连接顺序生成 SQL，记录全部实际参与连接的对象与字段。
+     */
     private void join(
             Basis basis,
-            Set<String> required,
+            Map<String, Relation> path,
             Map<String, String> aliases,
-            String first,
             boolean mysql,
             String database,
             StringBuilder sql,
             QueryUsage.Capture usage) {
-        var remaining = new LinkedHashSet<>(required);
-        remaining.remove(first);
-        var linked = new LinkedHashSet<>(Set.of(first));
-        var relations = relations(basis);
-        while (!remaining.isEmpty()) {
-            var ready = relations.stream()
-                    .filter(r -> linked.contains(r.left()) && remaining.contains(r.right())
-                            || linked.contains(r.right()) && remaining.contains(r.left()))
-                    .toList();
-            if (ready.isEmpty()) {
-                throw QueryFailure.knowledge();
-            }
-            var relation = ready.get(0);
-            var next = linked.contains(relation.left()) ? relation.right() : relation.left();
-            if (ready.stream()
-                            .filter(r -> r.left().equals(next) || r.right().equals(next))
-                            .count()
-                    != 1) {
-                // 同一张表存在多个可解释连接时需要更明确的关联选择。
-                throw QueryFailure.knowledge();
-            }
+        for (var step : path.entrySet()) {
+            // 保持原计划表的别名，中间表只在 JOIN 时分配别名。
+            var next = step.getKey();
+            var relation = step.getValue();
+            var alias = aliases.computeIfAbsent(next, name -> "t" + aliases.size());
             var conditions = relation.keys().stream()
                     .map(p -> sqlField(p.left(), aliases, mysql) + " = " + sqlField(p.right(), aliases, mysql))
                     .collect(Collectors.joining(" AND "));
@@ -923,15 +1238,318 @@ final class QuerySql {
             sql.append(" JOIN ")
                     .append(sqlTable(basis, next, mysql, database))
                     .append(' ')
-                    .append(aliases.get(next))
+                    .append(alias)
                     .append(" ON ")
                     .append(conditions);
-            remaining.remove(next);
-            linked.add(next);
         }
     }
 
-    /** 从同版确认读取复合键配对，以字段稳定身份定位两端。 */
+    /**
+     * 用适用关系选路，失败时保留同一批已确认键和原始适用依据供独立复核。
+     */
+    private Map<String, Relation> applicableJoinPath(
+            Basis basis, Set<String> required, String first, RelationDates dates,
+        Map<Relation, Applicability> applicability) {
+        var available = applicability.keySet().stream()
+                .filter(relation -> applicability.get(relation) == Applicability.APPLICABLE).toList();
+        var possible = applicability.keySet().stream()
+                .filter(relation -> applicability.get(relation) != Applicability.OUTSIDE).toList();
+        if (possible.size() != available.size() && required.size() > 1) {
+            // 未确认的关系只有在可能改变所需路径时才阻止派发。
+            var candidates = joinCandidates(basis, required, possible);
+            var reachable = new LinkedHashSet<>(Set.of(first));
+            reachable.addAll(reachableRelations(adjacentRelations(candidates), Set.of(first), null).keySet());
+            if (reachable.containsAll(required)) {
+                var actualPath = confirmedJoinPath(basis, required, first, available);
+                var possiblePath = confirmedJoinPath(basis, required, first, possible);
+                if (actualPath == null || !actualPath.equals(possiblePath)) {
+                    var considered = candidates.stream().filter(rel -> reachable.contains(rel.left())).toList();
+                    throw QueryFailure.join(joinAssessment(
+                            "RELATION_APPLICABILITY_UNVERIFIABLE", required, dates, considered, applicability));
+                }
+            }
+        }
+        try {
+            return joinPath(basis, required, first, available);
+        } catch (QueryFailure failure) {
+            // 未通过日期校验时，忽略日期仅用于重建可审查的候选路径。
+            var confirmed = List.copyOf(applicability.keySet());
+            var path = confirmedJoinPath(basis, required, first, confirmed);
+            if (path != null && path.values().stream()
+                    .anyMatch(relation -> applicability.get(relation) == Applicability.OUTSIDE)) {
+                throw QueryFailure.join(joinAssessment(
+                        "RELATION_NOT_APPLICABLE", required, dates, path.values(), applicability));
+            }
+            // 缺失或歧义时保留与所需表连通的已确认边，让复核可重新核对路径。
+            var candidates = joinCandidates(basis, required, confirmed);
+            var related = new LinkedHashSet<>(required);
+            related.addAll(reachableRelations(adjacentRelations(candidates), required, null).keySet());
+            var considered = candidates.stream().filter(relation -> related.contains(relation.left())).toList();
+            throw QueryFailure.join(joinAssessment(
+                    "RELATION_PATH_UNVERIFIABLE", required, dates, considered, applicability));
+        }
+    }
+
+    /**
+     * 只为缺少适用路径时取证，无唯一确认路径则由关联图说明缺口或歧义。
+     */
+    private Map<String, Relation> confirmedJoinPath(Basis basis, Set<String> required, String first, List<Relation> relations) {
+        try {
+            return joinPath(basis, required, first, relations);
+        } catch (QueryFailure noPath) {
+            // 仍无法形成唯一确认路径，不能标记为纯适用期冲突。
+            return null;
+        }
+    }
+
+    /**
+     * 构造失败候选的关联证据，键、修订和正文均来自当前授权目录。
+     */
+    private JoinAssessment joinAssessment(
+            String reason, Set<String> required, RelationDates dates, Iterable<Relation> relations,
+            Map<Relation, Applicability> applicability) {
+        var evidence = new ArrayList<RelationEvidence>();
+        for (var relation : relations) {
+            // 整组复合键一起提供，保留规则与适用条件的原始文本。
+            var content = relation.fact().getContent();
+            var window = RelationWindows.confirmed(content.path("relationWindow"));
+            evidence.add(new RelationEvidence(
+                    relation.fact().getRevisionId(),
+                    relation.keys().stream().map(pair -> List.of(pair.left(), pair.right())).toList(),
+                    content.path("rule").asText(""),
+                    content.path("usage").asText(""),
+                    applicability.get(relation) == Applicability.APPLICABLE,
+                    window == null ? null : Objects.toString(window.validFrom(), null),
+                    window == null ? null : Objects.toString(window.validThrough(), null)));
+        }
+        var bounds = dates == null ? List.<String>of() : Stream.of(dates.start(), dates.end()).distinct().toList();
+        return new JoinAssessment(reason, List.copyOf(required), dates == null ? null : dates.field(), bounds, evidence);
+    }
+
+    /**
+     * 沿用所需表的直接关联，只在剩余表无法直接接入时补全中间表。
+     */
+    private Map<String, Relation> joinPath(Basis basis, Set<String> required, String first, List<Relation> relations) {
+        var path = new LinkedHashMap<String, Relation>();
+        var remaining = new LinkedHashSet<>(required);
+        remaining.remove(first);
+        var linked = new LinkedHashSet<>(Set.of(first));
+        while (!remaining.isEmpty()) {
+            // 优先核对已在指标、投影或筛选中使用的表。
+            var ready = relations.stream()
+                    .filter(r -> linked.contains(r.left()) && remaining.contains(r.right())
+                            || linked.contains(r.right()) && remaining.contains(r.left()))
+                    .toList();
+            if (ready.isEmpty()) {
+                // 仅把可执行的普通表作为中间表，候选视图旁路不参与消歧。
+                var candidates = joinCandidates(basis, required, relations);
+                path.putAll(bridgePath(candidates, linked, remaining));
+                break;
+            }
+            var relation = ready.get(0);
+            var next = linked.contains(relation.left()) ? relation.right() : relation.left();
+            if (ready.stream()
+                            .filter(r -> r.left().equals(next) || r.right().equals(next))
+                            .count()
+                    != 1) {
+                // 同一张表存在多个直接连接时保留原有的歧义判断。
+                throw QueryFailure.knowledge();
+            }
+            path.put(next, relation);
+            remaining.remove(next);
+            linked.add(next);
+        }
+        return path;
+    }
+
+    /**
+     * 只有所需表和可查询的普通中间表进入实际选路，也用于失败取证。
+     */
+    private List<Relation> joinCandidates(Basis basis, Set<String> required, List<Relation> relations) {
+        return relations.stream()
+                .filter(relation -> (required.contains(relation.left()) || ordinaryTable(basis, relation.left()))
+                        && (required.contains(relation.right()) || ordinaryTable(basis, relation.right())))
+                .toList();
+    }
+
+    /**
+     * 通过人工确认的业务日期窗口判断适用性。历史正文只用于标记待核实。
+     */
+    private Applicability appliesToDates(Relation relation, RelationDates dates) {
+        var content = relation.fact().getContent();
+        var raw = content.path("relationWindow");
+        var window = RelationWindows.confirmed(raw);
+        if (window == null) {
+            // 旧资料若含限制或有残缺结构，不能按固定词句解释为不适用。
+            return raw.isObject() || RelationWindows.requiresConfirmation(
+                    content.path("rule").asText(""), content.path("usage").asText(""))
+                    ? Applicability.UNVERIFIABLE : Applicability.APPLICABLE;
+        }
+        if (window.validFrom() == null && window.validThrough() == null) {
+            // 明确确认没有日期限制时无需查询日期。
+            return Applicability.APPLICABLE;
+        }
+        if (dates == null) {
+            // 没有唯一可验证日期时保留候选歧义。
+            return Applicability.UNVERIFIABLE;
+        }
+        try {
+            var start = LocalDate.parse(dates.start());
+            var end = LocalDate.parse(dates.end());
+            if (end.isBefore(start)) {
+                return Applicability.UNVERIFIABLE;
+            }
+            return (window.validFrom() == null || !start.isBefore(window.validFrom()))
+                            && (window.validThrough() == null || !end.isAfter(window.validThrough()))
+                    ? Applicability.APPLICABLE : Applicability.OUTSIDE;
+        } catch (DateTimeParseException invalid) {
+            // 错误的查询日期不能证明候选不适用。
+            return Applicability.UNVERIFIABLE;
+        }
+    }
+
+    /**
+     * 以编译实际生效的唯一业务日期或趋势区间核对关联适用窗口。
+     */
+    private RelationDates relationDates(Basis basis, String primary, TimeSelection time, List<Condition> filters) {
+        var dates = filters.stream()
+                .filter(filter -> dateField(basis, filter.field()))
+                .distinct()
+                .toList();
+        if (time == null ? dates.size() != 1 : !dates.isEmpty()) {
+            // 省略日期或多个日期列时，不能自行选择哪个日期定义关联有效性。
+            return null;
+        }
+        if (time == null && dates.get(0).excluded()) {
+            // 排除一个日期不能划定查询的实际起止时间。
+            return null;
+        }
+        var field = time == null ? dates.get(0).field() : time.field();
+        var businessDates = basis.labels().keySet().stream()
+                .filter(item -> item.table().equals(primary) && dateField(basis, item))
+                .toList();
+        if (businessDates.size() != 1 || !businessDates.contains(field)) {
+            // 仅以主查询对象的唯一可信日期列证明约束，其他表的日期不能代替该业务日期。
+            return null;
+        }
+        String first = time == null ? dates.get(0).value() : time.start();
+        String last = time != null && "TREND".equals(time.mode()) ? time.end() : first;
+        return first == null || last == null ? null : new RelationDates(field, first, last);
+    }
+
+    /**
+     * 找齐连到剩余所需表的边，逐条确认移除后无法绕行，最后丢弃无关旁支。
+     */
+    private Map<String, Relation> bridgePath(List<Relation> relations, Set<String> linked, Set<String> remaining) {
+        var adjacent = adjacentRelations(relations);
+        var parents = reachableRelations(adjacent, linked, null);
+        if (!parents.keySet().containsAll(remaining)) {
+            // 每张所需表都必须能使用当前完整的已确认关联接入。
+            throw QueryFailure.knowledge();
+        }
+        var needed = new LinkedHashSet<Relation>();
+        for (var table : remaining) {
+            // 从每张所需表回溯到已接入的表，共用边只核验一次。
+            var next = table;
+            var relation = parents.get(next);
+            while (relation != null && needed.add(relation)) {
+                // 移除本边后仍可到达下游，说明另有可用路径，即使更长也不能猜选。
+                if (reachableRelations(adjacent, linked, relation).containsKey(next)) {
+                    throw QueryFailure.knowledge();
+                }
+                next = relation.other(next);
+                relation = parents.get(next);
+            }
+        }
+        // 广度遍历已保证父边先于子边，过滤后仍能依次生成 JOIN。
+        parents.values().retainAll(needed);
+        return parents;
+    }
+
+    /**
+     * 从每张度量表出发核对所有连接方向。只有对端键覆盖完整主键，才能保证一行至多匹配一次。
+     */
+    private void requireRowGrain(Basis basis, List<Field> measures, Iterable<Relation> path) {
+        var adjacent = adjacentRelations(path);
+        var measureTables = measures.stream().map(Field::table).collect(Collectors.toSet());
+        for (var table : measureTables) {
+            // 同一个路径对不同度量的方向可能相反，差额指标必须分别核对。
+            var parents = reachableRelations(adjacent, Set.of(table), null);
+            for (var step : parents.entrySet()) {
+                // 只使用精确数值等式覆盖的主键成员，避免隐式转换使两个键值比较相等。
+                var target = step.getKey();
+                var relation = step.getValue();
+                var keys = relation.keys().stream()
+                        .filter(pair -> EXACT_JOIN_NUMBER
+                                        .matcher(confirmedColumn(basis, pair.left())
+                                                .nativeType())
+                                        .matches()
+                                && EXACT_JOIN_NUMBER
+                                        .matcher(confirmedColumn(basis, pair.right())
+                                                .nativeType())
+                                        .matches())
+                        .map(pair -> pair.left().table().equals(target)
+                                ? pair.left().column()
+                                : pair.right().column())
+                        .collect(Collectors.toSet());
+                var primary = basis.tables()
+                        .get(target)
+                        .entry()
+                        .observation()
+                        .structure()
+                        .primaryKeys();
+                if (primary.isEmpty() || primary.stream().anyMatch(key -> !keys.contains(key.field()))) {
+                    // 目录无法证明匹配唯一时保留知识不足，防止重复汇总。
+                    throw QueryFailure.knowledge();
+                }
+            }
+        }
+    }
+
+    /**
+     * 等值关联可从任意一端遍历，复合键组保留为同一条边。
+     */
+    private Map<String, List<Relation>> adjacentRelations(Iterable<Relation> relations) {
+        var adjacent = new LinkedHashMap<String, List<Relation>>();
+        for (var relation : relations) {
+            // 注册两端以支持路径查找和从度量表验证粒度。
+            adjacent.computeIfAbsent(relation.left(), table -> new ArrayList<>())
+                    .add(relation);
+            adjacent.computeIfAbsent(relation.right(), table -> new ArrayList<>())
+                    .add(relation);
+        }
+        return adjacent;
+    }
+
+    /**
+     * 从已接入表向外遍历，按发现顺序登记其余表首次接入的关联。
+     */
+    private Map<String, Relation> reachableRelations(
+            Map<String, List<Relation>> adjacent, Set<String> linked, Relation excluded) {
+        var parents = new LinkedHashMap<String, Relation>();
+        var pending = new ArrayDeque<>(linked);
+        while (!pending.isEmpty()) {
+            // 队列先处理已接入表，再处理新发现的表。
+            var table = pending.remove();
+            for (var relation : adjacent.getOrDefault(table, List.of())) {
+                // 验证绕行时只排除确切关系，另一份同端关系仍可能构成歧义。
+                if (relation == excluded) {
+                    continue;
+                }
+                var next = relation.other(table);
+                if (!linked.contains(next) && !parents.containsKey(next)) {
+                    // 同一张表只进入队列一次，循环关联不会反复遍历。
+                    parents.put(next, relation);
+                    pending.add(next);
+                }
+            }
+        }
+        return parents;
+    }
+
+    /**
+     * 从同版确认读取复合键配对，以字段稳定身份定位两端。
+     */
     private List<Relation> relations(Basis basis) {
         var relations = new ArrayList<Relation>();
         for (var fact : basis.facts().values()) {
@@ -942,8 +1560,10 @@ final class QuerySql {
             for (JsonNode pair : fact.getContent().path("pairs")) {
                 var left = basis.fields().get(pair.path("left").asText());
                 var right = basis.fields().get(pair.path("right").asText());
-                if (left == null || right == null || left.table().equals(right.table())) {
-                    // 不完整的关联不能作为隐式连接使用。
+                if (confirmedColumn(basis, left) == null
+                        || confirmedColumn(basis, right) == null
+                        || left.table().equals(right.table())) {
+                    // 键缺少本片段的表或字段依据时，丢弃整组关联。
                     pairs.clear();
                     break;
                 }
@@ -980,19 +1600,28 @@ final class QuerySql {
         };
     }
 
-    /** 指标文本只用来比对，不直接执行。 */
-    private String normal(String text) {
-        return text.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
-    }
-
     /** 只拼接数据库返回的真实库／模式和表标识。 */
     private String sqlTable(Basis basis, String name, boolean mysql, String database) {
         var object = basis.tables().get(name).entry().observation().structure().object();
-        if (!"TABLE".equals(object.type())) {
+        if (!ordinaryTable(basis, name)) {
             // 首条链路只编译可直接证明血缘的普通表。
             throw new QueryFailure("OUT_OF_SCOPE");
         }
         return quote(mysql ? database : object.schema(), mysql) + "." + quote(object.name(), mysql);
+    }
+
+    /**
+     * 普通表是当前编译器支持的物理连接对象。
+     */
+    private boolean ordinaryTable(Basis basis, String name) {
+        return "TABLE"
+                .equals(basis.tables()
+                        .get(name)
+                        .entry()
+                        .observation()
+                        .structure()
+                        .object()
+                        .type());
     }
 
     /** 模型提议已与真实目录逐项相等，别名由服务端生成。 */
@@ -1007,7 +1636,7 @@ final class QuerySql {
     }
 
     /** 将受控条件映射到明确的日期、数字或文本参数。 */
-    private Object parameter(String type, String value) {
+    private static Object parameter(String type, String value) {
         String nativeType = type.toLowerCase(Locale.ROOT);
         try {
             if (nativeType.equals("date")) {

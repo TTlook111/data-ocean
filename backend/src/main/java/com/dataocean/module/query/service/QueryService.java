@@ -379,8 +379,7 @@ public class QueryService {
             String state = row.state();
             if (hasLiveResult(row)) {
                 // 读结果和依据时使用实际当前规则及固定正式版本。
-                requireReadableResult(row, scope);
-                data = json.read(row.result(), QueryDataVO.class);
+                data = requireReadableResult(row, scope);
                 reasoning = json.read(row.reasoning(), Reasoning.class);
             }
             boolean sql =
@@ -402,7 +401,7 @@ public class QueryService {
                     instant(row.updatedAt()),
                     row.conversationId(),
                     row.runVersion(),
-                    data == null ? null : explanations.view(row.id()),
+                    data == null ? null : explanations.snapshot(row, data),
                     data == null ? null : new QueryAnswerRefVO(row.id(), 1));
         });
     }
@@ -461,9 +460,7 @@ public class QueryService {
         if (hasLiveResult(row)) {
             try {
                 // 查询口径与 SQL 模板沿用结果留存和当前发布资格，不返回原值及参数。
-                requireReadableResult(row, scope);
-                dataScope = feedbackText(
-                        scope, json.read(row.result(), QueryDataVO.class).getScope());
+                dataScope = feedbackText(scope, requireReadableResult(row, scope).getScope());
                 if (reasoning != null && permissions.has("query.sql")) {
                     sql = feedbackText(scope, reasoning.sql());
                 }
@@ -527,13 +524,19 @@ public class QueryService {
                 && row.executedAt().isAfter(LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
     }
 
-    /** 使用当前授权和原绑定，历史记录不能绕过当前规则。 */
-    private void requireReadableResult(Request row, AccessScopeVO scope) {
-        if (!output.signature(scope.getRules()).equals(row.ruleSignature())) {
+    /**
+     * 回读历史快照时使用当前授权、原绑定和与实时查询一致的内容校验。
+     */
+    private QueryDataVO requireReadableResult(Request row, AccessScopeVO scope) {
+        var rules = scope.getRules();
+        if (!output.signature(rules).equals(row.ruleSignature())) {
             // 旧输出签名无法代表当前限制。
             throw BizIllegalException.denied();
         }
         versions.requireForQuery(row.sourceId(), row.bindingId());
+        var data = json.read(row.result(), QueryDataVO.class);
+        output.checkResult(rules, data, json);
+        return data;
     }
 
     /** 订阅沿用当前源权限，完整答复通过结果回看门禁后才随状态交付。 */
@@ -542,7 +545,7 @@ public class QueryService {
             guard.shared();
             var row = owned(id, user);
             var scope = access.requireSource(user, row.sourceId());
-            var explanation = hasLiveResult(row) ? explanations.view(row.id()) : null;
+            var explanation = hasLiveResult(row) ? explanations.view(row.id(), row.sourceId()) : null;
             String text = null;
             if (explanation != null && "COMPLETED".equals(explanation.getStatus())) {
                 // 只发送已核过事实、未过期且当前绑定和输出规则仍允许的正文。

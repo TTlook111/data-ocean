@@ -51,6 +51,12 @@ def test_discovery_returns_located_evidence_without_transient_identifiers() -> N
                     "pairs": [],
                     "fields": ["11"],
                     "citations": ["E1", "E99"],
+                    "metricRules": {
+                        "dateMode": "NONE",
+                        "fixedFilters": [],
+                        "unitMode": "FIXED",
+                        "unit": "件",
+                    },
                 }
             ]
         }
@@ -67,3 +73,40 @@ def test_discovery_returns_located_evidence_without_transient_identifiers() -> N
     assert result["usedNoteIds"] == ["21"]
     assert "citations" not in result["candidates"][0]
     assert [ref["noteId"] for ref in result["candidates"][0]["evidence"]] == ["21"]
+    assert result["candidates"][0]["metricRules"] == {
+        "dateMode": "NONE",
+        "dateFieldId": None,
+        "fixedFilters": [],
+        "unitMode": "FIXED",
+        "unit": "件",
+        "unitFieldId": None,
+    }
+
+
+def test_discovery_keeps_unknown_metric_rules_distinct_from_confirmed_none() -> None:
+    """缺少支付值依据和已知币种列在候选中保持独立。"""
+    answer = DiscoveryAnswer.model_validate(
+        {
+            "candidates": [
+                {
+                    "name": "订单金额",
+                    "meaning": "已支付订单金额",
+                    "rule": "SUM(orders.amount)",
+                    "usage": "仅统计支付订单",
+                    "pairs": [],
+                    "fields": ["11", "12", "14"],
+                    "citations": [],
+                    "metricRules": {
+                        "dateMode": "BUSINESS_DAY",
+                        "dateFieldId": "12",
+                        "unitMode": "COLUMN",
+                        "unitFieldId": "14",
+                    },
+                }
+            ]
+        }
+    )
+    rules = answer.model_dump()["candidates"][0]["metricRules"]
+    assert rules["fixedFilters"] is None
+    assert rules["dateFieldId"] == "12"
+    assert rules["unitFieldId"] == "14"

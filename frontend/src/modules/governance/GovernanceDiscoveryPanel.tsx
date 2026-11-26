@@ -4,15 +4,18 @@ import {
   App,
   Button,
   Checkbox,
+  DatePicker,
   Descriptions,
   Drawer,
   Empty,
   Form,
   Input,
   Pagination,
+  Select,
   Space,
   Tag,
 } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBeforeUnload, useBlocker } from 'react-router';
 import { api, ApiError, mutation, queryString } from '../../shared/api';
@@ -27,6 +30,7 @@ import {
 } from './GovernanceDependencyDialog';
 import { GovernanceSourceDrawer } from './GovernanceSources';
 import type { SourcePeek } from './GovernanceSources';
+import { MetricRulesFields, type FixedFilterMode, type MetricRules } from './MetricRulesFields';
 import { useGenerationTask } from './useGenerationTask';
 
 /**
@@ -50,7 +54,93 @@ type Definition = {
    * 当前指标是否指定为适用条件内的默认口径。
    */
   defaultMetric?: boolean;
+  /** 当前提取或人工核对的指标执行口径。 */
+  metricRules?: MetricRules | null;
+  /** 关系确认的含端点日期窗口。 */
+  relationWindow?: {
+    /** 不限日期或按业务日期范围适用。 */
+    mode?: 'NONE' | 'DATE_RANGE' | null;
+    /** 开放端点留空。 */
+    validFrom?: string | null;
+    validThrough?: string | null;
+  } | null;
 };
+
+/**
+ * 固定筛选选择状态只用于区分未审核和确认无条件，不进入后端定义。
+ */
+type FormDefinition = Definition & { fixedFilterMode?: FixedFilterMode };
+
+/**
+ * 只提交当前选定模式使用的可执行字段，未确认的固定条件保留为空。
+ */
+function metricRules(values: FormDefinition): MetricRules {
+  const rules = values.metricRules;
+  return {
+    dateMode: rules?.dateMode ?? null,
+    dateFieldId: rules?.dateMode === 'BUSINESS_DAY' ? (rules.dateFieldId ?? null) : null,
+    fixedFilters:
+      values.fixedFilterMode === 'NONE'
+        ? []
+        : values.fixedFilterMode === 'FIELDS' && rules?.fixedFilters?.length
+          ? rules.fixedFilters
+          : null,
+    unitMode: rules?.unitMode ?? null,
+    unit: rules?.unitMode === 'FIXED' ? (rules.unit ?? null) : null,
+    unitFieldId: rules?.unitMode === 'COLUMN' ? (rules.unitFieldId ?? null) : null,
+  };
+}
+
+/** 输入与保存都沿用同一日期类型，未选择的模式保持待确认。 */
+function relationWindow(values: FormDefinition): Definition['relationWindow'] {
+  const window = values.relationWindow;
+  if (!window) return null;
+  return {
+    mode: window.mode ?? null,
+    validFrom: window.mode === 'DATE_RANGE' ? (window.validFrom ?? null) : null,
+    validThrough: window.mode === 'DATE_RANGE' ? (window.validThrough ?? null) : null,
+  };
+}
+
+/** 使用已有表单状态保存 ISO 日期，关联窗口支持开放起止端点。 */
+function RelationWindowFields() {
+  const mode = Form.useWatch(['relationWindow', 'mode']);
+  return (
+    <>
+      {/* 确认人在同一治理表单选择能用于查询的业务日期规则。 */}
+      <Form.Item label="日期适用期" name={['relationWindow', 'mode']}>
+        <Select
+          placeholder="请选择日期适用期"
+          options={[
+            { value: 'NONE', label: '不限日期' },
+            { value: 'DATE_RANGE', label: '指定日期范围' },
+          ]}
+        />
+      </Form.Item>
+      {mode === 'DATE_RANGE' && (
+        <Space wrap>
+          {/* 起止日期可以分别确认，字段标签明确包含边界。 */}
+          {(
+            [
+              ['validFrom', '开始日期（含）'],
+              ['validThrough', '结束日期（含）'],
+            ] as const
+          ).map(([field, label]) => (
+            <Form.Item
+              key={field}
+              label={label}
+              name={['relationWindow', field]}
+              getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
+              normalize={(value: Dayjs | null) => value?.format('YYYY-MM-DD') ?? null}
+            >
+              <DatePicker format="YYYY-MM-DD" />
+            </Form.Item>
+          ))}
+        </Space>
+      )}
+    </>
+  );
+}
 
 /**
  * 当次发现保留的结构位置。
@@ -345,7 +435,7 @@ function CandidateEditor({
 }) {
   const session = useSession();
   const { modal, message } = App.useApp();
-  const [form] = Form.useForm<Definition>();
+  const [form] = Form.useForm<FormDefinition>();
   const [peek, setPeek] = useState<SourcePeek>();
   const [structure, setStructure] = useState(false);
   const [dependenciesOpen, setDependenciesOpen] = useState(false);
@@ -362,7 +452,7 @@ function CandidateEditor({
       values,
     }: {
       action: 'SAVE' | 'CONFIRM' | 'REJECT';
-      values?: Definition;
+      values?: FormDefinition;
     }) => {
       // 只有明确修改才提交新的技术依赖，拒绝只保存审核结论。
       const dependencies =
@@ -378,7 +468,17 @@ function CandidateEditor({
               fields: dependencyEdit.fields.map(({ target }) => target),
             }
           : undefined;
-      const body = { ...values, ...dependencies, action };
+      const body = {
+        name: values?.name,
+        meaning: values?.meaning,
+        rule: values?.rule,
+        usage: values?.usage,
+        defaultMetric: values?.defaultMetric,
+        ...dependencies,
+        metricRules: kind === 'METRIC' && values ? metricRules(values) : undefined,
+        relationWindow: kind === 'RELATION' && values ? relationWindow(values) : undefined,
+        action,
+      };
       if (creating) {
         // 同样的人工内容重试时沿用原命令，避免重复建立候选。
         const payload = JSON.stringify(body);
@@ -445,6 +545,15 @@ function CandidateEditor({
     REJECTED: '已拒绝',
   };
   if (!definition) return <Alert type="warning" title="当前权限无法查看该候选依据" />;
+  const initial: FormDefinition = {
+    ...definition,
+    fixedFilterMode:
+      definition.metricRules?.fixedFilters == null
+        ? undefined
+        : definition.metricRules.fixedFilters.length
+          ? 'FIELDS'
+          : 'NONE',
+  };
   const fields = new Map(
     candidate.basis.structures.map((ref) => [
       ref.fieldId,
@@ -499,13 +608,18 @@ function CandidateEditor({
             <Form
               form={form}
               layout="vertical"
-              initialValues={definition}
+              initialValues={initial}
               disabled={!edit || save.isPending}
               onValuesChange={() => {
                 // 与当前修订比较，恢复原值不触发离开保护。
                 const values = form.getFieldsValue();
                 const modified =
                   Boolean(dependencyEdit) ||
+                  (kind === 'METRIC' &&
+                    JSON.stringify(metricRules(values)) !== JSON.stringify(metricRules(initial))) ||
+                  (kind === 'RELATION' &&
+                    JSON.stringify(relationWindow(values)) !==
+                      JSON.stringify(relationWindow(initial))) ||
                   (['name', 'meaning', 'rule', 'usage', 'defaultMetric'] as const).some(
                     (key) => values[key] !== definition[key],
                   );
@@ -518,10 +632,7 @@ function CandidateEditor({
               <Form.Item label={label === '关联' ? '关联条件' : '指标含义'} name="meaning">
                 <Input.TextArea rows={2} maxLength={4000} />
               </Form.Item>
-              <Form.Item
-                label={label === '关联' ? '数量关系与完整键' : '公式与筛选条件'}
-                name="rule"
-              >
+              <Form.Item label={label === '关联' ? '数量关系与完整键' : '计算公式'} name="rule">
                 <Input.TextArea rows={2} maxLength={4000} />
               </Form.Item>
               <Form.Item
@@ -530,10 +641,19 @@ function CandidateEditor({
               >
                 <Input.TextArea rows={2} maxLength={4000} />
               </Form.Item>
+              {/* 关联说明之外，独立确认进入查询编译器的日期规则。 */}
+              {kind === 'RELATION' && <RelationWindowFields />}
               {label === '指标' && (
-                <Form.Item name="defaultMetric" valuePropName="checked">
-                  <Checkbox>设为适用条件下的默认口径</Checkbox>
-                </Form.Item>
+                <>
+                  {/* 治理人员在原表单确认 AI 提取的口径，可从已选依赖重新定字段和值。 */}
+                  <MetricRulesFields
+                    dependencies={dependencies.fields}
+                    disabled={!edit || save.isPending}
+                  />
+                  <Form.Item name="defaultMetric" valuePropName="checked">
+                    <Checkbox>设为适用条件下的默认口径</Checkbox>
+                  </Form.Item>
+                </>
               )}
             </Form>
             {/* 技术依赖与业务文字分别核对，确认前可明确调整。 */}

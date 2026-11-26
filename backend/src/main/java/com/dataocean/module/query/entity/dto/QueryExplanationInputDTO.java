@@ -1,7 +1,8 @@
 package com.dataocean.module.query.entity.dto;
 
 import com.dataocean.module.model.service.ModelInvocation;
-import com.dataocean.module.query.entity.vo.QueryDataVO;
+
+import java.util.List;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -23,12 +24,14 @@ public class QueryExplanationInputDTO {
     private ModelInvocation model;
 
     /**
-     * 当前轮次使用的业务问题。
+     * 已执行快照中允许展示的统计范围。
      */
-    private String question;
+    @ToString.Exclude
+    private String scope;
 
     /**
-     * 经当前授权复核的有限结果。
+     * 从可披露快照生成的事实句，序号从 1 开始。
      */
-    private QueryDataVO result;
+    @ToString.Exclude
+    private List<String> facts;
 }

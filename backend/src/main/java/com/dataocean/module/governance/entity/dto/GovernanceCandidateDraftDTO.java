@@ -35,7 +35,7 @@ public class GovernanceCandidateDraftDTO {
     private String meaning;
 
     /**
-     * 数量关系、完整键或指标公式及筛选条件。
+     * 关联的数量关系与完整键，或指标的纯计算公式。
      */
     @Size(max = 4000)
     private String rule;
@@ -50,6 +50,18 @@ public class GovernanceCandidateDraftDTO {
      * 指标是否为其业务口径的默认项。空值沿用所编辑版本。
      */
     private Boolean defaultMetric;
+
+    /**
+     * 指标的执行口径。省略时保留上一修订，关联候选不接收此项。
+     */
+    @Valid
+    private MetricRulesDTO metricRules;
+
+    /**
+     * 关联的业务日期适用期，未提交时沿用已有修订。
+     */
+    @Valid
+    private RelationWindowDTO relationWindow;
 
     /**
      * 人工重选的完整连接字段对。空值保留已保存技术定义。

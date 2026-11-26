@@ -48,6 +48,96 @@ public class SourceJdbc {
             Pattern.compile("(?i)^GRANT (?:SELECT|SHOW VIEW|USAGE)(?:, (?:SELECT|SHOW VIEW))* ON .+ TO .+$");
 
     /**
+     * 用真实列的字符集或排序规则比较两个参数，只访问目录与标量，不读取业务行。
+     */
+    public boolean compareText(
+            Connection connection, Type type, ObjectRef object, String field, String first, String second, int seconds)
+            throws SQLException {
+        boolean mysql = type == Type.MYSQL;
+        String metadata = mysql
+                ? "SELECT CHARACTER_SET_NAME, COLLATION_NAME FROM information_schema.COLUMNS"
+                : "SELECT collation_schema, collation_name, data_type" + " FROM information_schema.columns";
+        String expression;
+        try (var statement = connection.prepareStatement(
+                metadata + " WHERE table_schema = ? AND table_name = ? AND column_name = ?")) {
+            // 用事实目录标识定位列，值不拼入元数据查询。
+            statement.setQueryTimeout(seconds);
+            statement.setString(1, mysql ? object.catalog() : object.schema());
+            statement.setString(2, object.name());
+            statement.setString(3, field);
+            try (var row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new SQLException("当前源列缺少比较规则");
+                }
+                expression = mysql ? mysqlTextExpression(row) : postgresTextExpression(row);
+                if (row.next()) {
+                    throw new SQLException("当前源列身份不唯一");
+                }
+            }
+        }
+        try (var statement = connection.prepareStatement("SELECT " + expression + " = " + expression)) {
+            // 只对两个已绑定的参数调用数据库自己的等值语义。
+            statement.setQueryTimeout(seconds);
+            statement.setString(1, first);
+            statement.setString(2, second);
+            try (var row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new SQLException("源库未返回比较结果");
+                }
+                var equal = row.getBoolean(1);
+                if (row.wasNull() || statement.getWarnings() != null) {
+                    throw new SQLException("源库无法确定比较结果");
+                }
+                return equal;
+            }
+        }
+    }
+
+    /**
+     * MySQL 的常量按列的字符集和排序规则转换，包括大小写及空格规则。
+     */
+    private String mysqlTextExpression(ResultSet metadata) throws SQLException {
+        var charset = metadata.getString(1);
+        var collation = metadata.getString(2);
+        if (charset == null
+                || collation == null
+                || !charset.matches("[A-Za-z0-9_]+")
+                || !collation.matches("[A-Za-z0-9_]+")) {
+            // 仅允许服务端实际返回的字符集标识进入 SQL。
+            throw new SQLException("当前 MySQL 列的字符比较规则不可用");
+        }
+        return "(CAST(? AS CHAR CHARACTER SET " + charset + ") COLLATE " + collation + ")";
+    }
+
+    /**
+     * PostgreSQL 保留定长字符的比较类型和目录指定的排序模式。
+     */
+    private String postgresTextExpression(ResultSet metadata) throws SQLException {
+        var schema = metadata.getString(1);
+        var collation = metadata.getString(2);
+        var dataType = metadata.getString(3);
+        String cast;
+        if ("character".equals(dataType)) {
+            // 保留定长字符的运算语义，又不截断用户完整参数。
+            cast = "CAST(? AS pg_catalog.bpchar)";
+        } else if ("text".equals(dataType) || "character varying".equals(dataType)) {
+            cast = "CAST(? AS TEXT)";
+        } else {
+            // 不对未支持的原生类型猜测字符串运算规则。
+            throw new SQLException("当前 PostgreSQL 列的字符比较类型不可用");
+        }
+        if (collation == null) {
+            // 目录的空排序模式表示使用数据库默认规则。
+            return cast;
+        }
+        if (schema == null) {
+            throw new SQLException("当前列的排序规则缺少模式");
+        }
+        return "(" + cast + " COLLATE \"" + schema.replace("\"", "\"\"") + "\".\"" + collation.replace("\"", "\"\"")
+                + "\")";
+    }
+
+    /**
      * 连接当前目标，强制 TLS 和认证证书，密码仅传给 JDBC 属性。
      */
     public Connection open(SourceConnection source, String password, String marker) throws SQLException {

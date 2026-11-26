@@ -18,7 +18,7 @@ public class QueryExplanationVO {
     private int revision;
 
     /**
-     * 当前解释的实际生成状态。
+     * 当前解释的展示状态。NOT_GENERATED 表示没有实际生成过的说明。
      */
     private String status;
 
@@ -26,4 +26,9 @@ public class QueryExplanationVO {
      * 经过现行规则允许返回的文字内容。
      */
     private String text;
+
+    /**
+     * 当前请求无法继续生成说明时的原因。命令回放时也按最新修订判断。
+     */
+    private String blockedReason;
 }

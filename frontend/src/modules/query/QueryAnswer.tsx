@@ -109,6 +109,13 @@ export function QueryAnswer({
   const trend = trendFromResult(result);
   const explanation = row.explanation?.status === 'COMPLETED' ? row.explanation.text?.trim() : null;
   const thinking = explaining(row);
+  const explanationStatus = row.explanation?.status;
+  const block = row.explanation?.blockedReason;
+  const canExplainAgain =
+    !block &&
+    (explanationStatus === 'NOT_GENERATED' ||
+      explanationStatus === 'FAILED' ||
+      explanationStatus === 'STOPPED');
   const waitingForAnswer = metric && thinking;
   const hasBasis = Boolean(row.evidence || result.scope || row.sql);
   // 历史评价仍只在第一次与对应回答交互时读取。
@@ -222,12 +229,20 @@ export function QueryAnswer({
             )}
           </div>
         )}
-        {(row.explanation?.status === 'FAILED' || row.explanation?.status === 'STOPPED') && (
+        {/* 后端返回的原因优先显示，存在限制时没有生成或重试动作。 */}
+        {(block || explanationStatus === 'UNAVAILABLE') && (
+          <div className={styles.explanationState}>{block ?? '当前数据源未启用结果说明'}</div>
+        )}
+        {canExplainAgain && (
           <div className={styles.explanationState}>
-            {row.explanation.status === 'FAILED' ? '结果说明生成失败' : '已停止说明'}
+            {explanationStatus === 'NOT_GENERATED'
+              ? '尚未生成结果说明'
+              : explanationStatus === 'FAILED'
+                ? '结果说明生成失败'
+                : '已停止说明'}
             {onExplainAgain && (
               <Button type="link" size="small" onClick={onExplainAgain}>
-                重试说明
+                {explanationStatus === 'NOT_GENERATED' ? '生成说明' : '重试说明'}
               </Button>
             )}
           </div>

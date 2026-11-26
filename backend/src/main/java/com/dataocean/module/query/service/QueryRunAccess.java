@@ -3,6 +3,7 @@ package com.dataocean.module.query.service;
 import static com.dataocean.module.query.service.QueryProtocol.TERMINAL;
 
 import com.dataocean.module.access.entity.vo.AccessScopeVO;
+import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.access.service.AccessScopeService;
 import com.dataocean.module.datasource.service.GovernanceCatalog;
 import com.dataocean.module.iam.service.ServiceActorPermission;
@@ -12,6 +13,7 @@ import com.dataocean.module.query.mapper.QueryRequestMapper.Request;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
@@ -84,18 +86,20 @@ class QueryRunAccess {
     /**
      * 当前规则的变更必须重新请求执行，本轮旧模型检查不复用。
      */
-    void requireRules(Request row, String signature) {
-        if (!signature.equals(output.signature(checked(row).getRules()))) {
+    List<OutputRuleVO> requireRules(Request row, String signature) {
+        var rules = checked(row).getRules();
+        if (!signature.equals(output.signature(rules))) {
             // 继续执行必须保持输出权限的原受控范围。
             throw QueryFailure.denied();
         }
+        return rules;
     }
 
     /**
-     * 冻结的绑定、权限和连接配置在执行及交付前原子复核。
+     * 冻结的绑定、权限和连接配置在执行及交付前原子复核，并提供已核对的当前规则。
      */
-    void verifyBinding(Request row, long binding, String signature, Long configuration) {
-        requireRules(row, signature);
+    List<OutputRuleVO> verifyBinding(Request row, long binding, String signature, Long configuration) {
+        var rules = requireRules(row, signature);
         asActor(row, () -> {
             // 连接修订和发布资格均以同一可信发起人检查。
             if (configuration != null
@@ -106,6 +110,7 @@ class QueryRunAccess {
             }
             return versions.requireForQuery(row.sourceId(), binding);
         });
+        return rules;
     }
 
     /**

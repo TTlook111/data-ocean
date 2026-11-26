@@ -12,15 +12,28 @@ DISCOVERY_PROMPT = (
     "RELATION：查找连接当前表的完整外键，包括其他表指向当前表的外键，"
     "以及资料明确说明的两端和关联键。为每条有据的关系填写全部字段对"
     " pairs（每项为 {left, right}，值为字段 ID），fields 为空数组。"
-    "meaning 写关联用途和条件，rule 写完整键及已知数量关系，usage 写适用边界。\n"
+    "meaning 写关联用途和条件，rule 写完整键及已知数量关系，usage 写适用边界。"
+    "资料明确日期适用期时填写 relationWindow，mode 为 DATE_RANGE，validFrom 和 validThrough 为"
+    "包含当天的 YYYY-MM-DD，开放边界填 null。资料明确没有日期限制才填 mode=NONE。"
+    "不能确定日期或另有条件时留 null，由人工核对。METRIC 的 relationWindow 留 null。\n"
     "METRIC：优先提取资料明确定义且能用当前表字段计算的指标。"
     "可根据当前表真实的主键、数量或金额字段提出有据的计算线索。"
     "pairs 为空数组，fields 填写公式和筛选所用的全部字段 ID。"
-    "meaning 写统计含义，rule 写公式与已知筛选，usage 写已知单位和统计边界。\n"
+    "meaning 写统计含义，rule 只写计算公式。"
+    "可用 SUM(表.列)、SUM(表.列 - 表.列) 或 COUNT(DISTINCT 表.列)。"
+    "公式的字段可以带模式名。筛选只写在 metricRules.fixedFilters，usage 写统计边界说明。\n"
+    "METRIC 的 metricRules 是待人工确认的可执行口径。dateMode 为 NONE 或 BUSINESS_DAY，"
+    "BUSINESS_DAY 的 dateFieldId 必须是资料指明的实际 DATE 字段 ID。"
+    "fixedFilters 是文档必需的单值等值条件数组，每项含 fieldId 和原库字符串 value，"
+    "例如仅当资料明确说明时才把已支付对应为实际 PAID 取值。明确没有固定条件才填空数组。"
+    "unitMode 为 NONE、FIXED 或 COLUMN。FIXED 时 unit 填明确固定的计量单位或币种；"
+    "COLUMN 时 unitFieldId 填币种或计量单位的实际文本列 ID，代表不允许不同列值直接相加。"
+    "这三类规则的字段都要纳入 fields。未能从证据确定的模式、条件和字段留 null，"
+    "不要用 NONE 或空数组代替未知。RELATION 的 metricRules 留 null。\n"
     "物理字段在说明中按实际表名.列名书写。未知规则、筛选及单位不可补造。"
     "如使用资料，citations 必须填写相应 sourceExcerpts 条目的 id。\n"
     '只返回 JSON 对象 {"candidates":[...]}。每个候选包含 name、meaning、rule、usage 四个字符串'
-    "以及 pairs、fields、citations 三个数组。"
+    "以及 pairs、fields、citations 三个数组、metricRules 和 relationWindow。"
     "未知的说明留空字符串，未引用资料时 citations 为空数组。"
     "最多返回六项。确实找不到符合以上要求的结构或业务依据时才返回空数组。"
 )
@@ -82,6 +95,46 @@ class DiscoveryScope(BaseModel):
     tables: list[TableSummary]
 
 
+class MetricFilter(BaseModel):
+    """AI 建议的原字段等值条件，等待治理核对。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 同一目录中的实际字段。
+    fieldId: str  # noqa: N815
+
+    # 已知源库取值，不按中文显示值猜测。
+    value: str = Field(max_length=120)
+
+
+class MetricRules(BaseModel):
+    """日期、固定筛选及计量单位的待确认候选。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 缺少依据时留空，NONE 仅表示证据明确无默认日期。
+    dateMode: Literal["NONE", "BUSINESS_DAY"] | None = None  # noqa: N815
+    dateFieldId: str | None = None  # noqa: N815
+
+    # 空数组明确无条件，null 表示未核实。
+    fixedFilters: list[MetricFilter] | None = Field(default=None, max_length=8)  # noqa: N815
+
+    # 固定计量单位与源列校验互斥。
+    unitMode: Literal["NONE", "FIXED", "COLUMN"] | None = None  # noqa: N815
+    unit: str | None = Field(default=None, max_length=32)
+    unitFieldId: str | None = None  # noqa: N815
+
+
+class RelationWindow(BaseModel):
+    """关系的待确认日期边界。"""
+
+    model_config = ConfigDict(extra="forbid")
+    # 仅已知明确窗口时填写，起止日期均包含当天。
+    mode: Literal["NONE", "DATE_RANGE"]
+    validFrom: str | None = Field(default=None, max_length=10)  # noqa: N815
+    validThrough: str | None = Field(default=None, max_length=10)  # noqa: N815
+
+
 class Candidate(BaseModel):
     """模型提出的待确认定义和可对账标识。"""
 
@@ -93,7 +146,7 @@ class Candidate(BaseModel):
     # 业务含义或关联条件。
     meaning: str
 
-    # 数量关系、完整键或指标公式及筛选。
+    # 数量关系、完整键或指标的纯计算公式。
     rule: str
 
     # 使用边界。
@@ -107,6 +160,11 @@ class Candidate(BaseModel):
 
     # 实际所采用的资料编号。
     citations: list[str]
+
+    # 关联候选及暂无法提取规则的指标留空。
+    metricRules: MetricRules | None = None  # noqa: N815
+    # 资料可确证的日期窗口，治理确认前仍是候选。
+    relationWindow: RelationWindow | None = None  # noqa: N815
 
 
 class DiscoveryAnswer(BaseModel):

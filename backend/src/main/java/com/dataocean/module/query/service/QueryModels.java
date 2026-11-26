@@ -8,8 +8,7 @@ import com.dataocean.module.query.entity.dto.QueryExplanationInputDTO;
 import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
 import com.dataocean.module.query.entity.dto.QueryModelInputDTO;
 import com.dataocean.module.query.entity.dto.QueryRerankInputDTO;
-import com.dataocean.module.query.entity.vo.QueryDataVO;
-import com.dataocean.module.query.entity.vo.QueryExplanationTextVO;
+import com.dataocean.module.query.entity.vo.QueryExplanationSelectionVO;
 import com.dataocean.module.query.mapper.QueryAiStepMapper;
 import com.dataocean.module.query.service.QueryProtocol.Check;
 import com.dataocean.module.query.service.QueryProtocol.HistorySummary;
@@ -117,10 +116,15 @@ class QueryModels {
         }
     }
 
+    /** 查询和结果说明均须在部署允许的数据源范围内。 */
+    boolean explanationSourceAdmitted(long source) {
+        return allowedSources.contains(source) && explanationSources.contains(source);
+    }
+
     /** 未显式批准业务结果外发时停止解释，已交付结果仍保持可用。 */
     void requireExplanationScope(long source) {
         requireScope(source);
-        if (!explanationSources.contains(source)) {
+        if (!explanationSourceAdmitted(source)) {
             throw QueryFailure.denied();
         }
     }
@@ -164,19 +168,40 @@ class QueryModels {
     /**
      * 使用问题理解自己的配置整理检索表述，恢复时回读同一阶段的已登记结果。
      */
-    String understand(Run run, long revision, int seconds, String question, Memory memory) {
-        var query = contextStep(run, run.key("intent"), "/intent", revision, Math.min(28, seconds),
-                question, memory, Intent.class).retrievalQuery();
+    Intent understand(Run run, long revision, int seconds, String question, Memory memory) {
+        return understood(run, run.key("intent"), revision, seconds, question, memory);
+    }
+
+    /**
+     * 单独核对澄清原文，使用独立回执避免与拼接式旧请求混用。
+     */
+    Intent understandSupplement(Run run, long revision, int seconds, String supplement, Memory memory) {
+        return understood(run, run.key("supplement-scope"), revision, seconds, supplement, memory);
+    }
+
+    /**
+     * 原问和补充使用同一配置及范围协议。
+     */
+    private Intent understood(Run run, String step, long revision, int seconds, String text, Memory memory) {
+        var intent = contextStep(run, step, "/intent", revision, Math.min(28, seconds), text, memory, Intent.class);
+        var query = intent.retrievalQuery();
         if (query == null || query.isBlank() || query.codePointCount(0, query.length()) > 600) {
             // 旧版或异常响应不能作为下一步检索输入。
             throw QueryFailure.technical();
         }
-        return query.strip();
+        return new Intent(query.strip(), intent.conditions(), intent.ambiguous());
     }
 
     /** 上下文节点恢复只读取冻结修订及原输入的回执，无需传递模型凭据。 */
-    private <T> T contextStep(Run run, String step, String path, long revision, int seconds, String question,
-            Memory memory, Class<T> type) {
+    private <T> T contextStep(
+            Run run,
+            String step,
+            String path,
+            long revision,
+            int seconds,
+            String question,
+            Memory memory,
+            Class<T> type) {
         boolean lookup = steps.issue(run.id(), run.version(), step) != 1;
         var reference = new QueryContextInputDTO<>(models.revisionReference(revision), question, memory);
         if (lookup) {
@@ -215,7 +240,22 @@ class QueryModels {
             List<QueryEvidenceSnippetDTO> evidence,
             List<OutputRuleVO> rules,
             Memory memory) {
-        return step(run, "plan", revision, seconds, question, evidence, rules, null, memory, Plan.class);
+        return step(run, "plan", revision, seconds, question, evidence, rules, null, memory, null, null, Plan.class);
+    }
+
+    /**
+     * 新轮次向规划节点提供与发布证据分开的用户条件。
+     */
+    Plan plan(
+            Run run,
+            long revision,
+            int seconds,
+            String question,
+            List<QueryEvidenceSnippetDTO> evidence,
+            List<OutputRuleVO> rules,
+            Memory memory,
+            List<QueryProtocol.RequestedTerm> terms) {
+        return step(run, "plan", revision, seconds, question, evidence, rules, null, memory, terms, null, Plan.class);
     }
 
     /** 提交一次确定因类型不匹配被拒绝的提议，同一动作恢复时仍用原回执。 */
@@ -229,7 +269,18 @@ class QueryModels {
             Plan previous,
             Memory memory) {
         return step(
-                run, "repair-parameter", revision, seconds, question, evidence, rules, previous, memory, Plan.class);
+                run,
+                "repair-parameter",
+                revision,
+                seconds,
+                question,
+                evidence,
+                rules,
+                previous,
+                memory,
+                null,
+                null,
+                Plan.class);
     }
 
     /** 从独立节点取得语义与当前输出条件的明确判断。 */
@@ -243,17 +294,48 @@ class QueryModels {
             List<OutputRuleVO> rules,
             Plan plan,
             Memory memory) {
-        return step(run, kind, revision, seconds, question, evidence, rules, plan, memory, Check.class)
+        return step(run, kind, revision, seconds, question, evidence, rules, plan, memory, null, null, Check.class)
                 .decision();
     }
 
-    /** 解释独立复用原结果，不构造 SQL 或访问业务数据库。 */
-    String explain(String id, int attempt, long revision, int seconds, String question, QueryDataVO result) {
+    /**
+     * 独立复核实际查询范围与未采用候选的排除原因。
+     */
+    String checkSelection(
+            Run run,
+            long revision,
+            int seconds,
+            String question,
+            List<QueryEvidenceSnippetDTO> evidence,
+            List<OutputRuleVO> rules,
+            Plan plan,
+            Memory memory,
+            QueryProtocol.SelectionReview selection) {
+        return step(
+                        run,
+                        "semantic",
+                        revision,
+                        seconds,
+                        question,
+                        evidence,
+                        rules,
+                        plan,
+                        memory,
+                        null,
+                        selection,
+                        Check.class)
+                .decision();
+    }
+
+    /**
+     * 模型只选择已获准的结果事实，保留现有调用回执与说明修订。
+     */
+    List<Integer> explain(String id, int attempt, long revision, int seconds, String scope, List<String> facts) {
         var step = "explanation-" + attempt;
         boolean lookup = steps.issueExplanation(id, attempt, step) != 1;
-        var input = new QueryExplanationInputDTO(models.invocation(revision, seconds), question, result);
-        return call(id, step, lookup, "/explanation", input, QueryExplanationTextVO.class)
-                .getText();
+        var input = new QueryExplanationInputDTO(models.invocation(revision, seconds), scope, facts);
+        return call(id, step, lookup, "/explanation", input, QueryExplanationSelectionVO.class)
+                .getFactIds();
     }
 
     /** 当前部署、版本和活动时间同时约束实际调用。 */
@@ -267,6 +349,8 @@ class QueryModels {
             List<OutputRuleVO> rules,
             Plan plan,
             Memory memory,
+            List<QueryProtocol.RequestedTerm> terms,
+            QueryProtocol.SelectionReview selection,
             Class<T> type) {
         var input = new QueryModelInputDTO(
                 models.invocation(revision, Math.min(28, seconds)),
@@ -274,7 +358,9 @@ class QueryModels {
                 evidence,
                 rules.stream().map(OutputRuleVO::getContent).toList(),
                 plan,
-                memory);
+                memory,
+                terms,
+                selection);
         return call(run, kind, "/model/" + kind, input, type);
     }
 

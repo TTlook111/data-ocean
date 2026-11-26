@@ -21,7 +21,7 @@ import { activeState, explaining } from './QueryAnswer';
 import { FeedbackInbox } from './FeedbackNotices';
 import { QueryIconButton } from './QueryIconButton';
 import { HistoricalQueryTurn, QueryTurn, queryTurnOptions } from './QueryTurn';
-import type { Conversation, Snapshot, Source, Turn } from './types';
+import type { Conversation, Explanation, Snapshot, Source, Turn } from './types';
 import styles from './query.module.css';
 
 /** 轮次正文分批读取，长期会话不会一次加载全部结果表格。 */
@@ -36,6 +36,29 @@ type QueryUpdate = Pick<Snapshot, 'id' | 'runVersion' | 'state'> & {
   /** 服务端已核验的完整答复。 */
   explanationText: string | null;
 };
+
+/** 恢复本标签页中同一用户同一轮次尚未核实的命令编号。 */
+function readExplanationCommand(storageKey: string) {
+  try {
+    const command = sessionStorage.getItem(storageKey);
+    return command && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(command)
+      ? command
+      : null;
+  } catch {
+    // 浏览器禁用存储时，当前页面仍可从内存恢复。
+    return null;
+  }
+}
+
+/** 只存命令编号。收到了受理回执后清除当前轮次的恢复记录。 */
+function saveExplanationCommand(storageKey: string, command?: string) {
+  try {
+    if (command) sessionStorage.setItem(storageKey, command);
+    else sessionStorage.removeItem(storageKey);
+  } catch {
+    // 存储不可用时保留内存中的原编号。
+  }
+}
 
 /**
  * 桌面问数工作台，使用独立工作区维持原型的历史、来源和对话层次。
@@ -69,7 +92,7 @@ export function QueryWorkbench({
   const [message, setMessage] = useState('');
   const [historyWindow, setHistoryWindow] = useState({ context: '', before: 0, after: 0 });
   const pending = useRef<{ signature: string; key: string } | null>(null);
-  const explainCommand = useRef<{ id: string; key: string; sending: boolean } | null>(null);
+  const explainCommands = useRef(new Map<string, { key: string; sending: boolean }>());
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const currentTurnRef = useRef<HTMLDivElement>(null);
   const anchoredTurn = useRef('');
@@ -270,27 +293,61 @@ export function QueryWorkbench({
   }
 
   /**
-   * 回包丢失时保持同一解释操作编号，成功后回读独立修订。
+   * 先确认回包不明的说明命令，必要时为本次点击提交新修订。
    */
   async function explainAgain() {
-    if (explainCommand.current?.sending) return;
-    if (explainCommand.current?.id !== id) {
-      explainCommand.current = { id, key: crypto.randomUUID(), sending: false };
-    }
-    const command = explainCommand.current;
+    const visibleRevision = row?.explanation?.revision;
+    const storageKey = `dataocean:query-explanation:${session.userId}:${id}`;
+    const pendingCommand = explainCommands.current.get(storageKey);
+    if (!visibleRevision || pendingCommand?.sending) return;
+
+    // 每个轮次各自保留未核实的命令，切换到其他轮次仍可操作。
+    const command = pendingCommand ?? {
+      key: readExplanationCommand(storageKey) ?? crypto.randomUUID(),
+      sending: false,
+    };
+    explainCommands.current.set(storageKey, command);
+    const path = '/query/requests/' + id + '/explanations';
+    let confirmed = false;
     command.sending = true;
+    saveExplanationCommand(storageKey, command.key);
     setMessage('');
     try {
-      await api('/query/requests/' + id + '/explanations', {
+      // 服务端返回实际受理修订，并用当前最新状态判断能否再生成。
+      const receipt = await api<Explanation>(path, {
         method: 'POST',
         command: command.key,
       });
-      explainCommand.current = null;
-      await detail.refetch();
+      if (
+        receipt.revision <= visibleRevision &&
+        !receipt.blockedReason &&
+        visibleContext.current === context
+      ) {
+        // 已看到这份旧修订的结果，本次点击需要新编号。此处也保留未确认的新编号。
+        command.key = crypto.randomUUID();
+        saveExplanationCommand(storageKey, command.key);
+        await api<Explanation>(path, { method: 'POST', command: command.key });
+      }
+      confirmed = true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '暂时无法重试说明。');
-      await detail.refetch();
+      if (visibleContext.current === context) {
+        // 迟到的回执只影响原轮次，服务端拒绝原因仍可在当前轮次显示。
+        setMessage(error instanceof Error ? error.message : '暂时无法重试说明。');
+      }
     } finally {
+      // 用原轮次的快照刷新已受理的进度，回读期间仍阻止重复点击。
+      await cache.invalidateQueries({
+        queryKey: queryTurnOptions(source, id).queryKey,
+        exact: true,
+      });
+      if (confirmed) {
+        // 仅清理本轮已确认的命令。
+        explainCommands.current.delete(storageKey);
+        if (readExplanationCommand(storageKey) === command.key) {
+          // 迟到的回执不能清理重新挂载后写入的其他命令。
+          saveExplanationCommand(storageKey);
+        }
+      }
       command.sending = false;
     }
   }

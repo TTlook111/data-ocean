@@ -17,6 +17,7 @@ import com.dataocean.module.datasource.service.GovernanceCatalog.Source;
 import com.dataocean.module.datasource.source.SourceConnection;
 import com.dataocean.module.datasource.source.SourceConnectionProperties;
 import com.dataocean.module.datasource.source.SourceJdbc;
+import com.dataocean.module.datasource.source.SourceMetadata.Key;
 import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
@@ -70,18 +71,26 @@ class QueryCrossSourceIT {
                         table(
                                 runtime,
                                 "daily_facts",
+                                List.of(),
                                 col(1, "zone_id", "int"),
                                 col(2, "business_day", "date"),
                                 col(3, "amount", "decimal(12,3)"),
                                 col(4, "uom", "varchar(12)")),
-                "zone", table(runtime, "zone", col(5, "id", "int"), col(6, "name", "varchar(60)")));
+                "zone",
+                        table(
+                                runtime,
+                                "zone",
+                                List.of(new Key("PRIMARY", "id", 1, null, null, true)),
+                                col(5, "id", "int"),
+                                col(6, "name", "varchar(60)")));
         var metric = fact(
                 "9",
                 "METRIC",
                 "净用电量",
                 """
                 {"rule":"SUM(daily_facts.amount)","meaning":"采集读数净额",
-                 "usage":"按业务日期计算，同组计量单位必须一致。"}
+                 "usage":"按业务日期计算，同组计量单位必须一致。",
+                 "metricRules":{"dateMode":"BUSINESS_DAY","dateFieldId":"2","fixedFilters":[],"unitMode":"COLUMN","unitFieldId":"4"}}
                 """,
                 "1",
                 "2",
@@ -163,6 +172,7 @@ class QueryCrossSourceIT {
         var table = table(
                 runtime,
                 "daily_facts",
+                List.of(),
                 col(1, "amount", "int"),
                 col(2, "business_day", "date"),
                 col(3, "route_code", "varchar(30)"),
@@ -172,7 +182,8 @@ class QueryCrossSourceIT {
                 "METRIC",
                 "签收运单量",
                 """
-                {"rule":"COUNT(DISTINCT daily_facts.amount)","meaning":"运单号去重","usage":"单位为件"}
+                {"rule":"COUNT(DISTINCT daily_facts.amount)","meaning":"运单号去重","usage":"单位为件",
+                 "metricRules":{"dateMode":"NONE","fixedFilters":[],"unitMode":"FIXED","unit":"件"}}
                 """);
         var basis = new Basis(
                 runtime.source(),
@@ -263,11 +274,11 @@ class QueryCrossSourceIT {
     }
 
     /**
-     * 测试表保留源端原始标识和物理字段类型。
+     * 测试目录保留合成库声明的物理主键、表名和字段类型。
      */
-    private Table table(Runtime runtime, String name, Column... columns) {
+    private Table table(Runtime runtime, String name, List<Key> primary, Column... columns) {
         var ref = new ObjectRef(runtime.destination().database(), "", name, "TABLE", null, null, null);
-        var structure = new Structure(ref, List.of(), List.of(), List.of(), List.of());
+        var structure = new Structure(ref, List.of(), primary, List.of(), List.of());
         var observation = new Observation(1, 1, 4L, 4L, null, null, null, structure, null);
         return new Table(new Entry(1, 1, false, observation, List.of(columns)), Map.of());
     }

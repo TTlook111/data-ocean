@@ -26,10 +26,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * 补齐大量结果、可疑执行账号、计量字段与源端取消失败。
@@ -115,11 +118,45 @@ class QueryJdbcTest {
         when(rows.next()).thenReturn(true, true, false);
         when(rows.getString(1)).thenReturn("4.0");
         when(rows.getString(2)).thenReturn("kWh", "MWh");
-        when(rows.getString(3)).thenReturn("kWh", "MWh");
+        when(rows.getBoolean(3)).thenReturn(true);
         when(rows.getBoolean(4)).thenReturn(true);
         assertThatThrownBy(() -> query.execute(source, "x", plan(true), () -> 2, permit))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("KNOWLEDGE_INSUFFICIENT");
+    }
+
+    /**
+     * 按查询核验列区分有效单位、混用、空白、空计数和缺失单位。
+     */
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "110|kg_CO2e|true|true|true",
+                "110|' '|true|true|false",
+                "110|mWh|false|true|false",
+                "0||false|true|true",
+                "110||false|false|false"
+            })
+    void deliversOnlyVerifiedUnitsOrAnEmptyCount(
+            String value, String unit, boolean uniform, boolean complete, boolean delivers) throws SQLException {
+        when(rows.next()).thenReturn(true, false);
+        when(rows.getString(1)).thenReturn(value);
+        when(rows.getString(2)).thenReturn(unit);
+        when(rows.getBoolean(3)).thenReturn(uniform);
+        when(rows.getBoolean(4)).thenReturn(complete);
+
+        if (delivers) {
+            // 零值保留为空范围的真实计数，非空范围采用确认通过的实际单位。
+            var data = query.execute(source, "x", plan(true), () -> 2, permit);
+            assertThat(data.getRows()).containsExactly(List.of(value));
+            assertThat(data.getUnit()).isEqualTo(unit == null ? "" : unit);
+        } else {
+            // 混用、空白及参与行缺少单位都不能交付金额。
+            assertThatThrownBy(() -> query.execute(source, "x", plan(true), () -> 2, permit))
+                    .isInstanceOf(QueryFailure.class)
+                    .hasMessage("KNOWLEDGE_INSUFFICIENT");
+        }
     }
 
     /**
@@ -131,10 +168,11 @@ class QueryJdbcTest {
                 List.of("zone-a"),
                 List.of(new QueryColumnVO("value", "读数")),
                 List.of(),
-                "kWh",
+                verifyUnit ? "" : "kWh",
                 "",
                 verifyUnit,
                 null,
-                null);
+                null,
+                Set.of());
     }
 }
