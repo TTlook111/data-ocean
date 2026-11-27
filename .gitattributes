@@ -1,2 +1,5 @@
 # 公司与家里统一 Java 源文件的检出换行，Git 与 Spotless 共用此规则。
 *.java text eol=lf
+
+prototypes/flows/*.html linguist-documentation
+.archify/explainer-feedback-20261115-180917/feedback-flow.html linguist-documentation
