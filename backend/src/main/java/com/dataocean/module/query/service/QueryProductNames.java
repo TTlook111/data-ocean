@@ -58,7 +58,7 @@ final class QueryProductNames {
     private static final Pattern DATE_WORDS =
             Pattern.compile("(?i)大前天|前天|昨天|昨日|今天|今日|明天|后天|(?:上|本|这)(?:周|星期)[一二三四五六日天]|"
                     + "(?:the\\s+)?day before yesterday|two days ago|yesterday|today|"
-                    + "\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|\\d{1,2}\\s*[号日]|(?:这个|本)月|补充|那款");
+                    + "\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}(?:\\s*日末)?|\\d{1,2}\\s*[号日](?:末)?|(?:这个|本)月|补充|那款");
 
     /**
      * 当前发布片段中核实的商品与规格。

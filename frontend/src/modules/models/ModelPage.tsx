@@ -682,6 +682,8 @@ function ModelEditor({
 }) {
   useReturnFocus();
   const [form] = Form.useForm<ModelInput>();
+  // 通用重排直接使用填入的接口地址，其他格式沿用原有服务地址字段。
+  const protocol = Form.useWatch('protocol', form);
   const [capability, setCapability] = useState<keyof typeof modelCapabilities>(
     row ? protocolCapability[row.protocol] : 'GENERATION',
   );
@@ -766,13 +768,18 @@ function ModelEditor({
         <Form.Item
           name="endpoint"
           className="form-field-wide"
-          label="服务 URL"
+          label={protocol === 'JSON_RERANK' ? '完整接口 URL' : '服务 URL'}
           rules={[
             { required: true, type: 'url', message: '请输入有效的服务地址' },
             { pattern: /^https:\/\//iu, message: '请输入 HTTPS 服务地址' },
           ]}
         >
-          <Input maxLength={500} />
+          <Input
+            maxLength={500}
+            placeholder={
+              protocol === 'JSON_RERANK' ? 'https://api.example.com/v1/reranks' : undefined
+            }
+          />
         </Form.Item>
         <Form.Item
           name="modelName"

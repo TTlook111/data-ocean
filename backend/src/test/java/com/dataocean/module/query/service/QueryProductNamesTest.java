@@ -30,6 +30,9 @@ class QueryProductNamesTest {
                 evidence, "How much 1 L Original Oat Milk could we sell the day before yesterday?");
         assertThat(chinese.confirmed()).isTrue();
         assertThat(chinese.simpleStock()).isTrue();
+        var dated = QueryProductNames.resolve(evidence, "2026-11-20 日末，1 升原味燕麦奶的可售库存有多少箱？");
+        assertThat(dated.code()).isEqualTo(chinese.code());
+        assertThat(dated.simpleStock()).isTrue();
         assertThat(english.confirmed()).isTrue();
         assertThat(english.simpleStock()).isTrue();
         assertThat(english.code()).isEqualTo(chinese.code());

@@ -16,10 +16,16 @@ public interface KnowledgeVersionService {
     MutationVO pause(long source, long id, String command, KnowledgeVersionPauseDTO input);
 
     /**
-     * 正式问数使用绑定前及在途重新校验时通过同一权威入口。
+     * 新问数及历史上下文只选择当前生效绑定。
      * 反馈回看会捕获旧绑定等业务拒绝并裁剪结果，拒绝仍向调用方抛出，不将外层事务标记为回滚。
      */
     Binding requireForQuery(long sourceId, long id);
+
+    /**
+     * 复核已冻结或已执行的确切绑定，兼容普通切版后仍有效的原知识组合。
+     * 调用方须先以本轮权威快照或真实执行记录证明绑定归属。
+     */
+    Binding requirePinnedForQuery(long sourceId, long id);
 
     /**
      * 以反馈记录中的复验人复核查询资格，结案人的会话仅用于结案授权。

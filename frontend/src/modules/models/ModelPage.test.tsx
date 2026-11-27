@@ -20,11 +20,12 @@ vi.mock('../../shared/session', () => ({ useSession: () => ({}), allowed: () => 
  * 选择和取消都不产生分配请求，确认后才提交选中模型及原并发版本。
  */
 it.each([
-  ['intent', '问题理解', '1', '原生成模型'],
-  ['question-suggestion', '标准题建议', null, '未分配'],
-  ['history-summary', '历史对话摘要', null, '未分配'],
-  ['rag-rerank', '候选知识重排', null, '未分配'],
-] as const)('%s 仅在确认后更新节点模型', async (node, label, initial, previousName) => {
+  ['intent', '问题理解', '1', '原生成模型', 'COHERE_RERANK'],
+  ['question-suggestion', '标准题建议', null, '未分配', 'COHERE_RERANK'],
+  ['history-summary', '历史对话摘要', null, '未分配', 'COHERE_RERANK'],
+  ['rag-rerank', '候选知识重排', null, '未分配', 'COHERE_RERANK'],
+  ['rag-rerank', '候选知识重排', null, '未分配', 'JSON_RERANK'],
+] as const)('%s 确认后更新模型', async (node, label, initial, previousName, protocol) => {
   const capability = node === 'rag-rerank' ? 'RERANK' : 'GENERATION';
   const modelName = node === 'rag-rerank' ? '新重排模型' : '新生成模型';
   let selected: string | null = initial;
@@ -53,7 +54,7 @@ it.each([
       return [
         { id: '1', name: '原生成模型', protocol: 'OPENAI_CHAT_COMPLETIONS', enabled: true },
         { id: '2', name: '新生成模型', protocol: 'OPENAI_CHAT_COMPLETIONS', enabled: true },
-        { id: '3', name: '新重排模型', protocol: 'COHERE_RERANK', enabled: true },
+        { id: '3', name: '新重排模型', protocol, enabled: true },
       ];
     }
     if (url === `/models/nodes/${node}` && options?.method === 'PUT') {

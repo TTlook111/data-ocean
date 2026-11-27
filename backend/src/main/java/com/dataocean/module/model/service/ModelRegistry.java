@@ -83,6 +83,11 @@ public class ModelRegistry {
     public static final String RAG_RERANK = "rag-rerank";
 
     /**
+     * 对已获准的反馈事项原问进行同源相似候选排序。
+     */
+    public static final String FEEDBACK_SIMILARITY = "feedback-similarity";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -95,6 +100,7 @@ public class ModelRegistry {
             QUESTION_SUGGESTION,
             HISTORY_SUMMARY,
             RAG_RERANK,
+            FEEDBACK_SIMILARITY,
             "intent",
             "sql-generate",
             "sql-semantic-check",
@@ -275,7 +281,7 @@ public class ModelRegistry {
     private String capability(String protocol) {
         return switch (protocol) {
             case "OPENAI_EMBEDDINGS" -> "EMBEDDING";
-            case "COHERE_RERANK" -> "RERANK";
+            case "COHERE_RERANK", "JSON_RERANK" -> "RERANK";
             default -> "GENERATION";
         };
     }
@@ -330,7 +336,7 @@ public class ModelRegistry {
      *
      * @param revisionId 原任务冻结的配置修订编号
      * @param protocol 原请求的接口格式
-     * @param endpoint 原请求的服务基址
+     * @param endpoint 原请求的服务地址
      * @param modelName 原请求的模型名称
      */
     public record RevisionReference(String revisionId, String protocol, String endpoint, String modelName) {}
@@ -418,7 +424,7 @@ public class ModelRegistry {
     }
 
     /**
-     * 服务地址使用部署准入的 HTTPS 基址，避免目标和秘密混用。
+     * 模型基址及完整接口地址均须使用部署准入的 HTTPS 主机。
      */
     private String checkedEndpoint(String address) {
         URI uri;
@@ -434,8 +440,8 @@ public class ModelRegistry {
                 || uri.getQuery() != null
                 || uri.getFragment() != null
                 || uri.getPort() != -1 && uri.getPort() != 443) {
-            // 只接受 HTTPS SDK 基址，连接凭据不得嵌进 URL。
-            throw endpointError("填写 HTTPS 服务基址，使用默认端口，去掉查询参数和片段");
+            // URL 只定位服务，访问凭据通过独立认证头发送。
+            throw endpointError("填写 HTTPS 服务地址，使用默认端口，去掉查询参数和片段");
         }
         if (Arrays.stream(allowedHosts.split(",")).map(String::strip).noneMatch(uri.getHost()::equalsIgnoreCase)) {
             // 合法 URL 但主机不在部署准入清单时，提示实际处理方式。

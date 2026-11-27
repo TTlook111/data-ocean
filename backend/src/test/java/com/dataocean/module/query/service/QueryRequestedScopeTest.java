@@ -250,6 +250,28 @@ class QueryRequestedScopeTest {
     }
 
     /**
+     * 原话使用确认过的业务维度名称时，可以识别映射值后的冗余维度词。
+     */
+    @Test
+    void resolvesAConfirmedBusinessDimensionAndItsMappedValue() {
+        var basis = orderStatus();
+        var fact = basis.fact("COLUMN", 15L);
+        fact.setContent(
+                JsonMapper.builder()
+                        .build()
+                        .readTree(
+                                """
+                {"businessName":"订单状态","valueMappings":[{"code":"PAID","meaning":"已支付"}]}
+                """));
+        var question = "查已支付订单状态的金额";
+        var terms = List.of(new RequestedTerm(question, "已支付订单状态", "订单状态", "INCLUDE"));
+        ValueComparison comparison = (source, field, first, second) -> first.equals(second);
+        assertThat(QueryRequestedScope.resolve(List.of(basis), PLAN, terms, question, null, comparison)
+                        .conditions())
+                .containsExactly(new Condition(PAY, "PAID"));
+    }
+
+    /**
      * 使用正式字段映射形状提供明确物理身份和数据库原值。
      */
     private Basis orderStatus() {

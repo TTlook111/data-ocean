@@ -19,8 +19,10 @@ public interface ModelCallReceiptMapper {
             INSERT INTO mdl_provider_call(id,module_code,origin_id,node_code,model_revision_id,review_at)
             SELECT #{id},#{module},#{originId},n.node_code,c.id,UTC_TIMESTAMP(3) + INTERVAL 180 SECOND
             FROM mdl_node_assignment n JOIN mdl_config_revision c ON c.id=#{revision}
-            WHERE n.node_code=#{node} AND n.capability=CASE c.protocol
-                WHEN 'OPENAI_EMBEDDINGS' THEN 'EMBEDDING' WHEN 'COHERE_RERANK' THEN 'RERANK' ELSE 'GENERATION' END
+            WHERE n.node_code=#{node} AND n.capability=CASE
+                WHEN c.protocol='OPENAI_EMBEDDINGS' THEN 'EMBEDDING'
+                WHEN c.protocol IN ('COHERE_RERANK','JSON_RERANK') THEN 'RERANK'
+                ELSE 'GENERATION' END
             ON DUPLICATE KEY UPDATE id=mdl_provider_call.id
             """)
     void start(String id, String module, String originId, String node, long revision);

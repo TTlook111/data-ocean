@@ -19,6 +19,11 @@ from dataocean_ai.governance.security import verify_java
         ("ANTHROPIC_MESSAGES", "https://model.example", "/v1/messages"),
         ("OPENAI_EMBEDDINGS", "https://model.example/v1", "/v1/embeddings"),
         ("COHERE_RERANK", "https://model.example/v2", "/v2/rerank"),
+        (
+            "JSON_RERANK",
+            "https://model.example/compatible-api/v1/reranks/",
+            "/compatible-api/v1/reranks/",
+        ),
     ],
 )
 def test_connection_uses_protocol_adapter(
@@ -35,7 +40,7 @@ def test_connection_uses_protocol_adapter(
         if protocol == "OPENAI_EMBEDDINGS":
             # 向量值符合 OpenAI 返回格式，可由现用 SDK 直接解析。
             return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.6]}]})
-        if protocol == "COHERE_RERANK":
+        if protocol in {"COHERE_RERANK", "JSON_RERANK"}:
             # 连接测试和真实调用都核对完整候选序号。
             return httpx.Response(
                 200,

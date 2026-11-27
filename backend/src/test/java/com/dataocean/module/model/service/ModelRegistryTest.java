@@ -35,11 +35,11 @@ class ModelRegistryTest {
             new ModelRegistry(models, mock(CredentialProtection.class), mock(PermissionService.class));
 
     /**
-     * 共用模型及尚未接入的节点都不能保存新的模型分配。
+     * 共用 SQL 生成的追问仍不能保存独立模型分配。
      */
-    @ParameterizedTest
-    @ValueSource(strings = {"clarification", "feedback-similarity"})
-    void refusesIneffectiveAssignment(String node) {
+    @Test
+    void refusesClarificationAssignment() {
+        var node = "clarification";
         var choice = availableChoice(node);
 
         assertThatThrownBy(() -> registry.assign(node, choice))
@@ -49,10 +49,38 @@ class ModelRegistryTest {
     }
 
     /**
+     * 相似候选从独立节点选择向量配置，拒绝生成模型。
+     */
+    @Test
+    void assignsOnlyEmbeddingModelsToFeedbackSimilarity() {
+        var node = ModelRegistry.FEEDBACK_SIMILARITY;
+        var choice = availableChoice(node);
+        when(models.lockAssignment(node)).thenReturn(new Assignment(node, "EMBEDDING", null, 3));
+        assertThatThrownBy(() -> registry.assign(node, choice))
+                .isInstanceOf(BizIllegalException.class)
+                .hasMessageContaining("类型不符合");
+        when(models.lockModel(7L))
+                .thenReturn(new Config(
+                        7, 8, 1, "向量验收", "OPENAI_EMBEDDINGS",
+                        "https://models.example.invalid/v1", "sample", 20, true, 1, 9));
+
+        registry.assign(node, choice);
+        verify(models).assign(node, choice.getModelId());
+    }
+
+    /**
      * 已接通节点继续保存能力匹配且版本一致的选择。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"intent", "sql-generate", "document-plan", "document-write", "question-suggestion", "history-summary"})
+    @ValueSource(
+            strings = {
+                "intent",
+                "sql-generate",
+                "document-plan",
+                "document-write",
+                "question-suggestion",
+                "history-summary"
+            })
     void savesConnectedAssignment(String node) {
         var choice = availableChoice(node);
 
@@ -61,16 +89,21 @@ class ModelRegistryTest {
         verify(models).assign(node, choice.getModelId());
     }
 
-    /** 重排可以独立选择，但生成模型能力不匹配。 */
-    @Test
-    void assignsOnlyRerankModelsToRankingNode() {
+    /**
+     * 两种重排接口都能分配给同一节点，生成模型仍会被拒绝。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"COHERE_RERANK", "JSON_RERANK"})
+    void assignsOnlyRerankModelsToRankingNode(String protocol) {
         var node = ModelRegistry.RAG_RERANK;
         var choice = availableChoice(node);
         when(models.lockAssignment(node)).thenReturn(new Assignment(node, "RERANK", null, 3));
-        assertThatThrownBy(() -> registry.assign(node, choice)).isInstanceOf(BizIllegalException.class)
+        assertThatThrownBy(() -> registry.assign(node, choice))
+                .isInstanceOf(BizIllegalException.class)
                 .hasMessageContaining("类型不符合");
-        when(models.lockModel(7L)).thenReturn(new Config(7, 8, 1, "重排验收", "COHERE_RERANK",
-                "https://models.example.invalid/v2", "sample", 20, true, 1, 9));
+        when(models.lockModel(7L))
+                .thenReturn(new Config(
+                        7, 8, 1, "重排验收", protocol, "https://models.example.invalid/v2", "sample", 20, true, 1, 9));
         registry.assign(node, choice);
         verify(models).assign(node, choice.getModelId());
     }

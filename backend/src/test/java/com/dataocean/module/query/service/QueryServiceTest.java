@@ -273,7 +273,7 @@ class QueryServiceTest {
         assertThat(service.canReplayFeedback(id, grant)).isFalse();
         assertThatThrownBy(() -> service.replayFeedback(id, grant, command)).isInstanceOf(BizIllegalException.class);
 
-        when(versions.requireForQuery(SOURCE, BINDING)).thenThrow(BizIllegalException.denied());
+        when(versions.requirePinnedForQuery(SOURCE, BINDING)).thenThrow(BizIllegalException.denied());
         var unavailable = service.feedbackQuestion(id, grant);
         assertThat(unavailable.getQuestion()).isEqualTo("物流状态");
         assertThat(unavailable.getSql()).isNull();
@@ -283,6 +283,21 @@ class QueryServiceTest {
         assertThat(service.feedbackQuestion(id, grant)).isNull();
         assertThat(service.feedbackText(grant, "商品采购单价")).isNull();
         assertThat(service.feedbackText(grant, "妥投口径")).isEqualTo("妥投口径");
+    }
+
+    /**
+     * 外部召回即使返回有效格式，也不得引用本轮未冻结的发布。
+     */
+    @Test
+    void stopsBeforeReadingAHitsUnfrozenBinding() throws SQLException {
+        ready();
+        var unrelated = new Hit("7", 0, "another-release");
+        when(models.retrieve(any(), anyString(), anyList(), anyInt())).thenReturn(List.of(unrelated));
+
+        worker.work();
+
+        verify(corpus, never()).basis(SOURCE, unrelated);
+        verify(requests, never()).permit(any());
     }
 
     /**

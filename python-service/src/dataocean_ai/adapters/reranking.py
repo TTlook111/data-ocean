@@ -1,5 +1,5 @@
 """
-按固定的 Cohere Rerank 配置对已获准候选排序。
+按固定重排配置对获准候选排序。
 """
 
 import asyncio
@@ -11,7 +11,7 @@ from dataocean_ai.adapters.chat import ModelConfiguration, ModelFailure
 from dataocean_ai.adapters.model_receipts import ModelRecordingError, model_call_hooks
 
 
-def _order(body: object, size: int) -> list[int] | None:
+def _order(body: object, size: int, normalized_scores: bool) -> list[int] | None:
     """
     校验所有候选均有一个有限分数。并列按原顺序保留。
     """
@@ -21,7 +21,7 @@ def _order(body: object, size: int) -> list[int] | None:
         or not isinstance(results := body.get("results"), list)
     ):
         return None
-    scores: dict[int, float] = {}
+    scores: dict[int, int | float] = {}
     for item in results:
         # 提供方索引只能指向原候选，布尔及重复编号均属于异常响应。
         if not isinstance(item, dict):
@@ -33,8 +33,10 @@ def _order(body: object, size: int) -> list[int] | None:
             or not 0 <= index < size
             or index in scores
             or type(score) not in (int, float)
-            or not 0 <= score <= 1
-            or not math.isfinite(score)
+            or isinstance(score, float)
+            and not math.isfinite(score)
+            or normalized_scores
+            and not 0 <= score <= 1
         ):
             return None
         scores[index] = score
@@ -48,9 +50,16 @@ async def rerank(config: ModelConfiguration, query: str, documents: list[str]) -
     """
     发送一次完整的排序请求，返回相对于原候选的零起始顺序。
     """
-    if config.protocol != "COHERE_RERANK" or len(documents) < 2 or not query.strip():
+    if (
+        config.protocol not in ("COHERE_RERANK", "JSON_RERANK")
+        or len(documents) < 2
+        or not query.strip()
+    ):
         # 拒绝用非重排能力或空输入启动外发。
         raise ModelFailure("MODEL_FORMAT")
+    cohere = config.protocol == "COHERE_RERANK"
+    # Cohere 沿用服务基址规则，通用重排按填写的完整接口发出请求。
+    endpoint = config.endpoint.rstrip("/") + "/rerank" if cohere else config.endpoint
     try:
         async with (
             asyncio.timeout(config.timeout),
@@ -59,13 +68,13 @@ async def rerank(config: ModelConfiguration, query: str, documents: list[str]) -
                 trust_env=False,
                 timeout=config.timeout,
                 event_hooks=model_call_hooks(
-                    config, lambda body: _order(body, len(documents)) is not None
+                    config, lambda body: _order(body, len(documents), cohere) is not None
                 ),
             ) as transport,
         ):
             # 保留全部正式依据，仅请求排名。凭据不随重定向或本机代理转发。
             response = await transport.post(
-                config.endpoint.rstrip("/") + "/rerank",
+                endpoint,
                 headers={"Authorization": "Bearer " + config.api_key.get_secret_value()},
                 json={
                     "model": config.model_name,
@@ -75,7 +84,7 @@ async def rerank(config: ModelConfiguration, query: str, documents: list[str]) -
                 },
             )
             response.raise_for_status()
-            order = _order(response.json(), len(documents))
+            order = _order(response.json(), len(documents), cohere)
             if order is None:
                 raise ModelFailure("MODEL_FORMAT")
             return order
