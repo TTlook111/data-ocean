@@ -12,7 +12,11 @@ import org.apache.ibatis.annotations.Update;
  */
 public interface QueryRequestMapper {
 
-    /** 权威请求记录，正文和安全检查只在对应任务内部消费。 */
+    /**
+     * 权威请求记录，正文和安全检查只在对应任务内部消费。
+     *
+     * @param failureGapKey 已核实知识缺口的受控指纹，供可靠入队复用开放事项
+     */
     record Request(
             String id,
             long userId,
@@ -48,6 +52,7 @@ public interface QueryRequestMapper {
             String failurePhase,
             String failureCode,
             String failureRuleSignature,
+            String failureGapKey,
             String failureEventId,
             String recheckOriginId) {}
 
@@ -142,17 +147,21 @@ public interface QueryRequestMapper {
             """)
     void insert(Input input);
 
-    /** 恢复可核实的旧代次，已派发且结果未知的请求不允许重新领取。 */
+    /**
+     * 领取可恢复的旧代次，已派发状态仅用于核实原 SQL。
+     */
     @Select(
             """
             SELECT * FROM qry_request
-            WHERE state='QUEUED' OR (state IN ('RETRIEVING','GENERATING','CHECKING','FINALIZING')
+            WHERE state='QUEUED' OR (state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
                 AND run_version>0 AND lease_until<=UTC_TIMESTAMP(3))
             ORDER BY (state='FINALIZING') DESC,created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
             """)
     Request next();
 
-    /** 单次活动预算与进入处理的时间。 */
+    /**
+     * 为本次处理或核实领取有代次的租约。
+     */
     @Update(
             """
             UPDATE qry_request SET state=IF(state='QUEUED','RETRIEVING',state),
@@ -182,7 +191,8 @@ public interface QueryRequestMapper {
     /**
      * 首次选定的历史摘要或确定性回退先于理解和规划节点持久化。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE qry_request SET run_input=JSON_SET(run_input,'$.historySummary',CAST(#{summary} AS JSON))
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3) AND cancel_requested=FALSE
               AND run_input IS NOT NULL
@@ -193,7 +203,8 @@ public interface QueryRequestMapper {
     /**
      * 规划前保存每个阶段采用的候选顺序，澄清和租约接管不能重放外发。
      */
-    @Update("""
+    @Update(
+            """
             UPDATE qry_request SET run_input=JSON_SET(run_input,#{path},CAST(#{decision} AS JSON))
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3) AND cancel_requested=FALSE
               AND run_input IS NOT NULL
@@ -210,12 +221,12 @@ public interface QueryRequestMapper {
             """)
     int stage(String id, int run, String state);
 
-    /** 等待补充时扣完本次活动消耗，并暂停计时。 */
+    /**
+     * 等待用户补充时释放当前工作者的处理资格。
+     */
     @Update(
             """
             UPDATE qry_request SET state='WAITING',clarification=#{text},updated_at=UTC_TIMESTAMP(3),
-            remaining_millis=GREATEST(0,remaining_millis-
-                TIMESTAMPDIFF(MICROSECOND,processing_started_at,UTC_TIMESTAMP(3)) DIV 1000),
                 processing_started_at=NULL,lease_until=NULL
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
               AND state='GENERATING' AND cancel_requested=FALSE AND clarification_command IS NULL
@@ -243,25 +254,43 @@ public interface QueryRequestMapper {
             """)
     int permit(Permit input);
 
-    /** SQL 已成功返回，先持久化结果并保留原执行编号。 */
+    /**
+     * 完整捕获原执行的结果，旧代次和不同执行编号不能写回。
+     */
     @Update(
             """
             UPDATE qry_request SET state='FINALIZING',execution_state='SUCCEEDED',result=#{data},
                 updated_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
-              AND state='EXECUTING'
+              AND state='EXECUTING' AND execution_id=#{execution}
             """)
-    int capture(String id, int run, String data);
+    int capture(String id, int run, String execution, String data);
 
     /**
-     * 原子保存重新授权后的交付时间和状态，外呼预算扣到原轮次。
+     * 回读同一轮次真正登记的源执行及已捕获结果。
+     */
+    @Select("SELECT * FROM qry_request WHERE id=#{id} AND execution_id=#{execution}")
+    Request byExecution(String id, String execution);
+
+    /**
+     * 等待核实原 SQL，不释放原执行编号，也不回到 SQL 派发阶段。
+     */
+    @Update(
+            """
+            UPDATE qry_request SET execution_state='UNKNOWN',lease_until=UTC_TIMESTAMP(3)+INTERVAL 2 SECOND,
+                updated_at=UTC_TIMESTAMP(3)
+            WHERE id=#{id} AND run_version=#{run} AND execution_id=#{execution} AND state='EXECUTING'
+              AND lease_until>UTC_TIMESTAMP(3)
+            """)
+    int verifyExecution(String id, int run, String execution);
+
+    /**
+     * 原子保存重新授权后的交付时间和状态，说明额度仅用于说明。
      */
     @Update(
             """
             UPDATE qry_request SET state='RESULT_DELIVERED',lease_until=NULL,updated_at=UTC_TIMESTAMP(3),
                 delivered_at=UTC_TIMESTAMP(3),
-                remaining_millis=GREATEST(0,remaining_millis-
-                    TIMESTAMPDIFF(MICROSECOND,processing_started_at,UTC_TIMESTAMP(3)) DIV 1000),
                 processing_started_at=NULL
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
               AND state='FINALIZING' AND cancel_requested=FALSE
@@ -269,7 +298,9 @@ public interface QueryRequestMapper {
             """)
     int deliver(String id, int run);
 
-    /** 把本次解释额度从原轮次剩余活动预算中预留，进程失联也不复用。 */
+    /**
+     * 从该轮独立的说明额度预留本次调用，进程失联也不复用。
+     */
     @Update(
             """
             UPDATE qry_request SET remaining_millis=remaining_millis-#{millis}
@@ -296,14 +327,18 @@ public interface QueryRequestMapper {
             failure_code=CASE WHEN NOT cancel_requested THEN #{diagnostic} ELSE NULL END,
             failure_rule_signature=CASE WHEN NOT cancel_requested AND #{diagnostic} IS NOT NULL
                 THEN COALESCE(rule_signature,#{signature}) ELSE NULL END,
+            failure_gap_key=CASE WHEN NOT cancel_requested AND #{state}='KNOWLEDGE_INSUFFICIENT'
+                THEN #{gapKey} ELSE NULL END,
             state=CASE WHEN cancel_requested THEN 'USER_CANCELLED' ELSE #{state} END,
             execution_state=#{execution},result=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP(3)
             WHERE id=#{id} AND run_version=#{run} AND lease_until>UTC_TIMESTAMP(3)
               AND state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING','FINALIZING')
             """)
-    int stop(String id, int run, String state, String execution, String diagnostic, String signature);
+    int stop(String id, int run, String state, String execution, String diagnostic, String signature, String gapKey);
 
-    /** 超时回收原轮次，已派发记录保持未知且不进入待执行队列。 */
+    /**
+     * 回收过期澄清及无法接管的旧格式轮次，当前代次由工作者核实。
+     */
     @Update(
             """
             UPDATE qry_request SET
@@ -316,7 +351,6 @@ public interface QueryRequestMapper {
                 WHEN cancel_requested THEN 'USER_CANCELLED' ELSE 'TECHNICAL_FAILURE' END,
             updated_at=UTC_TIMESTAMP(3)
             WHERE (state='WAITING' AND updated_at<=UTC_TIMESTAMP(3)-INTERVAL 30 MINUTE)
-               OR (state='EXECUTING' AND lease_until<=UTC_TIMESTAMP(3))
                OR (state IN ('RETRIEVING','GENERATING','CHECKING','EXECUTING') AND run_version=0
                    AND processing_started_at<=UTC_TIMESTAMP(3)-INTERVAL 165 SECOND)
             """)

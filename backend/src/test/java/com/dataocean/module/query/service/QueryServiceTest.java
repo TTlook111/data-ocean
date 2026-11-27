@@ -9,6 +9,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -17,6 +19,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.security.IamPrincipal;
 import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
@@ -79,7 +82,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.IntSupplier;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterEach;
@@ -228,6 +231,37 @@ class QueryServiceTest {
     }
 
     /**
+     * 同一数据源列表可保留历史来源，并单独反馈来源、模型和功能权限对提问的限制。
+     */
+    @Test
+    void distinguishesHistoryAccessFromPermissionToAsk() {
+        var logistics = new AccessScopeVO(new AccessSourceOptionVO("72", "物流"), List.of(), List.of());
+        var stock = new AccessScopeVO(new AccessSourceOptionVO("73", "库存"), List.of(), List.of());
+        when(access.current(USER)).thenReturn(List.of(logistics, stock));
+        when(catalog.source(SOURCE, false)).thenReturn(source);
+        when(catalog.source(73L, false))
+                .thenReturn(new Source(73L, "库存", "ENABLED", 4L, 3L, 1, false, null, null, null, null));
+        when(permissions.has("query.ask")).thenReturn(true);
+        when(models.sourceAdmitted(SOURCE)).thenReturn(true);
+        when(models.intentConfigurationReady()).thenReturn(true, false);
+
+        var sources = service.sources();
+        assertThat(sources).extracting(item -> item.getId()).containsExactly("72", "73");
+        assertThat(sources)
+                .extracting(item -> item.getAskBlockedCode())
+                .containsExactly(0, ErrorCode.QUERY_SOURCE_NOT_ADMITTED.getCode());
+        assertThat(service.sources())
+                .extracting(item -> item.getAskBlockedCode())
+                .containsExactly(
+                        ErrorCode.QUERY_INTENT_UNAVAILABLE.getCode(), ErrorCode.QUERY_SOURCE_NOT_ADMITTED.getCode());
+
+        when(permissions.has("query.ask")).thenReturn(false);
+        assertThat(service.sources())
+                .extracting(item -> item.getAskBlockedCode())
+                .containsOnly(ErrorCode.PERMISSION_DENIED.getCode());
+    }
+
+    /**
      * 有效回答使用当前授权和实际执行身份进行评价，过期或未知修订不能回用。
      */
     @Test
@@ -307,22 +341,24 @@ class QueryServiceTest {
     void cancelsTheInFlightStatementWhenTheSourceGrantChanges() throws SQLException {
         ready();
         when(requests.permit(any())).thenReturn(1);
-        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
-            // 许可后先核对仍有效的运行，再模拟查询返回之前撤权。
-            call.<Runnable>getArgument(4).run();
-            worker.observe();
-            verify(jdbc, never()).cancel(id);
-            when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
-            worker.observe();
-            throw new SQLException("source cancelled");
-        });
+        doAnswer(call -> {
+                    // 许可后先核对仍有效的运行，再模拟查询返回之前撤权。
+                    call.<Runnable>getArgument(3).run();
+                    worker.observe();
+                    verify(jdbc, never()).cancel(call.getArgument(1));
+                    when(access.requireSource(USER, SOURCE)).thenThrow(BizIllegalException.denied());
+                    worker.observe();
+                    throw new SQLException("source cancelled");
+                })
+                .when(jdbc)
+                .execute(eq(source), anyString(), any(), any(), any());
 
         worker.work();
 
-        verify(jdbc).cancel(id);
-        verify(requests, never()).capture(eq(id), anyInt(), anyString());
+        verify(jdbc).cancel(anyString());
+        verify(requests, never()).capture(eq(id), anyInt(), anyString(), anyString());
         worker.observe();
-        verify(jdbc).cancel(id);
+        verify(jdbc).cancel(anyString());
     }
 
     /**
@@ -492,8 +528,9 @@ class QueryServiceTest {
 
         worker.work();
 
-        verify(requests).stop(id, 2, "PERMISSION_DENIED", "SUCCEEDED", null, previouslyCaptured ? null : signature);
-        verify(requests, never()).capture(anyString(), anyInt(), anyString());
+        verify(requests)
+                .stop(id, 2, "PERMISSION_DENIED", "SUCCEEDED", null, previouslyCaptured ? null : signature, null);
+        verify(requests, never()).capture(anyString(), anyInt(), anyString(), anyString());
         verify(requests, never()).deliver(anyString(), anyInt());
         verify(explanations, never()).initial(any());
     }
@@ -504,11 +541,14 @@ class QueryServiceTest {
     @Test
     void workRegistersOneExecutionBeforeCaptureAndDelivery() throws SQLException {
         ready();
+        // 即使旧数据已耗完累计时限，当前节点仍应完成原查询。
+        when(row.remainingMillis()).thenReturn(0);
+        when(row.processingStartedAt()).thenReturn(time.minusMinutes(3));
         var captured = record("FINALIZING");
         delivered(captured);
         when(captured.state()).thenReturn("FINALIZING");
         when(requests.permit(any())).thenReturn(1);
-        when(requests.capture(eq(id), eq(2), anyString())).thenAnswer(call -> {
+        when(requests.capture(eq(id), eq(2), anyString(), anyString())).thenAnswer(call -> {
             // 模拟 JDBC 返回后写入的实际快照和可交付状态。
             when(requests.get(id)).thenReturn(captured);
             return 1;
@@ -627,9 +667,9 @@ class QueryServiceTest {
             when(models.summarize(any(), eq(35L), anyInt(), anyString(), any()))
                     .thenReturn(new HistorySummary(List.of("old")));
         } else {
-            // 尚未核实网络结果时将确定性回退固定在原轮次。
+            // 确认无可恢复回执后，将确定性回退固定在原轮次。
             when(models.summarize(any(), eq(35L), anyInt(), anyString(), any()))
-                    .thenThrow(new QueryFailure("RECOVERY_PENDING"));
+                    .thenThrow(QueryFailure.technical("QUERY_STEP_UNCONFIRMED"));
         }
 
         worker.work();
@@ -677,7 +717,7 @@ class QueryServiceTest {
 
         verify(requests, never()).freezeSummary(anyString(), anyInt(), anyString());
         verify(models, never()).understand(any(), anyLong(), anyInt(), anyString(), any());
-        verify(requests).stop(eq(id), eq(2), eq("PERMISSION_DENIED"), eq("NOT_SUBMITTED"), any(), any());
+        verify(requests).stop(eq(id), eq(2), eq("PERMISSION_DENIED"), eq("NOT_SUBMITTED"), any(), any(), isNull());
     }
 
     /** 重排只读取已获权正文，原阶段的排序或回退在规划前固定。 */
@@ -693,8 +733,8 @@ class QueryServiceTest {
             // 模型仅交换原候选位置。
             ranking.thenReturn(new RerankOrder(List.of(1, 0)));
         } else {
-            // 结果未知时原始候选仍可使用，恢复不会重新计算排序。
-            ranking.thenThrow(new QueryFailure("RECOVERY_PENDING"));
+            // 确认无可恢复回执后采用原始候选，后续恢复不重新计算排序。
+            ranking.thenThrow(QueryFailure.technical("QUERY_STEP_UNCONFIRMED"));
         }
         var hitsInOrder = applied ? List.of(hits.get(1), hits.get(0)) : hits;
         var snippets = applied ? List.of(second, first) : List.of(first, second);
@@ -942,7 +982,8 @@ class QueryServiceTest {
                         "KNOWLEDGE_INSUFFICIENT",
                         "NOT_SUBMITTED",
                         "INSUFFICIENT_KNOWLEDGE",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
         verify(jdbc, never()).compile(any(), any());
         verify(requests, never()).permit(any());
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
@@ -1060,12 +1101,15 @@ class QueryServiceTest {
         delivered(captured);
         when(captured.state()).thenReturn("FINALIZING");
         when(requests.permit(any())).thenReturn(1);
-        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
-            // 通过实际执行许可回调后返回合成行。
-            call.<Runnable>getArgument(4).run();
-            return data;
-        });
-        when(requests.capture(eq(id), eq(2), anyString())).thenAnswer(call -> {
+        doAnswer(call -> {
+                    // 通过实际执行许可回调后返回合成行。
+                    call.<Runnable>getArgument(3).run();
+                    call.<Consumer<QueryDataVO>>getArgument(4).accept(data);
+                    return null;
+                })
+                .when(jdbc)
+                .execute(eq(source), anyString(), any(), any(), any());
+        when(requests.capture(eq(id), eq(2), anyString(), anyString())).thenAnswer(call -> {
             // 用已捕获状态完成工作者的交付路径。
             when(requests.get(id)).thenReturn(captured);
             return 1;
@@ -1075,7 +1119,7 @@ class QueryServiceTest {
         worker.work();
 
         var execution = ArgumentCaptor.forClass(Compiled.class);
-        verify(jdbc).execute(eq(source), eq(id), execution.capture(), any(), any());
+        verify(jdbc).execute(eq(source), anyString(), execution.capture(), any(), any());
         assertThat(execution.getValue().sql())
                 .contains("FROM \"biz_a\".\"deliveries\"", "t0.\"business_date\" = ?", "t0.\"arrival_date\" = ?");
         var oldArrival = mixed ? "2026-11-21" : LocalDate.parse("2026-11-21");
@@ -1274,7 +1318,8 @@ class QueryServiceTest {
                         "KNOWLEDGE_INSUFFICIENT",
                         "NOT_SUBMITTED",
                         "INSUFFICIENT_KNOWLEDGE",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
         verify(requests, never()).permit(any());
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
     }
@@ -1327,7 +1372,8 @@ class QueryServiceTest {
                             "KNOWLEDGE_INSUFFICIENT",
                             "NOT_SUBMITTED",
                             "INSUFFICIENT_KNOWLEDGE",
-                            new QueryOutput().signature(List.of()));
+                            new QueryOutput().signature(List.of()),
+                            null);
         }
         verify(requests, never()).permit(any());
     }
@@ -1759,7 +1805,8 @@ class QueryServiceTest {
                         "KNOWLEDGE_INSUFFICIENT",
                         "NOT_SUBMITTED",
                         "INSUFFICIENT_KNOWLEDGE",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
         verify(requests, never()).permit(any());
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
     }
@@ -1818,7 +1865,8 @@ class QueryServiceTest {
                         missing ? "KNOWLEDGE_INSUFFICIENT" : "TECHNICAL_FAILURE",
                         "NOT_SUBMITTED",
                         missing ? "INSUFFICIENT_KNOWLEDGE" : "QUERY_PLAN_TARGET_MISMATCH",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
         if (missing) {
             // 没有依据时不调用规划模型猜测表名。
             verify(models, never()).plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any());
@@ -1854,12 +1902,15 @@ class QueryServiceTest {
         delivered(captured);
         when(captured.state()).thenReturn("FINALIZING");
         when(requests.permit(any())).thenReturn(1);
-        when(jdbc.execute(eq(source), eq(id), any(), any(), any())).thenAnswer(call -> {
-            // 走真实许可回调，返回合成业务行。
-            call.<Runnable>getArgument(4).run();
-            return data;
-        });
-        when(requests.capture(eq(id), eq(2), anyString())).thenAnswer(call -> {
+        doAnswer(call -> {
+                    // 走真实许可回调，返回合成业务行。
+                    call.<Runnable>getArgument(3).run();
+                    call.<Consumer<QueryDataVO>>getArgument(4).accept(data);
+                    return null;
+                })
+                .when(jdbc)
+                .execute(eq(source), anyString(), any(), any(), any());
+        when(requests.capture(eq(id), eq(2), anyString(), anyString())).thenAnswer(call -> {
             // 按已捕获状态校验最终交付。
             when(requests.get(id)).thenReturn(captured);
             return 1;
@@ -1874,7 +1925,7 @@ class QueryServiceTest {
         order.verify(corpus).targetedScope(SOURCE, List.of(BINDING), recalled, question, null);
         order.verify(models).plan(any(), anyLong(), anyInt(), anyString(), eq(List.of(snippet)), anyList(), any());
         var execution = ArgumentCaptor.forClass(Compiled.class);
-        order.verify(jdbc).execute(eq(source), eq(id), execution.capture(), any(), any());
+        order.verify(jdbc).execute(eq(source), anyString(), execution.capture(), any(), any());
         assertThat(execution.getValue().sql()).contains("FROM \"biz_a\".\"deliveries\"");
         verify(models, never()).rerank(any(), anyLong(), anyInt(), anyString(), anyList());
         verify(requests).permit(any());
@@ -2062,8 +2113,54 @@ class QueryServiceTest {
         when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                 .thenReturn(new Plan(decision, null, null, null, null, null, List.of(), List.of()));
         worker.work();
-        verify(requests).stop(id, 2, state, "NOT_SUBMITTED", diagnostic(state), new QueryOutput().signature(List.of()));
+        verify(requests)
+                .stop(id, 2, state, "NOT_SUBMITTED", diagnostic(state), new QueryOutput().signature(List.of()), null);
         verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * 只用匹配已确认公式的指标和实际缺失依赖生成入队指纹。
+     */
+    @ParameterizedTest
+    @CsvSource({"METRIC_RULES,false", "METRIC_COLUMNS,true"})
+    void persistsVerifiedMetricGap(String kind, boolean missingColumn) throws SQLException {
+        ready();
+        var basis = corpus.basis(SOURCE, new Hit("6", 0, "digest"));
+        var amount = new Field("deliveries", "amount");
+        when(row.question()).thenReturn("查订单金额合计");
+        when(basis.labels()).thenReturn(Map.of(amount, "金额"));
+        when(basis.tables()).thenReturn(deliveryTable("biz_a", 11, new Column(13, 13, "amount", "int", false, "", 2)));
+        var definition = JsonMapper.builder().build().createObjectNode();
+        definition.put("rule", "SUM(deliveries.amount)");
+        if (missingColumn) {
+            // 指标已记录执行规则，但片段仍缺确认依赖的字段。
+            var rules =
+                    definition.putObject("metricRules").put("dateMode", "NONE").put("unitMode", "NONE");
+            rules.putArray("fixedFilters");
+        }
+        var dependency = new GovernanceTargetVO("11", "COLUMN", "14");
+        var fact = new GovernanceFactVO(
+                new GovernanceTargetVO("11", "METRIC", "20"), "30", 1, "11", "订单金额", definition, List.of(dependency));
+        when(basis.facts()).thenReturn(Map.of("METRIC:20", fact));
+        when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
+                .thenReturn(new Plan("READY", null, "6", "SUM", "订单金额", null, List.of(amount), List.of()));
+        var signature = new QueryOutput().signature(List.of());
+        var gap = new QueryFailure.Gap(kind, "30", missingColumn ? List.of("14") : List.of());
+        when(fingerprints.command("feedback.query.verifiedGap", Long.toString(SOURCE), List.of(USER, signature, gap)))
+                .thenReturn(new byte[32]);
+
+        worker.work();
+
+        verify(requests)
+                .stop(
+                        id,
+                        2,
+                        "KNOWLEDGE_INSUFFICIENT",
+                        "NOT_SUBMITTED",
+                        "INSUFFICIENT_KNOWLEDGE",
+                        signature,
+                        "0".repeat(64));
+        verify(requests, never()).permit(any());
     }
 
     /**
@@ -2087,20 +2184,21 @@ class QueryServiceTest {
                         "KNOWLEDGE_INSUFFICIENT",
                         "NOT_SUBMITTED",
                         "INSUFFICIENT_KNOWLEDGE",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
     }
 
     /**
      * 回执未知、SQL 响应未知和模型坏输入保留不同状态。
      */
     @ParameterizedTest
-    @ValueSource(strings = {"sql", "runtime", "pending", "input", "cancel", "expired", "moved"})
+    @ValueSource(strings = {"sql", "runtime", "pending", "input", "cancel", "moved"})
     void keepsRecoveryAndSourceFailureBoundaries(String mode) throws SQLException {
         ready();
         switch (mode) {
             case "sql" -> {
                 when(row.executionId()).thenReturn("known");
-                when(jdbc.execute(any(), anyString(), any(), any(), any())).thenThrow(new SQLException("lost"));
+                doThrow(new SQLException("lost")).when(jdbc).execute(any(), anyString(), any(), any(), any());
             }
             case "runtime" -> when(models.plan(any(), anyLong(), anyInt(), anyString(), anyList(), anyList(), any()))
                     .thenThrow(new IllegalStateException("internal"));
@@ -2109,7 +2207,6 @@ class QueryServiceTest {
             case "input" -> when(corpus.indexes(eq(SOURCE), anyList(), anyInt()))
                     .thenReturn(List.of());
             case "cancel" -> when(row.cancelRequested()).thenReturn(true);
-            case "expired" -> when(row.remainingMillis()).thenReturn(100);
             case "moved" -> when(row.runInput())
                     .thenReturn(json.write(new RunInput(
                             "stale",
@@ -2128,14 +2225,17 @@ class QueryServiceTest {
             default -> throw new AssertionError(mode);
         }
         worker.work();
-        if ("pending".equals(mode)) {
-            verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString(), any(), any());
+        if ("pending".equals(mode) || "sql".equals(mode)) {
+            if ("sql".equals(mode)) {
+                // 数据源失联后保留原执行，仅安排核实。
+                verify(requests).verifyExecution(id, 2, "known");
+            }
+            verify(requests, never()).stop(anyString(), anyInt(), anyString(), anyString(), any(), any(), any());
         } else {
             String expected =
                     switch (mode) {
                         case "input" -> "KNOWLEDGE_INSUFFICIENT";
                         case "cancel" -> "USER_CANCELLED";
-                        case "expired" -> "RESOURCE_EXCEEDED";
                         case "moved" -> "PERMISSION_DENIED";
                         default -> "TECHNICAL_FAILURE";
                     };
@@ -2144,10 +2244,32 @@ class QueryServiceTest {
                             id,
                             2,
                             expected,
-                            "sql".equals(mode) ? "UNKNOWN" : "NOT_SUBMITTED",
-                            "sql".equals(mode) ? "SOURCE_EXECUTION_UNCERTAIN" : diagnostic(expected),
-                            "cancel".equals(mode) ? null : new QueryOutput().signature(List.of()));
+                            "NOT_SUBMITTED",
+                            diagnostic(expected),
+                            "cancel".equals(mode) ? null : new QueryOutput().signature(List.of()),
+                            null);
         }
+    }
+
+    /**
+     * 接管已派发的原执行后只按编号核实，确认无回执时保留未知。
+     */
+    @Test
+    void takesOverOriginalSqlWithoutDispatchingAgain() throws SQLException {
+        ready();
+        when(row.state()).thenReturn("EXECUTING");
+        when(row.executionId()).thenReturn("known");
+        when(row.executionState()).thenReturn("UNKNOWN");
+        when(requests.byExecution(id, "known")).thenReturn(row);
+        when(jdbc.isInFlight("known")).thenReturn(true, false);
+
+        worker.work();
+        verify(requests).verifyExecution(id, 2, "known");
+        worker.work();
+
+        verify(requests).stop(id, 2, "TECHNICAL_FAILURE", "UNKNOWN", "SOURCE_EXECUTION_UNCERTAIN", null, null);
+        verify(jdbc, never()).execute(any(), anyString(), any(), any(), any());
+        verify(requests, never()).permit(any());
     }
 
     /** 没有生效知识保存可归组的确切事实，模型不会被用来猜测根因。 */
@@ -2163,7 +2285,8 @@ class QueryServiceTest {
                         "KNOWLEDGE_INSUFFICIENT",
                         "NOT_SUBMITTED",
                         "NO_PUBLISHED_KNOWLEDGE",
-                        new QueryOutput().signature(List.of()));
+                        new QueryOutput().signature(List.of()),
+                        null);
         verify(models, never()).retrieve(any(), anyString(), anyList(), anyInt());
     }
 
@@ -2213,11 +2336,13 @@ class QueryServiceTest {
         var compiled = new Compiled(
                 "SELECT route", List.of(), data.getColumns(), List.of(label), "", "", false, null, usage, Set.of());
         when(jdbc.compile(eq(basis), any())).thenReturn(compiled);
-        when(jdbc.execute(eq(source), eq(id), eq(compiled), any(), any())).thenAnswer(call -> {
-            assertThat(call.<IntSupplier>getArgument(3).getAsInt()).isPositive();
-            call.<Runnable>getArgument(4).run();
-            return data;
-        });
+        doAnswer(call -> {
+                    call.<Runnable>getArgument(3).run();
+                    call.<Consumer<QueryDataVO>>getArgument(4).accept(data);
+                    return null;
+                })
+                .when(jdbc)
+                .execute(eq(source), anyString(), eq(compiled), any(), any());
     }
 
     /**

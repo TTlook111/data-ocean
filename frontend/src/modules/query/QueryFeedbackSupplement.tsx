@@ -1,4 +1,5 @@
-import { Alert, App, Button, Form, Input, Modal } from 'antd';
+import { MessageOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Form, Input, Modal, Tag } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError } from '../../shared/api';
@@ -19,6 +20,15 @@ type SupplementState = {
   canSubmit: boolean;
   /** 本人原问题的请求与回复。 */
   entries: FeedbackSupplementEntry[];
+};
+
+/**
+ * 提醒需补充、处理中和已解决使用工作台已有的状态色。
+ */
+const progressColors: Record<string, string> = {
+  PENDING_SUPPLEMENT: 'warning',
+  IN_PROGRESS: 'processing',
+  RESOLVED: 'success',
 };
 
 /**
@@ -61,6 +71,10 @@ export function QueryFeedbackSupplement({
   const value = state.data;
   if (state.isError || !value || !Array.isArray(value.entries)) return null;
   const pending = value.entries.find(isSupplementPending);
+  // 当前待回复排在前面，已结束记录继续保留原展示顺序。
+  const entries = pending
+    ? [pending, ...value.entries.filter((entry) => entry !== pending)]
+    : value.entries;
   const requestEnded = Boolean(draft?.pending && draft.pending.id !== pending?.id);
   const canSubmit = value.canSubmit && !requestEnded;
 
@@ -116,43 +130,70 @@ export function QueryFeedbackSupplement({
   }
 
   return (
-    <section className={styles.noticeLine} aria-label="反馈进度与业务补充">
-      <div className={styles.noticeMeta}>
-        <span>反馈进度</span>
-        <strong>{statusLabels[value.status] ?? value.status}</strong>
-        {value.canSubmit && (
-          <Button
-            type="link"
-            size="small"
-            onClick={() => {
-              setDraft({ version: value.version, pending });
-              setError(null);
-              setStale(false);
-            }}
-          >
-            {pending ? '回复补充请求' : '补充业务说明'}
-          </Button>
-        )}
-      </div>
-      {/* 只呈现当前原问题的补充，不列其他原问题或后台事项编号。 */}
-      {value.entries.map((entry) => (
-        <div key={entry.id}>
-          {entry.prompt && <p>{entry.prompt}</p>}
-          {entry.answeredAt && (
-            <>
-              {entry.answer && <p>{entry.answer}</p>}
-              <time dateTime={entry.answeredAt}>已补充 {displayTime(entry.answeredAt)}</time>
-            </>
-          )}
-          {/* 人工结束等待只展示对提问人可见的结果。 */}
-          {entry.disposedAt && (
-            <time dateTime={entry.disposedAt}>
-              {entry.disposition === 'WITHDRAWN' ? '已撤回补充请求' : '补充请求已结束'}{' '}
-              {displayTime(entry.disposedAt)}
-            </time>
+    <section className={styles.feedbackProgress} aria-label="反馈进度与业务补充">
+      {/* 主事项进度和当前可办动作固定在卡片顶部。 */}
+      <header className={styles.feedbackProgressHeader}>
+        <div className={styles.feedbackProgressTitle}>
+          <MessageOutlined aria-hidden />
+          <strong>反馈进度</strong>
+        </div>
+        <div className={styles.feedbackProgressActions}>
+          <Tag className={styles.feedbackProgressTag} color={progressColors[value.status]}>
+            {statusLabels[value.status] ?? value.status}
+          </Tag>
+          {value.canSubmit && (
+            <Button
+              size="small"
+              onClick={() => {
+                // 只打开当前可回复请求或本人主动补充的表单。
+                setDraft({ version: value.version, pending });
+                setError(null);
+                setStale(false);
+              }}
+            >
+              {pending ? '回复补充请求' : '补充业务说明'}
+            </Button>
           )}
         </div>
-      ))}
+      </header>
+      {/* 补充记录先说明结果，已结束要求使用历史标签。 */}
+      {entries.length > 0 && (
+        <ul className={styles.feedbackProgressEntries} aria-label="补充记录">
+          {entries.map((entry) => {
+            // 结束时间反映实际处置，待回复时沿用请求时间。
+            const time = entry.disposedAt ?? entry.answeredAt ?? entry.requestedAt;
+            const entryStatus = entry.disposedAt
+              ? entry.disposition === 'WITHDRAWN'
+                ? '补充请求已撤回'
+                : '补充请求已结束'
+              : entry.answeredAt
+                ? '已补充'
+                : '补充请求';
+            const ended = !isSupplementPending(entry);
+
+            return (
+              <li key={entry.id} className={styles.feedbackProgressEntry}>
+                <div className={styles.feedbackProgressEvent}>
+                  <strong>{entryStatus}</strong>
+                  {time && <time dateTime={time}>{displayTime(time)}</time>}
+                </div>
+                {entry.prompt && (
+                  <p className={styles.feedbackProgressText}>
+                    {ended && <span>原补充要求</span>}
+                    {entry.prompt}
+                  </p>
+                )}
+                {entry.answeredAt && entry.answer && (
+                  <p className={styles.feedbackProgressText}>
+                    {entry.prompt && <span>你的补充</span>}
+                    {entry.answer}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {draft && (
         <Modal
           centered

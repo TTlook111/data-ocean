@@ -19,7 +19,7 @@ import styles from './query.module.css';
  */
 export const statusText: Record<string, string> = {
   QUEUED: '等待处理',
-  RETRIEVING: '正在检索已发布知识',
+  RETRIEVING: '正在理解问题和检索知识',
   GENERATING: '正在确定查询条件',
   CHECKING: '正在复核口径和查询权限',
   EXECUTING: '正在查询数据',
@@ -28,7 +28,7 @@ export const statusText: Record<string, string> = {
   PERMISSION_DENIED: '当前权限不允许交付所请求的信息。',
   OUT_OF_SCOPE: '该问题超出了当前问数范围。',
   KNOWLEDGE_INSUFFICIENT: '已发布知识还不足以确认本次查询口径。',
-  RESOURCE_EXCEEDED: '本次查询超过可用资源或处理时限。',
+  RESOURCE_EXCEEDED: '本次查询超过可用资源上限。',
   TECHNICAL_FAILURE: '本次查询未能完成。',
   USER_CANCELLED: '问数已取消。',
   WAIT_EXPIRED: '补充条件的等待时间已到，请重新提问。',
@@ -92,8 +92,12 @@ export function QueryAnswer({
         className={historical ? styles.historyNotice : undefined}
         showIcon
         type={row.state === 'PERMISSION_DENIED' ? 'warning' : 'info'}
-        title={info}
-        description={row.executionState === 'UNKNOWN' ? '源端执行状态待核实。' : undefined}
+        title={row.failureDetail ?? info}
+        description={
+          !row.failureDetail && row.executionState === 'UNKNOWN'
+            ? '无法确认源端执行状态。'
+            : undefined
+        }
         action={
           row.executionState !== 'UNKNOWN' && onRequery ? (
             <Button size="small" icon={<ReloadOutlined />} onClick={onRequery}>

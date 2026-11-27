@@ -1,6 +1,7 @@
 package com.dataocean.module.query.service;
 
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.module.access.entity.vo.OutputRuleVO;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.query.entity.dto.QueryContextInputDTO;
@@ -44,7 +45,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 class QueryModels {
 
-    /** 可选历史节点使用更短的机器调用时限，给检索和执行保留时间。 */
+    /** 可选历史节点使用更短的机器调用时限，降低可选调用的等待成本。 */
     private static final String HISTORY_PATH = "/history-summary";
 
     /** 可选重排使用与摘要相同的短机器调用预算。 */
@@ -98,21 +99,56 @@ class QueryModels {
 
     /** 问数是否可以在当前部署把已获准的内容发送给分配模型。 */
     void requireScope(long source) {
-        if (!allowedSources.contains(source) || worker.getIfAvailable() == null) {
+        if (!sourceAdmitted(source) || worker.getIfAvailable() == null) {
             throw QueryFailure.modelUnavailable();
         }
+    }
+
+    /**
+     * 当前部署是否允许把该来源的问数内容交给模型。
+     */
+    boolean sourceAdmitted(long source) {
+        return allowedSources.contains(source);
     }
 
     /**
      * 接收新问数前核对节点已分配、启用且符合当前部署的外发准入。
      */
     void requireIntentReady(long source) {
+        if (!sourceAdmitted(source)) {
+            // 来源未获准时直接反馈该来源的状态，不读取模型绑定。
+            throw new BizIllegalException(ErrorCode.QUERY_SOURCE_NOT_ADMITTED, "当前数据源未开通智能问数");
+        }
+        requireIntentConfiguration();
+    }
+
+    /**
+     * 来源列表复用提交前的配置核验，同一次列表读取只检查一次。
+     */
+    boolean intentConfigurationReady() {
         try {
-            requireScope(source);
+            // 读取当前配置，无需对模型发起请求。
+            requireIntentConfiguration();
+            return true;
+        } catch (BizIllegalException unavailable) {
+            // 仍可回看授权历史，提交资格在列表中单独反馈。
+            return false;
+        }
+    }
+
+    /**
+     * 核对当前内部客户端及问题理解节点配置。
+     */
+    private void requireIntentConfiguration() {
+        try {
+            // 已准入来源仍需启用内部问数服务。
+            if (worker.getIfAvailable() == null) {
+                throw QueryFailure.modelUnavailable();
+            }
             models.verifyActive(models.requireBinding("intent"));
         } catch (QueryFailure | BizIllegalException unavailable) {
             // 配置不完整时在提交处告知，避免产生无法运行的队列项。
-            throw BizIllegalException.state("问题理解模型暂不可用，请联系管理员检查模型配置");
+            throw new BizIllegalException(ErrorCode.QUERY_INTENT_UNAVAILABLE, "问数服务暂不可用", unavailable);
         }
     }
 
@@ -120,7 +156,7 @@ class QueryModels {
      * 查询和结果说明均须在部署允许的数据源范围内。
      */
     boolean explanationSourceAdmitted(long source) {
-        return allowedSources.contains(source) && explanationSources.contains(source);
+        return sourceAdmitted(source) && explanationSources.contains(source);
     }
 
     /** 未显式批准业务结果外发时停止解释，已交付结果仍保持可用。 */
@@ -347,7 +383,7 @@ class QueryModels {
                 .getFactIds();
     }
 
-    /** 当前部署、版本和活动时间同时约束实际调用。 */
+    /** 当前部署、固定版本和单次时限约束实际调用。 */
     private <T> T step(
             Run run,
             String kind,
@@ -392,44 +428,47 @@ class QueryModels {
         try {
             return send(id, step, lookup, path, input, type);
         } catch (ResourceAccessException lostReply) {
-            // 传输错误不能证明接收结果，恢复入口只读实际已经落盘的回执。
+            // 原调用传输中断，后续请求只能读取同一回执。
             if (lookup) {
+                // 回执服务也失联时交给下一代次继续核实。
+                throw pendingReceipt(id, step, path);
+            }
+            return call(id, step, true, path, receipt, type);
+        } catch (RestClientResponseException rejected) {
+            int status = rejected.getStatusCode().value();
+            if (!lookup && (status >= 500 || status == 425 || status == 409)) {
+                // 一次请求报错也可能已经保存回执，先核实原节点。
+                return call(id, step, true, path, receipt, type);
+            }
+            var body = rejected.getResponseBodyAsString();
+            if (status == 425 && body.contains("QUERY_STEP_RUNNING")) {
+                // 执行器确认原节点还在运行，保留当前轮次。
                 throw new QueryFailure("RECOVERY_PENDING");
             }
-            return readReceipt(id, step, path, receipt, type);
-        } catch (RestClientResponseException rejected) {
-            if (!lookup && rejected.getStatusCode().value() == 503) {
-                // 检查点获确认前的超时也可能已经提交回执，先只读核对一次。
-                return readReceipt(id, step, path, receipt, type);
+            if (status >= 500
+                    || body.contains("QUERY_CHECKPOINT_UNAVAILABLE")
+                    || body.contains("QUERY_STEP_OUTCOME_UNKNOWN")) {
+                // 没有可靠回执时按原登记时间有界核实。
+                throw pendingReceipt(id, step, path);
             }
-            log.info(
-                    "问数内部节点失败，request={}，step={}，http={}",
-                    id,
-                    step,
-                    rejected.getStatusCode().value());
-            throw QueryFailure.technical();
+            log.info("问数内部节点失败，request={}，step={}，http={}", id, step, status);
+            throw QueryFailure.technical(body.contains("\"TIMEOUT\"") ? "QUERY_STEP_TIMEOUT" : "QUERY_STEP_FAILED");
         } catch (RestClientException unavailable) {
-            log.info(
-                    "问数内部节点连接失败，request={}，step={}，分类={}",
-                    id,
-                    step,
-                    unavailable.getClass().getSimpleName());
-            throw QueryFailure.technical();
+            // 无法解码的回包不能用于下一步骤。
+            log.info("问数内部节点回包无效，request={}，step={}", id, step);
+            throw QueryFailure.technical("QUERY_STEP_FAILED");
         }
     }
 
     /**
-     * 首次回包不能确认时只读取同一阶段，连接中断保留恢复待核实状态。
+     * 查询节点短暂失联后由同轮次回查，说明沿用自己的修订规则。
      */
-    private <T> T readReceipt(String id, String step, String path, Object input, Class<T> type) {
-        try {
-            return send(id, step, true, path, input, type);
-        } catch (ResourceAccessException interrupted) {
-            throw new QueryFailure("RECOVERY_PENDING");
-        } catch (RestClientException unresolved) {
-            log.info("问数节点回执待核实，request={}，step={}", id, step);
-            throw QueryFailure.technical();
+    private QueryFailure pendingReceipt(String id, String step, String path) {
+        if ("/explanation".equals(path) || steps.canVerify(id, step)) {
+            // 等待期间始终保留节点登记，之后仍只发送回读命令。
+            return new QueryFailure("RECOVERY_PENDING");
         }
+        return QueryFailure.technical("QUERY_STEP_UNCONFIRMED");
     }
 
     /** 私有内容、凭据与响应正文不进入日志。 */

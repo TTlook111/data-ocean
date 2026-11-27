@@ -5,6 +5,7 @@ import static com.dataocean.module.query.service.QueryProtocol.TERMINAL;
 
 import com.dataocean.common.Ids;
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.infrastructure.Fingerprints;
 import com.dataocean.infrastructure.JsonCodec;
@@ -24,8 +25,8 @@ import com.dataocean.module.query.entity.vo.QueryConversationVO;
 import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.entity.vo.QueryEvidenceVO;
 import com.dataocean.module.query.entity.vo.QuerySnapshotVO;
-import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
 import com.dataocean.module.query.entity.vo.QueryTurnVO;
+import com.dataocean.module.query.entity.vo.QueryWorkbenchSourceVO;
 import com.dataocean.module.query.mapper.QueryConversationMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Input;
@@ -93,15 +94,38 @@ public class QueryService {
      * 回看和反馈证据采用统一输出规则。
      */
     private final QueryOutput output = new QueryOutput();
-    /** 只列当前权威可用来源，禁用来源不再允许选择。 */
-    public List<QuerySourceOptionVO> sources() {
+    /**
+     * 列出可回看的有效来源，并按当前权限及模型准入返回提交资格。
+     */
+    public List<QueryWorkbenchSourceVO> sources() {
         permissions.require("query.view");
         long user = UserContext.getUser();
-        return access.current(user).stream()
+        var sources = access.current(user).stream()
                 .map(AccessScopeVO::getSource)
                 .filter(row -> "ENABLED"
                         .equals(catalog.source(Ids.parse(row.getId()), false).lifecycle()))
-                .map(row -> new QuerySourceOptionVO(row.getId(), row.getName()))
+                .toList();
+        boolean mayAsk = permissions.has("query.ask");
+        boolean intentReady = mayAsk
+                && sources.stream().anyMatch(row -> models.sourceAdmitted(Ids.parse(row.getId())))
+                && models.intentConfigurationReady();
+
+        return sources.stream()
+                .map(row -> {
+                    // 问数能力随所选来源判断，可见历史仍按原访问资格保留。
+                    int blockedCode = 0;
+                    if (!mayAsk) {
+                        // 缺少提问功能时只提供本人历史浏览资格。
+                        blockedCode = ErrorCode.PERMISSION_DENIED.getCode();
+                    } else if (!models.sourceAdmitted(Ids.parse(row.getId()))) {
+                        // 未开通模型调用的来源仍可回看历史。
+                        blockedCode = ErrorCode.QUERY_SOURCE_NOT_ADMITTED.getCode();
+                    } else if (!intentReady) {
+                        // 已准入来源单独反馈问题理解服务状态。
+                        blockedCode = ErrorCode.QUERY_INTENT_UNAVAILABLE.getCode();
+                    }
+                    return new QueryWorkbenchSourceVO(row.getId(), row.getName(), blockedCode);
+                })
                 .toList();
     }
 
@@ -391,6 +415,7 @@ public class QueryService {
                     row.supplement(),
                     state,
                     row.executionState(),
+                    failureDetail(row),
                     row.cancelRequested(),
                     row.clarification(),
                     data,
@@ -404,6 +429,36 @@ public class QueryService {
                     data == null ? null : explanations.snapshot(row, data),
                     data == null ? null : new QueryAnswerRefVO(row.id(), 1));
         });
+    }
+
+    /**
+     * 只按预定义阶段和原因生成用户可见提示，避免回显源端或模型响应。
+     */
+    private String failureDetail(Request row) {
+        if (!"TECHNICAL_FAILURE".equals(row.state()) || row.failurePhase() == null) {
+            // 历史记录可能没有诊断，其他终态由现有文案表达。
+            return null;
+        }
+        String phase =
+                switch (row.failurePhase()) {
+                    case "RETRIEVING" -> "理解问题或检索知识";
+                    case "GENERATING" -> "确定查询条件";
+                    case "CHECKING" -> "复核查询口径和权限";
+                    case "EXECUTING" -> "查询数据";
+                    case "FINALIZING" -> "核对查询结果";
+                    default -> "处理问数";
+                };
+        String cause =
+                switch (Objects.toString(row.failureCode(), "")) {
+                    case "SOURCE_CONNECTION_UNAVAILABLE" -> "连接数据源时出错，查询未发出。";
+                    case "SOURCE_EXECUTION_UNCERTAIN" -> "无法确认原查询的执行结果。";
+                    case "QUERY_STEP_TIMEOUT" -> "此步骤的服务调用超时，未取得可用结果。";
+                    case "QUERY_STEP_UNCONFIRMED" -> "无法核实此步骤的执行结果，也没有可用的恢复记录。";
+                    case "QUERY_STEP_FAILED" -> "此步骤的服务未返回可用结果。";
+                    case "QUERY_LEASE_EXPIRED" -> "执行中断，无法恢复。";
+                    default -> "此步骤出错，无法继续。";
+                };
+        return "在「" + phase + "」阶段中断。" + cause;
     }
 
     /** 评价及重放使用原提问人、当前资格和确切的已交付回答。 */

@@ -1,7 +1,20 @@
 /**
  * 当前可选择的真实数据源。
  */
-export type Source = { id: string; name: string };
+export type Source = {
+  /**
+   * 访问历史和提交新问数共同使用的编号。
+   */
+  id: string;
+  /**
+   * 当前账号有权回看的来源名称。
+   */
+  name: string;
+  /**
+   * 零表示允许提交，其他值为后端的阻断业务码。接口升级期间可能缺省。
+   */
+  askBlockedCode?: number;
+};
 
 /**
  * 本人在当前源的近期轮次摘要。
@@ -53,6 +66,8 @@ export interface Snapshot extends Turn {
   supplement: string | null;
   /** 请求与实际数据库执行的状态分别记录。 */
   executionState: string;
+  /** 技术故障时当前账号可见的阶段与原因。 */
+  failureDetail?: string | null;
   /** 当前是否在核实停止。 */
   cancelRequested: boolean;
   /** 模型确认的缺项。 */

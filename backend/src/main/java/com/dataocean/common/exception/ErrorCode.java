@@ -39,6 +39,14 @@ public enum ErrorCode {
     TASK_TERMINAL(409401, 409),
     STALE_RUN(409402, 409),
     EXECUTION_UNCERTAIN(409403, 409),
+    /**
+     * 当前来源未获准调用问数模型。
+     */
+    QUERY_SOURCE_NOT_ADMITTED(409404, 409),
+    /**
+     * 问数所需的问题理解模型或内部服务配置不可用。
+     */
+    QUERY_INTENT_UNAVAILABLE(409405, 409),
     RATE_LIMITED(429001, 429),
     CAPACITY_EXCEEDED(429002, 429),
     DEPENDENCY_UNAVAILABLE(503001, 503),

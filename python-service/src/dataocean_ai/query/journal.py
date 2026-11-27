@@ -54,11 +54,16 @@ async def complete(state: JournalState, runtime: Runtime[Invocation]) -> Journal
 async def invoke_step(invoke: Callable[[], Awaitable[Any]], digest: str) -> Saved:
     """已持久登记的外部调用独立完成，等待上游期间不占用写锁。"""
     try:
-        value = jsonable_encoder(await invoke())
+        async with asyncio.timeout(45):
+            # 节点内部仍使用自己较短的提供方预算。
+            value = jsonable_encoder(await invoke())
         return Saved(digest=digest, value=value, error=None)
     except ModelFailure as failure:
         # 不记录提供方正文，不让恢复把失败当成尚未外发。
         return Saved(digest=digest, value=None, error=str(failure))
+    except TimeoutError:
+        # 超出整个节点的处理上限，记录已结束的超时回执。
+        return Saved(digest=digest, value=None, error="TIMEOUT")
 
 
 def build(saver: AsyncRedisSaver):
@@ -88,7 +93,7 @@ def receipt(saved: Saved, digest: str) -> Any:
     if digest != saved["digest"]:
         raise HTTPException(status_code=409, detail="QUERY_STEP_CONFLICT")
     if saved["error"]:
-        raise HTTPException(status_code=503, detail=saved["error"])
+        raise HTTPException(status_code=424, detail=saved["error"])
     return saved["value"]
 
 
@@ -114,6 +119,7 @@ async def journal(request: Request, payload: Any, invoke: Callable[[], Awaitable
     prefix = os.getenv("AI_QUERY_CHECKPOINT_PREFIX", "dataocean:query:v1")
     options = {"configurable": {"thread_id": query_id}}
     claim = f"{prefix}:issued:{query_id}:{step}"
+    active = f"{claim}:active"
     try:
         async with (
             Redis.from_url(url, socket_timeout=3, socket_connect_timeout=2) as client,
@@ -145,22 +151,31 @@ async def journal(request: Request, payload: Any, invoke: Callable[[], Awaitable
                     saved = snapshot.values.get("receipts", {}).get(step)
                     if saved is not None:
                         return receipt(saved, digest)
+                if await client.exists(active):
+                    # 活动标记尚在时，继续等待同一节点提交回执。
+                    raise HTTPException(status_code=425, detail="QUERY_STEP_RUNNING")
                 raise HTTPException(status_code=409, detail="QUERY_STEP_OUTCOME_UNKNOWN")
 
-            response = await invoke_step(invoke, digest)
-            # 多个解释修订可能前后交叉返回。读取最新线程状态和写入在同一短锁内。
-            async with (
-                client.lock(f"{prefix}:writer:{query_id}", timeout=20, blocking_timeout=4),
-                asyncio.timeout(8),
-            ):
-                result = await graph.ainvoke(
-                    {"step": step, "digest": digest},
-                    options,
-                    context={"saved": response},
-                    durability="sync",
-                )
-            logger.info("问数节点回执已落盘，request=%s，step=%s", query_id, step)
-            return receipt(result["receipts"][step], digest)
+            # 已登记动作独立执行，短期活动标记用于区分断连和真实失联。
+            await client.set(active, "1", ex=60)
+            try:
+                response = await invoke_step(invoke, digest)
+                # 多个解释修订可能前后交叉返回。读取最新线程状态和写入在同一短锁内。
+                async with (
+                    client.lock(f"{prefix}:writer:{query_id}", timeout=20, blocking_timeout=4),
+                    asyncio.timeout(8),
+                ):
+                    result = await graph.ainvoke(
+                        {"step": step, "digest": digest},
+                        options,
+                        context={"saved": response},
+                        durability="sync",
+                    )
+                logger.info("问数节点回执已落盘，request=%s，step=%s", query_id, step)
+                return receipt(result["receipts"][step], digest)
+            finally:
+                # 回执先落盘，完成或退出后清除活动事实。
+                await client.delete(active)
     except (RedisError, OSError, TimeoutError):
         # 存储不可用时不在内存中代替已有的持久检查点。
         raise HTTPException(status_code=503, detail="QUERY_CHECKPOINT_UNAVAILABLE") from None

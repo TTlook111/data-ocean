@@ -10,8 +10,8 @@ import com.dataocean.module.query.entity.vo.QueryAcceptedVO;
 import com.dataocean.module.query.entity.vo.QueryConversationVO;
 import com.dataocean.module.query.entity.vo.QueryExplanationVO;
 import com.dataocean.module.query.entity.vo.QuerySnapshotVO;
-import com.dataocean.module.query.entity.vo.QuerySourceOptionVO;
 import com.dataocean.module.query.entity.vo.QueryTurnVO;
+import com.dataocean.module.query.entity.vo.QueryWorkbenchSourceVO;
 import com.dataocean.module.query.service.QueryExplanations;
 import com.dataocean.module.query.service.QueryService;
 import com.dataocean.module.query.service.QueryStream;
@@ -50,10 +50,12 @@ public class QueryController {
     /** 只订阅当前状态。 */
     private final QueryStream stream;
 
-    /** 返回本人当前可用的源选项。 */
+    /**
+     * 返回本人可回看历史的来源及其当下的问数提交资格。
+     */
     @GetMapping("/sources")
     @RequirePermission("query.view")
-    public Result<List<QuerySourceOptionVO>> sources() {
+    public Result<List<QueryWorkbenchSourceVO>> sources() {
         return Result.success(queries.sources());
     }
 

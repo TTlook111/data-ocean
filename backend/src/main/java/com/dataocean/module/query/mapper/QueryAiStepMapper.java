@@ -1,6 +1,7 @@
 package com.dataocean.module.query.mapper;
 
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Select;
 
 /**
  * MySQL 记录本次节点的发起事实，Redis 丢失时不会再次启动原调用。
@@ -15,6 +16,16 @@ public interface QueryAiStepMapper {
               AND lease_until>UTC_TIMESTAMP(3) AND cancel_requested=FALSE
             """)
     int issue(String id, int run, String step);
+
+    /**
+     * 在原节点登记后的核实窗口内允许继续读取回执。
+     */
+    @Select(
+            """
+            SELECT EXISTS(SELECT 1 FROM qry_ai_step WHERE request_id=#{id} AND step=#{step}
+              AND created_at>UTC_TIMESTAMP(3)-INTERVAL 65 SECOND)
+            """)
+    boolean canVerify(String id, String step);
 
     /** 解释执行许可只对应已领取的一次有限解释修订。 */
     @Insert(

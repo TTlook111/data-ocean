@@ -1,7 +1,5 @@
 package com.dataocean.module.query.service;
 
-import static com.dataocean.common.Times.instant;
-
 import com.dataocean.common.Ids;
 import com.dataocean.common.exception.BizIllegalException;
 import com.dataocean.infrastructure.Fingerprints;
@@ -23,13 +21,13 @@ import com.dataocean.module.query.service.QuerySql.ValueComparison;
 import com.dataocean.module.query.service.QueryTableSelection.Scope;
 
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -52,8 +50,20 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 class QueryWorker {
 
-    /** 可选节点最多等待两次短请求，余量不足时给必要步骤保留时间。 */
-    private static final int MIN_OPTIONAL_BUDGET_SECONDS = 35;
+    /**
+     * 必需模型节点的单次调用上限，实际时限还受固定模型配置约束。
+     */
+    private static final int MODEL_TIMEOUT_SECONDS = 28;
+
+    /**
+     * 向量召回和排序预算各自独立。
+     */
+    private static final int RETRIEVAL_TIMEOUT_SECONDS = 19;
+
+    /**
+     * 源端文本比较沿用独立的来源查询超时。
+     */
+    private static final int COMPARISON_TIMEOUT_SECONDS = 30;
 
     /**
      * 只补充物理表时，恢复同一轮的日期计算。
@@ -131,7 +141,7 @@ class QueryWorker {
     private final JsonCodec json;
 
     /**
-     * 为实际 SQL 和绑定参数生成防重指纹。
+     * 为实际 SQL 和已核实的知识缺口生成各自的防重指纹。
      */
     private final Fingerprints fingerprints;
 
@@ -174,6 +184,11 @@ class QueryWorker {
                 finish(row);
                 return;
             }
+            if ("EXECUTING".equals(row.state())) {
+                // 已派发的轮次只核实原执行，不再经过生成与派发。
+                verifyExecution(row);
+                return;
+            }
             // 外发前先锁定原用户、当前源与当前规则。
             var rules = runAccess.checked(row).getRules();
             String signature = output.signature(rules);
@@ -185,19 +200,23 @@ class QueryWorker {
                 // 澄清已推入同一轮的等待状态，本次处理无需继续执行。
                 return;
             }
-            var data = execute(row, signature, prepared);
-            execution = "SUCCEEDED";
-            output.checkResult(rules, data, json);
-            if (requests.capture(row.id(), row.runVersion(), json.write(data)) != 1) {
-                // 捕获只允许写入当前代次的执行结果。
-                throw QueryFailure.technical();
+            execute(row, signature, prepared, rules);
+            if ("FINALIZING".equals(requests.get(row.id()).state())) {
+                // 仅交付已通过结果检查并落盘的原执行。
+                finish(row);
             }
-            finish(row);
         } catch (QueryFailure failure) {
             // HTTP 进程中断后放弃本机租约，新代次只核对已登记节点。
             if (!"RECOVERY_PENDING".equals(failure.state())) {
                 // 结果待核实时仅交还租约，明确结论才进入终态。
-                stop(row, failure.state(), execution, failure.diagnostic(), evidenceSignature);
+                String gapKey = failure.gap() == null || evidenceSignature == null
+                        ? null
+                        : HexFormat.of()
+                                .formatHex(fingerprints.command(
+                                        "feedback.query.verifiedGap",
+                                        Ids.text(row.sourceId()),
+                                        List.of(row.userId(), evidenceSignature, failure.gap())));
+                stop(row, failure.state(), execution, failure.diagnostic(), evidenceSignature, gapKey);
             }
         } catch (BizIllegalException denied) {
             // 保留原来的撤权、知识不足与技术失败区分。
@@ -208,14 +227,23 @@ class QueryWorker {
                             : denied.getStatus() >= 500 ? "TECHNICAL_FAILURE" : "KNOWLEDGE_INSUFFICIENT",
                     execution,
                     null,
-                    evidenceSignature);
+                    evidenceSignature,
+                    null);
         } catch (SQLException unavailable) {
-            // 源端响应不明保留原执行号，禁止自动重发。
-            stop(row, "TECHNICAL_FAILURE", "UNKNOWN", "SOURCE_EXECUTION_UNCERTAIN", evidenceSignature);
+            // 区分连接未建立和已派发响应丢失，后者交给原执行核实。
+            var latest = requests.get(row.id());
+            if (latest.executionId() == null) {
+                stop(row, "TECHNICAL_FAILURE", execution, "SOURCE_CONNECTION_UNAVAILABLE", evidenceSignature, null);
+            } else if ("FINALIZING".equals(latest.state())) {
+                // 关闭 JDBC 资源失败时仍可从已持久化的结果交付。
+                finish(row);
+            } else {
+                requests.verifyExecution(row.id(), row.runVersion(), latest.executionId());
+            }
         } catch (RuntimeException failure) {
             // 操作原话、SQL 参数、凭据及提供方响应都不进入日志。
             log.warn("问数轮次中止，requestId={}，异常类={}", row.id(), failure.getClass().getSimpleName());
-            stop(row, "TECHNICAL_FAILURE", execution, null, evidenceSignature);
+            stop(row, "TECHNICAL_FAILURE", execution, null, evidenceSignature, null);
         } finally {
             leases.remove(row.id(), row.runVersion());
             running.remove(row.id());
@@ -308,9 +336,17 @@ class QueryWorker {
             verifyEarlier(row, signature, memory);
             proposed = QuerySql.normalize(
                     terms == null
-                            ? models.plan(run, generation, remaining(row), planningQuestion, evidence, rules, memory)
+                            ? models.plan(
+                                    run, generation, MODEL_TIMEOUT_SECONDS, planningQuestion, evidence, rules, memory)
                             : models.plan(
-                                    run, generation, remaining(row), planningQuestion, evidence, rules, memory, terms),
+                                    run,
+                                    generation,
+                                    MODEL_TIMEOUT_SECONDS,
+                                    planningQuestion,
+                                    evidence,
+                                    rules,
+                                    memory,
+                                    terms),
                     terms != null);
         } else {
             // 沿用上一轮的商品和口径，在编译每份候选时计算该片段支持的日期。
@@ -369,7 +405,7 @@ class QueryWorker {
             }
             verifyHistory(row, signature, memory);
             var revised = models.repairParameter(
-                    run, repair, remaining(row), planningQuestion, evidence, rules, proposed, memory);
+                    run, repair, MODEL_TIMEOUT_SECONDS, planningQuestion, evidence, rules, proposed, memory);
             usedRepair = repair;
             runAccess.requireRules(row, signature);
             checked = compile(
@@ -420,9 +456,18 @@ class QueryWorker {
         var selected = List.of(basis.snippet());
         verifyEarlier(row, signature, memory);
         var semanticDecision = checked.selection() == null
-                ? models.check(run, "semantic", semantic, remaining(row), question, selected, rules, plan, memory)
+                ? models.check(
+                        run, "semantic", semantic, MODEL_TIMEOUT_SECONDS, question, selected, rules, plan, memory)
                 : models.checkSelection(
-                        run, semantic, remaining(row), question, selected, rules, plan, memory, checked.selection());
+                        run,
+                        semantic,
+                        MODEL_TIMEOUT_SECONDS,
+                        question,
+                        selected,
+                        rules,
+                        plan,
+                        memory,
+                        checked.selection());
         if (!"ALLOW".equals(semanticDecision)) {
             throw QueryFailure.knowledge();
         }
@@ -431,7 +476,15 @@ class QueryWorker {
             verifyHistory(row, signature, memory);
             if (!"ALLOW"
                     .equals(models.check(
-                            run, "output", outputRevision, remaining(row), question, selected, rules, plan, memory))) {
+                            run,
+                            "output",
+                            outputRevision,
+                            MODEL_TIMEOUT_SECONDS,
+                            question,
+                            selected,
+                            rules,
+                            plan,
+                            memory))) {
                 throw QueryFailure.denied();
             }
         }
@@ -519,7 +572,7 @@ class QueryWorker {
             // 只为可信原发起者取得当前仍有权使用的索引。
             runAccess.requireRules(row, signature);
             context.verify(row, signature, memory);
-            return corpus.indexes(row.sourceId(), frozen.bindings(), remaining(row));
+            return corpus.indexes(row.sourceId(), frozen.bindings(), RETRIEVAL_TIMEOUT_SECONDS);
         });
         if (indexes.isEmpty()) {
             // 正式知识范围为空时按知识不足结束。
@@ -528,7 +581,7 @@ class QueryWorker {
         List<QueryProtocol.Hit> hits;
         try {
             // 调用属于同一运行的正式召回节点。
-            hits = models.retrieve(run, search, indexes, remaining(row));
+            hits = models.retrieve(run, search, indexes, RETRIEVAL_TIMEOUT_SECONDS);
         } finally {
             // 即使上游返回失败，也先落实在等待期间发生的取消与撤权。
             runAccess.requireRules(row, signature);
@@ -548,7 +601,11 @@ class QueryWorker {
     private QueryProtocol.Intent readIntent(
             Request row, long revision, QueryModels.Run run, QueryProtocol.Memory memory, String signature) {
         var original = models.understand(
-                new QueryModels.Run(run.id(), run.version(), false), revision, remaining(row), row.question(), memory);
+                new QueryModels.Run(run.id(), run.version(), false),
+                revision,
+                MODEL_TIMEOUT_SECONDS,
+                row.question(),
+                memory);
         if (row.supplement() == null) {
             // 单轮问题继续使用原始回执。
             return original.conditions() == null
@@ -561,7 +618,7 @@ class QueryWorker {
                             original.ambiguous());
         }
         runAccess.requireRules(row, signature);
-        var amendment = models.understandSupplement(run, revision, remaining(row), row.supplement(), memory);
+        var amendment = models.understandSupplement(run, revision, MODEL_TIMEOUT_SECONDS, row.supplement(), memory);
         if (original.conditions() == null && amendment.conditions() == null) {
             // 同轮次的旧回执可以只有检索表述，保留其原始计划输入形状。
             return amendment;
@@ -636,22 +693,23 @@ class QueryWorker {
         var decision = run.clarified() ? frozen.clarifiedRerank() : frozen.rerank();
         if (decision == null) {
             RerankOrder order = null;
-            int seconds = remaining(row);
-            if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
-                try {
-                    // 仅向第三方提交已核验正文以及本轮相同检索表述。
-                    order = models.rerank(
-                            run,
-                            revision,
-                            seconds,
-                            search,
-                            bases.stream().map(QueryCorpus.Basis::text).toList());
-                } catch (QueryFailure | BizIllegalException unavailable) {
-                    // 外部不可用时不重新发出请求，使用原始候选次序。
-                    log.info("问数候选重排回退，request={}", row.id());
+            try {
+                // 仅向第三方提交已核验正文以及本轮相同检索表述。
+                order = models.rerank(
+                        run,
+                        revision,
+                        MODEL_TIMEOUT_SECONDS,
+                        search,
+                        bases.stream().map(QueryCorpus.Basis::text).toList());
+            } catch (QueryFailure | BizIllegalException unavailable) {
+                if (unavailable instanceof QueryFailure failure && "RECOVERY_PENDING".equals(failure.state())) {
+                    // 原重排仍可能完成，先核实同一回执。
+                    throw failure;
                 }
-                bases = verifiedBasis(row, signature, memory, hits);
+                // 无法恢复的可选重排回退到原始候选次序。
+                log.info("问数候选重排回退，request={}", row.id());
             }
+            bases = verifiedBasis(row, signature, memory, hits);
             decision = QueryReranking.decide(hits, order);
             var path = run.clarified() ? "$.clarifiedRerank" : "$.rerank";
             if (requests.freezeRerank(row.id(), row.runVersion(), path, json.write(decision)) != 1) {
@@ -675,25 +733,25 @@ class QueryWorker {
     /**
      * 执行之前在独立事务内记录唯一执行许可，源端只接收已核准的只读计划。
      */
-    private QueryDataVO execute(Request row, String signature, PreparedPlan prepared) throws SQLException {
+    private void execute(Request row, String signature, PreparedPlan prepared, List<OutputRuleVO> rules)
+            throws SQLException {
         var basis = prepared.basis();
         var compiled = prepared.compiled();
         long binding = basis.binding().id();
         var executionFingerprint = fingerprints.command(
                 "query.execute", Ids.text(row.sourceId()), List.of(compiled.sql(), compiled.parameters()));
-        running.put(row.id(), new Running(row, binding, signature));
-        return jdbc.execute(
+        String executionId = UUID.randomUUID().toString();
+        running.put(row.id(), new Running(row, binding, signature, executionId));
+        jdbc.execute(
                 basis.source(),
-                row.id(),
+                executionId,
                 compiled,
-                () -> remaining(row),
                 () -> tx.executeWithoutResult(status -> {
                     // 先锁定原用户，登记执行许可后才向源端发送。
                     guard.shared();
                     users.lock(row.userId());
                     runAccess.verifyBinding(
                             row, binding, signature, basis.source().configurationId());
-                    remaining(row);
                     if (requests.hasUnresolvedExecution(row.userId(), row.sourceId(), executionFingerprint, row.id())) {
                         // 不为另一条原文不同、实际执行相同的轮次派发 SQL。
                         throw QueryFailure.technical();
@@ -701,7 +759,7 @@ class QueryWorker {
                     if (requests.permit(new Permit(
                                     row.id(),
                                     row.runVersion(),
-                                    UUID.randomUUID().toString(),
+                                    executionId,
                                     binding,
                                     signature,
                                     json.write(prepared.reasoning()),
@@ -710,11 +768,48 @@ class QueryWorker {
                             != 1) {
                         throw new QueryFailure("USER_CANCELLED");
                     }
-                }));
+                }),
+                data -> {
+                    // JDBC 关闭前保存已完整读取的结果，原执行编号保持不变。
+                    try {
+                        // 输出限制核验通过前不把业务数据写入平台库。
+                        output.checkResult(rules, data, json);
+                    } catch (BizIllegalException denied) {
+                        // 源端已成功返回，轮次因输出限制结束。
+                        stop(row, "PERMISSION_DENIED", "SUCCEEDED", null, signature, null);
+                        return;
+                    }
+                    if (requests.capture(row.id(), row.runVersion(), executionId, json.write(data)) != 1) {
+                        // 只有原执行的当前代次可以写入业务结果。
+                        throw QueryFailure.technical();
+                    }
+                });
     }
 
     /**
-     * 基于原轮次的澄清使用同一等待、取消检查和预算边界。
+     * 只读核实已派发的原 SQL，连接丢失后的 JDBC 结果只可能来自已捕获记录。
+     */
+    private void verifyExecution(Request row) {
+        var original = requests.byExecution(row.id(), row.executionId());
+        if (original == null || original.runVersion() != row.runVersion()) {
+            // 只有本次领取的原执行允许继续。
+            return;
+        }
+        runAccess.checked(original);
+        if ("FINALIZING".equals(original.state())) {
+            // 结果在接管前已写入，重走授权核验并交付。
+            finish(original);
+        } else if (jdbc.isInFlight(original.executionId()) || !"UNKNOWN".equals(original.executionState())) {
+            // 原句柄仍在或这是接管后的首次核实，保留原执行等待下一次回读。
+            requests.verifyExecution(original.id(), original.runVersion(), original.executionId());
+        } else {
+            // 已无可恢复的 JDBC 结果，保留原执行号及未知事实。
+            stop(original, "TECHNICAL_FAILURE", "UNKNOWN", "SOURCE_EXECUTION_UNCERTAIN", null, null);
+        }
+    }
+
+    /**
+     * 基于原轮次的澄清使用同一等待和取消检查。
      */
     private void waitForAnswer(Request row, String text) {
         if (text == null || text.isBlank() || requests.waitForAnswer(row.id(), row.runVersion(), text.strip()) != 1) {
@@ -826,6 +921,7 @@ class QueryWorker {
         boolean needsHistoricalDate = false;
         QueryFailure parameterFailure = null;
         QueryFailure unsupported = null;
+        var gaps = new ArrayList<QueryFailure.Gap>();
         var complete = new ArrayList<QueryCandidate>();
         var anchors = new ArrayList<PlanAnchor>();
         for (var candidate : candidates) {
@@ -887,11 +983,19 @@ class QueryWorker {
                 }
                 if (!"KNOWLEDGE_INSUFFICIENT".equals(failure.state()) || failure.diagnostic() != null) {
                     // 权限、预算和技术错误保持原处理。
+                    if (failure.gap() != null && candidates.size() > 1) {
+                        // 提前终止的候选判断不能代表其余片段已核对。
+                        throw QueryFailure.join(failure.joinAssessment());
+                    }
                     throw failure;
                 }
                 if (failure.parameterMismatch() && parameterFailure == null) {
                     // 没有其他候选可以执行时，保留原有的一次参数修正入口。
                     parameterFailure = failure;
+                }
+                if (failure.gap() != null) {
+                    // 只累计经过 Java 核对且具备确切标识的治理缺口。
+                    gaps.add(failure.gap());
                 }
                 addExclusion(requested, candidate, exclusions, failure);
             }
@@ -931,7 +1035,15 @@ class QueryWorker {
                 waitForAnswer(row, followup.previousWeek() ? PREVIOUS_WEEK_CLARIFICATION : ADJACENT_DATE_CLARIFICATION);
                 return null;
             }
-            throw parameterFailure == null ? QueryFailure.knowledge() : parameterFailure;
+            if (parameterFailure != null) {
+                // 参数修正仍可继续处理这次原问。
+                throw parameterFailure;
+            }
+            if (gaps.size() == candidates.size() && gaps.stream().allMatch(gaps.get(0)::equals)) {
+                // 全部同版候选都证明缺少同一依据时，才把它作为反馈的定位依据。
+                throw QueryFailure.knowledge(gaps.get(0));
+            }
+            throw QueryFailure.knowledge();
         }
         var selected = QueryTableSelection.select(
                 complete.stream().map(QueryCandidate::compiled).toList(), scope.requiredObjects());
@@ -1063,7 +1175,8 @@ class QueryWorker {
                     addExclusion(requested, basis, exclusions, failure);
                     continue;
                 }
-                throw failure;
+                // 后备发布提前失败时没有完成整轮取证，保留诊断但不自动关联。
+                throw failure.gap() == null ? failure : QueryFailure.join(failure.joinAssessment());
             }
         }
         return alternatives;
@@ -1235,7 +1348,7 @@ class QueryWorker {
                 runAccess.verifyBinding(
                         row, basis.binding().id(), signature, basis.source().configurationId());
                 try {
-                    return jdbc.sameTextValue(basis, field, left, right, remaining(row));
+                    return jdbc.sameTextValue(basis, field, left, right, COMPARISON_TIMEOUT_SECONDS);
                 } finally {
                     // 等待源库期间发生撤权时不能继续选路。
                     runAccess.requireRules(row, signature);
@@ -1325,14 +1438,13 @@ class QueryWorker {
     void observe() {
         leases.forEach((id, run) -> requests.renew(id, run));
         running.forEach((id, run) -> {
-            // 逐条核验在途查询的实时预算与使用权限。
+            // 逐条核验在途查询的实时权限。
             try {
                 // 任何不再允许的执行交给 JDBC 取消。
-                remaining(run.row());
                 runAccess.verifyBinding(run.row(), run.binding(), run.signature(), null);
             } catch (RuntimeException cannotContinue) {
                 // 未能继续核验时对该轮尝试停止源查询。
-                jdbc.cancel(id);
+                jdbc.cancel(run.executionId());
             }
         });
     }
@@ -1411,7 +1523,9 @@ class QueryWorker {
         return new PreparedHistory(QueryHistorySummary.apply(memory, decision), decision.applied() ? revision : null);
     }
 
-    /** 只有仍有权且剩余时间足够时才调用摘要，固定成功或回退结果。 */
+    /**
+     * 调用已获准的可选摘要节点，并固定成功或回退结果。
+     */
     private SummaryDecision selectHistory(
             Request row,
             String signature,
@@ -1419,18 +1533,19 @@ class QueryWorker {
             long revision,
             QueryProtocol.Memory input,
             SummaryDecision fallback) {
-        int seconds = remaining(row);
         verifyHistory(row, signature, input);
         var selected = fallback;
-        if (seconds >= MIN_OPTIONAL_BUDGET_SECONDS) {
-            try {
-                // 用户补充不改变已登记的摘要输入，仍使用原问题。
-                selected = QueryHistorySummary.decide(
-                        input, models.summarize(run, revision, seconds, row.question(), input));
-            } catch (QueryFailure | BizIllegalException unavailable) {
-                // 可选节点超时、停用或回包不确定时保留可追溯的结构化口径。
-                log.info("问数历史摘要回退，request={}", row.id());
+        try {
+            // 用户补充不改变已登记的摘要输入，仍使用原问题。
+            selected = QueryHistorySummary.decide(
+                    input, models.summarize(run, revision, MODEL_TIMEOUT_SECONDS, row.question(), input));
+        } catch (QueryFailure | BizIllegalException unavailable) {
+            if (unavailable instanceof QueryFailure failure && "RECOVERY_PENDING".equals(failure.state())) {
+                // 原摘要仍可能完成，先核实同一回执。
+                throw failure;
             }
+            // 无法恢复的可选摘要回退到结构化口径。
+            log.info("问数历史摘要回退，request={}", row.id());
         }
         // 摘要期间的取消、撤权或知识变化优先于回退和后续派发。
         verifyHistory(row, signature, input);
@@ -1510,7 +1625,7 @@ class QueryWorker {
                 // 原状态仍由台账决定，取消意图和租约竞争不会在这里冒充取消成功。
                 throw QueryFailure.technical();
             }
-            // 交付已经扣除实际耗时，首次说明读取同一事务内的最新余额。
+            // 首次说明读取同一事务内的交付记录及独立额度。
             explanations.initial(requests.get(row.id()));
         });
     }
@@ -1526,33 +1641,22 @@ class QueryWorker {
     }
 
     /**
-     * 活动预算至少剩下一秒才能进入下一步。
-     */
-    private int remaining(Request row) {
-        long spent = Duration.between(instant(row.processingStartedAt()), Instant.now())
-                .toMillis();
-        long seconds = (row.remainingMillis() - spent) / 1000;
-        if (seconds < 1) {
-            // 不足一秒无法再启动下一节点。
-            throw QueryFailure.resource();
-        }
-        return (int) Math.min(120, seconds);
-    }
-
-    /**
      * 只在确实已登记执行时保留运行、实际成功或未知记录。
      */
-    private void stop(Request row, String state, String execution, String reason, String signature) {
+    private void stop(Request row, String state, String execution, String reason, String signature, String gapKey) {
         var latest = requests.get(row.id());
-        String actual =
-                latest.executionId() == null ? "NOT_SUBMITTED" : "SUCCEEDED".equals(execution) ? execution : "UNKNOWN";
+        String actual = latest.executionId() == null
+                ? "NOT_SUBMITTED"
+                : "SUCCEEDED".equals(latest.executionState()) || "SUCCEEDED".equals(execution)
+                        ? "SUCCEEDED"
+                        : "UNKNOWN";
         String diagnostic =
                 switch (state) {
                     case "KNOWLEDGE_INSUFFICIENT" -> reason == null ? "INSUFFICIENT_KNOWLEDGE" : reason;
                     case "TECHNICAL_FAILURE" -> reason == null ? "QUERY_RUNTIME_FAILURE" : reason;
                     default -> null;
                 };
-        requests.stop(row.id(), row.runVersion(), state, actual, diagnostic, signature);
+        requests.stop(row.id(), row.runVersion(), state, actual, diagnostic, signature, gapKey);
     }
 
     /**
@@ -1564,5 +1668,5 @@ class QueryWorker {
     /**
      * 独立心跳复核在途许可所用的请求、发布与输出签名。
      */
-    private record Running(Request row, long binding, String signature) {}
+    private record Running(Request row, long binding, String signature, String executionId) {}
 }

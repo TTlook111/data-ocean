@@ -736,9 +736,29 @@
   background: var(--do-hover);
 }
 
-.error {
-  padding: 2px 7px 8px;
-  color: #a53737;
+.composerNotice:global(.ant-alert) {
+  /* 就近反馈，使用与问数输入一致的宽度和较紧凑的行距。 */
+  width: var(--thread-width);
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.composerNotice :global(.ant-alert-icon) {
+  /* 图标辅助识别状态，视觉重心留给原因。 */
+  font-size: 16px;
+  margin-block-start: 2px;
+}
+
+.composerNotice :global(.ant-alert-title) {
+  /* 让阻断原因先于管理员操作建议被扫读。 */
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.composerNotice :global(.ant-alert-description) {
+  /* 次行仅解释可执行的处理方式。 */
+  font-size: 13px;
 }
 
 .historyItem:focus-visible,
@@ -766,6 +786,90 @@
   gap: 4px 12px;
   color: #5b6575;
   font-size: 12px;
+}
+
+.feedbackProgress {
+  /* 跟随原答复左对齐，反馈记录维持适合阅读的宽度。 */
+  inline-size: min(100%, 640px);
+  margin-block-start: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-panel);
+}
+
+.feedbackProgressHeader,
+.feedbackProgressEvent {
+  /* 状态与时间优先同排，窗口缩窄时随内容换行。 */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px 12px;
+}
+
+.feedbackProgressHeader {
+  /* 顶部保留事项进度及当前可办理动作。 */
+  padding: 10px 14px;
+}
+
+.feedbackProgressTitle,
+.feedbackProgressActions {
+  /* 标题、状态和操作按阅读用途分别成组。 */
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.feedbackProgressTitle :global(.anticon) {
+  /* 沿用工作台强调色标识反馈来源。 */
+  color: var(--do-primary);
+}
+
+.feedbackProgressTag:global(.ant-tag) {
+  /* 状态靠右对齐，间距由动作组统一控制。 */
+  margin-inline-end: 0;
+}
+
+.feedbackProgressEntries {
+  /* 记录区和事项状态用轻分隔区别。 */
+  margin: 0;
+  padding: 0 14px;
+  list-style: none;
+  border-block-start: 1px solid var(--do-line);
+}
+
+.feedbackProgressEntry {
+  /* 原要求和原回复沿用输入内容，长词在记录内换行。 */
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+.feedbackProgressEntry + .feedbackProgressEntry {
+  /* 多条补充保留各自的事件和时间。 */
+  border-block-start: 1px solid var(--do-line);
+}
+
+.feedbackProgressEvent time,
+.feedbackProgressText span {
+  /* 日期与历史字段标签弱于事件正文。 */
+  color: #5b6575;
+  font-size: 12px;
+}
+
+.feedbackProgressEvent time {
+  /* 日期数字等宽，便于纵向扫读事件时间。 */
+  font-variant-numeric: tabular-nums;
+}
+
+.feedbackProgressText {
+  /* 保留原文行间距，贴近对应的补充状态。 */
+  margin: 5px 0 0;
+}
+
+.feedbackProgressText span {
+  /* 用原要求或本人补充标签明确正文归属。 */
+  margin-inline-end: 8px;
 }
 
 @media (max-height: 640px) {

@@ -80,7 +80,7 @@ def test_replays_failure_and_rejects_read_of_unissued_step(monkeypatch):
             # 第二次只回放已经确认的失败类型。
             with pytest.raises(HTTPException) as failed:
                 await journal.journal(envelope(request_id, "plan", lookup), {"flags": [1]}, failure)
-            assert failed.value.status_code == 503
+            assert failed.value.status_code == 424
             assert failed.value.detail == "TIMEOUT"
 
     asyncio.run(run())
@@ -132,7 +132,7 @@ def test_node_receipt_preserves_confirmed_value_or_failure() -> None:
     with pytest.raises(HTTPException) as error:
         # 超时回执在回查时保持原原因，避免外发被误认为未发生。
         journal.receipt(failed, "digest")
-    assert (error.value.status_code, error.value.detail) == (503, "TIMEOUT")
+    assert (error.value.status_code, error.value.detail) == (424, "TIMEOUT")
 
 
 def test_concurrent_steps_keep_independent_receipts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,8 +178,14 @@ def test_concurrent_steps_keep_independent_receipts(monkeypatch: pytest.MonkeyPa
 
         task_a = asyncio.create_task(journal.journal(request("explanation-1"), {"id": 1}, first))
         await asyncio.wait_for(first_started.wait(), 8)
-        task_b = asyncio.create_task(journal.journal(request("explanation-2"), {"id": 2}, second))
         try:
+            # 查回执时真实执行仍持有活动标记，不能把它判作丢失。
+            with pytest.raises(HTTPException) as running:
+                await journal.journal(request("explanation-1", True), {"id": 1}, must_not_invoke)
+            assert (running.value.status_code, running.value.detail) == (425, "QUERY_STEP_RUNNING")
+            task_b = asyncio.create_task(
+                journal.journal(request("explanation-2"), {"id": 2}, second)
+            )
             # 让第二份回执先落盘，再释放先启动的慢节点，避免时序偶发。
             assert await asyncio.wait_for(asyncio.shield(task_b), 8) == "second"
         finally:

@@ -134,8 +134,22 @@ final class QueryJoinPath {
                     var considered = candidates.stream()
                             .filter(rel -> reachable.contains(rel.left()))
                             .toList();
-                    throw QueryFailure.join(joinAssessment(
-                            "RELATION_APPLICABILITY_UNVERIFIABLE", required, dates, considered, applicability));
+                    var unresolved = considered.stream()
+                            .filter(relation -> applicability.get(relation) == Applicability.UNVERIFIABLE)
+                            .toList();
+                    // 仅唯一可能路径上的单一关联缺失治理依据时可定位，查询日期不明仍单独处理。
+                    String missingRule = unresolved.size() == 1
+                                    && possiblePath != null
+                                    && possiblePath.containsValue(unresolved.get(0))
+                                    && RelationWindows.usable(
+                                                    unresolved.get(0).fact().getContent())
+                                            == null
+                            ? unresolved.get(0).fact().getRevisionId()
+                            : null;
+                    throw QueryFailure.join(
+                            joinAssessment(
+                                    "RELATION_APPLICABILITY_UNVERIFIABLE", required, dates, considered, applicability),
+                            missingRule);
                 }
             }
         }

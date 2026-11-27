@@ -56,9 +56,9 @@ export function QueryTurn({
           <Spin size="small" aria-hidden="true" />
           {row.cancelRequested
             ? '正在核实停止状态'
-            : row.runVersion > 1 && !row.supplement
-              ? '恢复中 · ' + statusText[row.state]
-              : '思考中'}
+            : row.state === 'EXECUTING' && row.executionState === 'UNKNOWN'
+              ? '正在核实查询结果'
+              : statusText[row.state]}
         </div>
       )}
       {!running && !waiting && (

@@ -116,7 +116,7 @@ it('知识缺口可主动补充并处理旧表单冲突', async () => {
  * 处置会结束已打开的回复表单，即使知识缺口仍可另行主动补充。
  */
 it.each([
-  ['WITHDRAWN', '已撤回补充请求'],
+  ['WITHDRAWN', '补充请求已撤回'],
   ['UNAVAILABLE', '补充请求已结束'],
 ] as const)('等待结束后旧表单不能提交 %s', async (disposition, label) => {
   vi.mocked(api)
@@ -141,7 +141,38 @@ it.each([
   await act(() => cache.invalidateQueries({ queryKey: ['feedback-supplement', 'answer-8'] }));
   await waitFor(() => expect(dialog.getByRole('button', { name: '提交补充' })).toBeDisabled());
   expect(dialog.getByLabelText('业务补充说明')).toHaveValue('已填写旧草稿');
-  expect(screen.getByText(new RegExp('^' + label))).toBeVisible();
+  const history = within(screen.getByRole('list', { name: '补充记录' }));
+  expect(history.getByText(label)).toBeVisible();
+  expect(history.getByText('原补充要求')).toBeVisible();
+  expect(history.getByText(pending.prompt)).toBeVisible();
   expect(screen.queryByText('内部处置记录')).not.toBeInTheDocument();
   expect(mutation).not.toHaveBeenCalled();
+});
+
+/**
+ * 有历史要求时，先呈现当前可回复的内容，再回看已结束请求。
+ */
+it('当前补充请求优先于已撤回的历史要求', async () => {
+  vi.mocked(api).mockResolvedValue({
+    ...state,
+    entries: [
+      {
+        ...pending,
+        id: 'follow-old',
+        prompt: '请核对之前的仓库名称',
+        disposition: 'WITHDRAWN',
+        disposedAt: '2026-11-23T07:30:00Z',
+      },
+      pending,
+    ],
+  });
+  mount();
+
+  const history = within(await screen.findByRole('list', { name: '补充记录' }));
+  const [current, withdrawn] = history.getAllByRole('listitem');
+  expect(within(current).getByText(pending.prompt)).toBeVisible();
+  expect(within(current).queryByText('原补充要求')).not.toBeInTheDocument();
+  expect(within(withdrawn).getByText('补充请求已撤回')).toBeVisible();
+  expect(within(withdrawn).getByText('原补充要求')).toBeVisible();
+  expect(screen.getByRole('button', { name: '回复补充请求' })).toBeEnabled();
 });

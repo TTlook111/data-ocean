@@ -161,8 +161,14 @@ public class FeedbackQueryIssueIntake implements OutboxLocalConsumer {
         }));
     }
 
-    /** 只有来源明确没有生效知识时复用缺口，且保持本人和同一输出范围。 */
+    /**
+     * 优先使用问数已核实的缺口，完全无生效知识的开放事项继续沿用原约定。
+     */
     private String gapKey(Request request) {
+        if (request.failureGapKey() != null) {
+            // 指纹已包含来源、原提问人、原输出范围及实际缺口身份。
+            return request.failureGapKey();
+        }
         return "NO_PUBLISHED_KNOWLEDGE".equals(request.failureCode()) && request.failureRuleSignature() != null
                 ? HexFormat.of()
                         .formatHex(fingerprints.command(

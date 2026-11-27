@@ -10,8 +10,8 @@ import {
   BellOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Empty, Input, Select, Spin } from 'antd';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Alert, Button, Empty, Input, Select, Spin, type RefSelectProps } from 'antd';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, ApiError, queryString } from '../../shared/api';
 import { ActionMenuButton } from '../../shared/ActionMenuButton';
@@ -27,6 +27,16 @@ import styles from './query.module.css';
 /** 轮次正文分批读取，长期会话不会一次加载全部结果表格。 */
 const HISTORY_BATCH = 5;
 
+/**
+ * 提交阶段区分数据源准入与问题理解服务配置。
+ */
+const QUERY_SOURCE_NOT_ADMITTED = 409404;
+
+/**
+ * 已获准的来源仍可能缺少可用的问题理解服务。
+ */
+const QUERY_INTENT_UNAVAILABLE = 409405;
+
 /** SSE 的同轮次已核验答复，其他状态继续用快照定位。 */
 type QueryUpdate = Pick<Snapshot, 'id' | 'runVersion' | 'state'> & {
   /** 答复所属的解释修订。 */
@@ -35,6 +45,24 @@ type QueryUpdate = Pick<Snapshot, 'id' | 'runVersion' | 'state'> & {
   explanationStatus: string | null;
   /** 服务端已核验的完整答复。 */
   explanationText: string | null;
+};
+
+/**
+ * 输入区内一次操作失败的反馈。
+ */
+type QueryMessage = {
+  /**
+   * 发起操作的来源与轮次，切换后不展示原提示。
+   */
+  context: string;
+  /**
+   * 可直接显示的失败原因。
+   */
+  text: string;
+  /**
+   * 用于提供对应处理动作的业务码。
+   */
+  code?: number;
 };
 
 /**
@@ -98,11 +126,14 @@ export function QueryWorkbench({
   const [showNotices, setShowNotices] = useState(false);
   const [sending, setSending] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<QueryMessage>();
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [historyWindow, setHistoryWindow] = useState({ context: '', before: 0, after: 0 });
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const explainCommands = useRef(new Map<string, { key: string; sending: boolean }>());
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  const sourcePickerRef = useRef<RefSelectProps>(null);
+  const messageId = useId();
   const currentTurnRef = useRef<HTMLDivElement>(null);
   const anchoredTurn = useRef('');
   const mayView = session.permissionCodes.includes('query.view');
@@ -114,13 +145,52 @@ export function QueryWorkbench({
     refetchOnWindowFocus: 'always',
     retry: false,
   });
-  const source = params.get('source') || access.data?.[0]?.id || '';
+  const sources = access.isError ? [] : (access.data ?? []);
+  const mayAsk = mayView && session.permissionCodes.includes('query.ask');
+  const askSources = sources.filter((item) => mayAsk && !item.askBlockedCode);
+  const requestedSource = params.get('source') ?? '';
   const id = params.get('request') ?? '';
-  const sourceAvailable = Boolean(
-    mayView && access.data?.some((item) => item.id === source) && !access.isError,
-  );
+  const source =
+    requestedSource || (id ? sources[0]?.id : askSources[0]?.id) || sources[0]?.id || '';
+  const selectedSource = sources.find((item) => item.id === source);
+  const sourceAvailable = mayView && Boolean(selectedSource);
+  const canAskSource = mayAsk && sourceAvailable && !selectedSource?.askBlockedCode;
   const context = `${source}/${id}`;
+  const blockedCode = mayAsk ? selectedSource?.askBlockedCode : undefined;
+  // 已知不能提交时提前说明原因，提交回包仍可处理期间变化和其他错误。
+  const sourceMessage =
+    blockedCode === QUERY_SOURCE_NOT_ADMITTED
+      ? { text: '当前数据源未开通智能问数', code: blockedCode }
+      : blockedCode === QUERY_INTENT_UNAVAILABLE
+        ? { text: '问数服务暂不可用', code: blockedCode }
+        : undefined;
+  const visibleMessage = message?.context === context ? message : sourceMessage;
+  const sourceNotAdmitted = visibleMessage?.code === QUERY_SOURCE_NOT_ADMITTED;
+  const intentUnavailable = visibleMessage?.code === QUERY_INTENT_UNAVAILABLE;
+  const canSwitchSource =
+    sourceNotAdmitted && sourceAvailable && askSources.some((item) => item.id !== source);
+  // 只有服务端明确提供提交资格时才标记分组，历史入口仍使用同一个选择器。
+  const sourceOptions = sources.every((item) => item.askBlockedCode !== undefined)
+    ? [
+        {
+          label: '可问数',
+          options: askSources.map((item) => ({ label: item.name, value: item.id })),
+        },
+        {
+          label: '仅回看历史',
+          options: sources
+            .filter((item) => !mayAsk || item.askBlockedCode)
+            .map((item) => ({ label: item.name, value: item.id })),
+        },
+      ].filter((group) => group.options.length > 0)
+    : sources.map((item) => ({ label: item.name, value: item.id }));
   const visibleContext = useRef<string | null>(context);
+  useEffect(() => {
+    if (!requestedSource && source && !id) {
+      // 首次优先进入可问数来源，轮询更新时保留当前来源和输入。
+      setParams(queryString({ source }), { replace: true });
+    }
+  }, [id, requestedSource, setParams, source]);
   useLayoutEffect(() => {
     // 浏览器回退及直接改址也会更新晚到回执的适用范围。
     visibleContext.current = context;
@@ -130,7 +200,6 @@ export function QueryWorkbench({
     };
   }, [context]);
   const draft = input.context === context ? input.text : '';
-  const mayAsk = mayView && session.permissionCodes.includes('query.ask');
 
   // 历史和结果共享数据源资格，已知失权时立即清除旧答案显示。
   const history = useQuery({
@@ -235,9 +304,23 @@ export function QueryWorkbench({
    */
   function open(nextSource: string, request?: string) {
     visibleContext.current = `${nextSource}/${request ?? ''}`;
-    setMessage('');
+    setMessage(undefined);
     setPendingQuestion('');
     setParams(queryString({ source: nextSource, request }));
+  }
+
+  /**
+   * 将操作失败留在发起它的页面上下文，保留服务端的具体原因。
+   */
+  function showFailure(error: unknown, fallback: string) {
+    if (visibleContext.current === context) {
+      // 迟到的失败不覆盖其他数据源或会话里的提示。
+      setMessage({
+        context,
+        text: error instanceof Error ? error.message : fallback,
+        code: error instanceof ApiError ? error.code : undefined,
+      });
+    }
   }
 
   /**
@@ -245,7 +328,7 @@ export function QueryWorkbench({
    */
   async function send(forceNew = false) {
     const question = forceNew ? row?.question : draft.trim();
-    if (!question || !mayAsk || !sourceAvailable || !contextReady || sending || isActive) return;
+    if (!question || !canAskSource || !contextReady || sending || isActive) return;
     const body =
       waiting && !forceNew
         ? { answer: question }
@@ -262,7 +345,7 @@ export function QueryWorkbench({
     if (pending.current?.signature !== signature) {
       pending.current = { signature, key: crypto.randomUUID() };
     }
-    setMessage('');
+    setMessage(undefined);
     setSending(true);
     setPendingQuestion(waiting && !forceNew ? '' : question);
     try {
@@ -281,9 +364,7 @@ export function QueryWorkbench({
       await cache.invalidateQueries({ queryKey: ['workbench-turns', conversationId] });
       await cache.invalidateQueries({ queryKey: ['workbench-request', source, accepted.id] });
     } catch (error) {
-      if (visibleContext.current === context) {
-        setMessage(error instanceof Error ? error.message : '暂时无法提交，请重试。');
-      }
+      showFailure(error, '暂时无法提交，请重试。');
       if (error instanceof ApiError && error.code >= 400000 && error.code < 500000) {
         pending.current = null;
       }
@@ -301,7 +382,7 @@ export function QueryWorkbench({
       await api('/query/requests/' + id + '/cancel', { method: 'POST' });
       await detail.refetch();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '暂时无法确认停止。');
+      showFailure(error, '暂时无法确认停止。');
     }
   }
 
@@ -327,7 +408,7 @@ export function QueryWorkbench({
     let confirmed = false;
     command.sending = true;
     saveExplanationCommand(storageKey, command.key);
-    setMessage('');
+    setMessage(undefined);
     try {
       // 服务端返回实际受理修订，并用当前最新状态判断能否再生成。
       const receipt = await api<Explanation>(path, {
@@ -348,10 +429,7 @@ export function QueryWorkbench({
       }
       confirmed = true;
     } catch (error) {
-      if (visibleContext.current === context) {
-        // 迟到的回执只影响原轮次，服务端拒绝原因仍可在当前轮次显示。
-        setMessage(error instanceof Error ? error.message : '暂时无法重试说明。');
-      }
+      showFailure(error, '暂时无法重试说明。');
     } finally {
       // 用原轮次的快照刷新已受理的进度，回读期间仍阻止重复点击。
       await cache.invalidateQueries({
@@ -374,14 +452,10 @@ export function QueryWorkbench({
    * 重新获取可见数据后下载，失权时同步撤下当前结果。
    */
   async function exportAnswer(request: string, chart = false) {
-    const current = visibleContext.current;
     try {
       await (chart ? downloadChart(request) : downloadResult(request));
     } catch (error) {
-      if (visibleContext.current === current) {
-        // 在下载重核期间切换会话时，不把旧错误带给新会话。
-        setMessage(error instanceof Error ? error.message : '暂时无法导出本次结果。');
-      }
+      showFailure(error, '暂时无法导出本次结果。');
       await cache.invalidateQueries({
         queryKey: ['workbench-request', source, request],
         exact: true,
@@ -462,7 +536,7 @@ export function QueryWorkbench({
           block
           className={styles.newQuestion}
           icon={<EditOutlined aria-hidden />}
-          disabled={!mayAsk || !sourceAvailable || isActive || sending}
+          disabled={!canAskSource || isActive || sending}
           onClick={() => {
             open(source);
             draftRef.current?.focus();
@@ -567,19 +641,23 @@ export function QueryWorkbench({
             )}
           </div>
           <div className={styles.sourcePicker}>
-            <Select
+            <Select<string>
+              ref={sourcePickerRef}
               aria-label="数据源"
               className={styles.source}
               placeholder="选择数据源"
               value={sourceAvailable ? source : undefined}
               loading={mayView && access.isPending}
               disabled={!mayView || sending || isActive}
-              options={
-                access.isError
-                  ? []
-                  : access.data?.map((item) => ({ label: item.name, value: item.id }))
-              }
-              onChange={(value) => open(value)}
+              popupMatchSelectWidth={260}
+              open={sourcePickerOpen}
+              onOpenChange={setSourcePickerOpen}
+              options={sourceOptions}
+              onChange={(value) => {
+                // 用户明确选择后才切换来源和对话上下文。
+                setSourcePickerOpen(false);
+                open(value);
+              }}
             />
             {/* 独立的站内回告放在顶栏最右，未选数据源或失权时仍可打开。 */}
             <QueryIconButton
@@ -637,7 +715,7 @@ export function QueryWorkbench({
                 <span className={styles.welcomeIcon} aria-hidden>
                   <DatabaseOutlined />
                 </span>
-                <h2>想查什么数据？</h2>
+                <h2>{canAskSource ? '想查什么数据？' : '查看历史问数'}</h2>
               </div>
             )}
             {row && turns.isError && (
@@ -666,7 +744,7 @@ export function QueryWorkbench({
                   row={row}
                   onDownload={() => void exportAnswer(row.id)}
                   onDownloadChart={() => void exportAnswer(row.id, true)}
-                  onRequery={mayAsk && !waiting ? () => void send(true) : undefined}
+                  onRequery={canAskSource && !waiting ? () => void send(true) : undefined}
                   onExplainAgain={mayAsk ? () => void explainAgain() : undefined}
                   onStopExplanation={mayAsk ? () => void stop() : undefined}
                 />
@@ -702,6 +780,37 @@ export function QueryWorkbench({
           </div>
         </section>
         <footer className={styles.footer}>
+          {/* 操作提示与输入框对齐，独立于输入和历史回答。 */}
+          {visibleMessage && (
+            <Alert
+              id={messageId}
+              className={styles.composerNotice}
+              type={sourceNotAdmitted || intentUnavailable ? 'warning' : 'error'}
+              showIcon
+              title={visibleMessage.text}
+              description={
+                sourceNotAdmitted
+                  ? '如需使用此数据源，请联系管理员开通。'
+                  : intentUnavailable
+                    ? '请联系管理员检查问数服务与模型配置。'
+                    : undefined
+              }
+              action={
+                canSwitchSource && !sending && !isActive ? (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      // 展开既有来源选择器，由用户决定是否切换。
+                      sourcePickerRef.current?.focus();
+                      setSourcePickerOpen(true);
+                    }}
+                  >
+                    切换数据源
+                  </Button>
+                ) : undefined
+              }
+            />
+          )}
           <form
             className={styles.composer}
             onSubmit={(event) => {
@@ -710,11 +819,6 @@ export function QueryWorkbench({
             }}
           >
             {/* 同一输入框承接新问题和澄清，Enter 提交，Shift+Enter 换行。 */}
-            {message && (
-              <div role="alert" className={styles.error}>
-                {message}
-              </div>
-            )}
             <div className={styles.composerRow}>
               <Input.TextArea
                 className={styles.composerInput}
@@ -722,12 +826,19 @@ export function QueryWorkbench({
                   draftRef.current = instance?.resizableTextArea?.textArea ?? null;
                 }}
                 aria-label={waiting ? '补充条件' : '输入问题'}
+                aria-describedby={visibleMessage ? messageId : undefined}
                 value={draft}
                 maxLength={600}
                 variant="borderless"
                 autoSize={{ minRows: 1, maxRows: 5 }}
-                placeholder={waiting ? '在这里补充条件…' : '输入你想查的问题…'}
-                disabled={!mayAsk || !sourceAvailable || !contextReady || sending || isActive}
+                placeholder={
+                  sourceAvailable && !canAskSource
+                    ? '当前来源仅可回看历史'
+                    : waiting
+                      ? '在这里补充条件…'
+                      : '输入你想查的问题…'
+                }
+                disabled={!canAskSource || !contextReady || sending || isActive}
                 onChange={(event) => setInput({ context, text: event.target.value })}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -757,7 +868,7 @@ export function QueryWorkbench({
                   aria-label="发送问题"
                   title="发送问题"
                   loading={sending}
-                  disabled={!mayAsk || !sourceAvailable || !contextReady || !draft.trim()}
+                  disabled={!canAskSource || !contextReady || !draft.trim()}
                 />
               )}
             </div>

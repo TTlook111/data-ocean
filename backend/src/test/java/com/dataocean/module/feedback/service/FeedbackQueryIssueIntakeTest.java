@@ -82,19 +82,9 @@ class FeedbackQueryIssueIntakeTest {
     void durableEvidenceAndReceiptPreventRepeatedIntake() {
         var request = request("KNOWLEDGE_INSUFFICIENT", "NO_PUBLISHED_KNOWLEDGE");
         String requestId = request.id();
-        String event = UUID.randomUUID().toString();
         when(request.failureRuleSignature()).thenReturn("original-scope");
-        when(request.failureEventId()).thenReturn(event);
-        when(requests.issueEventRequest(event)).thenReturn(requestId);
-        when(requests.lock(requestId)).thenReturn(request);
-        var lease = mock(OutboxPO.class);
-        var now = LocalDateTime.now(ZoneOffset.UTC);
-        when(lease.getEventId()).thenReturn(event);
-        when(lease.getLeaseToken()).thenReturn("lease");
-        when(lease.getDeliveryState()).thenReturn("CLAIMED");
-        when(lease.getLeasedUntil()).thenReturn(now.plusSeconds(5));
-        when(outbox.lockEvent(event)).thenReturn(lease);
-        when(feedback.now()).thenReturn(now);
+        var lease = claimFor(request);
+        String event = lease.getEventId();
         when(fingerprints.command("feedback.query.noPublishedKnowledge", "1", List.of(7L, "original-scope")))
                 .thenReturn(new byte[32]);
         when(issues.openGap(1, "0".repeat(64))).thenReturn(9L);
@@ -107,6 +97,57 @@ class FeedbackQueryIssueIntakeTest {
         verify(issues).intake(1, FeedbackQueryIssueIntake.KNOWLEDGE_GAP, requestId, "KNOWLEDGE", "0".repeat(64));
         verify(issues).link(requestId, 9L);
         verify(outbox).receipt(event, "FEEDBACK_QUERY_ISSUE");
+    }
+
+    /**
+     * 已核实的不同问数轮次引用同一事项，其他缺口和无指纹原问各自办理。
+     */
+    @Test
+    void linksOnlyConfirmedRepeatedGaps() {
+        var first = request("KNOWLEDGE_INSUFFICIENT", "INSUFFICIENT_KNOWLEDGE");
+        var repeated = request("KNOWLEDGE_INSUFFICIENT", "INSUFFICIENT_KNOWLEDGE");
+        var different = request("KNOWLEDGE_INSUFFICIENT", "INSUFFICIENT_KNOWLEDGE");
+        var unknown = request("KNOWLEDGE_INSUFFICIENT", "INSUFFICIENT_KNOWLEDGE");
+        var firstGap = "1".repeat(64);
+        var differentGap = "2".repeat(64);
+        when(first.failureGapKey()).thenReturn(firstGap);
+        when(repeated.failureGapKey()).thenReturn(firstGap);
+        when(different.failureGapKey()).thenReturn(differentGap);
+        when(issues.linkedIssue(anyString())).thenReturn(null);
+        when(issues.openGap(1, firstGap)).thenReturn(9L);
+        when(issues.openGap(1, differentGap)).thenReturn(10L);
+        when(issues.atRequest(FeedbackQueryIssueIntake.KNOWLEDGE_GAP, unknown.id()))
+                .thenReturn(11L);
+
+        for (var request : List.of(first, repeated, different, unknown)) {
+            // 独立的可靠事件分别带入已经落盘的原问编号。
+            assertThat(intake.consume(claimFor(request))).isTrue();
+        }
+
+        verify(issues).link(first.id(), 9L);
+        verify(issues).link(repeated.id(), 9L);
+        verify(issues).link(different.id(), 10L);
+        verify(issues).link(unknown.id(), 11L);
+    }
+
+    /**
+     * 模拟 Outbox 已持有有效租约，保留真实消费与回执逻辑。
+     */
+    private OutboxPO claimFor(Request request) {
+        String requestId = request.id();
+        String event = UUID.randomUUID().toString();
+        when(request.failureEventId()).thenReturn(event);
+        when(requests.issueEventRequest(event)).thenReturn(requestId);
+        when(requests.lock(requestId)).thenReturn(request);
+        var lease = mock(OutboxPO.class);
+        var now = LocalDateTime.now(ZoneOffset.UTC);
+        when(lease.getEventId()).thenReturn(event);
+        when(lease.getLeaseToken()).thenReturn("lease");
+        when(lease.getDeliveryState()).thenReturn("CLAIMED");
+        when(lease.getLeasedUntil()).thenReturn(now.plusSeconds(5));
+        when(outbox.lockEvent(event)).thenReturn(lease);
+        when(feedback.now()).thenReturn(now);
+        return lease;
     }
 
     /** 原问 fixture 含最小真实状态，不复制模型及源端异常。 */

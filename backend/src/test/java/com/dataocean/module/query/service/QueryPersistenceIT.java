@@ -4,10 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
+import com.dataocean.module.feedback.mapper.FeedbackQueryIssueMapper;
 import com.dataocean.module.query.mapper.QueryRequestMapper;
+import com.dataocean.module.query.mapper.QueryRequestMapper.Input;
 import com.dataocean.module.query.mapper.QueryRequestMapper.Permit;
 
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -55,8 +60,8 @@ class QueryPersistenceIT {
                     .isZero();
             assertThat(requests.permit(new Permit(id, 2, execution, 1, "rules", "{}", fingerprint, null)))
                     .isOne();
-            assertThat(requests.capture(id, 1, "{}")).isZero();
-            assertThat(requests.capture(id, 2, "{}")).isOne();
+            assertThat(requests.capture(id, 1, execution, "{}")).isZero();
+            assertThat(requests.capture(id, 2, execution, "{}")).isOne();
             assertThat(requests.get(id).executionId()).isEqualTo(execution);
         });
     }
@@ -84,6 +89,77 @@ class QueryPersistenceIT {
         });
     }
 
+    /**
+     * 实际平台库对不同原问复用开放事项，并按核实的缺口或独立原问保留证据。
+     */
+    @Test
+    void reusesConfirmedOpenGapAcrossQuestions() {
+        withSession(session -> {
+            // 新建事务内的合成来源，真实反馈外键也参与验证。
+            long source = seedSource(session);
+            String sameGap = "1".repeat(64);
+            long first = intakeGap(session, source, "查订单金额", sameGap);
+            long repeated = intakeGap(session, source, "订单总额是多少", sameGap);
+            long other = intakeGap(session, source, "查退货数量", "2".repeat(64));
+            long unknown = intakeGap(session, source, "查无法确认的口径", null);
+            long anotherUnknown = intakeGap(session, source, "查另一个无法确认的口径", null);
+
+            assertThat(repeated).isEqualTo(first);
+            assertThat(List.of(first, other, unknown, anotherUnknown)).doesNotHaveDuplicates();
+            assertThat(session.getMapper(FeedbackQueryIssueMapper.class).incidents(first))
+                    .hasSize(2);
+        });
+    }
+
+    /**
+     * 通过实际结算和入队 SQL 读回指纹、事项编号和原问关联。
+     */
+    private long intakeGap(SqlSession session, long source, String question, String gap) {
+        var requests = session.getMapper(QueryRequestMapper.class);
+        var issues = session.getMapper(FeedbackQueryIssueMapper.class);
+        var id = UUID.randomUUID().toString();
+        requests.insert(new Input(id, -77301, 1, source, id, null, question, id, false, null, null, null));
+        assertThat(requests.claim(id, 0)).isOne();
+        assertThat(requests.stop(
+                        id, 1, "KNOWLEDGE_INSUFFICIENT", "NOT_SUBMITTED", "INSUFFICIENT_KNOWLEDGE", "rules", gap))
+                .isOne();
+
+        var settled = requests.get(id);
+        assertThat(settled.failureGapKey()).isEqualTo(gap);
+        String origin = "QUERY_KNOWLEDGE_GAP";
+        issues.intake(source, origin, id, "KNOWLEDGE", settled.failureGapKey());
+        long issue = gap == null ? issues.atRequest(origin, id) : issues.openGap(source, gap);
+        issues.link(id, issue);
+        assertThat(issues.linkedIssue(id)).isEqualTo(issue);
+        return issue;
+    }
+
+    /**
+     * 创建仅在本测试事务中可见的来源，不依赖已有验收数据。
+     */
+    private long seedSource(SqlSession session) {
+        var sql =
+                """
+                INSERT INTO ds_source(name,name_key,lifecycle,created_by,created_at,updated_at)
+                VALUES(?,?,'DRAFT',1,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
+                """;
+        try (var insert = session.getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            // 使用独立名称避免和真实或并行验收记录重复。
+            var name = "feedback-gap-" + UUID.randomUUID();
+            insert.setString(1, name);
+            insert.setString(2, name);
+            insert.executeUpdate();
+            try (var keys = insert.getGeneratedKeys()) {
+                // 证据和事项都使用实际写入的来源编号。
+                assertThat(keys.next()).isTrue();
+                return keys.getLong(1);
+            }
+        } catch (SQLException failure) {
+            // 保留底层诊断交给集成测试报告。
+            throw new IllegalStateException("无法建立隔离来源", failure);
+        }
+    }
+
     /** 明确指定库存验收平台库，禁止在通用开发或生产数据库写测试数据。 */
     private void withSession(Consumer<SqlSession> test) {
         var url = System.getenv("DO_QUERY_TEST_MYSQL_URL");
@@ -97,6 +173,7 @@ class QueryPersistenceIT {
         config.setMapUnderscoreToCamelCase(true);
         config.setArgNameBasedConstructorAutoMapping(true);
         config.addMapper(QueryRequestMapper.class);
+        config.addMapper(FeedbackQueryIssueMapper.class);
         try (var session = new MybatisSqlSessionFactoryBuilder().build(config).openSession(false)) {
             // 真实表只接受未提交的测试记录，其他工作进程不可见。
             test.accept(session);

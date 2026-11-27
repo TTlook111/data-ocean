@@ -270,7 +270,7 @@ final class QuerySql {
             // 明细和普通实时字段保持其原有查询范围。
             return null;
         }
-        var rules = metricRules(basis, metric(basis, plan));
+        var rules = metricRules(basis, metric(basis, plan), plan.metric());
         return "BUSINESS_DAY".equals(rules.getDateMode()) ? basis.fields().get(rules.getDateFieldId()) : null;
     }
 
@@ -282,7 +282,7 @@ final class QuerySql {
             // 明细及无效计划仍走原有检查。
             return plan;
         }
-        var fixed = fixedFilters(basis, metricRules(basis, metric(basis, plan)));
+        var fixed = fixedFilters(basis, metricRules(basis, metric(basis, plan), plan.metric()));
         if (fixed.isEmpty()) {
             return plan;
         }
@@ -366,7 +366,7 @@ final class QuerySql {
             return List.of();
         }
         try {
-            return fixedFilters(basis, metricRules(basis, metric(basis, plan)));
+            return fixedFilters(basis, metricRules(basis, metric(basis, plan), plan.metric()));
         } catch (QueryFailure incomplete) {
             // 仅作为固定值来源的查验，缺证由各候选的编译规则处理。
             return List.of();
@@ -407,7 +407,28 @@ final class QuerySql {
     /**
      * 指标执行规则必须完整，且每个字段均属于已确认指标依赖和当前片段。
      */
-    private MetricRulesDTO metricRules(Basis basis, GovernanceFactVO fact) {
+    private MetricRulesDTO metricRules(Basis basis, GovernanceFactVO fact, String plannedMetric) {
+        boolean identified = fact.getLabel().equals(plannedMetric);
+        var content = fact.getContent().path("metricRules");
+        if (content.isMissingNode() || content.isNull()) {
+            // 只有已匹配实际公式的确认指标可定位到这次规则缺失。
+            throw identified
+                    ? QueryFailure.knowledge(new QueryFailure.Gap("METRIC_RULES", fact.getRevisionId(), List.of()))
+                    : QueryFailure.knowledge();
+        }
+        var missing = !identified || fact.getDependencies() == null
+                ? List.<String>of()
+                : fact.getDependencies().stream()
+                        .filter(dependency -> "COLUMN".equals(dependency.getKind()))
+                        .map(dependency -> dependency.getTargetId())
+                        .filter(id -> !basis.fields().containsKey(id))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        if (!missing.isEmpty()) {
+            // 确认的指标给出完整所需字段，同一指标的不同缺失集合分别办理。
+            throw QueryFailure.knowledge(new QueryFailure.Gap("METRIC_COLUMNS", fact.getRevisionId(), missing));
+        }
         var rules = confirmedMetricRules(basis, fact);
         if (rules == null) {
             // 旧发布或失效依赖无法作为当前执行依据。
@@ -980,7 +1001,7 @@ final class QuerySql {
                     required.add(field.table());
                 }
             }
-            var rules = metricRules(basis, metric);
+            var rules = metricRules(basis, metric, plan.metric());
             if ("BUSINESS_DAY".equals(rules.getDateMode())) {
                 // 即使调用者绕过日期解析，编译也不能生成缺少确认业务日的 SQL。
                 var date = basis.fields().get(rules.getDateFieldId());

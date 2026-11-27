@@ -866,7 +866,8 @@ class QuerySqlTest {
         for (var plan : List.of(outside, trend, orderRegionPlan())) {
             // 区间跨过有效起点或没有唯一业务日期时，不能选用这段关联。
             assertThatThrownBy(() -> compiler.compile(basis, plan, true, "sales"))
-                    .isInstanceOf(QueryFailure.class)
+                    .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.gap())
+                            .isNull())
                     .hasMessage("KNOWLEDGE_INSUFFICIENT");
         }
         assertThatThrownBy(() -> compiler.compile(basis, outside, true, "sales"))
@@ -895,8 +896,12 @@ class QuerySqlTest {
         definition.remove("relationWindow");
         definition.put("usage", "此关系仅适用于 2026-11-25 起的已付款订单。");
         assertThatThrownBy(() -> compiler.compile(basis, inside, true, "sales"))
-                .isInstanceOfSatisfying(QueryFailure.class, failure -> assertThat(failure.diagnostic())
-                        .isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE"));
+                .isInstanceOfSatisfying(QueryFailure.class, failure -> {
+                    // 缺失适用规则指向具体关联，不依赖本次日期文字。
+                    assertThat(failure.diagnostic()).isEqualTo("RELATION_APPLICABILITY_UNVERIFIABLE");
+                    assertThat(failure.gap())
+                            .isEqualTo(new QueryFailure.Gap("RELATION_APPLICABILITY", "82", List.of()));
+                });
 
         definition.put("usage", "2026 年 11 月 25 日以后才能用于区域归属。");
         for (var plan : List.of(outside, inside)) {

@@ -25,6 +25,7 @@ import com.dataocean.module.datasource.source.SourceMetadata.ObjectRef;
 import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
 import com.dataocean.module.query.entity.vo.QueryColumnVO;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
 import com.dataocean.module.query.service.QueryCorpus.Table;
 import com.dataocean.module.query.service.QueryProtocol.Field;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -92,15 +94,34 @@ class QueryJdbcTest {
         when(rows.next()).thenAnswer(call -> n.getAndIncrement() < 2001);
         when(rows.getString(1)).thenReturn("1");
         doThrow(new SQLException("already idle")).when(statement).cancel();
-        var data = query.execute(source, "x", plan(false), () -> 2, () -> query.cancel("x"));
+        var captured = new AtomicReference<QueryDataVO>();
+        query.execute(source, "x", plan(false), () -> query.cancel("x"), captured::set);
+        var data = captured.get();
         assertThat(data.getRows()).hasSize(2000);
         assertThat(data.isTruncated()).isTrue();
         query.cancel("x");
         verify(statement).cancel();
         verify(statement).setMaxRows(2001);
-        verify(statement).setQueryTimeout(2);
+        verify(statement).setQueryTimeout(10);
         verify(statement).setObject(1, "zone-a");
         verify(statement).close();
+    }
+
+    /**
+     * 完整读取后即使 JDBC 关闭报错，原结果也已捕获。
+     */
+    @Test
+    void capturesOriginalRowsBeforeJdbcCloseFailure() throws SQLException {
+        when(rows.next()).thenReturn(true, false);
+        when(rows.getString(1)).thenReturn("4");
+        doThrow(new SQLException("close disconnected")).when(statement).close();
+        var captured = new AtomicReference<QueryDataVO>();
+
+        assertThatThrownBy(() -> query.execute(source, "x", plan(false), permit, captured::set))
+                .isInstanceOf(SQLException.class);
+        assertThat(captured.get().getRows()).containsExactly(List.of("4"));
+        assertThat(query.isInFlight("x")).isFalse();
+        verify(statement).executeQuery();
     }
 
     /**
@@ -109,7 +130,9 @@ class QueryJdbcTest {
     @Test
     void failedReadOnlyProbeStopsBeforeExecution() throws SQLException {
         when(sourceJdbc.readOnlySafety(eq(connection), any())).thenReturn(false);
-        assertThatThrownBy(() -> query.execute(source, "x", plan(false), () -> 2, permit))
+        assertThatThrownBy(() -> query.execute(source, "x", plan(false), permit, captured -> {
+                    /* 故障路径无可捕获的结果。 */
+                }))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("PERMISSION_DENIED");
         verify(permit, never()).run();
@@ -123,7 +146,9 @@ class QueryJdbcTest {
     void rejectsLargeCellsAndMixedUnitsBetweenDays() throws SQLException {
         when(rows.next()).thenReturn(true, false);
         when(rows.getString(1)).thenReturn("x".repeat(201));
-        assertThatThrownBy(() -> query.execute(source, "x", plan(false), () -> 2, permit))
+        assertThatThrownBy(() -> query.execute(source, "x", plan(false), permit, captured -> {
+                    /* 故障路径无可捕获的结果。 */
+                }))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("RESOURCE_EXCEEDED");
         when(rows.next()).thenReturn(true, true, false);
@@ -131,7 +156,9 @@ class QueryJdbcTest {
         when(rows.getString(2)).thenReturn("kWh", "MWh");
         when(rows.getBoolean(3)).thenReturn(true);
         when(rows.getBoolean(4)).thenReturn(true);
-        assertThatThrownBy(() -> query.execute(source, "x", plan(true), () -> 2, permit))
+        assertThatThrownBy(() -> query.execute(source, "x", plan(true), permit, captured -> {
+                    /* 故障路径无可捕获的结果。 */
+                }))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("KNOWLEDGE_INSUFFICIENT");
     }
@@ -159,12 +186,16 @@ class QueryJdbcTest {
 
         if (delivers) {
             // 零值保留为空范围的真实计数，非空范围采用确认通过的实际单位。
-            var data = query.execute(source, "x", plan(true), () -> 2, permit);
+            var captured = new AtomicReference<QueryDataVO>();
+            query.execute(source, "x", plan(true), permit, captured::set);
+            var data = captured.get();
             assertThat(data.getRows()).containsExactly(List.of(value));
             assertThat(data.getUnit()).isEqualTo(unit == null ? "" : unit);
         } else {
             // 混用、空白及参与行缺少单位都不能交付金额。
-            assertThatThrownBy(() -> query.execute(source, "x", plan(true), () -> 2, permit))
+            assertThatThrownBy(() -> query.execute(source, "x", plan(true), permit, captured -> {
+                        /* 故障路径无可捕获的结果。 */
+                    }))
                     .isInstanceOf(QueryFailure.class)
                     .hasMessage("KNOWLEDGE_INSUFFICIENT");
         }

@@ -45,6 +45,11 @@ public class QuerySnapshotVO {
     private String executionState;
 
     /**
+     * 技术故障时可向提问人披露的阶段及原因。
+     */
+    private String failureDetail;
+
+    /**
      * 是否已经记录用户的取消意图。
      */
     private boolean cancelRequested;

@@ -143,6 +143,121 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * 仅回看来源可以打开旧会话，界面在提交前给出原因并保留切换入口。
+ */
+it('仅回看来源保留历史并提前关闭提问入口', async () => {
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') {
+      // 两个来源都可回看，库存来源暂未准入问数。
+      return [
+        { id: '1', name: '库存', askBlockedCode: 409404 },
+        { id: '2', name: '物流', askBlockedCode: 0 },
+      ];
+    }
+    if (path === '/query/requests/answer') {
+      // 历史轮次仍通过原来的接口读取。
+      return ended('answer');
+    }
+    return [];
+  });
+  const { router } = mount();
+
+  const transcript = screen.getByRole('region', { name: '当前问数' });
+  expect(await within(transcript).findByText('answer原问题')).toBeVisible();
+  expect(screen.getByText('当前数据源未开通智能问数')).toBeVisible();
+  expect(screen.getByRole('textbox', { name: '输入问题' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '新建问数' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: '重新查询' })).not.toBeInTheDocument();
+  expect(api).not.toHaveBeenCalledWith('/query/requests', expect.anything());
+
+  fireEvent.click(screen.getByRole('button', { name: '切换数据源' }));
+  const picker = screen.getByRole('combobox', { name: '数据源' });
+  expect(picker).toHaveAttribute('aria-expanded', 'true');
+  expect(await screen.findByText('可问数')).toBeInTheDocument();
+  expect(screen.getByText('仅回看历史')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('物流'));
+  await waitFor(() => expect(router.state.location.search).toBe('?source=2'));
+  expect(screen.queryByText('当前数据源未开通智能问数')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: '输入问题' })).toBeEnabled();
+});
+
+/**
+ * 首次优先选择可问数来源，刷新资格时保留已选上下文。
+ */
+it('首次选择可问数来源并在资格变化时保留草稿', async () => {
+  const historyOnly = { id: '1', name: '库存', askBlockedCode: 409404 };
+  const enabled = { id: '2', name: '物流', askBlockedCode: 0 };
+  vi.mocked(api).mockImplementation(async (path) => {
+    // 后端可先返回仅回看来源，默认入口仍优先可问数项。
+    return path === '/query/sources' ? [historyOnly, enabled] : [];
+  });
+  const { router, client } = mount('/query');
+  await waitFor(() => expect(router.state.location.search).toBe('?source=2'));
+  const input = screen.getByRole('textbox', { name: '输入问题' });
+  fireEvent.change(input, { target: { value: '查物流状态' } });
+  await act(() => {
+    // 模拟该来源的配置变化，页面仍停留在原来的来源。
+    client.setQueryData(
+      ['workbench-sources'],
+      [historyOnly, { ...enabled, askBlockedCode: 409405 }],
+    );
+  });
+  expect(await screen.findByText('问数服务暂不可用')).toBeVisible();
+  expect(router.state.location.search).toBe('?source=2');
+  expect(input).toHaveValue('查物流状态');
+  expect(input).toBeDisabled();
+});
+
+/**
+ * 提交反馈说明实际阻断原因，来源操作只在对应配置拒绝时出现。
+ */
+it.each([
+  [409404, '当前数据源未开通智能问数', '如需使用此数据源，请联系管理员开通。'],
+  [409405, '问数服务暂不可用', '请联系管理员检查问数服务与模型配置。'],
+])('输入框旁按业务码 %s 显示原因并保留草稿', async (code, title, description) => {
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/query/sources') {
+      // 两个来源都允许当前账号查看历史。
+      return [
+        { id: '1', name: '库存' },
+        { id: '2', name: '物流' },
+      ];
+    }
+    if (path === '/query/requests') {
+      // 同样的提交入口可以返回两种独立原因。
+      throw new ApiError(code, title);
+    }
+    return [];
+  });
+  const { router } = mount('/query?source=1');
+  const input = await screen.findByRole('textbox', { name: '输入问题' });
+  await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, { target: { value: '查实时库存' } });
+  fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+
+  const alert = await screen.findByRole('alert');
+  expect(within(alert).getByText(title)).toBeVisible();
+  expect(within(alert).getByText(description)).toBeVisible();
+  expect(input).toHaveValue('查实时库存');
+  expect(input).toHaveAccessibleDescription(expect.stringContaining(title));
+  const switchSource = within(alert).queryByRole('button', { name: '切换数据源' });
+  if (code === 409404) {
+    // 打开既有选择器时，由用户决定下一来源，原问题仍在当前上下文。
+    expect(switchSource).toBeVisible();
+    fireEvent.click(switchSource!);
+    const picker = screen.getByRole('combobox', { name: '数据源' });
+    expect(picker).toHaveFocus();
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+    expect(input).toHaveValue('查实时库存');
+  } else {
+    // 服务配置异常不指向数据源切换。
+    expect(switchSource).not.toBeInTheDocument();
+  }
+  await act(() => router.navigate('/query?source=2'));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
 /** 问数工作台能浏览相邻轮次，并以不同业务单位切换和下载结果。 */
 it('浏览两轮能耗历史并下载核对过权限的 CSV 与图表', async () => {
   const { objectUrl, context } = downloadBrowser();
@@ -390,8 +505,8 @@ it('断线后的澄清重试复用命令，重新查询清除原上下文继承'
 });
 
 /** 活动轮次订阅状态并允许停止，过期结果与网络错误都有可恢复的提示。 */
-it('从恢复中停止问数并关闭事件订阅', async () => {
-  let state: Snapshot['state'] = 'RETRIEVING';
+it('核实原执行时可以停止问数并关闭事件订阅', async () => {
+  let state: Snapshot['state'] = 'EXECUTING';
   let failure = true;
   const event = { addEventListener: vi.fn(), close: vi.fn() };
   vi.stubGlobal(
@@ -415,10 +530,10 @@ it('从恢复中停止问数并关闭事件订阅', async () => {
       state = 'USER_CANCELLED';
       return {};
     }
-    return { ...ended('answer'), state, runVersion: 2 };
+    return { ...ended('answer'), state, executionState: 'UNKNOWN', runVersion: 2 };
   });
   mount();
-  await screen.findByText(/恢复中/);
+  await screen.findByText('正在核实查询结果');
   expect(event.addEventListener).toHaveBeenCalledWith('query.updated', expect.any(Function));
   act(() => event.addEventListener.mock.calls[0][1]());
   fireEvent.click(screen.getByRole('button', { name: '停止问数' }));
@@ -797,7 +912,7 @@ it('未知执行保留待核实反馈并隐藏重新查询入口', () => {
       onRequery={vi.fn()}
     />,
   );
-  expect(screen.getByText('源端执行状态待核实。')).toBeVisible();
+  expect(screen.getByText('无法确认源端执行状态。')).toBeVisible();
   expect(screen.queryByRole('button', { name: /重新查询/ })).not.toBeInTheDocument();
 });
 

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dataocean.common.exception.BizIllegalException;
+import com.dataocean.common.exception.ErrorCode;
 import com.dataocean.module.model.service.ModelInvocation;
 import com.dataocean.module.model.service.ModelRegistry;
 import com.dataocean.module.model.service.ModelRegistry.RevisionReference;
@@ -185,7 +186,18 @@ class QueryModelsTest {
         when(registry.requireBinding("intent")).thenReturn(31L);
         models.requireIntentReady(10L);
         verify(registry).verifyActive(31L);
-        assertThatThrownBy(() -> models.requireIntentReady(12L)).isInstanceOf(BizIllegalException.class);
+        assertThatThrownBy(() -> models.requireIntentReady(12L))
+                .isInstanceOfSatisfying(BizIllegalException.class, error -> {
+                    // 来源未准入和模型未配置使用不同的业务码。
+                    assertThat(error.getCode()).isEqualTo(ErrorCode.QUERY_SOURCE_NOT_ADMITTED.getCode());
+                });
+        verify(registry).requireBinding("intent");
+        when(registry.requireBinding("intent")).thenThrow(BizIllegalException.state("未配置"));
+        assertThatThrownBy(() -> models.requireIntentReady(10L))
+                .isInstanceOfSatisfying(BizIllegalException.class, error -> {
+                    // 已准入来源才提示检查问题理解配置。
+                    assertThat(error.getCode()).isEqualTo(ErrorCode.QUERY_INTENT_UNAVAILABLE.getCode());
+                });
         when(registry.requireBinding("sql-generate")).thenThrow(BizIllegalException.state("未配置"));
         assertThatThrownBy(() -> models.revision("sql-generate")).isInstanceOf(QueryFailure.class);
 
@@ -212,6 +224,7 @@ class QueryModelsTest {
         assertThat(models.retrieve(run, "妥投量", List.of(), 9)).isEmpty();
         assertThat(calls).containsExactly("false", "true");
 
+        when(steps.canVerify("query-a", "retrieve")).thenReturn(true);
         var interrupted = client((request, bytes, execution) -> {
             throw new ResourceAccessException("offline");
         });
@@ -222,6 +235,32 @@ class QueryModelsTest {
         assertThatThrownBy(() -> interrupted.retrieve(run, "妥投量", List.of(), 9))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("RECOVERY_PENDING");
+    }
+
+    /**
+     * 传输超时后原节点仍在运行，接管只读原回执并继续。
+     */
+    @Test
+    void resumesWithLateReceiptWithoutResendingModelWork() {
+        when(steps.issue("query-a", 3, "retrieve")).thenReturn(1);
+        when(steps.canVerify("query-a", "retrieve")).thenReturn(true);
+        var calls = new ArrayList<String>();
+        var models = client((request, bytes, execution) -> {
+            // 同一个节点的首次回查发现仍在运行，接管后取得迟到回执。
+            calls.add(request.getHeaders().getFirst("X-Query-Lookup"));
+            return switch (calls.size()) {
+                case 1 -> throw new ResourceAccessException("response timeout");
+                case 2 -> response(HttpStatus.TOO_EARLY, "{\"detail\":\"QUERY_STEP_RUNNING\"}");
+                default -> response(HttpStatus.OK, "[]");
+            };
+        });
+
+        assertThatThrownBy(() -> models.retrieve(run, "物流状态", List.of(), 19))
+                .isInstanceOf(QueryFailure.class)
+                .hasMessage("RECOVERY_PENDING");
+        assertThat(models.retrieve(new Run("query-a", 4, false), "物流状态", List.of(), 19))
+                .isEmpty();
+        assertThat(calls).containsExactly("false", "true", "true");
     }
 
     /** 摘要节点的澄清回读保持同一阶段，并只携带固定修订标识。 */

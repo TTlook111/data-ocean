@@ -23,6 +23,7 @@ import com.dataocean.module.datasource.source.SourceMetadata.Structure;
 import com.dataocean.module.datasource.source.SourceSecretCodec;
 import com.dataocean.module.governance.entity.vo.GovernanceFactVO;
 import com.dataocean.module.governance.entity.vo.GovernanceTargetVO;
+import com.dataocean.module.query.entity.vo.QueryDataVO;
 import com.dataocean.module.query.service.QueryCorpus.Basis;
 import com.dataocean.module.query.service.QueryCorpus.Table;
 import com.dataocean.module.query.service.QueryProtocol.Condition;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -123,8 +125,9 @@ class QueryCrossSourceIT {
         var scoped = sql.resolveTime(basis, plan, LocalDate.of(2026, 11, 22), "装配区净用电量走势", false);
         var compiled = runtime.jdbc().compile(basis, scoped);
         var permits = new AtomicInteger();
-        var data =
-                runtime.jdbc().execute(runtime.source(), "energy-trend", compiled, () -> 5, permits::incrementAndGet);
+        var captured = new AtomicReference<QueryDataVO>();
+        runtime.jdbc().execute(runtime.source(), "energy-trend", compiled, permits::incrementAndGet, captured::set);
+        var data = captured.get();
         assertThat(permits).hasValue(1);
         assertThat(data.getSeries().getStart()).isEqualTo("2026-11-16");
         assertThat(data.getUnit()).isEqualTo("kWh");
@@ -154,7 +157,12 @@ class QueryCrossSourceIT {
                 List.of(),
                 new TimeSelection(day, "DAY", "2026-11-20", "2026-11-20", false));
         assertThatThrownBy(() -> runtime.jdbc()
-                        .execute(runtime.source(), "mixed", runtime.jdbc().compile(basis, mixed), () -> 5, () -> {}))
+                        .execute(
+                                runtime.source(),
+                                "mixed",
+                                runtime.jdbc().compile(basis, mixed),
+                                permits::incrementAndGet,
+                                captured::set))
                 .isInstanceOf(QueryFailure.class)
                 .hasMessage("KNOWLEDGE_INSUFFICIENT");
     }
@@ -204,7 +212,10 @@ class QueryCrossSourceIT {
                 List.of(id),
                 List.of(new Condition(route, "T-17"), new Condition(state, "签收"), new Condition(day, "2026-11-20")));
         var compiled = runtime.jdbc().compile(basis, plan);
-        var actual = runtime.jdbc().execute(runtime.source(), "delivery-count", compiled, () -> 5, () -> {});
+        var permits = new AtomicInteger();
+        var captured = new AtomicReference<QueryDataVO>();
+        runtime.jdbc().execute(runtime.source(), "delivery-count", compiled, permits::incrementAndGet, captured::set);
+        var actual = captured.get();
         assertThat(new BigDecimal(actual.getRows().get(0).get(0))).isEqualByComparingTo("1");
         assertThat(actual.getUnit()).isEqualTo("件");
         assertThat(actual.getRows().get(0).get(0))
