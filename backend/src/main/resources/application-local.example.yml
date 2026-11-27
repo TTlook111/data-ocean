@@ -68,3 +68,5 @@ dataocean:
 #       已获准的源编号: ['已核对的输出规则编号/版本']
 #   models:
 #     allowed-hosts: 'maas.qianwenaiapi.com,dashscope.aliyuncs.com,api.openai.com,api.anthropic.com'
+#   feedback:
+#     similarity-source-ids: '填已获准将反馈原问发往向量模型的来源编号'

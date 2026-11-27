@@ -42,6 +42,18 @@ SYSTEM_PROMPT = (
     "不能确认的内容应省略，不推测、不输出原文或敏感数据，也不要将建议描述为已确认。"
 )
 
+# 无文字依据的表使用专门任务，优先返回能从目录直接核对的记录描述。
+STRUCTURE_PROMPT = (
+    "根据输入的 columns，写一条中文记录描述，供治理人员审核。"
+    "有字段时优先填写 allowedFields 中的 rowGrain，即这条记录保存哪些字段信息，"
+    "不需要企业说明才能完成。未知缩写保留原字段名称，amount 或 value 可以写作数值。"
+    "例如设备编号、记录日期、数值和单位列，可以返回 "
+    '{"fields":[{"field":"rowGrain","value":"每条记录保存设备编号、记录日期、数值和单位。",'
+    '"citations":[]}]}。只使用输入中的字段，保留其实际含义。'
+    "不要推断唯一性、行业用法、业务范围、公式或更新频率。"
+    "仅输出 JSON 对象，字段名称只能来自 allowedFields，每个字段最多一项。"
+)
+
 
 class TaskContext(TypedDict):
     """图运行期的可信 Java 连接与任务标识。"""
@@ -221,6 +233,12 @@ class ModelGraphState(TypedDict, total=False):
     # 当次进入模型前产生的可披露上下文裁剪原因。
     limits: list[InputLimit]
 
+    # 实际证据能够支撑的草稿字段。
+    allowed: list[str]
+
+    # 缺少文字依据时只要求对当前实际列给出描述。
+    structure_only: bool
+
     # 已按结构化输出契约解析的模型建议。
     answer: ModelAnswer
 
@@ -341,11 +359,25 @@ def prepare(state: ModelGraphState) -> ModelGraphState:
             if note.id not in used:
                 # 取用标记与实际发出的证据一致。
                 used.append(note.id)
+    allowed = context.contentPaths
+    structure_only = (
+        context.targetColumn is None
+        and context.discovery is None
+        and not comment.strip()
+        and not snippets
+        and not any((column["comment"] or "").strip() for column in columns)
+    )
+    if structure_only:
+        # 无文字依据时仅起草表的记录内容，其他业务字段须有实际证据。
+        allowed = [field for field in allowed if field in {"purpose", "rowGrain"}]
+        payload["allowedFields"] = allowed
     return {
         "prompt": compact_json(payload),
         "locators": locators,
         "used": used,
         "limits": sorted(limits),
+        "allowed": allowed,
+        "structure_only": structure_only,
     }
 
 
@@ -428,7 +460,8 @@ async def invoke_model(state: ModelGraphState, runtime: Runtime[TaskContext]) ->
                 # 没调用资料工具时，不登记资料取用，也无法引用相关编号。
                 return {"answer": answer, "call": call, "used": [], "locators": {}}
             return {"answer": answer, "call": call}
-        answer, call = await generate(config, SYSTEM_PROMPT, state["prompt"], ModelAnswer)
+        system = STRUCTURE_PROMPT if state["structure_only"] else SYSTEM_PROMPT
+        answer, call = await generate(config, system, state["prompt"], ModelAnswer)
         return {"answer": answer, "call": call}
 
 
@@ -490,7 +523,7 @@ def validate_answer(state: ModelGraphState) -> ModelGraphState:
                 candidates=candidates,
             )
         }
-    allowed = set(state["context"].contentPaths)
+    allowed = set(state["allowed"])
     content: dict[str, str] = {}
     evidence: list[Evidence] = []
     for item in state["answer"].fields:

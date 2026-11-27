@@ -3,7 +3,14 @@
 import base64
 import json
 
-from dataocean_ai.governance.table_description import MAX_PROMPT_BYTES, SourceContext, prepare
+from dataocean_ai.adapters.chat import CallReceipt
+from dataocean_ai.governance.table_description import (
+    MAX_PROMPT_BYTES,
+    ModelAnswer,
+    SourceContext,
+    prepare,
+    validate_answer,
+)
 
 
 def test_table_context_keeps_only_sent_evidence() -> None:
@@ -38,3 +45,40 @@ def test_table_context_keeps_only_sent_evidence() -> None:
     assert set(state["limits"]) == {"COLUMN_LIMIT", "ATTACHMENT_UNAVAILABLE", "INPUT_BUDGET"}
     assert state["locators"]["E1"].noteId == "1"
     assert "2" not in state["used"]
+
+
+def test_unannotated_table_does_not_accept_unsupported_business_fields() -> None:
+    """只提供可检查的记录草稿，即使上游返回了未授权的业务断言。"""
+    context = SourceContext.model_validate(
+        {
+            "objectName": "community.repairs",
+            "sourceComment": "",
+            "columns": [
+                {"name": "site_id", "type": "bigint", "comment": None},
+                {"name": "recorded_on", "type": "date", "comment": ""},
+            ],
+            "contentPaths": ["purpose", "rowGrain", "rowIdentity", "updatePolicy"],
+            "notes": [],
+        }
+    )
+    state = prepare({"context": context})
+    assert json.loads(state["prompt"])["allowedFields"] == ["purpose", "rowGrain"]
+    state["answer"] = ModelAnswer.model_validate(
+        {
+            "fields": [
+                {"field": "rowGrain", "value": "每条记录保存站点与登记日期", "citations": []},
+                {"field": "rowIdentity", "value": "同一站点当天唯一", "citations": []},
+                {"field": "updatePolicy", "value": "每天更新", "citations": []},
+            ]
+        }
+    )
+    state["call"] = CallReceipt(
+        revision_id="21",
+        model_name="fixture",
+        provider_call_id=None,
+        elapsed_ms=10,
+        input_tokens=None,
+        output_tokens=None,
+    )
+    result = validate_answer(state)["result"]
+    assert result.content == {"rowGrain": "每条记录保存站点与登记日期"}

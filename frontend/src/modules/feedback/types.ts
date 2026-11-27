@@ -305,3 +305,12 @@ export const statusLabels: Record<string, string> = {
   CLOSED_OTHER: '其他结案',
   MERGED: '已合并',
 };
+/**
+ * 同源相似候选，顺序由当前许可的向量模型确定。
+ */
+export type FeedbackSimilarityCandidate = {
+  /** 待人工核对的事项编号。 */
+  id: string;
+  /** 当前权限允许回看的原问题。 */
+  question: string;
+};

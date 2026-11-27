@@ -733,6 +733,36 @@ it('核对同源主事项后才能确认合并', async () => {
 });
 
 /**
+ * 相似建议由处理人主动领取，选中候选不提交任何办理动作。
+ */
+it('在人工合并表单内查找并选择同源相似候选', async () => {
+  const path = '/feedback/issues/21/similarity';
+  vi.mocked(api).mockImplementation(async (url) => {
+    if (url.startsWith('/feedback/issues?')) {
+      // 手动下拉与相似候选可能包含同一个事项。
+      return page([{ ...assigned.issue, id: '22', summary: '候选事项' }]);
+    }
+    if (url === path) {
+      // 模型结果只提供审查对象。
+      return [{ id: '22', question: '上月接诊量是多少？' }];
+    }
+    return { ...assigned, lifecycle: { ...followUp, canMerge: true } };
+  });
+  mount('/feedback/21');
+  fireEvent.click(await screen.findByRole('button', { name: '合并重复事项' }));
+  const dialog = within(await screen.findByRole('dialog', { name: '合并重复事项' }));
+  expect(api).not.toHaveBeenCalledWith(path, expect.anything());
+  fireEvent.click(dialog.getByRole('button', { name: '查找相似事项' }));
+  const status = await dialog.findByText('找到 1 条相似候选');
+  await waitFor(() => expect(status).toBeVisible());
+  expect(api).toHaveBeenCalledWith(path, { method: 'POST' });
+  fireEvent.mouseDown(dialog.getByRole('combobox', { name: '同源主事项' }));
+  fireEvent.click(await screen.findByRole('option', { name: '#22 · 上月接诊量是多少？' }));
+  expect(dialog.getByLabelText('相同根因和处理范围的依据')).toHaveValue('');
+  expect(mutation).not.toHaveBeenCalled();
+});
+
+/**
  * 后台面板把补充、纠正和重开交给对应接口，保留确切的事项引用。
  */
 it.each([

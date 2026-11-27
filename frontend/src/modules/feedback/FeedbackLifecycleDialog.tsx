@@ -1,5 +1,15 @@
-import { Alert, App, Button, Descriptions, Form, Input, Modal, Select } from 'antd';
-import { useQuery } from '@tanstack/react-query';
+import {
+  Alert,
+  App,
+  Button,
+  Descriptions,
+  Form,
+  Input,
+  Modal,
+  Select,
+  type SelectProps,
+} from 'antd';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { api, ApiError, queryString } from '../../shared/api';
 import { applyFormError } from '../../shared/formErrors';
@@ -7,6 +17,7 @@ import { useReturnFocus } from '../../shared/useReturnFocus';
 import type { Page } from '../iam/types';
 import {
   isSupplementPending,
+  type FeedbackSimilarityCandidate,
   type FeedbackSupplementDisposition,
   type Issue,
   type IssueDetail,
@@ -137,6 +148,36 @@ export function FeedbackLifecycleDialog({
           }),
       ),
   });
+  const similarity = useMutation({
+    retry: false,
+    // 仅在用户点击查找时外发一次，不随对话框打开或搜索词变化触发。
+    mutationFn: () =>
+      api<FeedbackSimilarityCandidate[]>(`/feedback/issues/${detail.issue.id}/similarity`, {
+        method: 'POST',
+      }),
+  });
+  const suggested = search ? [] : (similarity.data ?? []);
+  const suggestedIds = new Set(suggested.map((entry) => entry.id));
+  const manualOptions =
+    candidates.data?.items
+      .filter((entry) => entry.id !== detail.issue.id && !suggestedIds.has(entry.id))
+      .map((entry) => ({
+        value: entry.id,
+        label: `#${entry.id} · ${entry.summary ?? entry.sourceName}`,
+      })) ?? [];
+  const mergeOptions: SelectProps<string>['options'] =
+    suggested.length > 0
+      ? [
+          {
+            label: '相似候选',
+            options: suggested.map((entry) => ({
+              value: entry.id,
+              label: `#${entry.id} · ${entry.question}`,
+            })),
+          },
+          { label: '其他同源事项', options: manualOptions },
+        ]
+      : manualOptions;
   useEffect(() => {
     // 核对页替换了表单正文，将键盘焦点移至确认按钮。
     if (proposal) confirmButton.current?.focus({ preventScroll: true });
@@ -350,19 +391,45 @@ export function FeedbackLifecycleDialog({
         )}
         {/* 只从同源未结事项选择主事项，按编号或摘要搜索。 */}
         {merge && (
-          <Form.Item name="targetId" label="同源主事项" rules={[{ required: true }]}>
-            <Select
+          <Form.Item
+            name="targetId"
+            label="同源主事项"
+            rules={[{ required: true }]}
+            extra={
+              // 推荐失败或没有推荐时，人工编号和摘要搜索仍可使用。
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  loading={similarity.isPending}
+                  disabled={!allows || stale || uncertain}
+                  onClick={() => {
+                    // 清除搜索词，返回可看见推荐组的默认选择范围。
+                    setKeyword('');
+                    similarity.mutate();
+                  }}
+                >
+                  查找相似事项
+                </Button>
+                <span role={similarity.isError ? 'alert' : 'status'}>
+                  {similarity.isError
+                    ? similarity.error.message
+                    : similarity.isSuccess && similarity.data.length === 0
+                      ? '没有找到相似事项'
+                      : similarity.isSuccess
+                        ? `找到 ${similarity.data.length} 条相似候选`
+                        : ''}
+                </span>
+              </>
+            }
+          >
+            <Select<string>
               virtual={false}
-              showSearch={{ filterOption: false, onSearch: setKeyword }}
+              showSearch={{ filterOption: false, searchValue: keyword, onSearch: setKeyword }}
               placeholder="搜索事项编号或摘要"
               loading={candidates.isFetching}
               notFoundContent={candidates.isError ? '主事项读取失败' : '无匹配事项'}
-              options={candidates.data?.items
-                .filter((entry) => entry.id !== detail.issue.id)
-                .map((entry) => ({
-                  value: entry.id,
-                  label: `#${entry.id} · ${entry.summary ?? entry.sourceName}`,
-                }))}
+              options={mergeOptions}
             />
           </Form.Item>
         )}

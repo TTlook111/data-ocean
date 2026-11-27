@@ -16,6 +16,7 @@ from dataocean_ai.adapters.probe import router as model_router
 from dataocean_ai.core.config import GovernanceSettings, Settings
 from dataocean_ai.core.logging import configure_logging
 from dataocean_ai.core.result import Result
+from dataocean_ai.feedback.similarity import router as feedback_router
 from dataocean_ai.governance.queue import knowledge_router
 from dataocean_ai.governance.queue import router as governance_router
 from dataocean_ai.knowledge.draft_generation import router as draft_generation_router
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(readback_router)
     app.include_router(test_suggestions_router)
     app.include_router(query_router)
+    app.include_router(feedback_router)
     # 连接测试与任务接收复用机器身份。
     app.include_router(model_router)
 

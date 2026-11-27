@@ -388,6 +388,18 @@ public interface FeedbackMapper {
     Issue issue(long id);
 
     /**
+     * 只从当前源选取近期未结主事项，不读取其他数据源作为候选。
+     */
+    @Select(
+            ISSUE_SELECT
+                    + """
+                    WHERE i.source_id=#{source} AND i.id<>#{exclude} AND i.merged_into IS NULL
+                      AND i.status IN ('PENDING_ASSIGNMENT','IN_PROGRESS','PENDING_VERIFICATION')
+                    ORDER BY i.created_at DESC,i.id DESC LIMIT 7
+                    """)
+    List<Issue> similarityCandidates(long source, long exclude);
+
+    /**
      * 业务写锁只锁当前事项，主从并发操作由服务层按编号顺序取锁。
      */
     @Select(

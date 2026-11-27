@@ -83,6 +83,11 @@ public class ModelRegistry {
     public static final String RAG_RERANK = "rag-rerank";
 
     /**
+     * 对已获准的反馈事项原问进行同源相似候选排序。
+     */
+    public static final String FEEDBACK_SIMILARITY = "feedback-similarity";
+
+    /**
      * 与正式业务适配器中当前可发出模型请求的节点对应，目录中的预配节点也可单独回看。
      */
     private static final Set<String> CONNECTED_NODES = Set.of(
@@ -95,6 +100,7 @@ public class ModelRegistry {
             QUESTION_SUGGESTION,
             HISTORY_SUMMARY,
             RAG_RERANK,
+            FEEDBACK_SIMILARITY,
             "intent",
             "sql-generate",
             "sql-semantic-check",
